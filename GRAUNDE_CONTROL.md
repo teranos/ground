@@ -74,6 +74,14 @@ Commands are split on `|`, `;`, `&&` — each segment is checked independently.
 
 **Output** (no match): exit 0, no output.
 
+## Installation
+
+```
+make install
+```
+
+Builds a release binary and copies it to `~/.local/bin/graunde`. Override with `PREFIX=/usr/local make install`.
+
 ## Hook registration
 
 In `~/.claude/settings.json`:
@@ -85,7 +93,7 @@ In `~/.claude/settings.json`:
       "hooks": [
         {
           "type": "command",
-          "command": "/path/to/graunde"
+          "command": "graunde"
         }
       ]
     }
@@ -104,8 +112,8 @@ Drop the D runtime. No GC, no `std.json`, no exceptions. Hand-rolled JSON parsin
 ### Eight — omit + additionalContext ✓
 Strip unwanted flags from commands. `omit("--no-verify")` removes the flag, lets the command through. `additionalContext` teaches Claude why commands were amended.
 
-### Seven — make install
-Makefile with `build`, `test`, `install`. `make install` builds release and copies to `~/.local/bin/`. Hook registration is manual.
+### Seven — make install + versioning ✓
+Makefile with `build`, `test`, `install`. Version baked in from `git describe` at compile time. TTY detection prints version when run interactively.
 
 ### Six
 

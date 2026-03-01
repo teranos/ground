@@ -18,6 +18,9 @@
 graunde
 graunde-test-application
 
+# Generated
+.version
+
 # DUB
 .dub
 docs.json

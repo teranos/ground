@@ -3,6 +3,7 @@ module main;
 import matcher;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite;
 import core.stdc.stdlib : exit;
+import core.sys.posix.unistd : isatty;
 
 // Reads all of stdin into a static buffer.
 // Returns the filled slice, or null on failure/empty.
@@ -82,7 +83,25 @@ void writeResponse(const(char)[] command, const(char)[] context) {
     fputs("\n", stdout);
 }
 
+enum VERSION = import(".version");
+
+void printVersion() {
+    fputs("graunde ", stderr);
+    // Print version without trailing newline from git describe
+    foreach (c; VERSION)
+        if (c != '\n' && c != '\r') {
+            char[1] buf = c;
+            fwrite(&buf[0], 1, 1, stderr);
+        }
+}
+
 extern (C) int main() {
+    if (isatty(0)) {
+        printVersion();
+        fputs(" — Ground Control for Claude Code\n", stderr);
+        return 0;
+    }
+
     auto input = readStdin();
     if (input is null) {
         fputs("graunde: empty stdin\n", stderr);

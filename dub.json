@@ -4,5 +4,7 @@
     "targetType": "executable",
     "targetName": "graunde",
     "sourcePaths": ["source"],
-    "dflags": ["-betterC"]
+    "stringImportPaths": ["."],
+    "dflags": ["-betterC"],
+    "preBuildCommands": ["git describe --tags --always > .version"]
 }
