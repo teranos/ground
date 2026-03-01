@@ -75,6 +75,9 @@ Match checkCommand(const(char)[] command) {
             if (segment.length > 0) {
                 foreach (ref c; allControls) {
                     if (contains(segment, c.cmd.value)) {
+                        // Omit controls only match when the omit string is present
+                        if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
+                            continue;
                         return Match(&c, segment);
                     }
                 }
@@ -106,6 +109,32 @@ Buf applyArg(const(Control)* c, const(char)[] segment) {
     buf.put(" ");
     buf.put(c.arg.value);
     buf.put(segment[insertAt .. $]);
+    return buf;
+}
+
+// Strips the omit string from the segment and cleans up whitespace.
+Buf applyOmit(const(Control)* c, const(char)[] segment) {
+    Buf buf;
+    auto idx = indexOf(segment, c.omit.value);
+    if (idx < 0) {
+        buf.put(segment);
+        return buf;
+    }
+
+    size_t beforeEnd = cast(size_t) idx;
+    size_t afterStart = cast(size_t) idx + c.omit.value.length;
+
+    // Trim trailing space from before, leading space from after
+    while (beforeEnd > 0 && segment[beforeEnd - 1] == ' ')
+        beforeEnd--;
+    while (afterStart < segment.length && segment[afterStart] == ' ')
+        afterStart++;
+
+    buf.put(segment[0 .. beforeEnd]);
+    if (beforeEnd > 0 && afterStart < segment.length)
+        buf.put(" ");
+    buf.put(segment[afterStart .. $]);
+
     return buf;
 }
 
@@ -151,4 +180,32 @@ unittest {
     auto result = checkCommand("echo start; go test -race ./...");
     assert(result.control !is null);
     assert(result.segment == "go test -race ./...");
+}
+
+unittest {
+    // Major Tom tries --no-verify — Graunde Control catches it
+    auto result = checkCommand(`git commit --no-verify -m "fix bug"`);
+    assert(result.control !is null);
+    assert(result.control.name == "no-skip-hooks");
+}
+
+unittest {
+    // Major Tom tries --no-verify — Graunde Control strips it
+    auto result = checkCommand(`git commit --no-verify -m "fix bug"`);
+    auto amended = applyOmit(result.control, result.segment);
+    assert(amended.slice() == `git commit -m "fix bug"`);
+}
+
+unittest {
+    // Major Tom puts --no-verify at the end — still stripped
+    auto result = checkCommand("git push --no-verify");
+    assert(result.control !is null);
+    auto amended = applyOmit(result.control, result.segment);
+    assert(amended.slice() == "git push");
+}
+
+unittest {
+    // Major Tom runs normal git — Graunde Control lets it pass
+    auto result = checkCommand("git status");
+    assert(result.control is null);
 }

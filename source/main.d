@@ -21,9 +21,11 @@ const(char)[] readStdin() {
 }
 
 // Extracts the value of "command" from the hook JSON.
-// Looks for "command":"..." or "command" : "..." and returns the string content.
-// Does not handle escaped quotes inside the value (commands don't contain them).
+// Handles JSON escape sequences: \" becomes ", \\ becomes \.
+// Returns unescaped command in a static buffer.
 const(char)[] extractCommand(const(char)[] json) {
+    __gshared char[8192] cmdBuf = 0;
+
     enum needle = `"command"`;
     auto idx = indexOf(json, needle);
     if (idx < 0) return null;
@@ -37,13 +39,23 @@ const(char)[] extractCommand(const(char)[] json) {
     if (pos >= json.length || json[pos] != '"') return null;
     pos++; // skip opening quote
 
-    // Find closing quote
-    auto start = pos;
-    while (pos < json.length && json[pos] != '"')
-        pos++;
-    if (pos >= json.length) return null;
+    // Read value, unescaping as we go
+    size_t len = 0;
+    while (pos < json.length && len < cmdBuf.length) {
+        if (json[pos] == '\\' && pos + 1 < json.length) {
+            pos++; // skip backslash, take next char literally
+            cmdBuf[len++] = json[pos];
+            pos++;
+        } else if (json[pos] == '"') {
+            break; // unescaped quote = end of string
+        } else {
+            cmdBuf[len++] = json[pos];
+            pos++;
+        }
+    }
 
-    return json[start .. pos];
+    if (len == 0) return null;
+    return cmdBuf[0 .. len];
 }
 
 // Writes the hook JSON response to stdout.
@@ -83,7 +95,11 @@ extern (C) int main() {
     if (result.control is null)
         return 0;
 
-    auto amended = applyArg(result.control, result.segment);
+    Buf amended;
+    if (result.control.omit.value.length > 0)
+        amended = applyOmit(result.control, result.segment);
+    else
+        amended = applyArg(result.control, result.segment);
 
     // If the amended segment differs, rebuild the full command
     if (amended.slice() != result.segment) {
