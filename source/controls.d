@@ -59,8 +59,14 @@ static immutable universal = [
 static immutable checkpoints = [
     control("commit-checkpoint", cmd("git commit"),
         msg("Commit requires manual approval")),
+    control("push-checkpoint", cmd("git push"),
+        msg("Pull first and resolve conflicts before pushing")),
+    control("tag-checkpoint", cmd("git tag"),
+        msg("Check the latest tag first and ensure the new version follows semver")),
     control("pr-checkpoint", cmd("gh pr create"),
         msg("PR creation requires manual approval")),
+    control("branch-checkpoint", cmd("git checkout -b"),
+        msg("Check main for unpushed commits and push them first. After creating the branch, push it and open a draft PR with a minimal description.")),
 ];
 
 static immutable qntx = [

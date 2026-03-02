@@ -47,8 +47,14 @@ static immutable universal = [
 static immutable checkpoints = [
     control("commit-checkpoint", cmd("git commit"),
         msg("Commit requires manual approval")),
+    control("push-checkpoint", cmd("git push"),
+        msg("Pull first and resolve conflicts before pushing")),
+    control("tag-checkpoint", cmd("git tag"),
+        msg("Check the latest tag first and ensure the new version follows semver")),
     control("pr-checkpoint", cmd("gh pr create"),
         msg("PR creation requires manual approval")),
+    control("branch-checkpoint", cmd("git checkout -b"),
+        msg("Check main for unpushed commits and push them first. After creating the branch, push it and open a draft PR with a minimal description.")),
 ];
 
 static immutable qntx = [
@@ -140,6 +146,7 @@ Live testing in QNTX revealed two bugs. First: `cmd("go test")` used substring m
 Controls grouped by scope. Each scope has a path (where it fires) and a decision (`"allow"` or `"ask"`). Universal controls fire everywhere, project-specific controls only when `cwd` matches. Scopes compose — for a given command, all matching scopes contribute: the first amendment wins, the most restrictive decision wins. `git commit --no-verify` gets the flag stripped (universal/allow) AND the permission prompt (checkpoint/ask). Msg-only controls match without amending — just decision + context. Extracts `cwd` from the hook payload.
 
 ### Four — commencing countdown, engines on
+Git workflow rituals encoded as checkpoint controls. Push, tag, branch creation, and PR creation each carry msg-only controls with `"ask"` decision — Claude gets reminded of the ritual, the user gets the prompt. Rituals: pull before push, check semver before tag, push unpushed main commits and open a draft PR on branch creation, and PR creation ritual (TBD).
 
 ### Three
 
