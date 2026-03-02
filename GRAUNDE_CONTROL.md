@@ -150,14 +150,14 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 1 — ritual checkpoints. ✓** Msg-only controls with `"ask"` decision for each git lifecycle moment. Branch creation: check main for unpushed commits, commit intent (documentation first), push, open draft PR. Push: pull first, resolve conflicts. Tag: check latest tag, follow semver. PR finalization: tests, review, issues, rebase, reassess.
 
-**Phase 2 — libsqlite3 link.** Link graunde against libsqlite3 via C interop. Open the QNTX node db, write attestations on checkpoint fire. Subjects: branch name. Predicates: what happened. Actor: `graunde`. Source: `graunde v{VERSION}`.
+**Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
 
-**Phase 3 — ritual diff.** Define expected ritual steps per workflow. On merge-gate controls (`gh pr merge`), query all attestations for the branch, diff against expected steps, nudge Claude about gaps. CI pass is an expected step — the diff doesn't care how the attestation arrived, only that it's present or absent. The ritual isn't a hardcoded sequence — it's emergent from what happened vs what should have.
+**Phase 3 — ritual diff.** Define expected ritual steps per workflow. On merge-gate controls (`gh pr merge`), query all attestations for the branch, diff against expected steps, nudge Claude about gaps. The ritual isn't a hardcoded sequence — it's emergent from what happened vs what should have.
 
-**Phase 4 — QNTX conduit.** The wire between external actors and Claude's context. CI is the first real actor — its verdict must travel from GitHub's runner into the QNTX node db so graunde can read it at the next checkpoint. With QNTX online, attestations from CI, other sessions, and reactive agents appear in the db. Graunde reads them and injects them into Claude's context via `additionalContext`. QNTX's awareness, Claude's hands.
+**Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
 
 ### Three
-Register graunde for all tools, not just Bash. Currently graunde only sees shell commands — file edits, reads, and other tool operations are invisible. Attestation coverage is incomplete. Requires handling `tool_name` and `hook_event_name` in the payload to decide what to observe and what to gate.
+Register graunde for all tools, not just Bash. Currently graunde only sees shell commands — file edits, reads, and other tool operations are invisible. Attestation coverage is incomplete. Requires handling `tool_name` and `hook_event_name` in the payload to decide what to observe and what to gate. Track context compactions — when Claude's working memory is compressed, an attestation should mark the boundary so post-compaction sessions know what was lost.
 
 ### Two — check ignition
 
