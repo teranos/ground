@@ -183,6 +183,7 @@ const(char)[] versionString() {
 
 // --- Main attestation writer ---
 
+// TODO(#2): read CI attestations into graunde's control path
 void writeAttestation(
     const(Control)* control,
     const(char)[] cwd,

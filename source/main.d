@@ -146,6 +146,7 @@ extern (C) int main() {
         return 1;
     }
 
+    // TODO: Count Three — branch on tool_name, handle Edit/Write file_path
     auto command = extractCommand(input);
     if (command is null) {
         fputs("graunde: missing tool_input.command\n", stderr);
@@ -172,6 +173,7 @@ extern (C) int main() {
         return 0;
 
     // Msg-only control — no amendment, just decision + context
+    // TODO(#3): query branch story and append to context
     if (result.control.arg.value.length == 0 && result.control.omit.value.length == 0) {
         writeResponse(command, result.control.msg.value, result.decision);
         return 0;
