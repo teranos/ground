@@ -152,15 +152,17 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
 
-**Phase 3 — ritual diff.** Define expected ritual steps per workflow. On merge-gate controls (`gh pr merge`), query all attestations for the branch, diff against expected steps, nudge Claude about gaps. The ritual isn't a hardcoded sequence — it's emergent from what happened vs what should have.
+**Phase 3 — branch story.** Depends on Count Three. On control match, query all attestations for the branch and include the story in `additionalContext`. The story surfaces what has and hasn't happened — "Rust files edited but clippy hasn't run." Scoped: each project cares about different observations.
 
 **Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
 
-### Three
-Register graunde for all tools, not just Bash. Currently graunde only sees shell commands — file edits, reads, and other tool operations are invisible. Attestation coverage is incomplete. Requires handling `tool_name` and `hook_event_name` in the payload to decide what to observe and what to gate. Track context compactions — when Claude's working memory is compressed, an attestation should mark the boundary so post-compaction sessions know what was lost.
+### Three — all-tool awareness
+Register graunde for all tools. Hook payload includes `tool_name` — branch on it in main.d. Bash keeps existing logic. Edit/Write: extract `file_path`, match on extension, attest file-type changes. Everything else: observe and attest. Add `Ext` field to Control struct for file-type matching. Enables Count Four Phase 3 — controls query the branch story including file observations. Track context compactions as attestation boundaries.
 
 ### Two — check ignition
 
 ### One — and may God's love
+The binary is the config. Users define controls in D source and compile their own graunde. Figure out the ergonomics — how do users fork, customize, and stay upstream-compatible.
 
 ### Liftoff — be with you
+Open source readiness. README, CONTRIBUTING, LICENSE review, GitHub releases, install-from-source instructions.
