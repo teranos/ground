@@ -146,7 +146,15 @@ Live testing in QNTX revealed two bugs. First: `cmd("go test")` used substring m
 Controls grouped by scope. Each scope has a path (where it fires) and a decision (`"allow"` or `"ask"`). Universal controls fire everywhere, project-specific controls only when `cwd` matches. Scopes compose — for a given command, all matching scopes contribute: the first amendment wins, the most restrictive decision wins. `git commit --no-verify` gets the flag stripped (universal/allow) AND the permission prompt (checkpoint/ask). Msg-only controls match without amending — just decision + context. Extracts `cwd` from the hook payload.
 
 ### Four — commencing countdown, engines on
-Git workflow rituals encoded as checkpoint controls. Push, tag, branch creation, and PR creation each carry msg-only controls with `"ask"` decision — Claude gets reminded of the ritual, the user gets the prompt. Rituals: pull before push, check semver before tag, push unpushed main commits and open a draft PR on branch creation, and PR creation ritual (TBD).
+Git workflow rituals and attestation-backed state. Graunde evolves from stateless gate to stateful ritual tracker, writing and reading QNTX attestations via linked libsqlite3. Actor: `graunde`. Source: `graunde v{VERSION}`. No standalone db — attestations live in QNTX's node db. When QNTX is online, reactive attestations can appear in real-time, injecting awareness into a running Claude session through the existing control protocol.
+
+**Phase 1 — ritual checkpoints. ✓** Msg-only controls with `"ask"` decision for each git lifecycle moment. Branch creation: check main for unpushed commits, commit intent (documentation first), push, open draft PR. Push: pull first, resolve conflicts. Tag: check latest tag, follow semver. PR finalization: tests, review, issues, rebase, reassess.
+
+**Phase 2 — libsqlite3 link.** Link graunde against libsqlite3 via C interop. Open the QNTX node db, write attestations on checkpoint fire. Subjects: branch name. Predicates: what happened. Actor: `graunde`. Source: `graunde v{VERSION}`.
+
+**Phase 3 — ritual diff.** Define expected ritual steps per workflow. On merge-gate controls (`gh pr merge`), query all attestations for the branch, diff against expected steps, nudge Claude about gaps. The ritual isn't a hardcoded sequence — it's emergent from what happened vs what should have.
+
+**Phase 4 — QNTX conduit.** With QNTX online, attestations from other sources (CI, other sessions, reactive agents) appear in the db. Graunde reads them on the next checkpoint and injects them into Claude's context. QNTX's awareness, Claude's hands.
 
 ### Three
 
