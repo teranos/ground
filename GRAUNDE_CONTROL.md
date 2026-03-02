@@ -158,7 +158,7 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
 
-**Phase 3 — branch story.** Depends on Count Three. On control match, query all attestations for the branch and include the story in `additionalContext`. The story surfaces what has and hasn't happened — "Rust files edited but clippy hasn't run." Scoped: each project cares about different observations.
+**Phase 3 — branch story.** Depends on Count Three. On control match, query all attestations for the branch and include the story in `additionalContext`. The story surfaces what has and hasn't happened — "Rust files edited but clippy hasn't run", "tests passed but no push since." Scoped: each project cares about different observations.
 
 **Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
 
