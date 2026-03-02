@@ -40,12 +40,20 @@ const(char)[] extractCommand(const(char)[] json) {
     if (pos >= json.length || json[pos] != '"') return null;
     pos++; // skip opening quote
 
-    // Read value, unescaping as we go
+    // Read value, unescaping JSON sequences as we go
     size_t len = 0;
     while (pos < json.length && len < cmdBuf.length) {
         if (json[pos] == '\\' && pos + 1 < json.length) {
-            pos++; // skip backslash, take next char literally
-            cmdBuf[len++] = json[pos];
+            pos++;
+            switch (json[pos]) {
+                case 'n': cmdBuf[len++] = '\n'; break;
+                case 't': cmdBuf[len++] = '\t'; break;
+                case 'r': cmdBuf[len++] = '\r'; break;
+                case '"': cmdBuf[len++] = '"'; break;
+                case '\\': cmdBuf[len++] = '\\'; break;
+                case '/': cmdBuf[len++] = '/'; break;
+                default: cmdBuf[len++] = json[pos]; break;
+            }
             pos++;
         } else if (json[pos] == '"') {
             break; // unescaped quote = end of string
@@ -63,13 +71,16 @@ const(char)[] extractCommand(const(char)[] json) {
 // The command is embedded in the JSON, with quotes escaped.
 void writeJsonString(const(char)[] s) {
     foreach (c; s) {
-        if (c == '"')
-            fputs(`\"`, stdout);
-        else if (c == '\\')
-            fputs(`\\`, stdout);
-        else {
-            char[1] buf = c;
-            fwrite(&buf[0], 1, 1, stdout);
+        switch (c) {
+            case '"': fputs(`\"`, stdout); break;
+            case '\\': fputs(`\\`, stdout); break;
+            case '\n': fputs(`\n`, stdout); break;
+            case '\r': fputs(`\r`, stdout); break;
+            case '\t': fputs(`\t`, stdout); break;
+            default:
+                char[1] buf = c;
+                fwrite(&buf[0], 1, 1, stdout);
+                break;
         }
     }
 }

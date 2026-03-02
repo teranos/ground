@@ -50,6 +50,15 @@ const(char)[] strip(const(char)[] s) {
     return s[start .. end];
 }
 
+// Matches cmd as a command prefix — not a substring anywhere in the segment.
+// "go test" matches "go test ./..." but not "git commit -m 'go test'"
+bool commandMatch(const(char)[] segment, const(char)[] cmd) {
+    if (segment.length < cmd.length) return false;
+    if (segment[0 .. cmd.length] != cmd) return false;
+    if (segment.length == cmd.length) return true;
+    return segment[cmd.length] == ' ';
+}
+
 // Iterates over pipe/chain segments and returns the first matching control.
 // No dynamic arrays — segments are slices into the original command string.
 Match checkCommand(const(char)[] command) {
@@ -74,7 +83,7 @@ Match checkCommand(const(char)[] command) {
             auto segment = strip(command[start .. i]);
             if (segment.length > 0) {
                 foreach (ref c; allControls) {
-                    if (contains(segment, c.cmd.value)) {
+                    if (commandMatch(segment, c.cmd.value)) {
                         // Omit controls only match when the omit string is present
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
                             continue;
@@ -207,5 +216,24 @@ unittest {
 unittest {
     // Major Tom runs normal git — Graunde Control lets it pass
     auto result = checkCommand("git status");
+    assert(result.control is null);
+}
+
+unittest {
+    // The Ïúíþ incident — "go test" in a commit message must not match
+    auto result = checkCommand(`git commit -m "run go test before merging"`);
+    assert(result.control is null || result.control.name != "go-test-args");
+}
+
+unittest {
+    // Prefix match only — "go test" as a command matches
+    auto result = checkCommand("go test -v ./...");
+    assert(result.control !is null);
+    assert(result.control.name == "go-test-args");
+}
+
+unittest {
+    // Prefix match only — "go testing" is not "go test"
+    auto result = checkCommand("go testing");
     assert(result.control is null);
 }

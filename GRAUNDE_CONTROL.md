@@ -31,7 +31,7 @@ D with `-betterC`. Compiled with LDC. Chosen for:
 
 Controls are defined in `source/controls.d`. A control has:
 - `name` — identifier slug
-- `cmd` — substring to match against the command
+- `cmd` — command prefix to match (must be at start of segment, followed by space or end)
 - `arg` — arguments to insert after the matched command, OR
 - `omit` — flag to strip from the command
 - `msg` — context message sent to Claude via `additionalContext`
@@ -115,8 +115,8 @@ Strip unwanted flags from commands. `omit("--no-verify")` removes the flag, lets
 ### Seven — make install + versioning ✓
 Makefile with `build`, `test`, `install`. Version baked in from `git describe` at compile time. TTY detection prints version when run interactively.
 
-### Six — live testing
-Run graunde in QNTX with Claude Code. Verify `go test` gets amended, `--no-verify` gets stripped, `additionalContext` reaches Claude.
+### Six — the Ïúíþ incident ✓
+Live testing in QNTX revealed two bugs. First: `cmd("go test")` used substring matching, so `git commit -m "run go test before merging"` triggered the go-test-args control — corrupting a heredoc commit into the Ïúíþ artifact (`60b8829`). Fix: `commandMatch` does prefix-only matching — the command must start with the `cmd` string, followed by a space or end of segment. Second: JSON escape sequences (`\n`, `\t`, `\r`) in `extractCommand` were passed through as literal characters instead of being unescaped, breaking heredoc newlines in amended commands. Fix: proper escape handling in both `extractCommand` (unescape) and `writeJsonString` (re-escape).
 
 ### Five
 
