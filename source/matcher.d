@@ -311,3 +311,35 @@ unittest {
     assert(result.control.name == "no-skip-hooks");
     assert(result.decision == "ask");
 }
+
+unittest {
+    // git push triggers checkpoint with "ask" decision
+    auto result = checkCommand("git push origin main", OTHER);
+    assert(result.control !is null);
+    assert(result.control.name == "push-checkpoint");
+    assert(result.decision == "ask");
+}
+
+unittest {
+    // git push --no-verify: omit wins for amendment, ask wins for decision
+    auto result = checkCommand("git push --no-verify", OTHER);
+    assert(result.control !is null);
+    assert(result.control.name == "no-skip-hooks");
+    assert(result.decision == "ask");
+}
+
+unittest {
+    // git tag triggers checkpoint with "ask" decision
+    auto result = checkCommand("git tag -a v1.0.0 -m \"release\"", OTHER);
+    assert(result.control !is null);
+    assert(result.control.name == "tag-checkpoint");
+    assert(result.decision == "ask");
+}
+
+unittest {
+    // git checkout -b triggers branch checkpoint with "ask" decision
+    auto result = checkCommand("git checkout -b feature-branch", OTHER);
+    assert(result.control !is null);
+    assert(result.control.name == "branch-checkpoint");
+    assert(result.decision == "ask");
+}

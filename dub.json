@@ -6,5 +6,6 @@
     "sourcePaths": ["source"],
     "stringImportPaths": ["."],
     "dflags": ["-betterC"],
+    "libs": ["sqlite3"],
     "preBuildCommands": ["git describe --tags --always > .version"]
 }

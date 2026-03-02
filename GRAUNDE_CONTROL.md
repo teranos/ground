@@ -42,13 +42,25 @@ Controls are grouped by scope. Each scope has a `path` (where it fires) and a `d
 static immutable universal = [
     control("no-skip-hooks", cmd("git"), omit("--no-verify"),
         msg("Git hooks must not be bypassed, ever..")),
+    control("stage-checkpoint", cmd("git add"),
+        msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
+    control("pull-checkpoint", cmd("git pull"),
+        msg("Resolve conflicts if present before continuing")),
 ];
 
 static immutable checkpoints = [
     control("commit-checkpoint", cmd("git commit"),
         msg("Commit requires manual approval")),
+    control("push-checkpoint", cmd("git push"),
+        msg("If you haven't pulled since the last commit, pull first and resolve conflicts before pushing")),
+    control("tag-checkpoint", cmd("git tag"),
+        msg("Check the latest tag first and ensure the new version follows semver")),
     control("pr-checkpoint", cmd("gh pr create"),
         msg("PR creation requires manual approval")),
+    control("pr-edit-checkpoint", cmd("gh pr edit"),
+        msg("Reference any docs edited or created in this PR")),
+    control("branch-checkpoint", cmd("git checkout -b"),
+        msg("Check main for unpushed commits and push them first. After creating the branch, push it and open a draft PR with a minimal description.")),
 ];
 
 static immutable qntx = [
@@ -140,11 +152,23 @@ Live testing in QNTX revealed two bugs. First: `cmd("go test")` used substring m
 Controls grouped by scope. Each scope has a path (where it fires) and a decision (`"allow"` or `"ask"`). Universal controls fire everywhere, project-specific controls only when `cwd` matches. Scopes compose — for a given command, all matching scopes contribute: the first amendment wins, the most restrictive decision wins. `git commit --no-verify` gets the flag stripped (universal/allow) AND the permission prompt (checkpoint/ask). Msg-only controls match without amending — just decision + context. Extracts `cwd` from the hook payload.
 
 ### Four — commencing countdown, engines on
+Git workflow rituals and attestation-backed state. Graunde evolves from stateless gate to stateful ritual tracker, writing and reading QNTX attestations via linked libsqlite3. Actor: `graunde`. Source: `graunde v{VERSION}`. No standalone db — attestations live in QNTX's node db. When QNTX is online, reactive attestations can appear in real-time, injecting awareness into a running Claude session through the existing control protocol.
 
-### Three
+**Phase 1 — ritual checkpoints. ✓** Msg-only controls with `"ask"` decision for each git lifecycle moment. Branch creation: check main for unpushed commits, commit intent (documentation first), push, open draft PR. Push: pull first, resolve conflicts. Tag: check latest tag, follow semver. PR finalization: tests, review, issues, rebase, reassess.
+
+**Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
+
+**Phase 3 — branch story.** Depends on Count Three. On control match, query all attestations for the branch and include the story in `additionalContext`. The story surfaces what has and hasn't happened — "Rust files edited but clippy hasn't run", "tests passed but no push since." Scoped: each project cares about different observations.
+
+**Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
+
+### Three — all-tool awareness
+Register graunde for all tools. Hook payload includes `tool_name` — branch on it in main.d. Bash keeps existing logic. Edit/Write: extract `file_path`, match on extension, attest file-type changes. Everything else: observe and attest. Add `Ext` field to Control struct for file-type matching. Enables Count Four Phase 3 — controls query the branch story including file observations. Track context compactions as attestation boundaries.
 
 ### Two — check ignition
 
 ### One — and may God's love
+The binary is the config. Users define controls in D source and compile their own graunde. Figure out the ergonomics — how do users fork, customize, and stay upstream-compatible.
 
 ### Liftoff — be with you
+Open source readiness. README, CONTRIBUTING, LICENSE review, GitHub releases, install-from-source instructions.

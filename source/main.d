@@ -1,6 +1,7 @@
 module main;
 
 import matcher;
+import sqlite : writeAttestation;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite;
 import core.stdc.stdlib : exit;
 import core.sys.posix.unistd : isatty;
@@ -73,6 +74,16 @@ const(char)[] extractCwd(const(char)[] json) {
     return extractJsonString(json, `"cwd"`, &buf[0], buf.length);
 }
 
+const(char)[] extractSessionId(const(char)[] json) {
+    __gshared char[128] buf = 0;
+    return extractJsonString(json, `"session_id"`, &buf[0], buf.length);
+}
+
+const(char)[] extractToolUseId(const(char)[] json) {
+    __gshared char[128] buf = 0;
+    return extractJsonString(json, `"tool_use_id"`, &buf[0], buf.length);
+}
+
 // Writes the hook JSON response to stdout.
 // The command is embedded in the JSON, with quotes escaped.
 void writeJsonString(const(char)[] s) {
@@ -135,6 +146,7 @@ extern (C) int main() {
         return 1;
     }
 
+    // TODO: Count Three — branch on tool_name, handle Edit/Write file_path
     auto command = extractCommand(input);
     if (command is null) {
         fputs("graunde: missing tool_input.command\n", stderr);
@@ -145,12 +157,23 @@ extern (C) int main() {
     auto cwd = extractCwd(input);
     if (cwd is null) cwd = "";
 
+    auto sessionId = extractSessionId(input);
+    if (sessionId is null) sessionId = "";
+
+    auto toolUseId = extractToolUseId(input);
+    if (toolUseId is null) toolUseId = "unknown";
+
     auto result = checkCommand(command, cwd);
+
+    // Write attestation if a control matched
+    if (result.control !is null)
+        writeAttestation(result.control, cwd, sessionId, toolUseId, command);
 
     if (result.control is null)
         return 0;
 
     // Msg-only control — no amendment, just decision + context
+    // TODO(#3): query branch story and append to context
     if (result.control.arg.value.length == 0 && result.control.omit.value.length == 0) {
         writeResponse(command, result.control.msg.value, result.decision);
         return 0;
