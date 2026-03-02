@@ -21,18 +21,14 @@ const(char)[] readStdin() {
     return buf[0 .. total];
 }
 
-// Extracts the value of "command" from the hook JSON.
-// Handles JSON escape sequences: \" becomes ", \\ becomes \.
-// Returns unescaped command in a static buffer.
-const(char)[] extractCommand(const(char)[] json) {
-    __gshared char[8192] cmdBuf = 0;
-
-    enum needle = `"command"`;
-    auto idx = indexOf(json, needle);
+// Extracts a JSON string value by key into the provided buffer.
+// Handles JSON escape sequences: \" becomes ", \\ becomes \, \n becomes newline.
+const(char)[] extractJsonString(const(char)[] json, string key, char* buf, size_t bufLen) {
+    auto idx = indexOf(json, key);
     if (idx < 0) return null;
 
-    // Skip past "command", then whitespace, then colon, then whitespace, then opening quote
-    size_t pos = cast(size_t) idx + needle.length;
+    // Skip past key, then whitespace, then colon, then whitespace, then opening quote
+    size_t pos = cast(size_t) idx + key.length;
     while (pos < json.length && json[pos] == ' ') pos++;
     if (pos >= json.length || json[pos] != ':') return null;
     pos++;
@@ -42,29 +38,39 @@ const(char)[] extractCommand(const(char)[] json) {
 
     // Read value, unescaping JSON sequences as we go
     size_t len = 0;
-    while (pos < json.length && len < cmdBuf.length) {
+    while (pos < json.length && len < bufLen) {
         if (json[pos] == '\\' && pos + 1 < json.length) {
             pos++;
             switch (json[pos]) {
-                case 'n': cmdBuf[len++] = '\n'; break;
-                case 't': cmdBuf[len++] = '\t'; break;
-                case 'r': cmdBuf[len++] = '\r'; break;
-                case '"': cmdBuf[len++] = '"'; break;
-                case '\\': cmdBuf[len++] = '\\'; break;
-                case '/': cmdBuf[len++] = '/'; break;
-                default: cmdBuf[len++] = json[pos]; break;
+                case 'n': buf[len++] = '\n'; break;
+                case 't': buf[len++] = '\t'; break;
+                case 'r': buf[len++] = '\r'; break;
+                case '"': buf[len++] = '"'; break;
+                case '\\': buf[len++] = '\\'; break;
+                case '/': buf[len++] = '/'; break;
+                default: buf[len++] = json[pos]; break;
             }
             pos++;
         } else if (json[pos] == '"') {
             break; // unescaped quote = end of string
         } else {
-            cmdBuf[len++] = json[pos];
+            buf[len++] = json[pos];
             pos++;
         }
     }
 
     if (len == 0) return null;
-    return cmdBuf[0 .. len];
+    return buf[0 .. len];
+}
+
+const(char)[] extractCommand(const(char)[] json) {
+    __gshared char[8192] buf = 0;
+    return extractJsonString(json, `"command"`, &buf[0], buf.length);
+}
+
+const(char)[] extractCwd(const(char)[] json) {
+    __gshared char[4096] buf = 0;
+    return extractJsonString(json, `"cwd"`, &buf[0], buf.length);
 }
 
 // Writes the hook JSON response to stdout.
@@ -125,7 +131,11 @@ extern (C) int main() {
         return 1;
     }
 
-    auto result = checkCommand(command);
+    // cwd is optional — if absent, only universal controls fire
+    auto cwd = extractCwd(input);
+    if (cwd is null) cwd = "";
+
+    auto result = checkCommand(command, cwd);
 
     if (result.control is null)
         return 0;

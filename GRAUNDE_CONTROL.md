@@ -118,7 +118,8 @@ Makefile with `build`, `test`, `install`. Version baked in from `git describe` a
 ### Six — the Ïúíþ incident ✓
 Live testing in QNTX revealed two bugs. First: `cmd("go test")` used substring matching, so `git commit -m "run go test before merging"` triggered the go-test-args control — corrupting a heredoc commit into the Ïúíþ artifact (`60b8829`). Fix: `commandMatch` does prefix-only matching — the command must start with the `cmd` string, followed by a space or end of segment. Second: JSON escape sequences (`\n`, `\t`, `\r`) in `extractCommand` were passed through as literal characters instead of being unescaped, breaking heredoc newlines in amended commands. Fix: proper escape handling in both `extractCommand` (unescape) and `writeJsonString` (re-escape).
 
-### Five — can you hear me, Major Tom?
+### Five — scoped controls
+Group controls by project scope. Universal controls fire everywhere, project-specific controls only fire when `cwd` matches. Graunde already receives `cwd` in the hook payload — scoping reads it and filters control groups accordingly. Controls stay clean, scoping lives one level up.
 
 ### Four — commencing countdown, engines on
 
