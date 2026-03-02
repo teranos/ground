@@ -1,6 +1,6 @@
 # Reference
 
-What graunde sees and what it sends back, captured from a live session .
+What graunde sees and what it sends back, captured from a live session.
 
 ## Input (stdin)
 
