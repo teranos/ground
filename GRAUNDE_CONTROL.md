@@ -1,16 +1,16 @@
 # graunde
 
-Ground Control for Claude Code. CLAUDE.md is advisory — graunde is the gate.
+Ground Control for Claude Code. CLAUDE.md is advisory — graunde is the control.
 
 ## Problem
 
 Claude Code ignores CLAUDE.md instructions. You tell it "use `make test`", it runs `go test` without build tags, tests fail, and it starts "fixing" code that was never broken. You tell it "don't use `sed`", it uses `sed` with GNU syntax on macOS. The list never ends.
 
-The only enforcement that works is at the tool level — a PreToolUse hook that intercepts commands before they execute. Not a suggestion. A gate.
+The only enforcement that works is at the hook level — intercepting events before, during, and after they execute. Not a suggestion. A control.
 
 ## How it works
 
-Runs as a Claude Code `PreToolUse` hook on `Bash`. Reads JSON from stdin, extracts the command, checks it against controls compiled into the binary. Two actions:
+Runs as a Claude Code hook across all events. Reads JSON from stdin, branches on `hook_event_name`. Every event is checked against controls and attested — the complete trail enables the branch story. Two actions for command controls:
 
 - **arg** — add missing arguments after the matched command
 - **omit** — strip unwanted flags from the command
@@ -31,8 +31,8 @@ D with `-betterC`. Compiled with LDC. Chosen for:
 
 Controls are defined in `source/controls.d`. A control has:
 - `name` — identifier slug
-- `cmd` — command prefix to match (must be at start of segment, followed by space or end)
-- `arg` — arguments to insert after the matched command, OR
+- `cmd` — command prefix to match
+- `arg` — arguments to insert after the matched command
 - `omit` — flag to strip from the command
 - `msg` — context message sent to Claude via `additionalContext`
 
@@ -42,27 +42,11 @@ Controls are grouped by scope. Each scope has a `path` (where it fires) and a `d
 static immutable universal = [
     control("no-skip-hooks", cmd("git"), omit("--no-verify"),
         msg("Git hooks must not be bypassed, ever..")),
-    control("stage-checkpoint", cmd("git add"),
-        msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
-    control("pull-checkpoint", cmd("git pull"),
-        msg("Resolve conflicts if present before continuing")),
 ];
 
 static immutable checkpoints = [
     control("commit-checkpoint", cmd("git commit"),
         msg("Commit requires manual approval")),
-    control("push-checkpoint", cmd("git push"),
-        msg("If you haven't pulled since the last commit, pull first and resolve conflicts before pushing")),
-    control("tag-checkpoint", cmd("git tag"),
-        msg("Check the latest tag first and ensure the new version follows semver")),
-    control("pr-checkpoint", cmd("gh pr create"),
-        msg("PR creation requires manual approval")),
-    control("pr-edit-checkpoint", cmd("gh pr edit"),
-        msg("Reference any docs edited or created in this PR")),
-    control("branch-checkpoint", cmd("git checkout -b"),
-        msg("Check main for unpushed commits and push them first. After creating the branch, push it and open a draft PR with a minimal description.")),
-    control("merge-checkpoint", cmd("gh pr merge"),
-        msg("After merge, checkout main and pull to sync local.")),
 ];
 
 static immutable qntx = [
@@ -81,30 +65,7 @@ Commands are split on `|`, `;`, `&&` — each segment is checked independently.
 
 ## Hook protocol
 
-**Input** (JSON on stdin):
-```json
-{
-  "tool_input": {
-    "command": "go test ./..."
-  }
-}
-```
-
-**Output** (amendment):
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "allow",
-    "updatedInput": {
-      "command": "go test -tags \"rustsqlite,qntxwasm\" -short ./..."
-    },
-    "additionalContext": "Build tags and -short are required for go test in QNTX"
-  }
-}
-```
-
-**Output** (no match): exit 0, no output.
+JSON on stdin, JSON on stdout. Every event includes `hook_event_name`, `cwd`, `session_id`. Tool events add `tool_name`, `tool_input`, `tool_use_id`. No match: exit 0, no output. See [reference.md](reference.md) for full payload schemas, exit codes, and response fields.
 
 ## Installation
 
@@ -116,20 +77,14 @@ Builds a release binary and copies it to `~/.local/bin/graunde`. Override with `
 
 ## Hook registration
 
-In `~/.claude/settings.json`:
+In `~/.claude/settings.json`, register graunde for all hook events:
 ```json
 "hooks": {
-  "PreToolUse": [
-    {
-      "matcher": "Bash",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "graunde"
-        }
-      ]
-    }
-  ]
+  "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
+  "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
+  "PreCompact": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
+  "Stop": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
+  "SessionStart": [{ "hooks": [{ "type": "command", "command": "graunde" }] }]
 }
 ```
 
@@ -153,7 +108,7 @@ Live testing in QNTX revealed two bugs. First: `cmd("go test")` used substring m
 ### Five — scoped controls ✓
 Controls grouped by scope. Each scope has a path (where it fires) and a decision (`"allow"` or `"ask"`). Universal controls fire everywhere, project-specific controls only when `cwd` matches. Scopes compose — for a given command, all matching scopes contribute: the first amendment wins, the most restrictive decision wins. `git commit --no-verify` gets the flag stripped (universal/allow) AND the permission prompt (checkpoint/ask). Msg-only controls match without amending — just decision + context. Extracts `cwd` from the hook payload.
 
-### Four — commencing countdown, engines on
+### Four — commencing countdown
 Git workflow rituals and attestation-backed state. Graunde evolves from stateless gate to stateful ritual tracker, writing and reading QNTX attestations via linked libsqlite3. Actor: `graunde`. Source: `graunde v{VERSION}`. No standalone db — attestations live in QNTX's node db. When QNTX is online, reactive attestations can appear in real-time, injecting awareness into a running Claude session through the existing control protocol.
 
 **Phase 1 — ritual checkpoints. ✓** Msg-only controls with `"ask"` decision for each git lifecycle moment. Branch creation: check main for unpushed commits, commit intent (documentation first), push, open draft PR. Push: pull first, resolve conflicts. Tag: check latest tag, follow semver. PR finalization: tests, review, issues, rebase, reassess.
@@ -164,8 +119,8 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
 
-### Three — all-tool awareness
-Register graunde for all tools. Hook payload includes `tool_name` — branch on it in main.d. Bash keeps existing logic. Edit/Write: extract `file_path`, match on extension, attest file-type changes. Everything else: observe and attest. Add `Ext` field to Control struct for file-type matching. Enables Count Four Phase 3 — controls query the branch story including file observations. Track context compactions as attestation boundaries.
+### Three — engines on ✓
+Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse, PreCompact, Stop, SessionStart attested as lifecycle markers — control stubs present but no matching logic yet. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
 
 ### Two — check ignition
 

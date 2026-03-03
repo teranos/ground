@@ -1,6 +1,5 @@
 module sqlite;
 
-import controls : Control;
 import matcher : indexOf, contains;
 import core.stdc.stdio : fread, FILE;
 import core.stdc.time : time, time_t, tm, gmtime;
@@ -147,15 +146,15 @@ void jsonArray1(ref ZBuf buf, const(char)[] val) {
     buf.put(`"]`);
 }
 
-// Builds {"key1":"val1","key2":"val2"} — for attributes
-void jsonAttributes(ref ZBuf buf, const(char)[] controlName, const(char)[] command) {
+// Builds {"event":"...","detail":"..."} — for attributes
+void jsonAttributes(ref ZBuf buf, const(char)[] event, const(char)[] detail) {
     buf.reset();
-    buf.put(`{"control":"`);
-    buf.put(controlName);
-    buf.put(`","command":"`);
-    // Truncate command to first 200 chars, escape quotes
+    buf.put(`{"event":"`);
+    buf.put(event);
+    buf.put(`","detail":"`);
+    // Truncate detail to first 200 chars, escape quotes
     size_t written = 0;
-    foreach (c; command) {
+    foreach (c; detail) {
         if (written >= 200) break;
         if (c == '"')
             buf.put(`\"`);
@@ -186,7 +185,7 @@ const(char)[] versionString() {
 
 // TODO(#2): read CI attestations into graunde's control path
 void writeAttestation(
-    const(Control)* control,
+    const(char)[] predicate,
     const(char)[] cwd,
     const(char)[] sessionId,
     const(char)[] toolUseId,
@@ -205,7 +204,6 @@ void writeAttestation(
     }
 
     auto branch = getBranch(cwd);
-    auto pred = control.name;
     auto ts = formatTimestamp();
 
     __gshared ZBuf subjects;
@@ -217,7 +215,7 @@ void writeAttestation(
     __gshared ZBuf idBuf;
 
     jsonArray1(subjects, branch);
-    jsonArray1(predicates, pred);
+    jsonArray1(predicates, predicate);
 
     // contexts: ["session:<sessionId>"]
     contexts.reset();
@@ -231,7 +229,7 @@ void writeAttestation(
     source.put("graunde ");
     source.put(versionString());
 
-    jsonAttributes(attributes, control.name, command);
+    jsonAttributes(attributes, predicate, command);
 
     // id = tool_use_id
     idBuf.reset();

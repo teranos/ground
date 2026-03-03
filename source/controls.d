@@ -1,5 +1,25 @@
 module controls;
 
+enum HookEvent {
+    SessionStart,       // TODO(#5)
+    UserPromptSubmit,   // TODO(#6)
+    PreToolUse,
+    PermissionRequest,  // TODO(#7)
+    PostToolUse,        // TODO(#8): attested, no controls yet
+    PostToolUseFailure, // TODO(#9)
+    Notification,       // TODO(#10)
+    SubagentStart,      // TODO(#11)
+    SubagentStop,       // TODO(#12)
+    Stop,               // TODO(#13): attested, no controls yet
+    TeammateIdle,       // TODO(#14)
+    TaskCompleted,      // TODO(#15)
+    ConfigChange,       // TODO(#16)
+    WorktreeCreate,     // TODO(#17)
+    WorktreeRemove,     // TODO(#18)
+    PreCompact,         // TODO(#19): attested, no controls yet
+    SessionEnd,         // TODO(#20)
+}
+
 struct Cmd {
     string value;
 }
@@ -72,7 +92,7 @@ static immutable checkpoints = [
     control("pr-edit-checkpoint", cmd("gh pr edit"),
         msg("Reference any docs edited or created in this PR")),
     control("branch-checkpoint", cmd("git checkout -b"),
-        msg("Check main for unpushed commits and push them first. After creating the branch, push it and open a draft PR with a minimal description.")),
+        msg("Check main for unpushed commits and push them first. Update documentation to describe intended behavior. Ask critical design questions. Then open a PR.")),
     control("merge-checkpoint", cmd("gh pr merge"),
         msg("After merge, checkout main and pull to sync local.")),
 ];

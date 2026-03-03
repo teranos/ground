@@ -1,10 +1,10 @@
 # Reference
 
-What graunde sees and what it sends back, captured from a live session.
+What graunde sees and what it sends back, captured from live sessions.
 
 ## Input (stdin)
 
-Claude Code sends this JSON on stdin before every matched tool execution.
+Claude Code sends JSON on stdin for every hook event.
 
 ```json
 {
@@ -90,6 +90,61 @@ Every hook event includes these.
 |-------|-------------|
 | `pattern` | Regex pattern. |
 | `path` | Optional file or directory. |
+
+### PostToolUse fields
+
+Fires after a tool completes successfully. Has both input and result.
+
+| Field | Description |
+|-------|-------------|
+| `tool_name` | Which tool completed. |
+| `tool_input` | The arguments sent to the tool. Same schemas as PreToolUse. |
+| `tool_response` | The result the tool returned. Schema varies by tool. |
+| `tool_use_id` | Links to transcript lines. |
+
+```json
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/path/to/file.txt",
+    "content": "file content"
+  },
+  "tool_response": {
+    "filePath": "/path/to/file.txt",
+    "success": true
+  },
+  "tool_use_id": "toolu_01ABC123..."
+}
+```
+
+### SessionStart fields
+
+Fires when a session begins or resumes.
+
+| Field | Description |
+|-------|-------------|
+| `source` | How the session started: `"startup"`, `"resume"`, `"clear"`, `"compact"`. |
+| `model` | Model identifier (e.g. `"claude-sonnet-4-6"`). |
+| `agent_type` | Optional. Present when started with `claude --agent <name>`. |
+
+### Stop fields
+
+Fires when Claude finishes responding.
+
+| Field | Description |
+|-------|-------------|
+| `stop_hook_active` | `true` if Claude is already continuing due to a stop hook. Check to avoid infinite loops. |
+| `last_assistant_message` | Text content of Claude's final response. |
+
+### PreCompact fields
+
+Fires before context compaction.
+
+| Field | Description |
+|-------|-------------|
+| `trigger` | `"manual"` (user ran `/compact`) or `"auto"` (context window full). |
+| `custom_instructions` | For manual compaction, what the user passed to `/compact`. Empty for auto. |
 
 ## Output (stdout)
 
