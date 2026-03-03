@@ -119,7 +119,7 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
 
-### Three — engines on
+### Three — engines on ✓
 Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse, PreCompact, Stop, SessionStart attested as lifecycle markers — control stubs present but no matching logic yet. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
 
 ### Two — check ignition
