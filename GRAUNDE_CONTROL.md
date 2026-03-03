@@ -170,7 +170,7 @@ Register graunde for all tools. Hook payload includes `tool_name` — branch on 
 ### Two — check ignition
 
 ### One — and may God's love
-The binary is the config. Users define controls in D source and compile their own graunde. Figure out the ergonomics — how do users fork, customize, and stay upstream-compatible.
+The binary is the config. Users define controls in D source and compile their own graunde. Self-recompilation: hash controls source at compile time via CTFE, compare at runtime, rebuild on mismatch. Claude edits `controls.d`, next hook invocation detects staleness, rebuilds, new control is live — no manual step. Tag staleness: compare baked-in `git describe` against upstream. Figure out fork ergonomics — how do users customize and stay upstream-compatible.
 
 ### Liftoff — be with you
 Open source readiness. README, CONTRIBUTING, LICENSE review, GitHub releases, install-from-source instructions.
