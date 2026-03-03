@@ -17,6 +17,7 @@ enum HookEvent {
     WorktreeCreate,     // TODO(#17)
     WorktreeRemove,     // TODO(#18)
     PreCompact,         // TODO(#19): attested, no controls yet
+    Setup,              // TODO(#21): undocumented upstream
     SessionEnd,         // TODO(#20)
 }
 
