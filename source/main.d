@@ -283,7 +283,7 @@ extern (C) int main() {
                 sqlite3_close(db);
             }
             if (!skip) {
-                fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"CI takes ~22 seconds. Run: sleep 22 && gh run list --branch $(git branch --show-current) --limit 1"}}`, stdout);
+                fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"CI takes ~20 seconds. Run: sleep 22 && gh run list --branch $(git branch --show-current) --limit 1 — then examine the result and report whether CI passed or failed."}}`, stdout);
                 fputs("\n", stdout);
             }
         }

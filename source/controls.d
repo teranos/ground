@@ -129,10 +129,10 @@ static immutable universal = [
         msg("Git hooks must not be bypassed, ever..")),
     control("stage-checkpoint", cmd("git add"),
         msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
-    control("pull-checkpoint", cmd("git pull"),
-        msg("Resolve conflicts if present before continuing")),
-    control("sync-main", cmd("git checkout main && git pull"),
+    control("sync-main", cmd("git checkout main"),
         msg("Summarize what happened upstream since the last pull.")),
+    control("ci-check", cmd("gh run list"),
+        msg("Examine the result and report whether CI passed or failed.")),
 ];
 
 static immutable checkpoints = [
