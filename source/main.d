@@ -111,6 +111,21 @@ const(char)[] extractFilePath(const(char)[] json) {
     return extractJsonString(json, `"file_path"`, &buf[0], buf.length);
 }
 
+bool extractBool(const(char)[] json, string key) {
+    auto idx = indexOf(json, key);
+    if (idx < 0) return false;
+
+    size_t pos = cast(size_t) idx + key.length;
+    while (pos < json.length && json[pos] == ' ') pos++;
+    if (pos >= json.length || json[pos] != ':') return false;
+    pos++;
+    while (pos < json.length && json[pos] == ' ') pos++;
+
+    if (pos + 4 <= json.length && json[pos .. pos + 4] == "true")
+        return true;
+    return false;
+}
+
 // Build unique ID for non-tool events (no tool_use_id available)
 const(char)[] buildEventId(const(char)[] eventName) {
     import sqlite : formatTimestamp;
@@ -253,9 +268,15 @@ extern (C) int main() {
         return 0;
     }
 
+    // Stop — attest and check ax controls
+    if (event == HookEvent.Stop) {
+        import stop : handleStop;
+        return handleStop(input, cwd, sessionId);
+    }
+
     // Lifecycle events — attest and pass through
     if (event == HookEvent.PostToolUse || event == HookEvent.PreCompact
-        || event == HookEvent.Stop || event == HookEvent.SessionStart) {
+        || event == HookEvent.SessionStart) {
         auto toolUseId = extractToolUseId(input);
         auto id = toolUseId !is null ? toolUseId : buildEventId(eventName);
         auto detail = extractCommand(input);

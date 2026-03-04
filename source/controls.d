@@ -10,7 +10,7 @@ enum HookEvent {
     Notification,       // TODO(#10)
     SubagentStart,      // TODO(#11)
     SubagentStop,       // TODO(#12)
-    Stop,               // TODO(#13): attested, no controls yet
+    Stop,               // #13: ax controls
     TeammateIdle,       // TODO(#14)
     TaskCompleted,      // TODO(#15)
     ConfigChange,       // TODO(#16)
@@ -33,6 +33,14 @@ struct Omit {
     string value;
 }
 
+struct Trigger {
+    string value;
+}
+
+struct Ax {
+    string value;
+}
+
 struct Msg {
     string value;
 }
@@ -40,6 +48,8 @@ struct Msg {
 Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
+Trigger stop() { return Trigger("Stop"); }
+Ax ax(string s) { return Ax(s); }
 Msg msg(string s) { return Msg(s); }
 
 struct Control {
@@ -47,20 +57,29 @@ struct Control {
     Cmd cmd;
     Arg arg;
     Omit omit;
+    Trigger trigger;
+    Ax ax;
     Msg msg;
 }
 
+// Arg amendment control
 Control control(string name, Cmd c, Arg a, Msg m) {
-    return Control(name, c, a, Omit(""), m);
+    return Control(name, c, a, Omit(""), Trigger(""), Ax(""), m);
 }
 
+// Omit amendment control
 Control control(string name, Cmd c, Omit o, Msg m) {
-    return Control(name, c, Arg(""), o, m);
+    return Control(name, c, Arg(""), o, Trigger(""), Ax(""), m);
 }
 
 // Msg-only control — matches but doesn't amend.
 Control control(string name, Cmd c, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), m);
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), m);
+}
+
+// Ax control — queries attestation trail on a triggered event.
+Control control(string name, Trigger t, Ax a, Msg m) {
+    return Control(name, Cmd(""), Arg(""), Omit(""), t, a, m);
 }
 
 // Groups controls by scope and decision.
@@ -111,5 +130,6 @@ static immutable allScopes = [
 
 // QNTX node db — attestations are written here on every control match.
 // If unavailable, graunde still functions (matching, gating, amending) — just no attestations.
-// TODO: Count One — DB_PATH should be user-configurable, not hardcoded
+// TODO: Count One — DB_PATH and EXT_PATH should be user-configurable, not hardcoded
 enum DB_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/.qntx/tmp32.db\0";
+enum EXT_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/target/x86_64-apple-darwin/release/libqntx_ax_ext\0";

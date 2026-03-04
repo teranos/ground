@@ -63,6 +63,20 @@ static immutable allScopes = [
 
 Commands are split on `|`, `;`, `&&` — each segment is checked independently.
 
+## Ax controls
+
+Ax controls query the attestation trail on triggered events. They load the QNTX ax extension into the linked SQLite handle, run a filter query scoped to the current branch, and apply matching logic in D.
+
+```d
+static immutable axControls = [
+    control("clippy-reminder", stop(),
+        ax(`{"subjects":["$BRANCH"],"actors":["graunde"]}`),
+        msg("Rust files edited after last cargo clippy run. Run cargo clippy before pushing.")),
+];
+```
+
+`$BRANCH` is substituted at runtime. The clippy-reminder compares the latest `.rs` file edit timestamp against the latest `cargo clippy` run — if the edit is newer, Stop is blocked.
+
 ## Hook protocol
 
 JSON on stdin, JSON on stdout. Every event includes `hook_event_name`, `cwd`, `session_id`. Tool events add `tool_name`, `tool_input`, `tool_use_id`. No match: exit 0, no output. See [reference.md](reference.md) for full payload schemas, exit codes, and response fields.
