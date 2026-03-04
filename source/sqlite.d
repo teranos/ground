@@ -231,6 +231,35 @@ void jsonArray1(ref ZBuf buf, const(char)[] val) {
     buf.put(`"]`);
 }
 
+// Builds {"event":"...","detail":"...","after":<unix>} — for deferred messages
+void jsonAttributesDeferred(ref ZBuf buf, const(char)[] event, const(char)[] detail, long afterUnix) {
+    buf.reset();
+    buf.put(`{"event":"`);
+    buf.put(event);
+    buf.put(`","detail":"`);
+    size_t written = 0;
+    foreach (c; detail) {
+        if (written >= 200) break;
+        if (c == '"') buf.put(`\"`);
+        else if (c == '\\') buf.put(`\\`);
+        else if (c == '\n') buf.put(`\n`);
+        else buf.putChar(c);
+        written++;
+    }
+    buf.put(`","after":`);
+    // Write unix timestamp as decimal
+    char[20] tbuf = 0;
+    int tlen = 0;
+    long v = afterUnix;
+    if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+    else {
+        while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+    }
+    buf.put(tbuf[0 .. tlen]);
+    buf.put(`}`);
+}
+
 // Builds {"event":"...","detail":"..."} — for attributes
 void jsonAttributes(ref ZBuf buf, const(char)[] event, const(char)[] detail) {
     buf.reset();
@@ -428,5 +457,176 @@ void writeAttestationWithResponse(
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     sqlite3_close(db);
+}
+
+// --- Deferred message queue ---
+
+struct DeferredMsg {
+    const(char)[] name;    // e.g. "ci-check"
+    const(char)[] message; // the context to deliver
+}
+
+// Write a deferred message attestation with a deliver-after delay.
+void writeDeferredMessage(
+    sqlite3* db,
+    const(char)[] name,
+    const(char)[] cwd,
+    const(char)[] sessionId,
+    const(char)[] message,
+    int delaySec
+) {
+    auto afterUnix = cast(long) time(null) + delaySec;
+
+    __gshared ZBuf predBuf;
+    predBuf.reset();
+    predBuf.put("deferred:");
+    predBuf.put(name);
+
+    __gshared ZBuf attribs;
+    jsonAttributesDeferred(attribs, predBuf.slice(), message, afterUnix);
+
+    auto branch = getBranch(cwd);
+    auto ts = formatTimestamp();
+
+    __gshared ZBuf subjects;
+    __gshared ZBuf predicates;
+    __gshared ZBuf contexts;
+    __gshared ZBuf actors;
+    __gshared ZBuf source;
+    __gshared ZBuf idBuf;
+
+    jsonArray1(subjects, branch);
+    jsonArray1(predicates, predBuf.slice());
+
+    contexts.reset();
+    contexts.put(`["session:`);
+    contexts.put(sessionId);
+    contexts.put(`"]`);
+
+    jsonArray1(actors, "graunde");
+
+    source.reset();
+    source.put("graunde ");
+    source.put(versionString());
+
+    // Unique id for deferred message
+    import parse : buildEventId;
+    auto evId = buildEventId(predBuf.slice());
+    idBuf.reset();
+    idBuf.put(evId);
+
+    enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return;
+    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, attribs.ptr(), cast(int) attribs.len, SQLITE_TRANSIENT);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+// Read a pending deferred message for this session that's ready to deliver.
+DeferredMsg readDeferredMessage(sqlite3* db, const(char)[] sessionId) {
+    auto now = cast(long) time(null);
+
+    // Find deferred attestations for this session
+    enum sql = "SELECT predicates, attributes FROM attestations WHERE predicates LIKE '%deferred:%' AND contexts LIKE ?1 ORDER BY timestamp ASC LIMIT 5\0";
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("%session:");
+    ctx.put(sessionId);
+    ctx.put("%");
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return DeferredMsg(null, null);
+
+    sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+
+    __gshared char[256] nameBuf = 0;
+    __gshared char[512] msgBuf = 0;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto predText = sqlite3_column_text(stmt, 0);
+        auto attrText = sqlite3_column_text(stmt, 1);
+        if (predText is null || attrText is null) continue;
+
+        // Extract name from predicates: ["deferred:ci-check"] -> ci-check
+        size_t predLen = 0;
+        while (predText[predLen] != 0) predLen++;
+        auto preds = (cast(const(char)*) predText)[0 .. predLen];
+
+        // Find "deferred:" in predicates
+        auto dIdx = indexOf(preds, "deferred:");
+        if (dIdx < 0) continue;
+        size_t nameStart = cast(size_t) dIdx + 9; // skip "deferred:"
+        size_t nameEnd = nameStart;
+        while (nameEnd < predLen && preds[nameEnd] != '"') nameEnd++;
+        if (nameEnd == nameStart) continue;
+        auto name = preds[nameStart .. nameEnd];
+
+        // Check if already delivered
+        __gshared ZBuf delPred;
+        delPred.reset();
+        delPred.put("delivered:");
+        delPred.put(name);
+        if (attestationExists(db, delPred.slice(), sessionId)) continue;
+
+        // Extract "after" from attributes
+        size_t attrLen = 0;
+        while (attrText[attrLen] != 0) attrLen++;
+        auto attrs = (cast(const(char)*) attrText)[0 .. attrLen];
+
+        auto afterIdx = indexOf(attrs, `"after":`);
+        if (afterIdx < 0) continue;
+        size_t aPos = cast(size_t) afterIdx + 8; // skip "after":
+        long afterVal = 0;
+        while (aPos < attrLen && attrs[aPos] >= '0' && attrs[aPos] <= '9') {
+            afterVal = afterVal * 10 + (attrs[aPos] - '0');
+            aPos++;
+        }
+        if (now < afterVal) continue; // not ready yet
+
+        // Extract "detail" from attributes (the message)
+        auto detIdx = indexOf(attrs, `"detail":"`);
+        if (detIdx < 0) continue;
+        size_t mPos = cast(size_t) detIdx + 10; // skip "detail":"
+        size_t mLen = 0;
+        while (mPos + mLen < attrLen && mLen < msgBuf.length && attrs[mPos + mLen] != '"')
+            mLen++;
+
+        // Copy into static buffers
+        size_t nLen = nameEnd - nameStart;
+        if (nLen > nameBuf.length) nLen = nameBuf.length;
+        foreach (i; 0 .. nLen) nameBuf[i] = name[i];
+        foreach (i; 0 .. mLen) msgBuf[i] = attrs[mPos + i];
+
+        sqlite3_finalize(stmt);
+        return DeferredMsg(nameBuf[0 .. nLen], msgBuf[0 .. mLen]);
+    }
+
+    sqlite3_finalize(stmt);
+    return DeferredMsg(null, null);
+}
+
+// Mark a deferred message as delivered.
+void markDelivered(sqlite3* db, const(char)[] name, const(char)[] cwd, const(char)[] sessionId) {
+    __gshared ZBuf predBuf;
+    predBuf.reset();
+    predBuf.put("delivered:");
+    predBuf.put(name);
+
+    import parse : buildEventId;
+    auto evId = buildEventId(predBuf.slice());
+    writeAttestationTo(db, predBuf.slice(), cwd, sessionId, evId, name);
 }
 
