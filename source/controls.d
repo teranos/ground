@@ -1,22 +1,23 @@
 module controls;
 
 enum HookEvent {
-    SessionStart,       // TODO(#5)
-    UserPromptSubmit,   // TODO(#6)
+    SessionStart,       // #5: arch context
+    UserPromptSubmit,   // #6: keyword reminders
     PreToolUse,
     PermissionRequest,  // TODO(#7)
-    PostToolUse,        // TODO(#8): attested, no controls yet
+    PostToolUse,        // #8: attested, response captured, CI nudge on git push. TODO: #25 tool-name matching, #26 corrective feedback, #27 MCP output
     PostToolUseFailure, // TODO(#9)
     Notification,       // TODO(#10)
     SubagentStart,      // TODO(#11)
     SubagentStop,       // TODO(#12)
-    Stop,               // TODO(#13): attested, no controls yet
+    Stop,               // #13: ax controls
     TeammateIdle,       // TODO(#14)
     TaskCompleted,      // TODO(#15)
     ConfigChange,       // TODO(#16)
     WorktreeCreate,     // TODO(#17)
     WorktreeRemove,     // TODO(#18)
     PreCompact,         // TODO(#19): attested, no controls yet
+    Setup,              // TODO(#21): undocumented upstream
     SessionEnd,         // TODO(#20)
 }
 
@@ -32,34 +33,86 @@ struct Omit {
     string value;
 }
 
+struct Trigger {
+    string value;
+}
+
+struct Ax {
+    string value;
+}
+
+struct FilePath {
+    string value;
+}
+
 struct Msg {
     string value;
+}
+
+struct Bg {
+    bool value;
+}
+
+struct Tmo {
+    int value; // milliseconds
 }
 
 Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
+Trigger stop() { return Trigger("Stop"); }
+Ax ax(string s) { return Ax(s); }
+FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
+Bg bg() { return Bg(true); }
+Tmo tmo(int ms) { return Tmo(ms); }
 
 struct Control {
     string name;
     Cmd cmd;
     Arg arg;
     Omit omit;
+    Trigger trigger;
+    Ax ax;
+    FilePath filepath;
     Msg msg;
+    Bg bg;
+    Tmo tmo;
 }
 
+// Arg amendment control
 Control control(string name, Cmd c, Arg a, Msg m) {
-    return Control(name, c, a, Omit(""), m);
+    return Control(name, c, a, Omit(""), Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
+// Omit amendment control
 Control control(string name, Cmd c, Omit o, Msg m) {
-    return Control(name, c, Arg(""), o, m);
+    return Control(name, c, Arg(""), o, Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // Msg-only control — matches but doesn't amend.
 Control control(string name, Cmd c, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), m);
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
+}
+
+// Msg-only control with background execution.
+Control control(string name, Cmd c, Bg b, Msg m) {
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, b, Tmo(0));
+}
+
+// Msg-only control with background execution and timeout.
+Control control(string name, Cmd c, Bg b, Tmo t, Msg m) {
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, b, t);
+}
+
+// Ax control — queries attestation trail on a triggered event.
+Control control(string name, Trigger t, Ax a, Msg m) {
+    return Control(name, Cmd(""), Arg(""), Omit(""), t, a, FilePath(""), m, Bg(false), Tmo(0));
+}
+
+// File-path control — matches when file_path contains the pattern.
+Control control(string name, FilePath fp, Msg m) {
+    return Control(name, Cmd(""), Arg(""), Omit(""), Trigger(""), Ax(""), fp, m, Bg(false), Tmo(0));
 }
 
 // Groups controls by scope and decision.
@@ -76,8 +129,10 @@ static immutable universal = [
         msg("Git hooks must not be bypassed, ever..")),
     control("stage-checkpoint", cmd("git add"),
         msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
-    control("pull-checkpoint", cmd("git pull"),
-        msg("Resolve conflicts if present before continuing")),
+    control("sync-main", cmd("git checkout main"),
+        msg("Summarize what happened upstream since the last pull.")),
+    control("ci-check", cmd("gh run list"),
+        msg("Examine the result and report whether CI passed or failed.")),
 ];
 
 static immutable checkpoints = [
@@ -102,13 +157,31 @@ static immutable qntx = [
         msg("Build tags and -short are required for go test in QNTX")),
 ];
 
+static immutable qntxFiles = [
+    control("web-docs-reminder", filepath("/web/"),
+        msg("Read web/CLAUDE.md before editing frontend files.")),
+    control("web-ts-banned", filepath("/web/ts/"),
+        msg("BANNED in frontend: alert(), confirm(), prompt(), toast(). Button component has built-in error handling (throw from onClick). Check component APIs before implementing.")),
+];
+
+static immutable graunde = [
+    control("install-after-test", cmd("dub test"), bg(),
+        msg("If tests pass, run make install to update the live hook binary.")),
+];
+
 static immutable allScopes = [
     Scope("", "allow", universal),
     Scope("", "ask", checkpoints),
+    Scope("/graunde", "allow", graunde),
     Scope("/QNTX", "allow", qntx),
+];
+
+static immutable fileScopes = [
+    Scope("/QNTX", "allow", qntxFiles),
 ];
 
 // QNTX node db — attestations are written here on every control match.
 // If unavailable, graunde still functions (matching, gating, amending) — just no attestations.
-// TODO: Count One — DB_PATH should be user-configurable, not hardcoded
+// TODO: Count One — DB_PATH and EXT_PATH should be user-configurable, not hardcoded
 enum DB_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/.qntx/tmp32.db\0";
+enum EXT_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/target/x86_64-apple-darwin/release/libqntx_ax_ext\0";

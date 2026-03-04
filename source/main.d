@@ -1,6 +1,7 @@
 module main;
 
-import matcher;
+import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
+import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, extractStdout, extractStderr, extractResponseFilePath, extractBool, buildEventId, writeJsonString, fputs2;
 import controls : HookEvent;
 import sqlite : writeAttestation;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite;
@@ -34,130 +35,44 @@ const(char)[] readStdin() {
     return buf[0 .. total];
 }
 
-// Extracts a JSON string value by key into the provided buffer.
-// Handles JSON escape sequences: \" becomes ", \\ becomes \, \n becomes newline.
-const(char)[] extractJsonString(const(char)[] json, string key, char* buf, size_t bufLen) {
-    auto idx = indexOf(json, key);
-    if (idx < 0) return null;
-
-    // Skip past key, then whitespace, then colon, then whitespace, then opening quote
-    size_t pos = cast(size_t) idx + key.length;
-    while (pos < json.length && json[pos] == ' ') pos++;
-    if (pos >= json.length || json[pos] != ':') return null;
-    pos++;
-    while (pos < json.length && json[pos] == ' ') pos++;
-    if (pos >= json.length || json[pos] != '"') return null;
-    pos++; // skip opening quote
-
-    // Read value, unescaping JSON sequences as we go
-    size_t len = 0;
-    while (pos < json.length && len < bufLen) {
-        if (json[pos] == '\\' && pos + 1 < json.length) {
-            pos++;
-            switch (json[pos]) {
-                case 'n': buf[len++] = '\n'; break;
-                case 't': buf[len++] = '\t'; break;
-                case 'r': buf[len++] = '\r'; break;
-                case '"': buf[len++] = '"'; break;
-                case '\\': buf[len++] = '\\'; break;
-                case '/': buf[len++] = '/'; break;
-                default: buf[len++] = json[pos]; break;
-            }
-            pos++;
-        } else if (json[pos] == '"') {
-            break; // unescaped quote = end of string
-        } else {
-            buf[len++] = json[pos];
-            pos++;
-        }
-    }
-
-    if (len == 0) return null;
-    return buf[0 .. len];
-}
-
-const(char)[] extractCommand(const(char)[] json) {
-    __gshared char[8192] buf = 0;
-    return extractJsonString(json, `"command"`, &buf[0], buf.length);
-}
-
-const(char)[] extractCwd(const(char)[] json) {
-    __gshared char[4096] buf = 0;
-    return extractJsonString(json, `"cwd"`, &buf[0], buf.length);
-}
-
-const(char)[] extractSessionId(const(char)[] json) {
-    __gshared char[128] buf = 0;
-    return extractJsonString(json, `"session_id"`, &buf[0], buf.length);
-}
-
-const(char)[] extractToolUseId(const(char)[] json) {
-    __gshared char[128] buf = 0;
-    return extractJsonString(json, `"tool_use_id"`, &buf[0], buf.length);
-}
-
-const(char)[] extractHookEventName(const(char)[] json) {
-    __gshared char[64] buf = 0;
-    return extractJsonString(json, `"hook_event_name"`, &buf[0], buf.length);
-}
-
-const(char)[] extractToolName(const(char)[] json) {
-    __gshared char[64] buf = 0;
-    return extractJsonString(json, `"tool_name"`, &buf[0], buf.length);
-}
-
-const(char)[] extractFilePath(const(char)[] json) {
-    __gshared char[4096] buf = 0;
-    return extractJsonString(json, `"file_path"`, &buf[0], buf.length);
-}
-
-// Build unique ID for non-tool events (no tool_use_id available)
-const(char)[] buildEventId(const(char)[] eventName) {
-    import sqlite : formatTimestamp;
-    __gshared char[256] buf = 0;
-    size_t len = 0;
-    foreach (c; "graunde:") { if (len < 255) buf[len++] = c; }
-    foreach (c; eventName) { if (len < 255) buf[len++] = c; }
-    if (len < 255) buf[len++] = ':';
-    foreach (c; formatTimestamp()) { if (len < 255) buf[len++] = c; }
-    return buf[0 .. len];
-}
-
-// Writes the hook JSON response to stdout.
-// The command is embedded in the JSON, with quotes escaped.
-void writeJsonString(const(char)[] s) {
-    foreach (c; s) {
-        switch (c) {
-            case '"': fputs(`\"`, stdout); break;
-            case '\\': fputs(`\\`, stdout); break;
-            case '\n': fputs(`\n`, stdout); break;
-            case '\r': fputs(`\r`, stdout); break;
-            case '\t': fputs(`\t`, stdout); break;
-            default:
-                char[1] buf = c;
-                fwrite(&buf[0], 1, 1, stdout);
-                break;
-        }
-    }
-}
-
-void writeResponse(const(char)[] command, const(char)[] context, const(char)[] decision) {
+// Context-only response for non-Bash tools (no updatedInput).
+void writeContextResponse(const(char)[] context, const(char)[] decision) {
     fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"`, stdout);
     fputs2(decision);
-    fputs(`","updatedInput":{"command":"`, stdout);
-    writeJsonString(command);
-    fputs(`"},"additionalContext":"`, stdout);
+    fputs(`","additionalContext":"`, stdout);
     writeJsonString(context);
     fputs(`"}}`, stdout);
     fputs("\n", stdout);
 }
 
-// fputs for const(char)[] slices (fputs needs null-terminated strings)
-void fputs2(const(char)[] s) {
-    foreach (c; s) {
-        char[1] buf = c;
-        fwrite(&buf[0], 1, 1, stdout);
+void writeResponse(const(char)[] command, const(char)[] context, const(char)[] decision,
+    bool background = false, int timeout = 0)
+{
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"`, stdout);
+    fputs2(decision);
+    fputs(`","updatedInput":{"command":"`, stdout);
+    writeJsonString(command);
+    fputs(`"`, stdout);
+    if (background)
+        fputs(`,"run_in_background":true`, stdout);
+    if (timeout > 0) {
+        fputs(`,"timeout":`, stdout);
+        // Write int as decimal
+        char[16] tbuf = 0;
+        int tlen = 0;
+        int t = timeout;
+        if (t == 0) { tbuf[0] = '0'; tlen = 1; }
+        else {
+            while (t > 0 && tlen < 15) { tbuf[tlen++] = cast(char)('0' + t % 10); t /= 10; }
+            // Reverse
+            foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+        }
+        fwrite(&tbuf[0], 1, tlen, stdout);
     }
+    fputs(`},"additionalContext":"`, stdout);
+    writeJsonString(context);
+    fputs(`"}}`, stdout);
+    fputs("\n", stdout);
 }
 
 enum VERSION = import(".version");
@@ -209,14 +124,29 @@ extern (C) int main() {
             auto result = checkCommand(command, cwd);
 
             if (result.control !is null) {
-                writeAttestation(result.control.name, cwd, sessionId, toolUseId, command);
-
                 // Msg-only control — no amendment, just decision + context
                 // TODO(#3): query branch story and append to context
                 if (result.control.arg.value.length == 0 && result.control.omit.value.length == 0) {
-                    writeResponse(command, result.control.msg.value, result.decision);
+                    // Once per session: skip if already fired
+                    import sqlite : openDb, attestationExists, writeAttestationTo, sqlite3_close;
+                    auto db = openDb();
+                    if (db !is null) {
+                        if (attestationExists(db, result.control.name, sessionId)) {
+                            sqlite3_close(db);
+                            // Still emit decision (e.g. "allow") — just skip the message
+                            writeResponse(command, "", result.decision,
+                                result.control.bg.value, result.control.tmo.value);
+                            return 0;
+                        }
+                        writeAttestationTo(db, result.control.name, cwd, sessionId, toolUseId, command);
+                        sqlite3_close(db);
+                    }
+                    writeResponse(command, result.control.msg.value, result.decision,
+                        result.control.bg.value, result.control.tmo.value);
                     return 0;
                 }
+
+                writeAttestation(result.control.name, cwd, sessionId, toolUseId, command);
 
                 Buf amended;
                 if (result.control.omit.value.length > 0)
@@ -231,7 +161,8 @@ extern (C) int main() {
                         full.put(command[0 .. cast(size_t) segIdx]);
                         full.put(amended.slice());
                         full.put(command[cast(size_t) segIdx + result.segment.length .. $]);
-                        writeResponse(full.slice(), result.control.msg.value, result.decision);
+                        writeResponse(full.slice(), result.control.msg.value, result.decision,
+                            result.control.bg.value, result.control.tmo.value);
                         return 0;
                     }
                 }
@@ -243,19 +174,121 @@ extern (C) int main() {
             return 0;
         }
 
-        // Non-Bash tool (Edit/Write/Read/etc.) — attest with file_path if available
+        // Non-Bash tool (Edit/Write/Read/etc.) — check file-path controls, then attest
+        // TODO(#32): updatedInput for non-Bash tools (run_in_background, timeout, new_description)
         auto filePath = extractFilePath(input);
         writeAttestation(
             toolName !is null ? toolName : "unknown",
             cwd, sessionId, toolUseId,
             filePath !is null ? filePath : ""
         );
+
+        if (filePath !is null) {
+            auto fileResult = checkFilePath(filePath, cwd);
+            if (fileResult.matched) {
+                writeAttestation(fileResult.name, cwd, sessionId, toolUseId, filePath);
+                writeContextResponse(fileResult.msg, fileResult.decision);
+                return 0;
+            }
+        }
         return 0;
     }
 
-    // Lifecycle events — attest and pass through
-    if (event == HookEvent.PostToolUse || event == HookEvent.PreCompact
-        || event == HookEvent.Stop || event == HookEvent.SessionStart) {
+    // UserPromptSubmit — keyword controls
+    if (event == HookEvent.UserPromptSubmit) {
+        import userprompt : handleUserPromptSubmit;
+        return handleUserPromptSubmit(input, cwd, sessionId);
+    }
+
+    // Stop — attest and check ax controls
+    if (event == HookEvent.Stop) {
+        import stop : handleStop;
+        return handleStop(input, cwd, sessionId);
+    }
+
+    // SessionStart — attest and emit arch context on startup/clear
+    if (event == HookEvent.SessionStart) {
+        auto source = extractSource(input);
+        auto id = buildEventId(eventName);
+        writeAttestation(eventName, cwd, sessionId, id, source !is null ? source : eventName);
+        import sessionstart : handleSessionStart;
+        return handleSessionStart(source);
+    }
+
+    // PostToolUse — attest with full tool_response, check controls
+    if (event == HookEvent.PostToolUse) {
+        auto toolUseId = extractToolUseId(input);
+        auto toolName = extractToolName(input);
+        // Suffix :post to avoid collision with PreToolUse's INSERT OR IGNORE
+        import sqlite : ZBuf;
+        __gshared ZBuf idBuf;
+        idBuf.reset();
+        if (toolUseId !is null) {
+            idBuf.put(toolUseId);
+            idBuf.put(":post");
+        } else {
+            auto fallback = buildEventId(eventName);
+            idBuf.put(fallback);
+        }
+        auto id = idBuf.slice();
+        auto detail = extractCommand(input);
+        if (detail is null) detail = extractFilePath(input);
+        if (detail is null) detail = eventName;
+
+        // Build response from tool_response fields
+        import sqlite : writeAttestationWithResponse, ZBuf;
+        __gshared ZBuf respBuf;
+        respBuf.reset();
+        bool hasResp = false;
+
+        auto sout = extractStdout(input);
+        if (sout !is null && sout.length > 0) {
+            respBuf.put(sout);
+            hasResp = true;
+        }
+
+        auto serr = extractStderr(input);
+        if (serr !is null && serr.length > 0) {
+            if (hasResp) respBuf.put(" | stderr: ");
+            respBuf.put(serr);
+            hasResp = true;
+        }
+
+        auto respPath = extractResponseFilePath(input);
+        if (respPath !is null && respPath.length > 0) {
+            if (hasResp) respBuf.put(" | ");
+            respBuf.put(respPath);
+            hasResp = true;
+        }
+
+        if (extractBool(input, `"success"`)) {
+            if (hasResp) respBuf.put(" | ");
+            respBuf.put("ok");
+            hasResp = true;
+        }
+
+        if (hasResp) {
+            writeAttestationWithResponse(eventName, cwd, sessionId, id, detail, respBuf.slice());
+        } else {
+            writeAttestation(eventName, cwd, sessionId, id, detail);
+        }
+
+        // After git push in graunde — defer CI check
+        if (detail !is null && hasSegment(detail, "git push") && contains(cwd, "/graunde")) {
+            import sqlite : openDb, writeDeferredMessage, sqlite3_close;
+            auto db = openDb();
+            if (db !is null) {
+                writeDeferredMessage(db, "ci-check", cwd, sessionId,
+                    "Check CI: gh run list --branch $(git branch --show-current) --limit 1", 22);
+                sqlite3_close(db);
+            }
+        }
+
+        return 0;
+    }
+
+    // PreCompact — attest and pass through
+    if (event == HookEvent.PreCompact) {
         auto toolUseId = extractToolUseId(input);
         auto id = toolUseId !is null ? toolUseId : buildEventId(eventName);
         auto detail = extractCommand(input);

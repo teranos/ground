@@ -60,6 +60,37 @@ bool commandMatch(const(char)[] segment, const(char)[] cmd) {
     return segment[cmd.length] == ' ';
 }
 
+// Returns true if any segment in a compound command matches cmd as a prefix.
+bool hasSegment(const(char)[] command, const(char)[] cmd) {
+    size_t start = 0;
+    size_t i = 0;
+
+    while (i <= command.length) {
+        bool isSep = false;
+        size_t skip = 0;
+
+        if (i == command.length) {
+            isSep = true;
+        } else if (command[i] == '|' || command[i] == ';') {
+            isSep = true;
+            skip = 1;
+        } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
+            isSep = true;
+            skip = 2;
+        }
+
+        if (isSep) {
+            auto segment = strip(command[start .. i]);
+            if (segment.length > 0 && commandMatch(segment, cmd))
+                return true;
+            start = i + skip;
+            if (skip > 0) { i += skip; continue; }
+        }
+        i++;
+    }
+    return false;
+}
+
 // Iterates over pipe/chain segments and returns the first matching control.
 // Scopes filter by cwd — empty scope path matches everywhere.
 Match checkCommand(const(char)[] command, const(char)[] cwd) {
@@ -172,6 +203,51 @@ Buf applyOmit(const(Control)* c, const(char)[] segment) {
     buf.put(segment[afterStart .. $]);
 
     return buf;
+}
+
+struct FileMatch {
+    bool matched;
+    const(char)[] decision;
+    // Combined message from all matching controls, built in static buffer
+    const(char)[] msg;
+    // Name of first matching control (for attestation)
+    const(char)[] name;
+}
+
+// Scans file-path controls. Composes all matching controls — concatenates messages,
+// most restrictive decision wins.
+FileMatch checkFilePath(const(char)[] filePath, const(char)[] cwd) {
+    import controls : fileScopes;
+
+    __gshared Buf msgBuf;
+    msgBuf = Buf.init;
+
+    const(char)[] decision;
+    const(char)[] firstName;
+
+    foreach (ref sc; fileScopes) {
+        if (sc.path.length > 0 && !contains(cwd, sc.path))
+            continue;
+        foreach (ref c; sc.controls) {
+            if (c.filepath.value.length > 0 && contains(filePath, c.filepath.value)) {
+                if (firstName.length == 0)
+                    firstName = c.name;
+
+                if (msgBuf.len > 0)
+                    msgBuf.put(" ");
+                msgBuf.put(c.msg.value);
+
+                if (sc.decision == "ask")
+                    decision = "ask";
+                else if (decision.length == 0)
+                    decision = sc.decision;
+            }
+        }
+    }
+
+    if (msgBuf.len > 0)
+        return FileMatch(true, decision, msgBuf.slice(), firstName);
+    return FileMatch(false, "", "", "");
 }
 
 // --- Major Tom's test suite ---
@@ -342,4 +418,12 @@ unittest {
     assert(result.control !is null);
     assert(result.control.name == "branch-checkpoint");
     assert(result.decision == "ask");
+}
+
+unittest {
+    // hasSegment finds "git push" in compound command
+    assert(hasSegment("git add -A && git commit -m \"done\" && git push", "git push"));
+    assert(hasSegment("git push origin main", "git push"));
+    assert(!hasSegment(`git commit -m "run git push later"`, "git push"));
+    assert(hasSegment("echo ok; git push", "git push"));
 }

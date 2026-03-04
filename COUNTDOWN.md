@@ -1,94 +1,4 @@
-# graunde
-
-Ground Control for Claude Code. CLAUDE.md is advisory — graunde is the control.
-
-## Problem
-
-Claude Code ignores CLAUDE.md instructions. You tell it "use `make test`", it runs `go test` without build tags, tests fail, and it starts "fixing" code that was never broken. You tell it "don't use `sed`", it uses `sed` with GNU syntax on macOS. The list never ends.
-
-The only enforcement that works is at the hook level — intercepting events before, during, and after they execute. Not a suggestion. A control.
-
-## How it works
-
-Runs as a Claude Code hook across all events. Reads JSON from stdin, branches on `hook_event_name`. Every event is checked against controls and attested — the complete trail enables the branch story. Two actions for command controls:
-
-- **arg** — add missing arguments after the matched command
-- **omit** — strip unwanted flags from the command
-
-Both silently amend and allow. Unmatched commands pass through (exit 0, no output). Every amendment includes an `additionalContext` message so Claude learns why the command was changed.
-
-Controls are D source, compiled with `-betterC`. No runtime, no GC, no dependencies. The binary is the config.
-
-## Language
-
-D with `-betterC`. Compiled with LDC. Chosen for:
-- No runtime, no GC — 8.7KB stripped binary, ~17ms latency
-- CTFE — controls evaluated at compile time, baked into the binary
-- `unittest` as a language keyword — tests live next to code
-- C interop for stdio without overhead
-
-## Controls
-
-Controls are defined in `source/controls.d`. A control has:
-- `name` — identifier slug
-- `cmd` — command prefix to match
-- `arg` — arguments to insert after the matched command
-- `omit` — flag to strip from the command
-- `msg` — context message sent to Claude via `additionalContext`
-
-Controls are grouped by scope. Each scope has a `path` (where it fires) and a `decision` (`"allow"` or `"ask"`). Multiple scopes can match the same command — amendments and decisions compose.
-
-```d
-static immutable universal = [
-    control("no-skip-hooks", cmd("git"), omit("--no-verify"),
-        msg("Git hooks must not be bypassed, ever..")),
-];
-
-static immutable checkpoints = [
-    control("commit-checkpoint", cmd("git commit"),
-        msg("Commit requires manual approval")),
-];
-
-static immutable qntx = [
-    control("go-test-args", cmd("go test"), arg(`-tags "rustsqlite,qntxwasm" -short`),
-        msg("Build tags and -short are required for go test in QNTX")),
-];
-
-static immutable allScopes = [
-    Scope("", "allow", universal),
-    Scope("", "ask", checkpoints),
-    Scope("/QNTX", "allow", qntx),
-];
-```
-
-Commands are split on `|`, `;`, `&&` — each segment is checked independently.
-
-## Hook protocol
-
-JSON on stdin, JSON on stdout. Every event includes `hook_event_name`, `cwd`, `session_id`. Tool events add `tool_name`, `tool_input`, `tool_use_id`. No match: exit 0, no output. See [reference.md](reference.md) for full payload schemas, exit codes, and response fields.
-
-## Installation
-
-```
-make install
-```
-
-Builds a release binary and copies it to `~/.local/bin/graunde`. Override with `PREFIX=/usr/local make install`.
-
-## Hook registration
-
-In `~/.claude/settings.json`, register graunde for all hook events:
-```json
-"hooks": {
-  "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "PreCompact": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "Stop": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "SessionStart": [{ "hooks": [{ "type": "command", "command": "graunde" }] }]
-}
-```
-
-## Countdown
+# Countdown
 
 ### Ten — core engine ✓
 Stdin JSON parsing, control matching, arg amendment, pipe splitting, unit tests. One control (`go-test-args`) end to end.
@@ -115,7 +25,17 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
 
-**Phase 3 — branch story.** Depends on Count Three. On control match, query all attestations for the branch and include the story in `additionalContext`. The story surfaces what has and hasn't happened — "Rust files edited but clippy hasn't run", "tests passed but no push since." Scoped: each project cares about different observations.
+**Phase 3 — ax controls. ✓** Controls that query the attestation trail via the QNTX ax extension. On Stop, graunde loads the extension, queries attestations for the current branch, and matches against them. Deferred message queue delivers attestation-backed messages on Stop without blocking — CI nudge fires after `git push` with configurable delay (#33). PostToolUse captures full tool response (stdout, stderr, filePath, success). PreToolUse amends `run_in_background` and `timeout`. Msg-only controls emit their `allow`/`ask` decision on every fire, message only on first. `hasSegment` matches commands in compound chains for PostToolUse. Future controls:
+- [x] Clippy control on Stop activates after the first push, matches when .rs files were edited after the last `cargo clippy` run on the current branch.
+- [ ] Stale binary correction on Stop.
+- [ ] Increase signal to noise ratio.
+- [ ] Catch hardcoded URLs in error messages that claim to report runtime values.
+- [ ] Reminder to look at a Nix flake when editing CI that touches said flake.
+- [ ] Version bump awareness — per-package in monorepos, needs to know which packages were touched and their tagging convention.
+- [ ] Catch entity IDs used as subjects — IDs belong in attributes, not subjects.
+- [x] Machine context on SessionStart — compile-time arch detection. Claude already receives Platform and OS Version from the environment.
+- [ ] Direct ego-death when faced with confident claims about niche/untrained topics — trigger grace and humility as the function of control.
+- [ ] Adaptive CI nudge delay (#33) — average of longest recent CI durations plus proportional buffer (d/22 + d/33 + d/44, capped at 2 minutes).
 
 **Phase 4 — QNTX conduit.** Deferred to #2 (`e27dd9e`). CI attestations into graunde's read path.
 
@@ -123,6 +43,7 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse, PreCompact, Stop, SessionStart attested as lifecycle markers — control stubs present but no matching logic yet. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
 
 ### Two — check ignition
+File issues for all unsupported hook events, unimplemented controls, and TODO stubs. Map what exists vs what's missing. Design a Control Glyph for the QNTX Canvas — graunde's visual presence on the workspace. No implementation yet — just the backlog.
 
 ### One — and may God's love
 The binary is the config. Users define controls in D source and compile their own graunde. Self-recompilation: hash controls source at compile time via CTFE, compare at runtime, rebuild on mismatch. Claude edits `controls.d`, next hook invocation detects staleness, rebuilds, new control is live — no manual step. Tag staleness: compare baked-in `git describe` against upstream. Figure out fork ergonomics — how do users customize and stay upstream-compatible.

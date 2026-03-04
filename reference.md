@@ -179,14 +179,29 @@ When graunde matches a control and amends the command:
 
 Graunde exits silently. The command proceeds unchanged.
 
-### Response fields
+### Response fields (top-level)
 
 | Field | Description |
 |-------|-------------|
-| `permissionDecision` | `"allow"` — proceed, no prompt. `"deny"` — cancel the tool call. `"ask"` — show permission prompt. |
-| `permissionDecisionReason` | For allow/ask: shown to user. For deny: shown to Claude as feedback. |
-| `updatedInput` | Replaces the tool's input before execution. For Bash, set `command` to the amended command. |
-| `additionalContext` | Injected into Claude's context as a system reminder. |
+| `continue` | Boolean. For Stop hooks: `true` makes Claude continue instead of stopping. |
+| `suppressOutput` | Boolean. Suppress hook output from display. |
+| `stopReason` | String. Reason for stopping. |
+| `decision` | `"approve"` or `"block"`. |
+| `reason` | String. Explanation for the decision. |
+| `systemMessage` | String. Injected as a system message to Claude. |
+| `permissionDecision` | `"allow"`, `"deny"`, or `"ask"`. |
+
+### Response fields (hookSpecificOutput)
+
+Wrapped in `{"hookSpecificOutput": {...}}`. Only for PreToolUse, UserPromptSubmit, PostToolUse.
+
+| Field | Description |
+|-------|-------------|
+| `hookEventName` | Must match the event: `"PreToolUse"`, `"UserPromptSubmit"`, or `"PostToolUse"`. |
+| `permissionDecision` | PreToolUse only. `"allow"`, `"deny"`, or `"ask"`. |
+| `permissionDecisionReason` | PreToolUse only. Shown to user (allow/ask) or Claude (deny). |
+| `updatedInput` | PreToolUse only. Replaces the tool's input before execution. |
+| `additionalContext` | UserPromptSubmit (required), PostToolUse (optional). Injected into Claude's context. |
 
 ## Transcript
 

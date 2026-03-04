@@ -7,5 +7,6 @@
     "stringImportPaths": ["."],
     "dflags": ["-betterC"],
     "libs": ["sqlite3"],
+    "lflags": ["-L/usr/local/opt/sqlite/lib"],
     "preBuildCommands": ["git describe --tags --always > .version"]
 }
