@@ -270,8 +270,8 @@ extern (C) int main() {
             writeAttestation(eventName, cwd, sessionId, id, detail);
         }
 
-        // After git push in graunde — defer CI check (once per session)
-        if (detail !is null && indexOf(detail, "git push") == 0 && contains(cwd, "/graunde")) {
+        // After git push in graunde — defer CI check
+        if (detail !is null && contains(detail, "git push") && contains(cwd, "/graunde")) {
             import sqlite : openDb, writeDeferredMessage, sqlite3_close;
             auto db = openDb();
             if (db !is null) {
