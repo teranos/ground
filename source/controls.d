@@ -5,7 +5,7 @@ enum HookEvent {
     UserPromptSubmit,   // #6: keyword reminders
     PreToolUse,
     PermissionRequest,  // TODO(#7)
-    PostToolUse,        // TODO(#8): attested, no controls yet
+    PostToolUse,        // #8: attested, response captured, CI nudge on git push. TODO: #25 tool-name matching, #26 corrective feedback, #27 MCP output
     PostToolUseFailure, // TODO(#9)
     Notification,       // TODO(#10)
     SubagentStart,      // TODO(#11)
@@ -49,6 +49,14 @@ struct Msg {
     string value;
 }
 
+struct Bg {
+    bool value;
+}
+
+struct Tmo {
+    int value; // milliseconds
+}
+
 Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
@@ -56,6 +64,8 @@ Trigger stop() { return Trigger("Stop"); }
 Ax ax(string s) { return Ax(s); }
 FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
+Bg bg() { return Bg(true); }
+Tmo tmo(int ms) { return Tmo(ms); }
 
 struct Control {
     string name;
@@ -66,31 +76,43 @@ struct Control {
     Ax ax;
     FilePath filepath;
     Msg msg;
+    Bg bg;
+    Tmo tmo;
 }
 
 // Arg amendment control
 Control control(string name, Cmd c, Arg a, Msg m) {
-    return Control(name, c, a, Omit(""), Trigger(""), Ax(""), FilePath(""), m);
+    return Control(name, c, a, Omit(""), Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // Omit amendment control
 Control control(string name, Cmd c, Omit o, Msg m) {
-    return Control(name, c, Arg(""), o, Trigger(""), Ax(""), FilePath(""), m);
+    return Control(name, c, Arg(""), o, Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // Msg-only control — matches but doesn't amend.
 Control control(string name, Cmd c, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m);
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
+}
+
+// Msg-only control with background execution.
+Control control(string name, Cmd c, Bg b, Msg m) {
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, b, Tmo(0));
+}
+
+// Msg-only control with background execution and timeout.
+Control control(string name, Cmd c, Bg b, Tmo t, Msg m) {
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, b, t);
 }
 
 // Ax control — queries attestation trail on a triggered event.
 Control control(string name, Trigger t, Ax a, Msg m) {
-    return Control(name, Cmd(""), Arg(""), Omit(""), t, a, FilePath(""), m);
+    return Control(name, Cmd(""), Arg(""), Omit(""), t, a, FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // File-path control — matches when file_path contains the pattern.
 Control control(string name, FilePath fp, Msg m) {
-    return Control(name, Cmd(""), Arg(""), Omit(""), Trigger(""), Ax(""), fp, m);
+    return Control(name, Cmd(""), Arg(""), Omit(""), Trigger(""), Ax(""), fp, m, Bg(false), Tmo(0));
 }
 
 // Groups controls by scope and decision.
@@ -109,6 +131,8 @@ static immutable universal = [
         msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
     control("pull-checkpoint", cmd("git pull"),
         msg("Resolve conflicts if present before continuing")),
+    control("sync-main", cmd("git checkout main && git pull"),
+        msg("Summarize what happened upstream since the last pull.")),
 ];
 
 static immutable checkpoints = [
@@ -141,7 +165,7 @@ static immutable qntxFiles = [
 ];
 
 static immutable graunde = [
-    control("install-after-test", cmd("dub test"),
+    control("install-after-test", cmd("dub test"), bg(),
         msg("If tests pass, run make install to update the live hook binary.")),
 ];
 

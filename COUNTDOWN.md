@@ -25,7 +25,7 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
 
-**Phase 3 — ax controls. ✓** Controls that query the attestation trail via the QNTX ax extension. On Stop, graunde loads the extension, queries attestations for the current branch, and matches against them. Future controls:
+**Phase 3 — ax controls. ✓** Controls that query the attestation trail via the QNTX ax extension. On Stop, graunde loads the extension, queries attestations for the current branch, and matches against them. Build: 4.0s with sqlite link, 3.6s without — linking adds ~0.4s, compilation is the bottleneck. Future controls:
 - [x] Clippy control on Stop activates after the first push, matches when .rs files were edited after the last `cargo clippy` run on the current branch.
 - [ ] Stale binary correction on Stop.
 - [ ] Increase signal to noise ratio.
@@ -42,6 +42,7 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse, PreCompact, Stop, SessionStart attested as lifecycle markers — control stubs present but no matching logic yet. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
 
 ### Two — check ignition
+File issues for all unsupported hook events, unimplemented controls, and TODO stubs. Map what exists vs what's missing. Design a Control Glyph for the QNTX Canvas — graunde's visual presence on the workspace. No implementation yet — just the backlog.
 
 ### One — and may God's love
 The binary is the config. Users define controls in D source and compile their own graunde. Self-recompilation: hash controls source at compile time via CTFE, compare at runtime, rebuild on mismatch. Claude edits `controls.d`, next hook invocation detects staleness, rebuilds, new control is live — no manual step. Tag staleness: compare baked-in `git describe` against upstream. Figure out fork ergonomics — how do users customize and stay upstream-compatible.
