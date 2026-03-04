@@ -534,11 +534,12 @@ void writeDeferredMessage(
 }
 
 // Read a pending deferred message for this session that's ready to deliver.
+// Finds the newest deferred message that has no delivered attestation newer than it.
 DeferredMsg readDeferredMessage(sqlite3* db, const(char)[] sessionId) {
     auto now = cast(long) time(null);
 
-    // Find deferred attestations for this session
-    enum sql = "SELECT predicates, attributes FROM attestations WHERE predicates LIKE '%deferred:%' AND contexts LIKE ?1 ORDER BY timestamp ASC LIMIT 5\0";
+    // Find deferred attestations for this session, newest first
+    enum sql = "SELECT predicates, attributes, timestamp FROM attestations WHERE predicates LIKE '%deferred:%' AND contexts LIKE ?1 ORDER BY timestamp DESC LIMIT 5\0";
 
     __gshared ZBuf ctx;
     ctx.reset();
@@ -558,6 +559,7 @@ DeferredMsg readDeferredMessage(sqlite3* db, const(char)[] sessionId) {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         auto predText = sqlite3_column_text(stmt, 0);
         auto attrText = sqlite3_column_text(stmt, 1);
+        auto tsText = sqlite3_column_text(stmt, 2);
         if (predText is null || attrText is null) continue;
 
         // Extract name from predicates: ["deferred:ci-check"] -> ci-check
@@ -574,12 +576,28 @@ DeferredMsg readDeferredMessage(sqlite3* db, const(char)[] sessionId) {
         if (nameEnd == nameStart) continue;
         auto name = preds[nameStart .. nameEnd];
 
-        // Check if already delivered
-        __gshared ZBuf delPred;
-        delPred.reset();
-        delPred.put("delivered:");
-        delPred.put(name);
-        if (attestationExists(db, delPred.slice(), sessionId)) continue;
+        // Check if a delivered attestation exists that's newer than this deferred
+        // Query: any delivered:<name> with timestamp >= this deferred's timestamp
+        if (tsText !is null) {
+            size_t tsLen = 0;
+            while (tsText[tsLen] != 0) tsLen++;
+
+            enum delSql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 AND timestamp >= ?3 LIMIT 1\0";
+            sqlite3_stmt* delStmt;
+            if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) == SQLITE_OK) {
+                __gshared ZBuf delPred;
+                delPred.reset();
+                delPred.put(`%delivered:`);
+                delPred.put(name);
+                delPred.put(`%`);
+                sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
+                sqlite3_bind_text(delStmt, 2, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+                sqlite3_bind_text(delStmt, 3, tsText, cast(int) tsLen, SQLITE_TRANSIENT);
+                bool delivered = sqlite3_step(delStmt) == SQLITE_ROW;
+                sqlite3_finalize(delStmt);
+                if (delivered) continue;
+            }
+        }
 
         // Extract "after" from attributes
         size_t attrLen = 0;

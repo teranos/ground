@@ -13,6 +13,13 @@ void writeStopResponse(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
+void writeStopBlock(const(char)[] reason) {
+    fputs(`{"decision":"block","reason":"`, stdout);
+    writeJsonString(reason);
+    fputs(`"}`, stdout);
+    fputs("\n", stdout);
+}
+
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     auto hookActive = extractBool(input, `"stop_hook_active"`);
     auto toolUseId = extractToolUseId(input);
@@ -41,6 +48,18 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 buildEventId(axResult.control.name), axResult.control.name);
             sqlite3_close(db);
             writeStopResponse(axResult.reason);
+            return 0;
+        }
+    }
+
+    // Check deferred messages — deliver if ready
+    {
+        import sqlite : readDeferredMessage, markDelivered, DeferredMsg;
+        auto deferred = readDeferredMessage(db, sessionId);
+        if (deferred.message !is null) {
+            markDelivered(db, deferred.name, cwd, sessionId);
+            sqlite3_close(db);
+            writeStopBlock(deferred.message);
             return 0;
         }
     }

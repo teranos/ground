@@ -113,20 +113,6 @@ extern (C) int main() {
     if (!parseHookEvent(eventName, event)) return 0;
 
     if (event == HookEvent.PreToolUse) {
-        // Check deferred messages before any control matching
-        {
-            import sqlite : openDb, readDeferredMessage, markDelivered, sqlite3_close, DeferredMsg;
-            auto ddb = openDb();
-            if (ddb !is null) {
-                auto deferred = readDeferredMessage(ddb, sessionId);
-                if (deferred.message !is null) {
-                    markDelivered(ddb, deferred.name, cwd, sessionId);
-                    writeContextResponse(deferred.message, "allow");
-                }
-                sqlite3_close(ddb);
-            }
-        }
-
         auto toolName = extractToolName(input);
         auto toolUseId = extractToolUseId(input);
         if (toolUseId is null) toolUseId = "unknown";
@@ -286,17 +272,11 @@ extern (C) int main() {
 
         // After git push in graunde — defer CI check (once per session)
         if (detail !is null && indexOf(detail, "git push") == 0 && contains(cwd, "/graunde")) {
-            import sqlite : openDb, attestationExists, writeAttestationTo, writeDeferredMessage, sqlite3_close;
+            import sqlite : openDb, writeDeferredMessage, sqlite3_close;
             auto db = openDb();
-            bool skip = false;
             if (db !is null) {
-                skip = attestationExists(db, "ci-nudge", sessionId);
-                if (!skip) {
-                    writeAttestationTo(db, "ci-nudge", cwd, sessionId,
-                        buildEventId("ci-nudge"), "ci-nudge");
-                    writeDeferredMessage(db, "ci-check", cwd, sessionId,
-                        "Check CI: gh run list --branch $(git branch --show-current) --limit 1", 22);
-                }
+                writeDeferredMessage(db, "ci-check", cwd, sessionId,
+                    "Check CI: gh run list --branch $(git branch --show-current) --limit 1", 22);
                 sqlite3_close(db);
             }
         }
