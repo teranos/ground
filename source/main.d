@@ -1,6 +1,6 @@
 module main;
 
-import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, Buf;
+import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, extractStdout, extractStderr, extractResponseFilePath, extractBool, buildEventId, writeJsonString, fputs2;
 import controls : HookEvent;
 import sqlite : writeAttestation;
@@ -133,6 +133,9 @@ extern (C) int main() {
                     if (db !is null) {
                         if (attestationExists(db, result.control.name, sessionId)) {
                             sqlite3_close(db);
+                            // Still emit decision (e.g. "allow") — just skip the message
+                            writeResponse(command, "", result.decision,
+                                result.control.bg.value, result.control.tmo.value);
                             return 0;
                         }
                         writeAttestationTo(db, result.control.name, cwd, sessionId, toolUseId, command);
@@ -271,7 +274,7 @@ extern (C) int main() {
         }
 
         // After git push in graunde — defer CI check
-        if (detail !is null && contains(detail, "git push") && contains(cwd, "/graunde")) {
+        if (detail !is null && hasSegment(detail, "git push") && contains(cwd, "/graunde")) {
             import sqlite : openDb, writeDeferredMessage, sqlite3_close;
             auto db = openDb();
             if (db !is null) {

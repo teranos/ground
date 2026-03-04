@@ -60,6 +60,37 @@ bool commandMatch(const(char)[] segment, const(char)[] cmd) {
     return segment[cmd.length] == ' ';
 }
 
+// Returns true if any segment in a compound command matches cmd as a prefix.
+bool hasSegment(const(char)[] command, const(char)[] cmd) {
+    size_t start = 0;
+    size_t i = 0;
+
+    while (i <= command.length) {
+        bool isSep = false;
+        size_t skip = 0;
+
+        if (i == command.length) {
+            isSep = true;
+        } else if (command[i] == '|' || command[i] == ';') {
+            isSep = true;
+            skip = 1;
+        } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
+            isSep = true;
+            skip = 2;
+        }
+
+        if (isSep) {
+            auto segment = strip(command[start .. i]);
+            if (segment.length > 0 && commandMatch(segment, cmd))
+                return true;
+            start = i + skip;
+            if (skip > 0) { i += skip; continue; }
+        }
+        i++;
+    }
+    return false;
+}
+
 // Iterates over pipe/chain segments and returns the first matching control.
 // Scopes filter by cwd — empty scope path matches everywhere.
 Match checkCommand(const(char)[] command, const(char)[] cwd) {
@@ -387,4 +418,12 @@ unittest {
     assert(result.control !is null);
     assert(result.control.name == "branch-checkpoint");
     assert(result.decision == "ask");
+}
+
+unittest {
+    // hasSegment finds "git push" in compound command
+    assert(hasSegment("git add -A && git commit -m \"done\" && git push", "git push"));
+    assert(hasSegment("git push origin main", "git push"));
+    assert(!hasSegment(`git commit -m "run git push later"`, "git push"));
+    assert(hasSegment("echo ok; git push", "git push"));
 }
