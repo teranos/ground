@@ -1,42 +1,24 @@
-# Claude Code Hooks Configuration
+# Hooks Beyond Graunde
 
-This document describes the Claude Code hooks used to integrate Graunde into
-Claude Code sessions. The configuration lives in `~/.claude/settings.json`.
-
-## Overview
-
-Graunde is invoked as a hook on every major Claude Code lifecycle event.
-The `GRAUNDE_DB` env var points the binary at the local attestation database
-so it can record and evaluate controls in real time.
-
-```
-GRAUNDE_DB=/home/user/graunde/.qntx/graunde.db graunde
-```
-
-## Hook Events
-
-| Event | Matcher | Purpose |
-|---|---|---|
-| **PreToolUse** | `""` (all tools) | Evaluate controls *before* a tool executes. Can block tool use. |
-| **PostToolUse** | `""` (all tools) | Record attestations *after* a tool completes. |
-| **PreCompact** | — | Capture state before context compaction. |
-| **Stop** | — | Final attestation pass when the agent stops. |
-| **Stop** | `""` (all) | Run `stop-hook-git-check.sh` (see below). |
-| **SessionStart** | — | Bootstrap attestation DB and evaluate session-start controls. |
-| **UserPromptSubmit** | — | Record/evaluate on each user prompt submission. |
+Graunde handles controls and attestations across all hook events (see
+[README.md](README.md) for registration, [reference.md](reference.md) for
+payload schemas). This document covers the **additional** hooks and
+environment context that sit alongside graunde.
 
 ## stop-hook-git-check.sh
 
-A separate Stop hook that ensures no work is lost when a session ends.
+A standalone Stop hook (separate from graunde) that ensures no work is lost
+when a session ends. Registered as a second Stop entry in `~/.claude/settings.json`.
+
 It checks for:
 
 1. **Uncommitted changes** — staged or unstaged diffs.
 2. **Untracked files** — new files not yet added to git.
 3. **Unpushed commits** — local commits not yet pushed to the remote branch.
 
-If any of these conditions are true, it exits with code 2 and prints
-a message asking the agent to commit and push. This blocks the session
-from ending cleanly until all work is persisted to the remote.
+If any condition is true, it exits with code 2 and prints a message asking
+the agent to commit and push. This blocks the session from ending cleanly
+until all work is persisted to the remote.
 
 ### Recursion guard
 
@@ -100,7 +82,7 @@ exit 0
 
 ## Environment Detection
 
-Useful env vars for scoping controls to Claude Code Web:
+Env vars available in Claude Code sessions, useful for scoping controls:
 
 | Env Var | Example | Notes |
 |---|---|---|
