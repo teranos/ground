@@ -415,18 +415,6 @@ void writeAttestationTo(
     sqlite3_finalize(stmt);
 }
 
-void writeAttestation(
-    const(char)[] predicate,
-    const(char)[] cwd,
-    const(char)[] sessionId,
-    const(char)[] toolUseId,
-    const(char)[] command
-) {
-    auto db = openDb();
-    if (db is null) return;
-    writeAttestationTo(db, predicate, cwd, sessionId, toolUseId, command);
-    sqlite3_close(db);
-}
 
 
 // --- Deferred message queue ---

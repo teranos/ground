@@ -3,7 +3,6 @@ module main;
 import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, writeJsonString, fputs2;
 import controls : HookEvent;
-import sqlite : writeAttestation;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite;
 import core.stdc.stdlib : exit;
 import core.sys.posix.unistd : isatty;
@@ -156,8 +155,6 @@ extern (C) int main() {
                     return 0;
                 }
 
-                writeAttestation(result.control.name, cwd, sessionId, toolUseId, command);
-
                 Buf amended;
                 if (result.control.omit.value.length > 0)
                     amended = applyOmit(result.control, result.segment);
@@ -179,24 +176,15 @@ extern (C) int main() {
                 return 0;
             }
 
-            // No control match — still attest the tool call
-            writeAttestation(toolName !is null ? toolName : "Bash", cwd, sessionId, toolUseId, command);
             return 0;
         }
 
-        // Non-Bash tool (Edit/Write/Read/etc.) — check file-path controls, then attest
+        // Non-Bash tool (Edit/Write/Read/etc.) — check file-path controls
         // TODO(#32): updatedInput for non-Bash tools (run_in_background, timeout, new_description)
         auto filePath = extractFilePath(input);
-        writeAttestation(
-            toolName !is null ? toolName : "unknown",
-            cwd, sessionId, toolUseId,
-            filePath !is null ? filePath : ""
-        );
-
         if (filePath !is null) {
             auto fileResult = checkFilePath(filePath, cwd);
             if (fileResult.matched) {
-                writeAttestation(fileResult.name, cwd, sessionId, toolUseId, filePath);
                 writeContextResponse(fileResult.msg, fileResult.decision);
                 return 0;
             }
