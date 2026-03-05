@@ -648,3 +648,68 @@ void markDelivered(sqlite3* db, const(char)[] name, const(char)[] cwd, const(cha
     writeAttestationTo(db, predBuf.slice(), cwd, sessionId, evId, name);
 }
 
+// Average of the top 3 longest recent CI durations for a branch (seconds).
+// Returns 0 if no data or gh fails.
+int getCIAvgDuration(const(char)[] cwd, const(char)[] branch) {
+    __gshared ZBuf ghCmd;
+    ghCmd.reset();
+    ghCmd.put("cd ");
+    ghCmd.put(cwd);
+    ghCmd.put(" && gh run list --branch ");
+    ghCmd.put(branch);
+    ghCmd.put(` --limit 10 --json startedAt,updatedAt --jq '[.[] | (((.updatedAt | fromdateiso8601) - (.startedAt | fromdateiso8601)))] | sort | reverse | .[0:3] | if length == 0 then 0 else (add / length | floor) end'`);
+
+    auto pipe = popen(ghCmd.ptr(), "r");
+    if (pipe is null) return 0;
+
+    __gshared char[32] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+
+    if (n == 0) return 0;
+
+    // Parse integer from output
+    int result = 0;
+    foreach (i; 0 .. n) {
+        if (outBuf[i] >= '0' && outBuf[i] <= '9')
+            result = result * 10 + (outBuf[i] - '0');
+        else
+            break;
+    }
+    return result;
+}
+
+// Compute deferred delay: avg duration + proportional buffer (d/22 + d/33 + d/44), capped at 120s.
+// Minimum delay: 15 seconds when no CI data.
+int computeDelay(int avgDuration) {
+    if (avgDuration <= 0) return 15;
+    int buffer = avgDuration / 22 + avgDuration / 33 + avgDuration / 44;
+    if (buffer > 120) buffer = 120;
+    return avgDuration + buffer;
+}
+
+// Query live CI status for a branch. Returns a human-readable summary.
+// Runs gh run list at delivery time so the message reflects actual state.
+const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
+    __gshared ZBuf ghCmd;
+    ghCmd.reset();
+    ghCmd.put("cd ");
+    ghCmd.put(cwd);
+    ghCmd.put(" && gh run list --branch ");
+    ghCmd.put(branch);
+    ghCmd.put(` --limit 1 --json conclusion,name,event --jq '.[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))"'`);
+
+    auto pipe = popen(ghCmd.ptr(), "r");
+    if (pipe is null) return null;
+
+    __gshared char[512] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+
+    if (n == 0) return null;
+    // Trim trailing newline
+    if (n > 0 && outBuf[n - 1] == '\n') n--;
+    if (n == 0) return null;
+    return outBuf[0 .. n];
+}
+

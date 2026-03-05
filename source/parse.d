@@ -95,6 +95,11 @@ const(char)[] extractStderr(const(char)[] json) {
     return extractJsonString(json, `"stderr"`, &buf[0], buf.length);
 }
 
+const(char)[] extractLastAssistantMessage(const(char)[] json) {
+    __gshared char[8192] buf = 0;
+    return extractJsonString(json, `"last_assistant_message"`, &buf[0], buf.length);
+}
+
 // tool_response.filePath (camelCase, distinct from tool_input.file_path)
 const(char)[] extractResponseFilePath(const(char)[] json) {
     __gshared char[4096] buf = 0;
