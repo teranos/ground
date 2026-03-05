@@ -6,30 +6,37 @@ import core.stdc.time : time, time_t, tm, gmtime;
 
 // --- sqlite3 C bindings (minimal) ---
 
-struct sqlite3;
-struct sqlite3_stmt;
+version (NoSQLite) {
+    struct sqlite3;
+    struct sqlite3_stmt;
+    void sqlite3_close(sqlite3*) {}
+} else {
+    struct sqlite3;
+    struct sqlite3_stmt;
 
-enum SQLITE_OK = 0;
-enum SQLITE_ROW = 100;
-enum SQLITE_DONE = 101;
-enum SQLITE_TRANSIENT = cast(void function(void*)) -1;
+    enum SQLITE_OK = 0;
+    enum SQLITE_ROW = 100;
+    enum SQLITE_DONE = 101;
+    enum SQLITE_TRANSIENT = cast(void function(void*)) -1;
 
-extern (C) {
-    int sqlite3_open(const(char)* filename, sqlite3** ppDb);
-    int sqlite3_close(sqlite3* db);
-    int sqlite3_exec(sqlite3* db, const(char)* sql, void* callback, void* arg, char** errmsg);
-    int sqlite3_prepare_v2(sqlite3* db, const(char)* sql, int nByte, sqlite3_stmt** ppStmt, const(char*)* pzTail);
-    int sqlite3_bind_text(sqlite3_stmt* stmt, int idx, const(char)* text, int n, void function(void*) destructor);
-    int sqlite3_step(sqlite3_stmt* stmt);
-    int sqlite3_finalize(sqlite3_stmt* stmt);
-    int sqlite3_enable_load_extension(sqlite3* db, int onoff);
-    int sqlite3_load_extension(sqlite3* db, const(char)* file, const(char)* proc, char** errmsg);
-    const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
+    extern (C) {
+        int sqlite3_open(const(char)* filename, sqlite3** ppDb);
+        int sqlite3_close(sqlite3* db);
+        int sqlite3_exec(sqlite3* db, const(char)* sql, void* callback, void* arg, char** errmsg);
+        int sqlite3_prepare_v2(sqlite3* db, const(char)* sql, int nByte, sqlite3_stmt** ppStmt, const(char*)* pzTail);
+        int sqlite3_bind_text(sqlite3_stmt* stmt, int idx, const(char)* text, int n, void function(void*) destructor);
+        int sqlite3_step(sqlite3_stmt* stmt);
+        int sqlite3_finalize(sqlite3_stmt* stmt);
+        int sqlite3_enable_load_extension(sqlite3* db, int onoff);
+        int sqlite3_load_extension(sqlite3* db, const(char)* file, const(char)* proc, char** errmsg);
+        const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
+    }
 }
 
 extern (C) {
     FILE* popen(const(char)* command, const(char)* type);
     int pclose(FILE* stream);
+    const(char)* getenv(const(char)* name);
 }
 
 // --- Null-terminated buffer ---
@@ -65,88 +72,110 @@ struct ZBuf {
     }
 }
 
-import controls : DB_PATH, EXT_PATH;
+import controls : DB_PATH_DEFAULT, EXT_PATH_DEFAULT;
+
+const(char)* dbPath() {
+    auto env = getenv("GRAUNDE_DB\0".ptr);
+    return env !is null ? env : DB_PATH_DEFAULT.ptr;
+}
+
+const(char)* extPath() {
+    auto env = getenv("GRAUNDE_EXT\0".ptr);
+    return env !is null ? env : EXT_PATH_DEFAULT.ptr;
+}
 
 // --- DB lifecycle ---
 
 sqlite3* openDb() {
-    sqlite3* db;
-    if (sqlite3_open(DB_PATH.ptr, &db) != SQLITE_OK) {
-        if (db !is null) sqlite3_close(db);
-        return null;
-    }
+    version (NoSQLite) return null;
+    else {
+        sqlite3* db;
+        if (sqlite3_open(dbPath(), &db) != SQLITE_OK) {
+            if (db !is null) sqlite3_close(db);
+            return null;
+        }
 
-    if (sqlite3_exec(db, "SELECT 1 FROM attestations LIMIT 0\0".ptr, null, null, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return null;
+        if (sqlite3_exec(db, "SELECT 1 FROM attestations LIMIT 0\0".ptr, null, null, null) != SQLITE_OK) {
+            sqlite3_close(db);
+            return null;
+        }
+        return db;
     }
-    return db;
 }
 
 // Check if an attestation with a given predicate exists for a session.
 bool attestationExists(sqlite3* db, const(char)[] predicate, const(char)[] sessionId) {
-    __gshared ZBuf ctx;
-    ctx.reset();
-    ctx.put("%session:");
-    ctx.put(sessionId);
-    ctx.put("%");
+    version (NoSQLite) return false;
+    else {
+        __gshared ZBuf ctx;
+        ctx.reset();
+        ctx.put("%session:");
+        ctx.put(sessionId);
+        ctx.put("%");
 
-    enum sql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 LIMIT 1\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return false;
+        enum sql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 LIMIT 1\0";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+            return false;
 
-    __gshared ZBuf pred;
-    pred.reset();
-    pred.put("%");
-    pred.put(predicate);
-    pred.put("%");
+        __gshared ZBuf pred;
+        pred.reset();
+        pred.put("%");
+        pred.put(predicate);
+        pred.put("%");
 
-    sqlite3_bind_text(stmt, 1, pred.ptr(), cast(int) pred.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 1, pred.ptr(), cast(int) pred.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
 
-    bool found = sqlite3_step(stmt) == SQLITE_ROW;
-    sqlite3_finalize(stmt);
-    return found;
+        bool found = sqlite3_step(stmt) == SQLITE_ROW;
+        sqlite3_finalize(stmt);
+        return found;
+    }
 }
 
 bool loadAxExtension(sqlite3* db) {
-    if (sqlite3_enable_load_extension(db, 1) != SQLITE_OK)
-        return false;
-    char* errmsg;
-    if (sqlite3_load_extension(db, EXT_PATH.ptr, "sqlite3_qntxax_init\0".ptr, &errmsg) != SQLITE_OK)
-        return false;
-    return true;
+    version (NoSQLite) return false;
+    else {
+        if (sqlite3_enable_load_extension(db, 1) != SQLITE_OK)
+            return false;
+        char* errmsg;
+        if (sqlite3_load_extension(db, extPath(), "sqlite3_qntxax_init\0".ptr, &errmsg) != SQLITE_OK)
+            return false;
+        return true;
+    }
 }
 
 const(char)[] axQuery(sqlite3* db, const(char)* filter, int filterLen) {
-    __gshared char[16384] resultBuf = 0;
+    version (NoSQLite) return null;
+    else {
+        __gshared char[16384] resultBuf = 0;
 
-    enum sql = "SELECT ax_query(?1)\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return null;
-    sqlite3_bind_text(stmt, 1, filter, filterLen, SQLITE_TRANSIENT);
+        enum sql = "SELECT ax_query(?1)\0";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+            return null;
+        sqlite3_bind_text(stmt, 1, filter, filterLen, SQLITE_TRANSIENT);
 
-    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        if (sqlite3_step(stmt) != SQLITE_ROW) {
+            sqlite3_finalize(stmt);
+            return null;
+        }
+
+        auto text = sqlite3_column_text(stmt, 0);
+        if (text is null) {
+            sqlite3_finalize(stmt);
+            return null;
+        }
+
+        size_t len = 0;
+        while (text[len] != 0 && len < resultBuf.length)
+            len++;
+        foreach (i; 0 .. len)
+            resultBuf[i] = text[i];
+
         sqlite3_finalize(stmt);
-        return null;
+        return resultBuf[0 .. len];
     }
-
-    auto text = sqlite3_column_text(stmt, 0);
-    if (text is null) {
-        sqlite3_finalize(stmt);
-        return null;
-    }
-
-    size_t len = 0;
-    while (text[len] != 0 && len < resultBuf.length)
-        len++;
-    foreach (i; 0 .. len)
-        resultBuf[i] = text[i];
-
-    sqlite3_finalize(stmt);
-    return resultBuf[0 .. len];
 }
 
 // --- Branch name ---
@@ -334,54 +363,56 @@ void writeAttestationTo(
     const(char)[] toolUseId,
     const(char)[] command
 ) {
-    auto branch = getBranch(cwd);
-    auto ts = formatTimestamp();
+    version (NoSQLite) {} else {
+        auto branch = getBranch(cwd);
+        auto ts = formatTimestamp();
 
-    __gshared ZBuf subjects;
-    __gshared ZBuf predicates;
-    __gshared ZBuf contexts;
-    __gshared ZBuf actors;
-    __gshared ZBuf source;
-    __gshared ZBuf attributes;
-    __gshared ZBuf idBuf;
+        __gshared ZBuf subjects;
+        __gshared ZBuf predicates;
+        __gshared ZBuf contexts;
+        __gshared ZBuf actors;
+        __gshared ZBuf source;
+        __gshared ZBuf attributes;
+        __gshared ZBuf idBuf;
 
-    jsonArray1(subjects, branch);
-    jsonArray1(predicates, predicate);
+        jsonArray1(subjects, branch);
+        jsonArray1(predicates, predicate);
 
-    // contexts: ["session:<sessionId>"]
-    contexts.reset();
-    contexts.put(`["session:`);
-    contexts.put(sessionId);
-    contexts.put(`"]`);
+        // contexts: ["session:<sessionId>"]
+        contexts.reset();
+        contexts.put(`["session:`);
+        contexts.put(sessionId);
+        contexts.put(`"]`);
 
-    jsonArray1(actors, "graunde");
+        jsonArray1(actors, "graunde");
 
-    source.reset();
-    source.put("graunde ");
-    source.put(versionString());
+        source.reset();
+        source.put("graunde ");
+        source.put(versionString());
 
-    jsonAttributes(attributes, predicate, command);
+        jsonAttributes(attributes, predicate, command);
 
-    // id = tool_use_id
-    idBuf.reset();
-    idBuf.put(toolUseId);
+        // id = tool_use_id
+        idBuf.reset();
+        idBuf.put(toolUseId);
 
-    enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+        enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return;
-    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, attributes.ptr(), cast(int) attributes.len, SQLITE_TRANSIENT);
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+            return;
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attributes.ptr(), cast(int) attributes.len, SQLITE_TRANSIENT);
 
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
 }
 
 void writeAttestation(
@@ -405,58 +436,60 @@ void writeAttestationWithResponse(
     const(char)[] command,
     const(char)[] response
 ) {
-    auto db = openDb();
-    if (db is null) return;
+    version (NoSQLite) {} else {
+        auto db = openDb();
+        if (db is null) return;
 
-    auto branch = getBranch(cwd);
-    auto ts = formatTimestamp();
+        auto branch = getBranch(cwd);
+        auto ts = formatTimestamp();
 
-    __gshared ZBuf subjects;
-    __gshared ZBuf predicates;
-    __gshared ZBuf contexts;
-    __gshared ZBuf actors;
-    __gshared ZBuf source;
-    __gshared ZBuf attribs;
-    __gshared ZBuf idBuf;
+        __gshared ZBuf subjects;
+        __gshared ZBuf predicates;
+        __gshared ZBuf contexts;
+        __gshared ZBuf actors;
+        __gshared ZBuf source;
+        __gshared ZBuf attribs;
+        __gshared ZBuf idBuf;
 
-    jsonArray1(subjects, branch);
-    jsonArray1(predicates, predicate);
+        jsonArray1(subjects, branch);
+        jsonArray1(predicates, predicate);
 
-    contexts.reset();
-    contexts.put(`["session:`);
-    contexts.put(sessionId);
-    contexts.put(`"]`);
+        contexts.reset();
+        contexts.put(`["session:`);
+        contexts.put(sessionId);
+        contexts.put(`"]`);
 
-    jsonArray1(actors, "graunde");
+        jsonArray1(actors, "graunde");
 
-    source.reset();
-    source.put("graunde ");
-    source.put(versionString());
+        source.reset();
+        source.put("graunde ");
+        source.put(versionString());
 
-    jsonAttributes(attribs, predicate, command, response);
+        jsonAttributes(attribs, predicate, command, response);
 
-    idBuf.reset();
-    idBuf.put(toolUseId);
+        idBuf.reset();
+        idBuf.put(toolUseId);
 
-    enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+        enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+            sqlite3_close(db);
+            return;
+        }
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attribs.ptr(), cast(int) attribs.len, SQLITE_TRANSIENT);
+
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
         sqlite3_close(db);
-        return;
     }
-    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, attribs.ptr(), cast(int) attribs.len, SQLITE_TRANSIENT);
-
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    sqlite3_close(db);
 }
 
 // --- Deferred message queue ---
@@ -475,165 +508,170 @@ void writeDeferredMessage(
     const(char)[] message,
     int delaySec
 ) {
-    auto afterUnix = cast(long) time(null) + delaySec;
+    version (NoSQLite) {} else {
+        auto afterUnix = cast(long) time(null) + delaySec;
 
-    __gshared ZBuf predBuf;
-    predBuf.reset();
-    predBuf.put("deferred:");
-    predBuf.put(name);
+        __gshared ZBuf predBuf;
+        predBuf.reset();
+        predBuf.put("deferred:");
+        predBuf.put(name);
 
-    __gshared ZBuf attribs;
-    jsonAttributesDeferred(attribs, predBuf.slice(), message, afterUnix);
+        __gshared ZBuf attribs;
+        jsonAttributesDeferred(attribs, predBuf.slice(), message, afterUnix);
 
-    auto branch = getBranch(cwd);
-    auto ts = formatTimestamp();
+        auto branch = getBranch(cwd);
+        auto ts = formatTimestamp();
 
-    __gshared ZBuf subjects;
-    __gshared ZBuf predicates;
-    __gshared ZBuf contexts;
-    __gshared ZBuf actors;
-    __gshared ZBuf source;
-    __gshared ZBuf idBuf;
+        __gshared ZBuf subjects;
+        __gshared ZBuf predicates;
+        __gshared ZBuf contexts;
+        __gshared ZBuf actors;
+        __gshared ZBuf source;
+        __gshared ZBuf idBuf;
 
-    jsonArray1(subjects, branch);
-    jsonArray1(predicates, predBuf.slice());
+        jsonArray1(subjects, branch);
+        jsonArray1(predicates, predBuf.slice());
 
-    contexts.reset();
-    contexts.put(`["session:`);
-    contexts.put(sessionId);
-    contexts.put(`"]`);
+        contexts.reset();
+        contexts.put(`["session:`);
+        contexts.put(sessionId);
+        contexts.put(`"]`);
 
-    jsonArray1(actors, "graunde");
+        jsonArray1(actors, "graunde");
 
-    source.reset();
-    source.put("graunde ");
-    source.put(versionString());
+        source.reset();
+        source.put("graunde ");
+        source.put(versionString());
 
-    // Unique id for deferred message
-    import parse : buildEventId;
-    auto evId = buildEventId(predBuf.slice());
-    idBuf.reset();
-    idBuf.put(evId);
+        // Unique id for deferred message
+        import parse : buildEventId;
+        auto evId = buildEventId(predBuf.slice());
+        idBuf.reset();
+        idBuf.put(evId);
 
-    enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+        enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return;
-    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, attribs.ptr(), cast(int) attribs.len, SQLITE_TRANSIENT);
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+            return;
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attribs.ptr(), cast(int) attribs.len, SQLITE_TRANSIENT);
 
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
 }
 
 // Read a pending deferred message for this session that's ready to deliver.
 // Finds the newest deferred message that has no delivered attestation newer than it.
 DeferredMsg readDeferredMessage(sqlite3* db, const(char)[] sessionId) {
-    auto now = cast(long) time(null);
+    version (NoSQLite) return DeferredMsg(null, null);
+    else {
+        auto now = cast(long) time(null);
 
-    // Find deferred attestations for this session, newest first
-    enum sql = "SELECT predicates, attributes, timestamp FROM attestations WHERE predicates LIKE '%deferred:%' AND contexts LIKE ?1 ORDER BY timestamp DESC LIMIT 5\0";
+        // Find deferred attestations for this session, newest first
+        enum sql = "SELECT predicates, attributes, timestamp FROM attestations WHERE predicates LIKE '%deferred:%' AND contexts LIKE ?1 ORDER BY timestamp DESC LIMIT 5\0";
 
-    __gshared ZBuf ctx;
-    ctx.reset();
-    ctx.put("%session:");
-    ctx.put(sessionId);
-    ctx.put("%");
+        __gshared ZBuf ctx;
+        ctx.reset();
+        ctx.put("%session:");
+        ctx.put(sessionId);
+        ctx.put("%");
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return DeferredMsg(null, null);
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+            return DeferredMsg(null, null);
 
-    sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
 
-    __gshared char[256] nameBuf = 0;
-    __gshared char[512] msgBuf = 0;
+        __gshared char[256] nameBuf = 0;
+        __gshared char[512] msgBuf = 0;
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto predText = sqlite3_column_text(stmt, 0);
-        auto attrText = sqlite3_column_text(stmt, 1);
-        auto tsText = sqlite3_column_text(stmt, 2);
-        if (predText is null || attrText is null) continue;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            auto predText = sqlite3_column_text(stmt, 0);
+            auto attrText = sqlite3_column_text(stmt, 1);
+            auto tsText = sqlite3_column_text(stmt, 2);
+            if (predText is null || attrText is null) continue;
 
-        // Extract name from predicates: ["deferred:ci-check"] -> ci-check
-        size_t predLen = 0;
-        while (predText[predLen] != 0) predLen++;
-        auto preds = (cast(const(char)*) predText)[0 .. predLen];
+            // Extract name from predicates: ["deferred:ci-check"] -> ci-check
+            size_t predLen = 0;
+            while (predText[predLen] != 0) predLen++;
+            auto preds = (cast(const(char)*) predText)[0 .. predLen];
 
-        // Find "deferred:" in predicates
-        auto dIdx = indexOf(preds, "deferred:");
-        if (dIdx < 0) continue;
-        size_t nameStart = cast(size_t) dIdx + 9; // skip "deferred:"
-        size_t nameEnd = nameStart;
-        while (nameEnd < predLen && preds[nameEnd] != '"') nameEnd++;
-        if (nameEnd == nameStart) continue;
-        auto name = preds[nameStart .. nameEnd];
+            // Find "deferred:" in predicates
+            auto dIdx = indexOf(preds, "deferred:");
+            if (dIdx < 0) continue;
+            size_t nameStart = cast(size_t) dIdx + 9; // skip "deferred:"
+            size_t nameEnd = nameStart;
+            while (nameEnd < predLen && preds[nameEnd] != '"') nameEnd++;
+            if (nameEnd == nameStart) continue;
+            auto name = preds[nameStart .. nameEnd];
 
-        // Check if a delivered attestation exists that's newer than this deferred
-        // Query: any delivered:<name> with timestamp >= this deferred's timestamp
-        if (tsText !is null) {
-            size_t tsLen = 0;
-            while (tsText[tsLen] != 0) tsLen++;
+            // Check if a delivered attestation exists that's newer than this deferred
+            // Query: any delivered:<name> with timestamp >= this deferred's timestamp
+            if (tsText !is null) {
+                size_t tsLen = 0;
+                while (tsText[tsLen] != 0) tsLen++;
 
-            enum delSql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 AND timestamp >= ?3 LIMIT 1\0";
-            sqlite3_stmt* delStmt;
-            if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) == SQLITE_OK) {
-                __gshared ZBuf delPred;
-                delPred.reset();
-                delPred.put(`%delivered:`);
-                delPred.put(name);
-                delPred.put(`%`);
-                sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
-                sqlite3_bind_text(delStmt, 2, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
-                sqlite3_bind_text(delStmt, 3, tsText, cast(int) tsLen, SQLITE_TRANSIENT);
-                bool delivered = sqlite3_step(delStmt) == SQLITE_ROW;
-                sqlite3_finalize(delStmt);
-                if (delivered) continue;
+                enum delSql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 AND timestamp >= ?3 LIMIT 1\0";
+                sqlite3_stmt* delStmt;
+                if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) == SQLITE_OK) {
+                    __gshared ZBuf delPred;
+                    delPred.reset();
+                    delPred.put(`%delivered:`);
+                    delPred.put(name);
+                    delPred.put(`%`);
+                    sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(delStmt, 2, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(delStmt, 3, tsText, cast(int) tsLen, SQLITE_TRANSIENT);
+                    bool delivered = sqlite3_step(delStmt) == SQLITE_ROW;
+                    sqlite3_finalize(delStmt);
+                    if (delivered) continue;
+                }
             }
+
+            // Extract "after" from attributes
+            size_t attrLen = 0;
+            while (attrText[attrLen] != 0) attrLen++;
+            auto attrs = (cast(const(char)*) attrText)[0 .. attrLen];
+
+            auto afterIdx = indexOf(attrs, `"after":`);
+            if (afterIdx < 0) continue;
+            size_t aPos = cast(size_t) afterIdx + 8; // skip "after":
+            long afterVal = 0;
+            while (aPos < attrLen && attrs[aPos] >= '0' && attrs[aPos] <= '9') {
+                afterVal = afterVal * 10 + (attrs[aPos] - '0');
+                aPos++;
+            }
+            if (now < afterVal) continue; // not ready yet
+
+            // Extract "detail" from attributes (the message)
+            auto detIdx = indexOf(attrs, `"detail":"`);
+            if (detIdx < 0) continue;
+            size_t mPos = cast(size_t) detIdx + 10; // skip "detail":"
+            size_t mLen = 0;
+            while (mPos + mLen < attrLen && mLen < msgBuf.length && attrs[mPos + mLen] != '"')
+                mLen++;
+
+            // Copy into static buffers
+            size_t nLen = nameEnd - nameStart;
+            if (nLen > nameBuf.length) nLen = nameBuf.length;
+            foreach (i; 0 .. nLen) nameBuf[i] = name[i];
+            foreach (i; 0 .. mLen) msgBuf[i] = attrs[mPos + i];
+
+            sqlite3_finalize(stmt);
+            return DeferredMsg(nameBuf[0 .. nLen], msgBuf[0 .. mLen]);
         }
-
-        // Extract "after" from attributes
-        size_t attrLen = 0;
-        while (attrText[attrLen] != 0) attrLen++;
-        auto attrs = (cast(const(char)*) attrText)[0 .. attrLen];
-
-        auto afterIdx = indexOf(attrs, `"after":`);
-        if (afterIdx < 0) continue;
-        size_t aPos = cast(size_t) afterIdx + 8; // skip "after":
-        long afterVal = 0;
-        while (aPos < attrLen && attrs[aPos] >= '0' && attrs[aPos] <= '9') {
-            afterVal = afterVal * 10 + (attrs[aPos] - '0');
-            aPos++;
-        }
-        if (now < afterVal) continue; // not ready yet
-
-        // Extract "detail" from attributes (the message)
-        auto detIdx = indexOf(attrs, `"detail":"`);
-        if (detIdx < 0) continue;
-        size_t mPos = cast(size_t) detIdx + 10; // skip "detail":"
-        size_t mLen = 0;
-        while (mPos + mLen < attrLen && mLen < msgBuf.length && attrs[mPos + mLen] != '"')
-            mLen++;
-
-        // Copy into static buffers
-        size_t nLen = nameEnd - nameStart;
-        if (nLen > nameBuf.length) nLen = nameBuf.length;
-        foreach (i; 0 .. nLen) nameBuf[i] = name[i];
-        foreach (i; 0 .. mLen) msgBuf[i] = attrs[mPos + i];
 
         sqlite3_finalize(stmt);
-        return DeferredMsg(nameBuf[0 .. nLen], msgBuf[0 .. mLen]);
+        return DeferredMsg(null, null);
     }
-
-    sqlite3_finalize(stmt);
-    return DeferredMsg(null, null);
 }
 
 // Mark a deferred message as delivered.

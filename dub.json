@@ -3,10 +3,20 @@
     "description": "Workflow enforcement for Claude Code",
     "targetType": "executable",
     "targetName": "graunde",
+    "mainSourceFile": "source/main.d",
     "sourcePaths": ["source"],
     "stringImportPaths": ["."],
     "dflags": ["-betterC"],
-    "libs": ["sqlite3"],
-    "lflags": ["-L/usr/local/opt/sqlite/lib"],
-    "preBuildCommands": ["git describe --tags --always > .version"]
+    "preBuildCommands": ["git describe --tags --always > .version"],
+    "configurations": [
+        {
+            "name": "default",
+            "libs": ["sqlite3"],
+            "lflags": ["-L/usr/local/opt/sqlite/lib"]
+        },
+        {
+            "name": "nosqlite",
+            "dflags": ["-d-version=NoSQLite"]
+        }
+    ]
 }
