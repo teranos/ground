@@ -650,10 +650,12 @@ void markDelivered(sqlite3* db, const(char)[] name, const(char)[] cwd, const(cha
 
 // Average of the top 3 longest recent CI durations for a branch (seconds).
 // Returns 0 if no data or gh fails.
-int getCIAvgDuration(const(char)[] branch) {
+int getCIAvgDuration(const(char)[] cwd, const(char)[] branch) {
     __gshared ZBuf ghCmd;
     ghCmd.reset();
-    ghCmd.put("gh run list --branch ");
+    ghCmd.put("cd ");
+    ghCmd.put(cwd);
+    ghCmd.put(" && gh run list --branch ");
     ghCmd.put(branch);
     ghCmd.put(` --limit 10 --json startedAt,updatedAt --jq '[.[] | (((.updatedAt | fromdateiso8601) - (.startedAt | fromdateiso8601)))] | sort | reverse | .[0:3] | if length == 0 then 0 else (add / length | floor) end'`);
 
@@ -684,5 +686,30 @@ int computeDelay(int avgDuration) {
     int buffer = avgDuration / 22 + avgDuration / 33 + avgDuration / 44;
     if (buffer > 120) buffer = 120;
     return avgDuration + buffer;
+}
+
+// Query live CI status for a branch. Returns a human-readable summary.
+// Runs gh run list at delivery time so the message reflects actual state.
+const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
+    __gshared ZBuf ghCmd;
+    ghCmd.reset();
+    ghCmd.put("cd ");
+    ghCmd.put(cwd);
+    ghCmd.put(" && gh run list --branch ");
+    ghCmd.put(branch);
+    ghCmd.put(` --limit 1 --json conclusion,name,event --jq '.[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))"'`);
+
+    auto pipe = popen(ghCmd.ptr(), "r");
+    if (pipe is null) return null;
+
+    __gshared char[512] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+
+    if (n == 0) return null;
+    // Trim trailing newline
+    if (n > 0 && outBuf[n - 1] == '\n') n--;
+    if (n == 0) return null;
+    return outBuf[0 .. n];
 }
 

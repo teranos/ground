@@ -68,10 +68,27 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // Check deferred messages — deliver if ready
     {
-        import sqlite : readDeferredMessage, markDelivered, DeferredMsg;
+        import sqlite : readDeferredMessage, markDelivered, DeferredMsg, checkCIStatus, ZBuf;
+        import matcher : contains;
         auto deferred = readDeferredMessage(db, sessionId);
         if (deferred.message !is null) {
             markDelivered(db, deferred.name, cwd, sessionId);
+
+            // ci-check: query live status instead of emitting static message
+            if (contains(deferred.name, "ci-check")) {
+                auto branch = getBranch(cwd);
+                auto status = branch !is null ? checkCIStatus(cwd, branch) : null;
+                if (status !is null) {
+                    __gshared ZBuf ciBuf;
+                    ciBuf.reset();
+                    ciBuf.put("CI: ");
+                    ciBuf.put(status);
+                    sqlite3_close(db);
+                    writeStopBlock(ciBuf.slice());
+                    return 0;
+                }
+            }
+
             sqlite3_close(db);
             writeStopBlock(deferred.message);
             return 0;
