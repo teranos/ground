@@ -80,16 +80,53 @@ fi
 exit 0
 ```
 
-## Environment Detection
+## Claude Code Web on Phone
 
-Env vars available in Claude Code sessions, useful for scoping controls:
+Claude Code Web runs in a sandboxed container. When launched from a phone
+the environment is distinct from a local CLI session in several ways that
+matter for control scoping.
 
-| Env Var | Example | Notes |
+### Key env vars (captured from a live `remote_mobile` session)
+
+| Env Var | Value | Notes |
 |---|---|---|
-| `CLAUDECODE` | `1` | Set in any Claude Code session |
-| `CLAUDE_CODE_REMOTE` | `true` | Remote/web session (not local CLI) |
-| `CLAUDE_CODE_ENTRYPOINT` | `remote_mobile` | How the session was launched |
-| `IS_SANDBOX` | `yes` | Sandboxed container environment |
+| `CLAUDECODE` | `1` | Present in every Claude Code session (local or remote). |
+| `CLAUDE_CODE_REMOTE` | `true` | Marks a remote/web session. Not set in local CLI. |
+| `CLAUDE_CODE_ENTRYPOINT` | `remote_mobile` | **The phone signal.** Distinguishes mobile web from desktop web or local CLI. |
+| `IS_SANDBOX` | `yes` | Sandboxed container — no access to host filesystem or network. |
+| `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE` | `cloud_default` | Container flavor. |
+| `CLAUDE_CODE_VERSION` | `2.1.42` | Claude Code version running in the container. |
+| `CLAUDE_CODE_BASE_REF` | `main` | Default branch the session was opened against. |
+| `CLAUDE_CODE_CONTAINER_ID` | `container_011MM...` | Unique container ID for the session. |
+| `CLAUDE_CODE_SESSION_ID` | `session_01MCq...` | Session UUID — same value as `session_id` in hook payloads. |
 
-`CLAUDE_CODE_ENTRYPOINT` is particularly useful for scoping — a control
-could fire only when running in `remote_mobile` vs local CLI sessions.
+### Why this matters for scoping
+
+`CLAUDE_CODE_ENTRYPOINT` is the key discriminator. A control can check it
+to fire only in specific contexts:
+
+- **`remote_mobile`** — phone session via Claude Code Web. The user is
+  typing on a small screen, likely issuing short prompts and expecting
+  autonomous execution. Controls here might be stricter (auto-commit,
+  no interactive prompts) since the user can't easily intervene.
+- **`remote_desktop`** — desktop browser session via Claude Code Web.
+  Same sandboxed container, but the user has a full keyboard and can
+  review diffs more easily.
+- **Local CLI** — `CLAUDE_CODE_REMOTE` is unset. The user has full
+  control, local filesystem access, and can interrupt at any time.
+
+### Container constraints
+
+The sandbox environment has specific characteristics:
+
+- **Egress proxy** — all HTTP/HTTPS traffic goes through a JWT-authenticated
+  proxy (`HTTP_PROXY`, `HTTPS_PROXY`, plus per-tool variants for npm, yarn,
+  Java). The JWT is scoped to the session and container, with a short expiry.
+- **No persistent state** — the container is ephemeral. Anything not pushed
+  to the remote is lost when the session ends. This is why
+  `stop-hook-git-check.sh` exists.
+- **Git credentials** — pre-configured for the repo the session was opened
+  against. No SSH keys; HTTPS with token auth via the proxy.
+- **Tool availability** — `gh` CLI may not be installed. Tools that depend
+  on it (like creating PRs) need to be part of the environment setup or
+  handled by a SessionStart hook.
