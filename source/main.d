@@ -20,9 +20,12 @@ bool parseHookEvent(const(char)[] name, ref HookEvent event) {
 }
 
 // Reads all of stdin into a static buffer.
-// Returns the filled slice, or null on failure/empty.
+// If input exceeds the buffer, keeps the first half (head) and last half (tail),
+// stripping the middle. Hook metadata lives near the edges; large fields
+// (stdout, last_assistant_message) sit in the middle and are expendable.
 const(char)[] readStdin() {
-    __gshared char[8192] buf = 0;
+    enum HALF = 8192;
+    __gshared char[HALF * 2] buf = 0;
     size_t total = 0;
 
     while (total < buf.length) {
@@ -32,7 +35,38 @@ const(char)[] readStdin() {
     }
 
     if (total == 0) return null;
-    return buf[0 .. total];
+    if (total < buf.length) return buf[0 .. total];
+
+    // Buffer full — drain remaining stdin, keeping last HALF bytes via ring buffer
+    __gshared char[HALF] ring = 0;
+    foreach (i; 0 .. HALF)
+        ring[i] = buf[HALF + i];
+    size_t ringPos = 0;
+    size_t overflow = 0;
+
+    __gshared char[4096] tmp = 0;
+    while (true) {
+        auto n = fread(&tmp[0], 1, tmp.length, stdin);
+        if (n == 0) break;
+        overflow += n;
+        foreach (j; 0 .. n) {
+            ring[ringPos] = tmp[j];
+            ringPos = (ringPos + 1) % HALF;
+        }
+    }
+
+    if (overflow == 0) return buf[0 .. total];
+
+    // Reassemble: head (first HALF) + linearized ring (last HALF bytes seen)
+    size_t wp = HALF;
+    size_t rp = ringPos;
+    foreach (_; 0 .. HALF) {
+        buf[wp++] = ring[rp];
+        rp = (rp + 1) % HALF;
+    }
+
+    fputs("graunde: stdin overflow, kept head+tail, stripped middle\n", stderr);
+    return buf[0 .. buf.length];
 }
 
 // Context-only response for non-Bash tools (no updatedInput).
