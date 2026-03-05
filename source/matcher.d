@@ -51,13 +51,43 @@ const(char)[] strip(const(char)[] s) {
     return s[start .. end];
 }
 
+// Strip "git -C <path> " prefix, returning the normalized segment.
+// "git -C /some/path push origin" -> "git push origin"
+const(char)[] stripGitDashC(const(char)[] segment) {
+    // Must start with "git -C "
+    if (segment.length < 7) return segment;
+    if (segment[0 .. 7] != "git -C ") return segment;
+    // Skip past the path argument
+    size_t pos = 7;
+    // Handle quoted path
+    if (pos < segment.length && segment[pos] == '"') {
+        pos++;
+        while (pos < segment.length && segment[pos] != '"') pos++;
+        if (pos < segment.length) pos++; // skip closing quote
+    } else {
+        while (pos < segment.length && segment[pos] != ' ') pos++;
+    }
+    // Skip space after path
+    while (pos < segment.length && segment[pos] == ' ') pos++;
+    if (pos >= segment.length) return segment;
+    // Reconstruct: "git " + remainder
+    __gshared char[8192] buf = 0;
+    foreach (j, c; "git ") buf[j] = c;
+    auto rest = segment[pos .. $];
+    if (4 + rest.length > buf.length) return segment;
+    foreach (j; 0 .. rest.length) buf[4 + j] = rest[j];
+    return buf[0 .. 4 + rest.length];
+}
+
 // Matches cmd as a command prefix — not a substring anywhere in the segment.
 // "go test" matches "go test ./..." but not "git commit -m 'go test'"
+// Also handles "git -C <path>" by normalizing before matching.
 bool commandMatch(const(char)[] segment, const(char)[] cmd) {
-    if (segment.length < cmd.length) return false;
-    if (segment[0 .. cmd.length] != cmd) return false;
-    if (segment.length == cmd.length) return true;
-    return segment[cmd.length] == ' ';
+    auto s = stripGitDashC(segment);
+    if (s.length < cmd.length) return false;
+    if (s[0 .. cmd.length] != cmd) return false;
+    if (s.length == cmd.length) return true;
+    return s[cmd.length] == ' ';
 }
 
 // Returns true if any segment in a compound command matches cmd as a prefix.
@@ -426,4 +456,16 @@ unittest {
     assert(hasSegment("git push origin main", "git push"));
     assert(!hasSegment(`git commit -m "run git push later"`, "git push"));
     assert(hasSegment("echo ok; git push", "git push"));
+}
+
+unittest {
+    // git -C <path> is normalized for matching
+    assert(commandMatch("git -C /some/path push origin main", "git push"));
+    assert(commandMatch("git -C /some/path commit -m \"hello\"", "git commit"));
+    assert(hasSegment("git -C /some/path push origin main", "git push"));
+    // quoted path
+    assert(commandMatch(`git -C "/path with spaces" push`, "git push"));
+    // non-git commands unaffected
+    assert(commandMatch("go test ./...", "go test"));
+    assert(!commandMatch("go test ./...", "git push"));
 }
