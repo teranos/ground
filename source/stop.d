@@ -1,7 +1,7 @@
 module stop;
 
 import parse : extractBool, extractLastAssistantMessage, writeJsonString;
-import sqlite : openDb, loadAxExtension, attestEvent,
+import sqlite : openDb, attestEvent,
                 getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, fputs;
 
@@ -21,19 +21,19 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     auto db = openDb();
     if (db is null) return 0;
 
-    if (loadAxExtension(db)) {
-        import ax : checkAxControls;
+    {
+        import trail : checkTrailControls;
         auto branch = getBranch(cwd);
-        auto axResult = checkAxControls(branch, db);
-        if (axResult.control !is null) {
+        auto trailResult = checkTrailControls(branch, db);
+        if (trailResult.control !is null) {
             __gshared ZBuf graundedAttrs;
             graundedAttrs.reset();
             graundedAttrs.put(`{"control":"`);
-            graundedAttrs.put(axResult.control.name);
+            graundedAttrs.put(trailResult.control.name);
             graundedAttrs.put(`"}`);
             attestEvent(db, "GraundedStop", cwd, sessionId, graundedAttrs.slice());
             sqlite3_close(db);
-            writeStopResponse(axResult.reason);
+            writeStopResponse(trailResult.reason);
             return 0;
         }
     }

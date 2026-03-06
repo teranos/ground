@@ -227,7 +227,7 @@ extern (C) int main() {
         return handleUserPromptSubmit(input, cwd, sessionId);
     }
 
-    // Stop — attest and check ax controls
+    // Stop — trail controls, deferred messages, lazy-verify
     if (event == HookEvent.Stop) {
         import stop : handleStop;
         return handleStop(input, cwd, sessionId);

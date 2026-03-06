@@ -22,8 +22,6 @@ extern (C) {
     int sqlite3_bind_text(sqlite3_stmt* stmt, int idx, const(char)* text, int n, void function(void*) destructor);
     int sqlite3_step(sqlite3_stmt* stmt);
     int sqlite3_finalize(sqlite3_stmt* stmt);
-    int sqlite3_enable_load_extension(sqlite3* db, int onoff);
-    int sqlite3_load_extension(sqlite3* db, const(char)* file, const(char)* proc, char** errmsg);
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
 }
 
@@ -79,7 +77,7 @@ struct ZBuf {
     }
 }
 
-import controls : DB_PATH, EXT_PATH;
+import controls : DB_PATH;
 
 // --- DB lifecycle ---
 
@@ -129,45 +127,6 @@ bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)
     bool found = sqlite3_step(stmt) == SQLITE_ROW;
     sqlite3_finalize(stmt);
     return found;
-}
-
-bool loadAxExtension(sqlite3* db) {
-    if (sqlite3_enable_load_extension(db, 1) != SQLITE_OK)
-        return false;
-    char* errmsg;
-    if (sqlite3_load_extension(db, EXT_PATH.ptr, "sqlite3_qntxax_init\0".ptr, &errmsg) != SQLITE_OK)
-        return false;
-    return true;
-}
-
-const(char)[] axQuery(sqlite3* db, const(char)* filter, int filterLen) {
-    __gshared char[16384] resultBuf = 0;
-
-    enum sql = "SELECT ax_query(?1)\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return null;
-    sqlite3_bind_text(stmt, 1, filter, filterLen, SQLITE_TRANSIENT);
-
-    if (sqlite3_step(stmt) != SQLITE_ROW) {
-        sqlite3_finalize(stmt);
-        return null;
-    }
-
-    auto text = sqlite3_column_text(stmt, 0);
-    if (text is null) {
-        sqlite3_finalize(stmt);
-        return null;
-    }
-
-    size_t len = 0;
-    while (text[len] != 0 && len < resultBuf.length)
-        len++;
-    foreach (i; 0 .. len)
-        resultBuf[i] = text[i];
-
-    sqlite3_finalize(stmt);
-    return resultBuf[0 .. len];
 }
 
 // --- Branch name ---

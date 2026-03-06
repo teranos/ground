@@ -20,7 +20,7 @@ enum HookEvent {
                         //   matchers: permission_prompt, idle_prompt, auth_success, elicitation_dialog
     SubagentStart,      // TODO: additionalContext injected into subagent's context on spawn
     SubagentStop,       // TODO: decision:block with reason — same pattern as Stop
-    Stop,               // ax controls, deferred messages, lazy-verify, CI nudge
+    Stop,               // trail controls, deferred messages, lazy-verify, CI nudge
     TeammateIdle,       // TODO: quality gates before teammate stops — exit 2 to continue, continue:false to halt
     TaskCompleted,      // TODO: enforce completion criteria — exit 2 blocks with feedback, continue:false halts
     ConfigChange,       // TODO: block unwanted config changes mid-session (exit 2, except policy_settings)
@@ -49,10 +49,6 @@ struct Trigger {
     string value;
 }
 
-struct Ax {
-    string value;
-}
-
 struct FilePath {
     string value;
 }
@@ -73,7 +69,6 @@ Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
 Trigger stop() { return Trigger("Stop"); }
-Ax ax(string s) { return Ax(s); }
 FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
 Bg bg() { return Bg(true); }
@@ -85,7 +80,6 @@ struct Control {
     Arg arg;
     Omit omit;
     Trigger trigger;
-    Ax ax;
     FilePath filepath;
     Msg msg;
     Bg bg;
@@ -94,37 +88,37 @@ struct Control {
 
 // Arg amendment control
 Control control(string name, Cmd c, Arg a, Msg m) {
-    return Control(name, c, a, Omit(""), Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
+    return Control(name, c, a, Omit(""), Trigger(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // Omit amendment control
 Control control(string name, Cmd c, Omit o, Msg m) {
-    return Control(name, c, Arg(""), o, Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
+    return Control(name, c, Arg(""), o, Trigger(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // Msg-only control — matches but doesn't amend.
 Control control(string name, Cmd c, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, Bg(false), Tmo(0));
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // Msg-only control with background execution.
 Control control(string name, Cmd c, Bg b, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, b, Tmo(0));
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), FilePath(""), m, b, Tmo(0));
 }
 
 // Msg-only control with background execution and timeout.
 Control control(string name, Cmd c, Bg b, Tmo t, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), Ax(""), FilePath(""), m, b, t);
+    return Control(name, c, Arg(""), Omit(""), Trigger(""), FilePath(""), m, b, t);
 }
 
-// Ax control — queries attestation trail on a triggered event.
-Control control(string name, Trigger t, Ax a, Msg m) {
-    return Control(name, Cmd(""), Arg(""), Omit(""), t, a, FilePath(""), m, Bg(false), Tmo(0));
+// Trail control — queries attestation trail on a triggered event.
+Control control(string name, Trigger t, Msg m) {
+    return Control(name, Cmd(""), Arg(""), Omit(""), t, FilePath(""), m, Bg(false), Tmo(0));
 }
 
 // File-path control — matches when file_path contains the pattern.
 Control control(string name, FilePath fp, Msg m) {
-    return Control(name, Cmd(""), Arg(""), Omit(""), Trigger(""), Ax(""), fp, m, Bg(false), Tmo(0));
+    return Control(name, Cmd(""), Arg(""), Omit(""), Trigger(""), fp, m, Bg(false), Tmo(0));
 }
 
 // Groups controls by scope and decision.
@@ -202,6 +196,5 @@ static immutable fileScopes = [
 
 // QNTX node db — attestations are written here on every control match.
 // If unavailable, graunde still functions (matching, gating, amending) — just no attestations.
-// TODO: Count One — DB_PATH and EXT_PATH should be user-configurable, not hardcoded
+// TODO: Count One — DB_PATH should be user-configurable, not hardcoded
 enum DB_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/.qntx/tmp32.db\0";
-enum EXT_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/target/x86_64-apple-darwin/release/libqntx_ax_ext\0";
