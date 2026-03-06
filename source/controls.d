@@ -194,7 +194,4 @@ static immutable fileScopes = [
     Scope("/QNTX", "allow", qntxFiles),
 ];
 
-// QNTX node db — attestations are written here on every control match.
-// If unavailable, graunde still functions (matching, gating, amending) — just no attestations.
-// TODO: Count One — DB_PATH should be user-configurable, not hardcoded
-enum DB_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/.qntx/tmp32.db\0";
+// DB paths live in sqlite.d — QNTX node db preferred, standalone fallback.

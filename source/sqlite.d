@@ -30,18 +30,8 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
-// TODO: standalone db — graunde should create its own db with schema migration
-// when no QNTX node db is available. Default path: ~/.local/share/graunde/graunde.db.
-// QNTX users point at the shared node db. Resolves the DB_PATH hardcode in controls.d.
-//
-// Schema:
-//   CREATE TABLE attestations (
-//       id TEXT PRIMARY KEY, subjects JSON NOT NULL, predicates JSON NOT NULL,
-//       contexts JSON NOT NULL, actors JSON NOT NULL, timestamp DATETIME NOT NULL,
-//       source TEXT NOT NULL DEFAULT 'cli', attributes JSON,
-//       created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
-//
-// All array columns are JSON arrays of strings. attributes is a JSON object.
+// Standalone db at ~/.local/share/graunde/graunde.db — created when QNTX node db is unavailable.
+// QNTX users get the shared node db. All array columns are JSON arrays of strings.
 // Query pattern: WHERE subjects LIKE '%"value"%' — quotes are part of JSON serialization.
 
 // --- Null-terminated buffer ---
@@ -77,22 +67,87 @@ struct ZBuf {
     }
 }
 
-import controls : DB_PATH;
-
 // --- DB lifecycle ---
 
+// QNTX node db — preferred when available.
+enum QNTX_DB_PATH = "/Users/s.b.vanhouten/SBVH/teranos/tmp3/QNTX/.qntx/tmp32.db\0";
+
+extern (C) {
+    const(char)* getenv(const(char)* name);
+    int mkdir(const(char)* path, uint mode);
+}
+
+// Try QNTX node db first, fall back to standalone graunde db.
 sqlite3* openDb() {
+    // Try QNTX db
     sqlite3* db;
-    if (sqlite3_open(DB_PATH.ptr, &db) != SQLITE_OK) {
+    if (sqlite3_open(QNTX_DB_PATH.ptr, &db) == SQLITE_OK) {
+        if (sqlite3_exec(db, "SELECT 1 FROM attestations LIMIT 0\0".ptr, null, null, null) == SQLITE_OK)
+            return db;
+        sqlite3_close(db);
+    } else {
+        if (db !is null) sqlite3_close(db);
+    }
+
+    // Fall back to standalone db
+    return openStandaloneDb();
+}
+
+sqlite3* openStandaloneDb() {
+    auto home = getenv("HOME\0".ptr);
+    if (home is null) return null;
+
+    // Build path: $HOME/.local/share/graunde/graunde.db
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
+
+    size_t homeLen = 0;
+    while (home[homeLen] != 0) homeLen++;
+    pathBuf.put(home[0 .. homeLen]);
+    pathBuf.put("/.local/share/graunde");
+
+    // mkdir -p: create each directory level
+    mkdirP(pathBuf.slice());
+
+    pathBuf.put("/graunde.db");
+
+    sqlite3* db;
+    if (sqlite3_open(pathBuf.ptr(), &db) != SQLITE_OK) {
         if (db !is null) sqlite3_close(db);
         return null;
     }
 
-    if (sqlite3_exec(db, "SELECT 1 FROM attestations LIMIT 0\0".ptr, null, null, null) != SQLITE_OK) {
+    // Create table if needed
+    enum schema = "CREATE TABLE IF NOT EXISTS attestations ("
+        ~ "id TEXT PRIMARY KEY, subjects JSON NOT NULL, predicates JSON NOT NULL, "
+        ~ "contexts JSON NOT NULL, actors JSON NOT NULL, timestamp DATETIME NOT NULL, "
+        ~ "source TEXT NOT NULL DEFAULT 'cli', attributes JSON, "
+        ~ "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+
+    if (sqlite3_exec(db, schema.ptr, null, null, null) != SQLITE_OK) {
         sqlite3_close(db);
         return null;
     }
+
     return db;
+}
+
+// Create directory and parents. Walks the path creating each level.
+void mkdirP(const(char)[] path) {
+    __gshared char[512] buf = 0;
+    foreach (i, c; path) {
+        if (i >= buf.length - 1) break;
+        buf[i] = c;
+        if (c == '/' && i > 0) {
+            buf[i] = '\0';
+            mkdir(&buf[0], 493); // 0755
+            buf[i] = '/';
+        }
+    }
+    if (path.length < buf.length) {
+        buf[path.length] = '\0';
+        mkdir(&buf[0], 493); // 0755
+    }
 }
 
 // Check if a Grounded attestation exists for a control in this session.
