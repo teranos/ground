@@ -1,5 +1,31 @@
 module parse;
 
+// Hook input reference — Claude Code sends JSON on stdin for every hook event.
+//
+// Common fields (every event):
+//   session_id        — UUID, stable for one claude invocation
+//   transcript_path   — absolute path to session JSONL transcript
+//   cwd               — working directory of the session
+//   permission_mode   — "default", "plan", "acceptEdits", "dontAsk", "bypassPermissions"
+//   hook_event_name   — which lifecycle event fired
+//
+// PreToolUse / PostToolUse:
+//   tool_name         — "Bash", "Edit", "Write", "Read", "Glob", "Grep", etc.
+//   tool_input        — arguments passed to the tool (schema varies by tool)
+//   tool_use_id       — unique ID, links to transcript lines
+//   tool_response     — (PostToolUse only) result the tool returned
+//
+// Bash tool_input:    command, description, timeout, run_in_background
+// Edit tool_input:    file_path, old_string, new_string
+// Write tool_input:   file_path, content
+// Read tool_input:    file_path, offset, limit
+//
+// SessionStart:       source ("startup", "resume", "clear", "compact"), model, agent_type
+// Stop:               stop_hook_active (bool), last_assistant_message
+// PreCompact:         trigger ("manual", "auto"), custom_instructions
+//
+// Upstream: https://docs.anthropic.com/en/docs/claude-code/hooks
+
 import matcher : indexOf;
 import core.stdc.stdio : stdout, fputs, fwrite;
 

@@ -92,10 +92,6 @@ static immutable fileScopes = [
 ];
 ```
 
-## Hook protocol
-
-JSON on stdin, JSON on stdout. Every event includes `hook_event_name`, `cwd`, `session_id`. Tool events add `tool_name`, `tool_input`, `tool_use_id`. No match: exit 0, no output. See [reference.md](reference.md) for full payload schemas, exit codes, and response fields.
-
 ## Installation
 
 ```

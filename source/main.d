@@ -1,5 +1,27 @@
 module main;
 
+// Hook output reference — graunde responds via exit code and optional JSON on stdout.
+//
+// Exit codes:
+//   0     — action proceeds, stdout parsed for JSON
+//   2     — action blocked, stderr fed to Claude as error
+//   other — non-blocking error, action proceeds
+//
+// Top-level response fields:
+//   continue           — (Stop) true makes Claude continue instead of stopping
+//   suppressOutput     — suppress hook output from display
+//   decision           — "approve" or "block"
+//   reason             — explanation for the decision
+//   systemMessage      — injected as system message to Claude
+//   permissionDecision — "allow", "deny", or "ask"
+//
+// hookSpecificOutput (PreToolUse, UserPromptSubmit, PostToolUse):
+//   hookEventName            — must match the event
+//   permissionDecision       — (PreToolUse) "allow", "deny", or "ask"
+//   permissionDecisionReason — (PreToolUse) shown to user (allow/ask) or Claude (deny)
+//   updatedInput             — (PreToolUse) replaces tool input before execution
+//   additionalContext        — (UserPromptSubmit required, PostToolUse optional) injected into context
+
 import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, writeJsonString, fputs2;
 import controls : HookEvent;

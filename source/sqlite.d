@@ -32,6 +32,20 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
+// TODO: standalone db — graunde should create its own db with schema migration
+// when no QNTX node db is available. Default path: ~/.local/share/graunde/graunde.db.
+// QNTX users point at the shared node db. Resolves the DB_PATH hardcode in controls.d.
+//
+// Schema:
+//   CREATE TABLE attestations (
+//       id TEXT PRIMARY KEY, subjects JSON NOT NULL, predicates JSON NOT NULL,
+//       contexts JSON NOT NULL, actors JSON NOT NULL, timestamp DATETIME NOT NULL,
+//       source TEXT NOT NULL DEFAULT 'cli', attributes JSON,
+//       created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+//
+// All array columns are JSON arrays of strings. attributes is a JSON object.
+// Query pattern: WHERE subjects LIKE '%"value"%' — quotes are part of JSON serialization.
+
 // --- Null-terminated buffer ---
 
 struct ZBuf {
