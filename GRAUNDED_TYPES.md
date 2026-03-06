@@ -33,10 +33,10 @@ Attributes contain the raw Claude Code hook payload, verbatim.
 
 ## Grounded Types — `<Type> is type of Graunded`
 
-When graunde acts on an event, the predicate becomes `Graunded<Event>`. Attributes extend the payload with graunde's own fields.
+When graunde acts on an event, a separate attestation is written with predicate `Graunded<Event>`. Attributes contain only graunde's own fields — the Claude Code payload stays in the corresponding event attestation, untouched.
 
-| Type | Extra attribute fields | Verified |
-|------|----------------------|----------|
+| Type | Attribute fields | Verified |
+|------|-----------------|----------|
 | GraundedPreToolUse | `control`, `decision` | no |
 | GraundedStop | `control`, `decision` | no |
 | GraundedUserPromptSubmit | `control` | no |

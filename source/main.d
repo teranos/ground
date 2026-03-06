@@ -137,17 +137,24 @@ extern (C) int main() {
                 // TODO(#3): query branch story and append to context
                 if (result.control.arg.value.length == 0 && result.control.omit.value.length == 0) {
                     // Once per session: skip if already fired
-                    import sqlite : openDb, attestationExists, writeAttestationTo, sqlite3_close;
+                    import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
                     auto db = openDb();
                     if (db !is null) {
-                        if (attestationExists(db, result.control.name, sessionId)) {
+                        if (attestationExists(db, "GraundedPreToolUse", result.control.name, sessionId)) {
                             sqlite3_close(db);
                             // Still emit decision (e.g. "allow") — just skip the message
                             writeResponse(command, "", result.decision,
                                 result.control.bg.value, result.control.tmo.value);
                             return 0;
                         }
-                        writeAttestationTo(db, result.control.name, cwd, sessionId, toolUseId, command);
+                        __gshared ZBuf graundedAttrs;
+                        graundedAttrs.reset();
+                        graundedAttrs.put(`{"control":"`);
+                        graundedAttrs.put(result.control.name);
+                        graundedAttrs.put(`","decision":"`);
+                        graundedAttrs.put(result.decision);
+                        graundedAttrs.put(`"}`);
+                        attestEvent(db, "GraundedPreToolUse", cwd, sessionId, graundedAttrs.slice());
                         sqlite3_close(db);
                     }
                     writeResponse(command, result.control.msg.value, result.decision,
@@ -219,7 +226,8 @@ extern (C) int main() {
 
         // After git push — defer CI check
         if (detail !is null && hasSegment(detail, "git push")) {
-            import sqlite : openDb, writeDeferredMessage, getBranch, getCIAvgDuration, computeDelay, sqlite3_close, ZBuf;
+            import sqlite : openDb, getBranch, sqlite3_close, ZBuf;
+            import deferred : writeDeferredMessage, getCIAvgDuration, computeDelay;
             auto db = openDb();
             if (db !is null) {
                 auto branch = getBranch(cwd);
