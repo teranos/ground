@@ -6,7 +6,7 @@ import sqlite : openDb, loadAxExtension, attestEvent,
 import core.stdc.stdio : stdout, fputs;
 
 void writeStopResponse(const(char)[] reason) {
-    fputs(`{"continue":true,"systemMessage":"`, stdout);
+    fputs(`{"decision":"block","reason":"`, stdout);
     writeJsonString(reason);
     fputs(`"}`, stdout);
     fputs("\n", stdout);
