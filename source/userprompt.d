@@ -1,8 +1,8 @@
 module userprompt;
 
-import parse : extractJsonString, buildEventId;
+import parse : extractJsonString;
 import matcher : contains;
-import sqlite : ZBuf, openDb, attestationExists, writeAttestationTo, sqlite3_close;
+import sqlite : ZBuf, openDb, attestationExists, attestEvent, sqlite3_close;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
 const(char)[] extractPrompt(const(char)[] json) {
@@ -31,13 +31,13 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     // Check if already reminded in this session
     auto db = openDb();
     if (db !is null) {
-        if (g && attestationExists(db, "graunde-reminder", sessionId))
+        if (g && attestationExists(db, "GraundedUserPromptSubmit", "graunde-reminder", sessionId))
             g = false;
-        if (a && attestationExists(db, "ax-reminder", sessionId))
+        if (a && attestationExists(db, "GraundedUserPromptSubmit", "ax-reminder", sessionId))
             a = false;
-        if (q && attestationExists(db, "qntx-reminder", sessionId))
+        if (q && attestationExists(db, "GraundedUserPromptSubmit", "qntx-reminder", sessionId))
             q = false;
-        if (t && attestationExists(db, "timer-reminder", sessionId))
+        if (t && attestationExists(db, "GraundedUserPromptSubmit", "timer-reminder", sessionId))
             t = false;
     }
 
@@ -65,17 +65,13 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     // Attest so we don't fire again this session
     if (db !is null) {
         if (g)
-            writeAttestationTo(db, "graunde-reminder", cwd, sessionId,
-                buildEventId("graunde-reminder"), "graunde-reminder");
+            attestEvent(db, "GraundedUserPromptSubmit", cwd, sessionId, `{"control":"graunde-reminder"}`);
         if (a)
-            writeAttestationTo(db, "ax-reminder", cwd, sessionId,
-                buildEventId("ax-reminder"), "ax-reminder");
+            attestEvent(db, "GraundedUserPromptSubmit", cwd, sessionId, `{"control":"ax-reminder"}`);
         if (q)
-            writeAttestationTo(db, "qntx-reminder", cwd, sessionId,
-                buildEventId("qntx-reminder"), "qntx-reminder");
+            attestEvent(db, "GraundedUserPromptSubmit", cwd, sessionId, `{"control":"qntx-reminder"}`);
         if (t)
-            writeAttestationTo(db, "timer-reminder", cwd, sessionId,
-                buildEventId("timer-reminder"), "timer-reminder");
+            attestEvent(db, "GraundedUserPromptSubmit", cwd, sessionId, `{"control":"timer-reminder"}`);
         sqlite3_close(db);
     }
 

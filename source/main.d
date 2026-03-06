@@ -3,7 +3,6 @@ module main;
 import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, writeJsonString, fputs2;
 import controls : HookEvent;
-import sqlite : writeAttestation;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite;
 import core.stdc.stdlib : exit;
 import core.sys.posix.unistd : isatty;
@@ -138,25 +137,30 @@ extern (C) int main() {
                 // TODO(#3): query branch story and append to context
                 if (result.control.arg.value.length == 0 && result.control.omit.value.length == 0) {
                     // Once per session: skip if already fired
-                    import sqlite : openDb, attestationExists, writeAttestationTo, sqlite3_close;
+                    import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
                     auto db = openDb();
                     if (db !is null) {
-                        if (attestationExists(db, result.control.name, sessionId)) {
+                        if (attestationExists(db, "GraundedPreToolUse", result.control.name, sessionId)) {
                             sqlite3_close(db);
                             // Still emit decision (e.g. "allow") — just skip the message
                             writeResponse(command, "", result.decision,
                                 result.control.bg.value, result.control.tmo.value);
                             return 0;
                         }
-                        writeAttestationTo(db, result.control.name, cwd, sessionId, toolUseId, command);
+                        __gshared ZBuf graundedAttrs;
+                        graundedAttrs.reset();
+                        graundedAttrs.put(`{"control":"`);
+                        graundedAttrs.put(result.control.name);
+                        graundedAttrs.put(`","decision":"`);
+                        graundedAttrs.put(result.decision);
+                        graundedAttrs.put(`"}`);
+                        attestEvent(db, "GraundedPreToolUse", cwd, sessionId, graundedAttrs.slice());
                         sqlite3_close(db);
                     }
                     writeResponse(command, result.control.msg.value, result.decision,
                         result.control.bg.value, result.control.tmo.value);
                     return 0;
                 }
-
-                writeAttestation(result.control.name, cwd, sessionId, toolUseId, command);
 
                 Buf amended;
                 if (result.control.omit.value.length > 0)
@@ -179,24 +183,15 @@ extern (C) int main() {
                 return 0;
             }
 
-            // No control match — still attest the tool call
-            writeAttestation(toolName !is null ? toolName : "Bash", cwd, sessionId, toolUseId, command);
             return 0;
         }
 
-        // Non-Bash tool (Edit/Write/Read/etc.) — check file-path controls, then attest
+        // Non-Bash tool (Edit/Write/Read/etc.) — check file-path controls
         // TODO(#32): updatedInput for non-Bash tools (run_in_background, timeout, new_description)
         auto filePath = extractFilePath(input);
-        writeAttestation(
-            toolName !is null ? toolName : "unknown",
-            cwd, sessionId, toolUseId,
-            filePath !is null ? filePath : ""
-        );
-
         if (filePath !is null) {
             auto fileResult = checkFilePath(filePath, cwd);
             if (fileResult.matched) {
-                writeAttestation(fileResult.name, cwd, sessionId, toolUseId, filePath);
                 writeContextResponse(fileResult.msg, fileResult.decision);
                 return 0;
             }
@@ -220,7 +215,7 @@ extern (C) int main() {
     if (event == HookEvent.SessionStart) {
         auto source = extractSource(input);
         import sessionstart : handleSessionStart;
-        return handleSessionStart(source);
+        return handleSessionStart(source, cwd);
     }
 
     // PostToolUse — check for CI deferral
@@ -231,7 +226,8 @@ extern (C) int main() {
 
         // After git push — defer CI check
         if (detail !is null && hasSegment(detail, "git push")) {
-            import sqlite : openDb, writeDeferredMessage, getBranch, getCIAvgDuration, computeDelay, sqlite3_close, ZBuf;
+            import sqlite : openDb, getBranch, sqlite3_close, ZBuf;
+            import deferred : writeDeferredMessage, getCIAvgDuration, computeDelay;
             auto db = openDb();
             if (db !is null) {
                 auto branch = getBranch(cwd);

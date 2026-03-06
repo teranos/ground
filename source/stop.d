@@ -1,9 +1,8 @@
 module stop;
 
-import parse : extractBool, extractLastAssistantMessage,
-               buildEventId, writeJsonString;
-import sqlite : writeAttestationTo, openDb, loadAxExtension,
-                getBranch, sqlite3, sqlite3_close;
+import parse : extractBool, extractLastAssistantMessage, writeJsonString;
+import sqlite : openDb, loadAxExtension, attestEvent,
+                getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, fputs;
 
 void writeStopResponse(const(char)[] reason) {
@@ -27,8 +26,12 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto branch = getBranch(cwd);
         auto axResult = checkAxControls(branch, db);
         if (axResult.control !is null) {
-            writeAttestationTo(db, axResult.control.name, cwd, sessionId,
-                buildEventId(axResult.control.name), axResult.control.name);
+            __gshared ZBuf graundedAttrs;
+            graundedAttrs.reset();
+            graundedAttrs.put(`{"control":"`);
+            graundedAttrs.put(axResult.control.name);
+            graundedAttrs.put(`"}`);
+            attestEvent(db, "GraundedStop", cwd, sessionId, graundedAttrs.slice());
             sqlite3_close(db);
             writeStopResponse(axResult.reason);
             return 0;
@@ -40,17 +43,16 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         import matcher : contains;
         auto lastMsg = extractLastAssistantMessage(input);
         if (lastMsg !is null && contains(lastMsg, "Ready for you to verify")) {
-            writeAttestationTo(db, "lazy-verify", cwd, sessionId,
-                buildEventId("lazy-verify"), "lazy-verify");
+            attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"lazy-verify"}`);
             sqlite3_close(db);
             writeStopResponse("Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction.");
             return 0;
         }
     }
 
-    // Check deferred messages — deliver if ready
+    // Check session-scoped deferred messages — deliver if ready
     {
-        import sqlite : readDeferredMessage, markDelivered, DeferredMsg, checkCIStatus, ZBuf;
+        import deferred : readDeferredMessage, markDelivered, DeferredMsg, checkCIStatus;
         import matcher : contains;
         auto deferred = readDeferredMessage(db, sessionId);
         if (deferred.message !is null) {
@@ -74,6 +76,21 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             sqlite3_close(db);
             writeStopResponse(deferred.message);
             return 0;
+        }
+    }
+
+    // Check project-scoped deferred messages (from QNTX) — only on main
+    {
+        auto branch = getBranch(cwd);
+        if (branch == "main" || branch == "master") {
+            import deferred : readProjectDeferredMessage, markProjectDelivered;
+            auto projDeferred = readProjectDeferredMessage(db, cwd);
+            if (projDeferred.message !is null) {
+                markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
+                sqlite3_close(db);
+                writeStopResponse(projDeferred.message);
+                return 0;
+            }
         }
     }
 

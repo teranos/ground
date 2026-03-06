@@ -127,7 +127,7 @@ struct Scope {
 static immutable universal = [
     control("no-skip-hooks", cmd("git"), omit("--no-verify"),
         msg("Git hooks must not be bypassed, ever..")),
-    control("stage-checkpoint", cmd("git add"),
+    control("short-commit-message-reminder", cmd("git add"),
         msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
     control("sync-main", cmd("git checkout main"),
         msg("Summarize what happened upstream since the last pull.")),
