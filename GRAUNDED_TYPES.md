@@ -3,12 +3,11 @@
 Graunde attests type definitions on SessionStart so QNTX knows what to do with the data.
 
 - **ID**: `graunde:type:<name>:<version>` — re-attested when graunde updates.
-- **Attributes**: exclusively `rich_string_fields`. No display metadata — that's QNTX's concern.
 - Attested on every SessionStart. `INSERT OR IGNORE` prevents duplicates within the same version.
 
 ## Event Types — `<Type> is type of ClaudeCode`
 
-Attributes contain the raw Claude Code hook payload, verbatim.
+Attributes contain the raw Claude Code hook payload, verbatim. Type definitions specify `rich_string_fields` so QNTX knows which fields are long text. No display metadata — that's QNTX's concern.
 
 | Type | Rich string fields | Verified |
 |------|-------------------|----------|
@@ -38,7 +37,7 @@ When graunde acts on an event, a separate attestation is written with predicate 
 | Type | Attribute fields | Verified |
 |------|-----------------|----------|
 | GraundedPreToolUse | `control`, `decision` | no |
-| GraundedStop | `control`, `decision` | no |
+| GraundedStop | `control` | no |
 | GraundedUserPromptSubmit | `control` | no |
 
 ## Schema

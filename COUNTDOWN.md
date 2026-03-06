@@ -25,28 +25,18 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 
 **Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `graunde`. Source: `graunde v{VERSION}`.
 
-**Phase 3 — ax controls. ✓** Controls that query the attestation trail via the QNTX ax extension. On Stop, graunde loads the extension, queries attestations for the current branch, and matches against them. Deferred message queue delivers attestation-backed messages on Stop without blocking — CI nudge fires after `git push` with configurable delay (#33). PostToolUse captures full tool response (stdout, stderr, filePath, success). PreToolUse amends `run_in_background` and `timeout`. Msg-only controls emit their `allow`/`ask` decision on every fire, message only on first. `hasSegment` matches commands in compound chains for PostToolUse. Future controls:
-- [x] Clippy control on Stop activates after the first push, matches when .rs files were edited after the last `cargo clippy` run on the current branch.
-- [ ] Stale binary correction on Stop.
-- [ ] Increase signal to noise ratio.
-- [ ] Catch hardcoded URLs in error messages that claim to report runtime values.
-- [ ] Reminder to look at a Nix flake when editing CI that touches said flake.
-- [ ] Version bump awareness — per-package in monorepos, needs to know which packages were touched and their tagging convention.
-- [ ] Catch entity IDs used as subjects — IDs belong in attributes, not subjects.
-- [x] Machine context on SessionStart — compile-time arch detection. Claude already receives Platform and OS Version from the environment.
-- [ ] Direct ego-death when faced with confident claims about niche/untrained topics — trigger grace and humility as the function of control.
-- [x] Adaptive CI nudge delay (#33) — average of longest recent CI durations plus proportional buffer (d/22 + d/33 + d/44, capped at 2 minutes).
+**Phase 3 — ax controls. ✓** Controls that query the attestation trail via the QNTX ax extension. On Stop, graunde loads the extension, queries attestations for the current branch, and matches against them. Deferred message queue delivers attestation-backed messages on Stop without blocking — CI nudge fires after `git push` with adaptive delay (#33). Clippy reminder activates after push when .rs files were edited after the last `cargo clippy` run. Machine context attested on SessionStart via compile-time arch detection. PostToolUse captures full tool response. Msg-only controls emit their decision on every fire, message only on first. Future controls tracked as TODOs in `controls.d`.
 
 **Phase 4 — graunded types. ✓** Type definitions attested on SessionStart so QNTX knows which payload fields are rich text. Every hook event stored verbatim via `attestEvent`. When graunde acts, a separate `Graunded<Event>` attestation records only graunde's own decisions — Claude's payload stays untouched. Old-style truncated writes removed. Deferred message infrastructure split to `deferred.d`. Project-scoped deferred messages from QNTX deliver on SessionStart and Stop on main.
 
 ### Three — engines on ✓
-Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse, PreCompact, Stop, SessionStart attested as lifecycle markers — control stubs present but no matching logic yet. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
+Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse defers CI nudge messages after `git push`. Stop runs ax controls against the attestation trail and delivers deferred messages. SessionStart attests type definitions and delivers project-scoped deferred messages. PreCompact attested as lifecycle marker. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
 
 ### Two — check ignition
-File issues for all unsupported hook events, unimplemented controls, and TODO stubs. Map what exists vs what's missing. Design a Control Glyph for the QNTX Canvas — graunde's visual presence on the workspace. No implementation yet — just the backlog.
+Audit all open issues and move actionable information into the source — the binary is the backlog. Close issues that become TODOs in `controls.d` or other source files. Design a Control Glyph for the QNTX Canvas — graunde's visual presence on the workspace.
 
 ### One — and may God's love
-The binary is the config. Users define controls in D source and compile their own graunde. Self-recompilation: hash controls source at compile time via CTFE, compare at runtime, rebuild on mismatch. Claude edits `controls.d`, next hook invocation detects staleness, rebuilds, new control is live — no manual step. Tag staleness: compare baked-in `git describe` against upstream. Figure out fork ergonomics — how do users customize and stay upstream-compatible.
+The binary is the config. Users define controls in D source and compile their own graunde. Self-recompilation: hash controls source at compile time via CTFE, compare at runtime, rebuild on mismatch. Claude edits `controls.d`, next hook invocation detects staleness, rebuilds, new control is live — no manual step. Tag staleness: compare baked-in `git describe` against upstream. Figure out fork ergonomics — how do users customize and stay upstream-compatible. Distribution and install prerequisites (#38).
 
 ### Liftoff — be with you
 Open source readiness. README, CONTRIBUTING, LICENSE review, GitHub releases, install-from-source instructions.

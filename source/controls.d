@@ -157,6 +157,9 @@ static immutable qntx = [
         msg("Build tags and -short are required for go test in QNTX")),
 ];
 
+// TODO: nix flake reminder — editing CI that touches a flake should prompt to check the flake
+// TODO: version bump awareness — per-package in monorepos, needs to know which packages were touched
+
 static immutable qntxFiles = [
     control("web-docs-reminder", filepath("/web/"),
         msg("Read web/CLAUDE.md before editing frontend files.")),
@@ -168,6 +171,11 @@ static immutable graunde = [
     control("install-after-test", cmd("dub test"), bg(),
         msg("If tests pass, run make install to update the live hook binary.")),
 ];
+
+// TODO: stale binary correction on Stop — detect when installed binary doesn't match compiled version
+// TODO: catch hardcoded URLs in error messages that claim to report runtime values
+// TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
+// TODO: ego-death — confident claims about niche/untrained topics trigger grace and humility
 
 static immutable allScopes = [
     Scope("", "allow", universal),

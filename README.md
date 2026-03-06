@@ -8,24 +8,38 @@ Claude Code ignores CLAUDE.md instructions. You tell it "use `make test`", it ru
 
 The only enforcement that works is at the hook level — intercepting events before, during, and after they execute. Not a suggestion. A control.
 
+## What happens
+
+Claude tries to commit with `--no-verify`:
+```
+git commit --no-verify -m "fix tests"
+```
+Graunde strips the flag and lets the command through:
+```
+git commit -m "fix tests"
+```
+Claude receives: *"Git hooks must not be bypassed, ever."*
+
+Claude tries `go test ./...` in a project that needs build tags:
+```
+go test ./...
+```
+Graunde inserts the missing arguments:
+```
+go test -tags "rustsqlite,qntxwasm" -short ./...
+```
+Claude receives: *"Build tags and -short are required for go test in QNTX."*
+
 ## How it works
 
-Runs as a Claude Code hook across all events. Reads JSON from stdin, branches on `hook_event_name`. Every event is checked against controls and attested — the complete trail enables the branch story. Two actions for command controls:
+Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) across all events. Two actions for command controls:
 
-- **arg** — add missing arguments after the matched command
+- **arg** — insert missing arguments after the matched command
 - **omit** — strip unwanted flags from the command
 
-Both silently amend and allow. Unmatched commands pass through (exit 0, no output). Every amendment includes an `additionalContext` message so Claude learns why the command was changed.
+Amendments are silent — the command runs with the corrected arguments and Claude receives a message explaining why. Unmatched commands pass through unchanged.
 
-Controls are D source, compiled with `-betterC`. No runtime, no GC, no dependencies. The binary is the config.
-
-## Language
-
-D with `-betterC`. Compiled with LDC. Chosen for:
-- No runtime, no GC — 8.7KB stripped binary, ~17ms latency
-- CTFE — controls evaluated at compile time, baked into the binary
-- `unittest` as a language keyword — tests live next to code
-- C interop for stdio without overhead
+Controls are defined in D source and compiled into the binary. No config files — the binary is the config.
 
 ## Controls
 
@@ -78,20 +92,6 @@ static immutable fileScopes = [
 ];
 ```
 
-## Ax controls
-
-Ax controls query the attestation trail on triggered events. They load the QNTX ax extension into the linked SQLite handle, run a filter query scoped to the current branch, and apply matching logic in D.
-
-```d
-static immutable axControls = [
-    control("clippy-reminder", stop(),
-        ax(`{"subjects":["$BRANCH"],"actors":["graunde"]}`),
-        msg("Rust files edited after last cargo clippy run. Run cargo clippy before pushing.")),
-];
-```
-
-`$BRANCH` is substituted at runtime. The clippy-reminder compares the latest `.rs` file edit timestamp against the latest `cargo clippy` run — if the edit is newer, Stop is blocked.
-
 ## Hook protocol
 
 JSON on stdin, JSON on stdout. Every event includes `hook_event_name`, `cwd`, `session_id`. Tool events add `tool_name`, `tool_input`, `tool_use_id`. No match: exit 0, no output. See [reference.md](reference.md) for full payload schemas, exit codes, and response fields.
@@ -106,16 +106,22 @@ Builds a release binary and copies it to `~/.local/bin/graunde`. Override with `
 
 ## Hook registration
 
-In `~/.claude/settings.json`, register graunde for all hook events:
+Add the `hooks` key to `~/.claude/settings.json`:
 ```json
-"hooks": {
-  "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "PreCompact": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "Stop": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "SessionStart": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-  "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "graunde" }] }]
+{
+  "hooks": {
+    "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
+    "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "graunde" }] }]
+  }
 }
 ```
+
+## Why D
+
+D with `-betterC`, compiled with LDC. 72KB binary, ~17ms latency. Controls are evaluated at compile time and baked in. Linked against libsqlite3 for attestation storage.
 
 ## [Countdown](COUNTDOWN.md)
