@@ -1,5 +1,9 @@
 module ax;
 
+// TODO: drop ax extension dependency — replace axQuery with plain SQL queries.
+//   The extension just filters attestations by subject/actor, which is a LIKE on JSON arrays.
+//   All matching logic is already in D. Removes EXT_PATH hardcode and QNTX build dependency.
+//
 // TODO: branch story — query all attestations for the branch and produce a full
 // narrative of what happened (edits, pushes, CI, reviews). Include in additionalContext
 // on Stop so Claude has the complete picture, not just individual control checks.
