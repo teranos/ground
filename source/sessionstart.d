@@ -83,6 +83,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd) {
         fputs(`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
         if (isStartup)
             fputs("arch: " ~ ARCH, stdout);
+        if (isStartup && cwd !is null && contains(cwd, "/QNTX"))
+            fputs(" | am.toml in the project root has the db path and node configuration. Check it before assuming database locations.", stdout);
         if (isStartup && projectNews !is null)
             fputs(" | ", stdout);
         if (projectNews !is null)
