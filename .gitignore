@@ -20,6 +20,7 @@ graunde-test-application
 
 # Generated
 .version
+result
 
 # Debug captures
 captured_hook_payload.json
