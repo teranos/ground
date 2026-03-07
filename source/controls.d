@@ -19,6 +19,8 @@ static immutable universal = [
         msg("")),
     control("issue-view", cmd("gh issue view"),
         msg("")),
+    control("pr-list", cmd("gh pr list"),
+        msg("")),
     control("pr-view", cmd("gh pr view"),
         msg("")),
     control("pr-ready", cmd("gh pr ready"),
