@@ -11,6 +11,14 @@ static immutable universal = [
         msg("Summarize what happened upstream since the last pull.")),
     control("ci-check", cmd("gh run list"),
         msg("Examine the result and report whether CI passed or failed.")),
+    control("ci-view", cmd("gh run view"),
+        msg("")),
+    control("ci-watch", cmd("gh run watch"),
+        msg("")),
+    control("issue-list", cmd("gh issue list"),
+        msg("")),
+    control("issue-view", cmd("gh issue view"),
+        msg("")),
 ];
 
 static immutable checkpoints = [

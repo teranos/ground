@@ -1,7 +1,8 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, count-one]
+    tags: ['*']
   pull_request:
 
 jobs:
@@ -11,5 +12,43 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: dlang-community/setup-dlang@v2
-      - run: dub test
+      - uses: DeterminateSystems/nix-installer-action@main
+      - run: nix build .#graunde
+      - run: nix develop .#default --command dub test
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: macos-latest
+            target: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: DeterminateSystems/nix-installer-action@main
+      - run: nix build .#graunde
+      - run: cp result/bin/graunde graunde-${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graunde-${{ matrix.target }}
+          path: graunde-${{ matrix.target }}
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: ls -R
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            graunde-*/graunde-*
