@@ -65,10 +65,12 @@ struct Tmo {
     int value; // milliseconds
 }
 
+
 Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
 Trigger stop() { return Trigger("Stop"); }
+Trigger precompact() { return Trigger("PreCompact"); }
 FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
 Bg bg() { return Bg(true); }
@@ -86,39 +88,37 @@ struct Control {
     Tmo tmo;
 }
 
-// Arg amendment control
 Control control(string name, Cmd c, Arg a, Msg m) {
-    return Control(name, c, a, Omit(""), Trigger(""), FilePath(""), m, Bg(false), Tmo(0));
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.arg = a; ctrl.msg = m; return ctrl;
 }
 
-// Omit amendment control
 Control control(string name, Cmd c, Omit o, Msg m) {
-    return Control(name, c, Arg(""), o, Trigger(""), FilePath(""), m, Bg(false), Tmo(0));
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.omit = o; ctrl.msg = m; return ctrl;
 }
 
-// Msg-only control — matches but doesn't amend.
 Control control(string name, Cmd c, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), FilePath(""), m, Bg(false), Tmo(0));
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.msg = m; return ctrl;
 }
 
-// Msg-only control with background execution.
 Control control(string name, Cmd c, Bg b, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), FilePath(""), m, b, Tmo(0));
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.bg = b; ctrl.msg = m; return ctrl;
 }
 
-// Msg-only control with background execution and timeout.
 Control control(string name, Cmd c, Bg b, Tmo t, Msg m) {
-    return Control(name, c, Arg(""), Omit(""), Trigger(""), FilePath(""), m, b, t);
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.bg = b; ctrl.tmo = t; ctrl.msg = m; return ctrl;
 }
 
-// Trail control — queries attestation trail on a triggered event.
 Control control(string name, Trigger t, Msg m) {
-    return Control(name, Cmd(""), Arg(""), Omit(""), t, FilePath(""), m, Bg(false), Tmo(0));
+    Control ctrl; ctrl.name = name; ctrl.trigger = t; ctrl.msg = m; return ctrl;
 }
 
-// File-path control — matches when file_path contains the pattern.
+// PreCompact control — msg prefix + cmd to run.
+Control control(string name, Trigger t, Msg m, Cmd c) {
+    Control ctrl; ctrl.name = name; ctrl.trigger = t; ctrl.msg = m; ctrl.cmd = c; return ctrl;
+}
+
 Control control(string name, FilePath fp, Msg m) {
-    return Control(name, Cmd(""), Arg(""), Omit(""), Trigger(""), fp, m, Bg(false), Tmo(0));
+    Control ctrl; ctrl.name = name; ctrl.filepath = fp; ctrl.msg = m; return ctrl;
 }
 
 // Groups controls by scope and decision.

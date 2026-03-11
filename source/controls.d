@@ -24,7 +24,7 @@ static immutable universal = [
     control("pr-view", cmd("gh pr view"),
         msg("")),
     control("pr-ready", cmd("gh pr ready"),
-        msg("")),
+        msg("This means the pr is ready to merge")),
 ];
 
 static immutable checkpoints = [
@@ -63,6 +63,16 @@ static immutable qntxFiles = [
         msg("Read web/TESTING.md before writing or editing tests. CI uses USE_JSDOM=1. .dom.test.ts files use JSDOM skip pattern. happy-dom is the local default.")),
 ];
 
+static immutable universalPreCompact = [
+    control("branch-context", precompact(),
+        msg("Current branch: "), cmd("git branch --show-current")),
+];
+
+static immutable qntxPreCompact = [
+    control("qntx-am-toml", precompact(),
+        msg("am.toml in the project root has the db path and node configuration. Check it before assuming database locations.")),
+];
+
 static immutable graunde = [
     control("install-after-test", cmd("dub test"), bg(),
         msg("If tests pass, run make install to update the live hook binary.")),
@@ -82,4 +92,9 @@ static immutable allScopes = [
 
 static immutable fileScopes = [
     Scope("/QNTX", "allow", qntxFiles),
+];
+
+static immutable preCompactScopes = [
+    Scope("", "allow", universalPreCompact),
+    Scope("/QNTX", "allow", qntxPreCompact),
 ];

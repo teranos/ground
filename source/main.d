@@ -25,7 +25,8 @@ module main;
 import matcher : checkCommand, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, writeJsonString, fputs2;
 import controls : HookEvent;
-import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite;
+import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite, FILE;
+import sqlite : popen, pclose;
 import core.stdc.stdlib : exit;
 import core.sys.posix.unistd : isatty;
 
@@ -256,10 +257,43 @@ extern (C) int main() {
     // PreCompact — re-inject context that would be lost to compaction
     if (event == HookEvent.PreCompact) {
         import matcher : contains;
-        if (cwd !is null && contains(cwd, "/QNTX")) {
-            fputs(`{"hookSpecificOutput":{"hookEventName":"PreCompact","additionalContext":"am.toml in the project root has the db path and node configuration. Check it before assuming database locations."}}`, stdout);
-            fputs("\n", stdout);
+        import controls : preCompactScopes;
+        bool first = true;
+
+        fputs(`{"hookSpecificOutput":{"hookEventName":"PreCompact","additionalContext":"`, stdout);
+
+        foreach (ref scope_; preCompactScopes) {
+            if (scope_.path.length > 0 && (cwd is null || !contains(cwd, scope_.path)))
+                continue;
+            foreach (ref c; scope_.controls) {
+                if (!first) fputs(" | ", stdout);
+                first = false;
+
+                if (c.msg.value.length > 0)
+                    fputs2(c.msg.value);
+
+                if (c.cmd.value.length > 0) {
+                    // Run cmd, append stdout (stripped of trailing newline)
+                    __gshared char[4096] cmdBuf = 0;
+                    __gshared char[1024] outBuf = 0;
+                    if (c.cmd.value.length < cmdBuf.length) {
+                        foreach (i, ch; c.cmd.value) cmdBuf[i] = ch;
+                        cmdBuf[c.cmd.value.length] = 0;
+                        auto pipe = popen(&cmdBuf[0], "r");
+                        if (pipe !is null) {
+                            auto n = fread(&outBuf[0], 1, outBuf.length, pipe);
+                            pclose(pipe);
+                            // Strip trailing newlines
+                            while (n > 0 && (outBuf[n-1] == '\n' || outBuf[n-1] == '\r')) n--;
+                            if (n > 0) fwrite(&outBuf[0], 1, n, stdout);
+                        }
+                    }
+                }
+            }
         }
+
+        fputs(`"}}`, stdout);
+        fputs("\n", stdout);
         return 0;
     }
 
