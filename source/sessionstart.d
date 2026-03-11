@@ -24,7 +24,7 @@ uint fnv1a(const(char)[] data) {
 }
 
 // Compile-time hash of controls source
-enum CONTROLS_HASH = fnv1a(import("source/controls.d") ~ import("source/hooks.d"));
+enum CONTROLS_HASH = fnv1a(import("controls/controls.d") ~ import("source/hooks.d"));
 
 
 // Check if controls source has changed since compilation.

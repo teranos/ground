@@ -3,7 +3,7 @@
     "description": "Workflow enforcement for Claude Code",
     "targetType": "executable",
     "targetName": "graunde",
-    "sourcePaths": ["source"],
+    "sourcePaths": ["source", "controls"],
     "stringImportPaths": ["."],
     "dflags": ["-betterC"],
     "libs": ["sqlite3"],

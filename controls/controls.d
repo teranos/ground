@@ -2,6 +2,9 @@ module controls;
 
 public import hooks;
 
+static if (__traits(compiles, { import qntx; }))
+    import qntx;
+
 static immutable universal = [
     control("no-skip-hooks", cmd("git"), omit("--no-verify"),
         msg("Git hooks must not be bypassed, ever..")),
@@ -44,33 +47,9 @@ static immutable checkpoints = [
         msg("After merge, checkout main and pull to sync local.")),
 ];
 
-static immutable qntx = [
-    control("go-test-args", cmd("go test"), arg(`-tags "rustsqlite,qntxwasm" -short`),
-        msg("Build tags and -short are required for go test in QNTX")),
-];
-
-// TODO: nix flake reminder — editing CI that touches a flake should prompt to check the flake
-// TODO: version bump awareness — per-package in monorepos, needs to know which packages were touched
-
-static immutable qntxFiles = [
-    control("web-docs-reminder", filepath("/web/"),
-        msg("Read web/CLAUDE.md before editing frontend files.")),
-    control("web-ts-banned", filepath("/web/ts/"),
-        msg("BANNED in frontend: alert(), confirm(), prompt(), toast(). Button component has built-in error handling (throw from onClick). Check component APIs before implementing.")),
-    control("plugin-install", filepath("/qntx-plugins/"),
-        msg("The user prefers not having to run make <plugin-name>-plugin every time you finish working on one, do it for them.")),
-    control("web-testing-docs", filepath(".test.ts"),
-        msg("Read web/TESTING.md before writing or editing tests. CI uses USE_JSDOM=1. .dom.test.ts files use JSDOM skip pattern. happy-dom is the local default.")),
-];
-
 static immutable universalPreCompact = [
     control("branch-context", precompact(),
         msg("Current branch: "), cmd("git branch --show-current")),
-];
-
-static immutable qntxPreCompact = [
-    control("qntx-am-toml", precompact(),
-        msg("am.toml in the project root has the db path and node configuration. Check it before assuming database locations.")),
 ];
 
 static immutable graunde = [
@@ -82,19 +61,32 @@ static immutable graunde = [
 // TODO: catch hardcoded URLs in error messages that claim to report runtime values
 // TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
 // TODO: ego-death — confident claims about niche/untrained topics trigger grace and humility
+// TODO: userprompt() trigger — move keyword controls from userprompt.d into controls/
+// TODO: stop() trigger for inline Stop controls (ego-death, QNTX-scoped) — move from stop.d into controls/
 
-static immutable allScopes = [
-    Scope("", "allow", universal),
-    Scope("", "ask", checkpoints),
-    Scope("/graunde", "allow", graunde),
-    Scope("/QNTX", "allow", qntx),
-];
+static immutable allScopes = () {
+    auto base = [
+        Scope("", "allow", universal),
+        Scope("", "ask", checkpoints),
+        Scope("/graunde", "allow", graunde),
+    ];
+    static if (__traits(compiles, qntx.commands))
+        return base ~ [Scope("/QNTX", "allow", qntx.commands)];
+    else
+        return base;
+}();
 
-static immutable fileScopes = [
-    Scope("/QNTX", "allow", qntxFiles),
-];
+static immutable fileScopes = () {
+    static if (__traits(compiles, qntx.files))
+        return [Scope("/QNTX", "allow", qntx.files)];
+    else
+        return cast(immutable(Scope)[])[];
+}();
 
-static immutable preCompactScopes = [
-    Scope("", "allow", universalPreCompact),
-    Scope("/QNTX", "allow", qntxPreCompact),
-];
+static immutable preCompactScopes = () {
+    auto base = [Scope("", "allow", universalPreCompact)];
+    static if (__traits(compiles, qntx.compaction))
+        return base ~ [Scope("/QNTX", "allow", qntx.compaction)];
+    else
+        return base;
+}();
