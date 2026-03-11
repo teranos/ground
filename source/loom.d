@@ -20,18 +20,29 @@ struct sockaddr_in {
     ubyte[8] sin_zero;
 }
 
+// 64KB packet buffer — localhost UDP supports up to 65507 bytes
+__gshared char[65536] pktBuf = 0;
+
 void sendToLoom(ref ZBuf subjects, ref ZBuf predicates, const(char)[] attributes) {
     // Build JSON: {"subjects":...,"predicates":...,"attributes":...}
-    __gshared ZBuf pkt;
-    pkt.reset();
-    pkt.put(`{"subjects":`);
-    pkt.put(subjects.slice());
-    pkt.put(`,"predicates":`);
-    pkt.put(predicates.slice());
-    pkt.put(`,"attributes":`);
-    // attributes may be raw JSON or a string — write it directly
-    pkt.put(attributes);
-    pkt.put("}");
+    size_t pos = 0;
+
+    void append(const(char)[] s) {
+        foreach (c; s) {
+            if (pos >= pktBuf.length) return;
+            pktBuf[pos++] = c;
+        }
+    }
+
+    append(`{"subjects":`);
+    append(subjects.slice());
+    append(`,"predicates":`);
+    append(predicates.slice());
+    append(`,"attributes":`);
+    append(attributes);
+    append("}");
+
+    if (pos == 0) return;
 
     enum AF_INET = 2;
     enum SOCK_DGRAM = 2;
@@ -46,6 +57,6 @@ void sendToLoom(ref ZBuf subjects, ref ZBuf predicates, const(char)[] attributes
     addr.sin_port = (LOOM_PORT >> 8) | ((LOOM_PORT & 0xFF) << 8); // htons
     addr.sin_addr = 0x0100007F; // 127.0.0.1 in network byte order
 
-    sendto(fd, pkt.ptr(), pkt.len, 0, &addr, addr.sizeof);
+    sendto(fd, &pktBuf[0], pos, 0, &addr, addr.sizeof);
     close(fd);
 }
