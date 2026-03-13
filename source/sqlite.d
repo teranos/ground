@@ -23,6 +23,8 @@ extern (C) {
     int sqlite3_step(sqlite3_stmt* stmt);
     int sqlite3_finalize(sqlite3_stmt* stmt);
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
+    long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
+    int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
 }
 
 extern (C) {
@@ -136,7 +138,8 @@ void mkdirP(const(char)[] path) {
     }
 }
 
-// Check if a Grounded attestation exists for a control in this session.
+// Check if a Grounded attestation exists for a control in this session,
+// and hasn't been invalidated by a subsequent compaction.
 bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)[] controlName, const(char)[] sessionId) {
     __gshared ZBuf ctx;
     ctx.reset();
@@ -144,7 +147,8 @@ bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)
     ctx.put(sessionId);
     ctx.put("%");
 
-    enum sql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND attributes LIKE ?2 AND contexts LIKE ?3 LIMIT 1\0";
+    // Find the control attestation's rowid
+    enum sql = "SELECT rowid FROM attestations WHERE predicates LIKE ?1 AND attributes LIKE ?2 AND contexts LIKE ?3 ORDER BY rowid DESC LIMIT 1\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
         return false;
@@ -166,8 +170,29 @@ bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)
     sqlite3_bind_text(stmt, 3, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
 
     bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    if (!found) {
+        sqlite3_finalize(stmt);
+        return false;
+    }
+
+    // Get the rowid of the control attestation
+    auto controlRowid = sqlite3_column_int64(stmt, 0);
     sqlite3_finalize(stmt);
-    return found;
+
+    // Check if a PreCompact event occurred after this attestation in the same session
+    enum compactSql = "SELECT 1 FROM attestations WHERE predicates LIKE '%PreCompact%' AND contexts LIKE ?1 AND rowid > ?2 LIMIT 1\0";
+    sqlite3_stmt* compactStmt;
+    if (sqlite3_prepare_v2(db, compactSql.ptr, -1, &compactStmt, null) != SQLITE_OK)
+        return true; // can't check, assume still valid
+
+    sqlite3_bind_text(compactStmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(compactStmt, 2, controlRowid);
+
+    bool compacted = sqlite3_step(compactStmt) == SQLITE_ROW;
+    sqlite3_finalize(compactStmt);
+
+    // If compaction happened after the attestation, it's invalidated
+    return !compacted;
 }
 
 // Extract last two path components from cwd.

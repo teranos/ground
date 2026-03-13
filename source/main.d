@@ -223,7 +223,7 @@ extern (C) int main() {
         }
 
         // Non-Bash tool (Edit/Write/Read/etc.) — check file-path controls
-        // TODO(#32): updatedInput for non-Bash tools (run_in_background, timeout, new_description)
+        // TODO: updatedInput for non-Bash tools (run_in_background, timeout, new_description)
         auto filePath = extractFilePath(input);
         if (filePath !is null) {
             auto fileResult = checkFilePath(filePath, cwd);
@@ -260,7 +260,7 @@ extern (C) int main() {
         import controls : preCompactScopes;
         bool first = true;
 
-        fputs(`{"hookSpecificOutput":{"hookEventName":"PreCompact","additionalContext":"`, stdout);
+        fputs(`{"systemMessage":"`, stdout);
 
         foreach (ref scope_; preCompactScopes) {
             if (scope_.path.length > 0 && (cwd is null || !contains(cwd, scope_.path)))
@@ -292,7 +292,7 @@ extern (C) int main() {
             }
         }
 
-        fputs(`"}}`, stdout);
+        fputs(`"}`, stdout);
         fputs("\n", stdout);
         return 0;
     }
@@ -343,6 +343,17 @@ extern (C) int main() {
             }
         }
 
+        return 0;
+    }
+
+    // PostToolUseFailure — contextual hints on failure
+    if (event == HookEvent.PostToolUseFailure) {
+        import parse : extractError;
+        auto error = extractError(input);
+        if (error !is null && contains(error, "No rule to make target")) {
+            fputs(`{"systemMessage":"Run pwd — you may be in the wrong directory."}`, stdout);
+            fputs("\n", stdout);
+        }
         return 0;
     }
 

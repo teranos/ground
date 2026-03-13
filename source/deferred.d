@@ -295,7 +295,7 @@ ProjectDeferredMsg readProjectDeferredMessage(sqlite3* db, const(char)[] cwd) {
             size_t tsLen = 0;
             while (tsText[tsLen] != 0) tsLen++;
 
-            enum delSql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 AND timestamp >= ?3 LIMIT 1\0";
+            enum delSql = "SELECT 1 FROM attestations WHERE predicates LIKE ?1 AND contexts LIKE ?2 AND rowid > (SELECT rowid FROM attestations WHERE timestamp = ?3 AND predicates LIKE ?4 LIMIT 1) LIMIT 1\0";
             sqlite3_stmt* delStmt;
             if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) == SQLITE_OK) {
                 __gshared ZBuf delPred;
@@ -308,9 +308,15 @@ ProjectDeferredMsg readProjectDeferredMessage(sqlite3* db, const(char)[] cwd) {
                 projCtx.put(`%project:`);
                 projCtx.put(projPath);
                 projCtx.put(`%`);
+                __gshared ZBuf defPred;
+                defPred.reset();
+                defPred.put(`%deferred:`);
+                defPred.put(name);
+                defPred.put(`%`);
                 sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
                 sqlite3_bind_text(delStmt, 2, projCtx.ptr(), cast(int) projCtx.len, SQLITE_TRANSIENT);
                 sqlite3_bind_text(delStmt, 3, tsText, cast(int) tsLen, SQLITE_TRANSIENT);
+                sqlite3_bind_text(delStmt, 4, defPred.ptr(), cast(int) defPred.len, SQLITE_TRANSIENT);
                 bool delivered = sqlite3_step(delStmt) == SQLITE_ROW;
                 sqlite3_finalize(delStmt);
                 if (delivered) continue;

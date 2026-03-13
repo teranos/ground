@@ -121,6 +121,11 @@ const(char)[] extractStderr(const(char)[] json) {
     return extractJsonString(json, `"stderr"`, &buf[0], buf.length);
 }
 
+const(char)[] extractError(const(char)[] json) {
+    __gshared char[4096] buf = 0;
+    return extractJsonString(json, `"error"`, &buf[0], buf.length);
+}
+
 const(char)[] extractLastAssistantMessage(const(char)[] json) {
     __gshared char[8192] buf = 0;
     return extractJsonString(json, `"last_assistant_message"`, &buf[0], buf.length);

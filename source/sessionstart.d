@@ -142,8 +142,6 @@ const(char)[] checkTagStaleness() {
 //
 // Schema: see sqlite.d attestType / attestEvent.
 //
-// TODO: verify every event type's payload fields for rich string eligibility.
-// Only UserPromptSubmit (prompt) and Stop (last_assistant_message) confirmed so far.
 void attestTypes() {
     import sqlite : openDb, attestType, sqlite3_close;
     auto db = openDb();
@@ -151,16 +149,14 @@ void attestTypes() {
 
     // Event types — <Type> is type of ClaudeCode
     static foreach (name; [
-        "SessionStart", "PermissionRequest", "PreToolUse",
-        "PostToolUse", "PostToolUseFailure", "Notification",
-        "SubagentStart", "SubagentStop", "TeammateIdle",
-        "TaskCompleted", "ConfigChange", "WorktreeCreate",
-        "WorktreeRemove", "PreCompact", "Setup", "SessionEnd"
+        "SessionStart", "UserPromptSubmit", "PermissionRequest",
+        "PreToolUse", "PostToolUse", "PostToolUseFailure",
+        "Notification", "SubagentStart", "SubagentStop",
+        "Stop", "TeammateIdle", "TaskCompleted",
+        "ConfigChange", "WorktreeCreate", "WorktreeRemove",
+        "PreCompact", "Setup", "InstructionsLoaded", "SessionEnd"
     ])
         attestType(db, name, "ClaudeCode", `{}`);
-
-    attestType(db, "UserPromptSubmit", "ClaudeCode", `{}`);
-    attestType(db, "Stop", "ClaudeCode", `{}`);
 
     // Grounded types — <Type> is type of Graunded
     attestType(db, "GraundedPreToolUse", "Graunded", `{}`);
