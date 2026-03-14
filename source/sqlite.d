@@ -218,14 +218,57 @@ const(char)[] cwdTail(const(char)[] path) {
 // NOTE: cwd is passed into popen unescaped. Trusted — comes from Claude Code's hook payload.
 const(char)[] getBranch(const(char)[] cwd) {
     __gshared char[256] branchBuf = 0;
+    __gshared char[512] gitdirBuf = 0;
     __gshared ZBuf pathBuf;
 
     // Read .git/HEAD directly — avoids ~46ms popen subprocess
-    pathBuf.reset();
-    pathBuf.put(cwd);
-    pathBuf.put("/.git/HEAD");
+    // Walk up from cwd to find .git (handles subdirectories of a repo)
+    // .git can be a directory (normal) or a file (worktrees: "gitdir: /path/...")
 
-    auto f = fopen(pathBuf.ptr(), "r");
+    // Copy cwd so we can truncate to walk up
+    if (cwd.length == 0 || cwd.length >= gitdirBuf.length) return "unknown";
+    foreach (i, c; cwd) gitdirBuf[i] = c;
+    size_t cwdLen = cwd.length;
+
+    FILE* f = null;
+    while (cwdLen > 0) {
+        // Try cwd/.git/HEAD (normal repo)
+        pathBuf.reset();
+        pathBuf.put(gitdirBuf[0 .. cwdLen]);
+        pathBuf.put("/.git/HEAD");
+        f = fopen(pathBuf.ptr(), "r");
+        if (f !is null) break;
+
+        // Try cwd/.git as a file (worktrees)
+        pathBuf.reset();
+        pathBuf.put(gitdirBuf[0 .. cwdLen]);
+        pathBuf.put("/.git");
+        f = fopen(pathBuf.ptr(), "r");
+        if (f !is null) {
+            __gshared char[512] gdBuf = 0;
+            auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
+            fclose(f);
+            f = null;
+            enum gdPrefix = "gitdir: ";
+            if (gn > gdPrefix.length && gdBuf[0 .. gdPrefix.length] == gdPrefix) {
+                size_t end = gn;
+                while (end > 0 && (gdBuf[end - 1] == '\n' || gdBuf[end - 1] == '\r'))
+                    end--;
+                if (end > gdPrefix.length) {
+                    pathBuf.reset();
+                    pathBuf.put(gdBuf[gdPrefix.length .. end]);
+                    pathBuf.put("/HEAD");
+                    f = fopen(pathBuf.ptr(), "r");
+                    if (f !is null) break;
+                }
+            }
+        }
+
+        // Walk up one directory
+        while (cwdLen > 0 && gitdirBuf[cwdLen - 1] != '/') cwdLen--;
+        if (cwdLen > 0) cwdLen--; // skip the '/'
+    }
+
     if (f is null) return "unknown";
 
     auto n = fread(&branchBuf[0], 1, branchBuf.length - 1, f);
