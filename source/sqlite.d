@@ -213,6 +213,15 @@ const(char)[] cwdTail(const(char)[] path) {
     return path[prev .. $];
 }
 
+// Build subject as "parent/repo:branch" for attestations and loom UDP.
+// Single source of truth — used by attestEvent and notifyLoomHook.
+void buildSubject(ref ZBuf buf, const(char)[] cwd, const(char)[] branch) {
+    buf.reset();
+    buf.put(cwdTail(cwd));
+    buf.put(":");
+    buf.put(branch);
+}
+
 // --- Branch name ---
 
 // NOTE: cwd is passed into popen unescaped. Trusted — comes from Claude Code's hook payload.
@@ -403,14 +412,14 @@ void attestEvent(
         }
     }
 
-    subjectVal.reset();
     if (sessionProject !is null) {
+        subjectVal.reset();
         subjectVal.put(sessionProject);
+        subjectVal.put(":");
+        subjectVal.put(branch);
     } else {
-        subjectVal.put(cwdTail(cwd));
+        buildSubject(subjectVal, cwd, branch);
     }
-    subjectVal.put(":");
-    subjectVal.put(branch);
     jsonArray1(subjects, subjectVal.slice());
     jsonArray1(predicates, eventName);
 

@@ -5,6 +5,35 @@ import sqlite : openDb, attestEvent,
                 getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, fputs;
 
+// Notify loom of hook output so it appears as [hook] in weaves
+void notifyLoomHook(const(char)[] cwd, const(char)[] sessionId, const(char)[] message) {
+    import loom : sendToLoom;
+    import sqlite : jsonArray1, buildSubject;
+    auto branch = getBranch(cwd);
+    if (branch is null) branch = "unknown";
+
+    __gshared ZBuf subjects, predicates, contexts, attrBuf, subjectVal;
+    buildSubject(subjectVal, cwd, branch);
+    jsonArray1(subjects, subjectVal.slice());
+    jsonArray1(predicates, "Hook");
+
+    contexts.reset();
+    contexts.put(`["session:`);
+    contexts.put(sessionId);
+    contexts.put(`"]`);
+
+    attrBuf.reset();
+    attrBuf.put(`{"hook_output":"`);
+    foreach (c; message) {
+        if (c == '"') attrBuf.put(`\"`);
+        else if (c == '\\') attrBuf.put(`\\`);
+        else attrBuf.putChar(c);
+    }
+    attrBuf.put(`"}`);
+
+    sendToLoom(subjects, predicates, contexts, attrBuf.slice());
+}
+
 // Claude Code renders \n in reason as literal "\n", not as a line break.
 void writeStopResponse(const(char)[] reason) {
     fputs(`{"decision":"block","reason":"`, stdout);
@@ -13,7 +42,19 @@ void writeStopResponse(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
+// cwd/sessionId stashed by handleStop so writeStopResponse callers don't need them
+__gshared const(char)[] g_cwd;
+__gshared const(char)[] g_sessionId;
+
+void writeStopResponseAndNotify(const(char)[] reason) {
+    writeStopResponse(reason);
+    notifyLoomHook(g_cwd, g_sessionId, reason);
+}
+
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
+    g_cwd = cwd;
+    g_sessionId = sessionId;
+
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
     if (hookActive)
@@ -34,7 +75,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             graundedAttrs.put(`"}`);
             attestEvent(db, "GraundedStop", cwd, sessionId, graundedAttrs.slice());
             sqlite3_close(db);
-            writeStopResponse(trailResult.reason);
+            writeStopResponseAndNotify(trailResult.reason);
             return 0;
         }
     }
@@ -46,7 +87,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         if (lastMsg !is null && contains(lastMsg, "Ready for you to verify")) {
             attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"lazy-verify"}`);
             sqlite3_close(db);
-            writeStopResponse("Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction.");
+            writeStopResponseAndNotify("Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction.");
             return 0;
         }
     }
@@ -59,19 +100,19 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             if (contains(lastMsg, "make wasm")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"make-dev-includes-wasm"}`);
                 sqlite3_close(db);
-                writeStopResponse(`Please note that "make dev" also rebuilds the wasm, see the Makefile.`);
+                writeStopResponseAndNotify(`Please note that "make dev" also rebuilds the wasm, see the Makefile.`);
                 return 0;
             }
             if (contains(lastMsg, "binary might be stale") || contains(lastMsg, "binary may be stale")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"no-stale-binary-speculation"}`);
                 sqlite3_close(db);
-                writeStopResponse(`The developer is always running the latest version. Do not speculate about stale binaries.`);
+                writeStopResponseAndNotify(`The developer is always running the latest version. Do not speculate about stale binaries.`);
                 return 0;
             }
             if (contains(lastMsg, "port 877")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"port-877-check-am-toml"}`);
                 sqlite3_close(db);
-                writeStopResponse(`You mentioned port 877. Check am.toml in the project root for the actual port configuration.`);
+                writeStopResponseAndNotify(`You mentioned port 877. Check am.toml in the project root for the actual port configuration.`);
                 return 0;
             }
         }
@@ -85,25 +126,25 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             if (contains(lastMsg, "The most effective fix is")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
                 sqlite3_close(db);
-                writeStopResponse(`You said "The most effective fix is" — according to whom? The user will go apeshit if you are pulling this out of your ass, be sure to ground it in verification or real facts.`);
+                writeStopResponseAndNotify(`You said "The most effective fix is" — according to whom? The user will go apeshit if you are pulling this out of your ass, be sure to ground it in verification or real facts.`);
                 return 0;
             }
             if (contains(lastMsg, "feeling is probably")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
                 sqlite3_close(db);
-                writeStopResponse(`You said "feeling is probably" — do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.`);
+                writeStopResponseAndNotify(`You said "feeling is probably" — do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.`);
                 return 0;
             }
             if (contains(lastMsg, "likely because")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
                 sqlite3_close(db);
-                writeStopResponse(`You said "likely because" — that's a guess, not a diagnosis. Check the data before proposing a cause.`);
+                writeStopResponseAndNotify(`You said "likely because" — that's a guess, not a diagnosis. Check the data before proposing a cause.`);
                 return 0;
             }
             if (contains(lastMsg, "Nothing left to do")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
                 sqlite3_close(db);
-                writeStopResponse(`You said "Nothing left to do" — you made a completeness claim. What specifically was not verified?`);
+                writeStopResponseAndNotify(`You said "Nothing left to do" — you made a completeness claim. What specifically was not verified?`);
                 return 0;
             }
         }
@@ -127,7 +168,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     ciBuf.put("CI: ");
                     ciBuf.put(status);
                     sqlite3_close(db);
-                    writeStopResponse(ciBuf.slice());
+                    writeStopResponseAndNotify(ciBuf.slice());
+
                     return 0;
                 }
                 // No CI runs — nothing to report
@@ -136,7 +178,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             }
 
             sqlite3_close(db);
-            writeStopResponse(deferred.message);
+            writeStopResponseAndNotify(deferred.message);
+
             return 0;
         }
     }
@@ -150,7 +193,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             if (projDeferred.message !is null) {
                 markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
                 sqlite3_close(db);
-                writeStopResponse(projDeferred.message);
+                writeStopResponseAndNotify(projDeferred.message);
+
                 return 0;
             }
         }
@@ -184,7 +228,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         timingMsg.put("ms, budget is 300ms. Check getBranch and db queries for optimization.");
                         attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
                         sqlite3_close(db);
-                        writeStopResponse(timingMsg.slice());
+                        writeStopResponseAndNotify(timingMsg.slice());
                         return 0;
                     }
                 }
