@@ -215,9 +215,18 @@ const(char)[] cwdTail(const(char)[] path) {
 
 // Build subject as "parent/repo:branch" for attestations and loom UDP.
 // Single source of truth — used by attestEvent and notifyLoomHook.
+// Uses the git repo root (not raw cwd) so subdirectories don't change the subject.
 void buildSubject(ref ZBuf buf, const(char)[] cwd, const(char)[] branch) {
     buf.reset();
-    buf.put(cwdTail(cwd));
+    // Find repo root by walking up to .git
+    size_t repoRootLen;
+    auto f = findGitHead(cwd, repoRootLen);
+    if (f !is null) {
+        fclose(f);
+        buf.put(cwdTail(gitdirBuf[0 .. repoRootLen]));
+    } else {
+        buf.put(cwdTail(cwd));
+    }
     buf.put(":");
     buf.put(branch);
 }
@@ -225,17 +234,19 @@ void buildSubject(ref ZBuf buf, const(char)[] cwd, const(char)[] branch) {
 // --- Branch name ---
 
 // NOTE: cwd is passed into popen unescaped. Trusted — comes from Claude Code's hook payload.
-const(char)[] getBranch(const(char)[] cwd) {
-    __gshared char[256] branchBuf = 0;
-    __gshared char[512] gitdirBuf = 0;
+
+// Shared git discovery — walks up from cwd to find .git, returns repo root length
+// and opens .git/HEAD for branch reading. Used by both getBranch and getRepoRoot.
+__gshared char[512] gitdirBuf = 0;
+
+private FILE* findGitHead(const(char)[] cwd, out size_t repoRootLen) {
     __gshared ZBuf pathBuf;
 
     // Read .git/HEAD directly — avoids ~46ms popen subprocess
     // Walk up from cwd to find .git (handles subdirectories of a repo)
     // .git can be a directory (normal) or a file (worktrees: "gitdir: /path/...")
 
-    // Copy cwd so we can truncate to walk up
-    if (cwd.length == 0 || cwd.length >= gitdirBuf.length) return "unknown";
+    if (cwd.length == 0 || cwd.length >= gitdirBuf.length) { repoRootLen = 0; return null; }
     foreach (i, c; cwd) gitdirBuf[i] = c;
     size_t cwdLen = cwd.length;
 
@@ -278,6 +289,15 @@ const(char)[] getBranch(const(char)[] cwd) {
         if (cwdLen > 0) cwdLen--; // skip the '/'
     }
 
+    repoRootLen = cwdLen;
+    return f;
+}
+
+const(char)[] getBranch(const(char)[] cwd) {
+    __gshared char[256] branchBuf = 0;
+
+    size_t repoRootLen;
+    auto f = findGitHead(cwd, repoRootLen);
     if (f is null) return "unknown";
 
     auto n = fread(&branchBuf[0], 1, branchBuf.length - 1, f);
