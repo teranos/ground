@@ -32,8 +32,8 @@ Git workflow rituals and attestation-backed state. Graunde evolves from stateles
 ### Three — engines on ✓
 Register graunde for all hook events. Branch on `hook_event_name` in main.d. PreToolUse keeps existing control logic and attests every tool call. PostToolUse defers CI nudge messages after `git push`. Stop runs ax controls against the attestation trail and delivers deferred messages. SessionStart attests type definitions and delivers project-scoped deferred messages. PreCompact attested as lifecycle marker. The complete attestation trail — commands, file paths, compactions, session boundaries — enables Count Four Phase 3.
 
-### Two — check ignition
-Audit all open issues and move actionable information into the source — the binary is the backlog. Close issues that become TODOs in `controls.d` or other source files. Standalone db — graunde creates its own schema when no QNTX node db is available.
+### Two — check ignition ✓
+Issue backlog moved to source TODOs. Standalone db with own schema. getBranch reads `.git/HEAD` directly — no subprocess per event. Subject stability via `session_project` cache table — project part fixed on SessionStart, immune to cwd drift. Compaction-aware dedup — once-per-session controls re-fire after PreCompact. PostToolUse controls with scoped matching. Permanent timing instrumentation with regression detection on Stop (100ms budget). Ego-death controls catch overconfident and dismissive language. Flake includes `controls/` directory.
 
 ### One — and may God's love ✓
 The binary is the config. Distribution via Claude Code plugin — two JSON files, no binary shipped. SessionStart checks PATH for graunde; if missing, tells Claude to figure out the installation. Self-verification: CTFE hash of controls source compared at runtime, warns when binary is stale. Tag staleness: baked-in `git describe` compared against GitHub Releases API on startup.
