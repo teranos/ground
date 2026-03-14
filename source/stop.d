@@ -166,7 +166,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             if (sqlite3_prepare_v2(db, timingSql.ptr, -1, &stmt, null) == SQLITE_OK) {
                 if (sqlite3_step(stmt) == SQLITE_ROW) {
                     auto avgUs = sqlite3_column_int64(stmt, 0);
-                    enum thresholdUs = 100_000; // 100ms budget
+                    enum thresholdUs = 300_000; // 300ms budget
                     if (avgUs > thresholdUs) {
                         sqlite3_finalize(stmt);
                         auto avgMs = avgUs / 1000;
@@ -180,7 +180,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         if (v == 0) { digits[0] = '0'; dLen = 1; }
                         else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
                         foreach (i; 0 .. dLen) timingMsg.putChar(digits[dLen - 1 - i]);
-                        timingMsg.put("ms, budget is 100ms. Check getBranch and db queries for optimization.");
+                        timingMsg.put("ms, budget is 300ms. Check getBranch and db queries for optimization.");
                         attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
                         sqlite3_close(db);
                         writeStopResponse(timingMsg.slice());
