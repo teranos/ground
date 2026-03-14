@@ -285,11 +285,42 @@ FileMatch checkFilePath(const(char)[] filePath, const(char)[] cwd) {
 enum QNTX = "/Users/dev/QNTX";
 enum OTHER = "/Users/dev/other-project";
 
-unittest {
-    // Major Tom runs "go test" in QNTX — Graunde Control catches it
-    auto result = checkCommand("go test ./...", QNTX);
-    assert(result.control !is null);
-    assert(result.control.name == "go-test-args");
+static if (__traits(compiles, { import qntx; })) {
+    unittest {
+        // Major Tom runs "go test" in QNTX — Graunde Control catches it
+        auto result = checkCommand("go test ./...", QNTX);
+        assert(result.control !is null);
+        assert(result.control.name == "go-test-args");
+    }
+
+    unittest {
+        // Major Tom forgets build tags — Graunde Control amends
+        auto result = checkCommand("go test ./...", QNTX);
+        auto amended = applyArg(result.control, result.segment);
+        assert(amended.slice() == `go test -tags "rustsqlite,qntxwasm" -short ./...`);
+    }
+
+    unittest {
+        // Major Tom hides "go test" in a pipe — still caught, args preserved
+        auto result = checkCommand("echo hello | go test -v ./cmd/qntx", QNTX);
+        assert(result.control !is null);
+        auto amended = applyArg(result.control, result.segment);
+        assert(amended.slice() == `go test -tags "rustsqlite,qntxwasm" -short -v ./cmd/qntx`);
+    }
+
+    unittest {
+        // Major Tom chains with && — segments split correctly
+        auto result = checkCommand("make build && go test ./... && echo done", QNTX);
+        assert(result.control !is null);
+        assert(result.segment == "go test ./...");
+    }
+
+    unittest {
+        // Major Tom uses semicolons — segments split correctly
+        auto result = checkCommand("echo start; go test -race ./...", QNTX);
+        assert(result.control !is null);
+        assert(result.segment == "go test -race ./...");
+    }
 }
 
 unittest {
@@ -302,35 +333,6 @@ unittest {
     // Major Tom runs "ls -la" — Graunde Control lets it pass
     auto result = checkCommand("ls -la", QNTX);
     assert(result.control is null);
-}
-
-unittest {
-    // Major Tom forgets build tags — Graunde Control amends
-    auto result = checkCommand("go test ./...", QNTX);
-    auto amended = applyArg(result.control, result.segment);
-    assert(amended.slice() == `go test -tags "rustsqlite,qntxwasm" -short ./...`);
-}
-
-unittest {
-    // Major Tom hides "go test" in a pipe — still caught, args preserved
-    auto result = checkCommand("echo hello | go test -v ./cmd/qntx", QNTX);
-    assert(result.control !is null);
-    auto amended = applyArg(result.control, result.segment);
-    assert(amended.slice() == `go test -tags "rustsqlite,qntxwasm" -short -v ./cmd/qntx`);
-}
-
-unittest {
-    // Major Tom chains with && — segments split correctly
-    auto result = checkCommand("make build && go test ./... && echo done", QNTX);
-    assert(result.control !is null);
-    assert(result.segment == "go test ./...");
-}
-
-unittest {
-    // Major Tom uses semicolons — segments split correctly
-    auto result = checkCommand("echo start; go test -race ./...", QNTX);
-    assert(result.control !is null);
-    assert(result.segment == "go test -race ./...");
 }
 
 unittest {
