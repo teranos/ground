@@ -30,6 +30,24 @@ go test -tags "rustsqlite,qntxwasm" -short ./...
 ```
 Claude receives: *"Build tags and -short are required for go test in QNTX."*
 
+## Install
+
+```
+claude plugin install /path/to/graunde/plugin
+```
+
+On first session, graunde detects the binary isn't installed and tells Claude how to set it up — prebuilt binaries are available from [GitHub Releases](https://github.com/teranos/graunde/releases).
+
+To build from source instead (requires [LDC](https://dlang.org/download.html) and libsqlite3):
+
+```
+git clone https://github.com/teranos/graunde.git
+cd graunde
+make install
+```
+
+Installs to `~/.local/bin/graunde`. Override with `PREFIX=/usr/local make install`.
+
 ## How it works
 
 Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) across all events. Two actions for command controls:
@@ -39,34 +57,10 @@ Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hook
 
 Amendments are silent — the command runs with the corrected arguments and Claude receives a message explaining why. Unmatched commands pass through unchanged.
 
-Controls are defined in `source/controls.d` and compiled into the binary. No config files — the binary is the config.
-
-## Installation
-
-```
-make install
-```
-
-Builds a release binary and copies it to `~/.local/bin/graunde`. Override with `PREFIX=/usr/local make install`.
-
-## Hook registration
-
-Add the `hooks` key to `~/.claude/settings.json`:
-```json
-{
-  "hooks": {
-    "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
-    "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "graunde" }] }],
-    "PreCompact": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "graunde" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "graunde" }] }]
-  }
-}
-```
+Controls are defined in `controls/controls.d` and compiled into the binary. The binary is the config.
 
 ## Why D
 
-D with `-betterC`, compiled with LDC. 77KB binary, ~17ms latency. Controls are evaluated at compile time and baked in. Linked against libsqlite3 for attestation storage.
+D with `-betterC`, compiled with LDC. 244KB binary, ~12ms median latency. Controls are evaluated at compile time and baked in. Linked against libsqlite3 for attestation storage.
 
 ## [Countdown](COUNTDOWN.md)
