@@ -93,6 +93,12 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 writeStopResponse(`You said "feeling is probably" — do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.`);
                 return 0;
             }
+            if (contains(lastMsg, "likely because")) {
+                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
+                sqlite3_close(db);
+                writeStopResponse(`You said "likely because" — that's a guess, not a diagnosis. Check the data before proposing a cause.`);
+                return 0;
+            }
             if (contains(lastMsg, "Nothing left to do")) {
                 attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
                 sqlite3_close(db);
