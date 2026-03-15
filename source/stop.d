@@ -109,10 +109,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 writeStopResponseAndNotify(`The developer is always running the latest version. Do not speculate about stale binaries.`);
                 return 0;
             }
-            if (containsWord(lastMsg, "port 877")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"port-877-check-am-toml"}`);
+            if (containsWord(lastMsg, "port 877") || contains(lastMsg, "8820")) {
+                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"port-check-am-toml"}`);
                 sqlite3_close(db);
-                writeStopResponseAndNotify(`You mentioned port 877. Check am.toml in the project root for the actual port configuration.`);
+                writeStopResponseAndNotify(`You mentioned a default port. Check am.toml in the project root for the actual port configuration.`);
                 return 0;
             }
         }
