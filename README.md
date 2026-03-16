@@ -30,6 +30,13 @@ go test -tags "rustsqlite,qntxwasm" -short ./...
 ```
 Claude receives: *"Build tags and -short are required for go test in QNTX."*
 
+The user mentions "ADR" in a prompt:
+```d
+control("adr-reminder", userprompt("ADR"),
+    msg("ADRs are in docs/adr/ — check existing decisions before proposing new ones.")),
+```
+Claude receives: *"ADRs are in docs/adr/ — check existing decisions before proposing new ones."*
+
 ## Install
 
 ```
@@ -55,7 +62,7 @@ Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hook
 - **arg** — insert missing arguments after the matched command
 - **omit** — strip unwanted flags from the command
 
-Amendments are silent — the command runs with the corrected arguments and Claude receives a message explaining why. Unmatched commands pass through unchanged.
+Amendments are silent — the command runs with the corrected arguments and Claude receives a message explaining why. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
 
 Controls are defined in `controls/controls.d` and compiled into the binary. The binary is the config.
 

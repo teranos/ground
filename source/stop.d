@@ -200,6 +200,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
+    // TODO: per-event-type budgets — Stop gets headroom for trail/CI, inter-event hooks should be near-instant
     // Timing regression check — once per compaction window
     {
         import sqlite : attestationExists, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64,

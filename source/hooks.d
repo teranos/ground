@@ -2,7 +2,7 @@ module hooks;
 
 enum HookEvent {
     SessionStart,       // arch context
-    UserPromptSubmit,   // keyword reminders
+    UserPromptSubmit,   // scoped keyword controls via userprompt(), case-insensitive matching
     PreToolUse,         // command amendment, file-path controls, scoped decisions
                         // TODO: updatedInput for non-Bash tools (file_path, pattern, offset, etc.)
     PermissionRequest,  // TODO: auto-allow/deny permission dialogs
@@ -26,8 +26,8 @@ enum HookEvent {
     ConfigChange,       // TODO: block unwanted config changes mid-session (exit 2, except policy_settings)
     WorktreeCreate,     // TODO: agent worktree creation — stdout prints path, non-zero exit fails creation
     WorktreeRemove,     // TODO: agent worktree cleanup
-    PreCompact,         // TODO: capture session state before compaction so it survives context loss
-                        //   trigger (manual/auto), custom_instructions — ties into SessionStart re-injection
+    PreCompact,         // branch context via precompact() trigger
+                        // TODO: capture session state before compaction so it survives context loss
     Setup,              // TODO: runs on --init/--init-only/--maintenance before session starts
                         //   undocumented upstream (shipped 2.1.10, absent from hooks reference)
     InstructionsLoaded, // fires when CLAUDE.md or .claude/rules/*.md is loaded
