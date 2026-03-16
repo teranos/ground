@@ -74,7 +74,8 @@ struct UserPrompt {
     string value;
 }
 
-Trigger stop() { return Trigger("Stop"); }
+Trigger stop() { return Trigger(""); }
+Trigger stop(string s) { return Trigger(s); }
 Trigger precompact() { return Trigger("PreCompact"); }
 UserPrompt userprompt(string s) { return UserPrompt(s); }
 FilePath filepath(string s) { return FilePath(s); }

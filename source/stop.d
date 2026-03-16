@@ -80,72 +80,30 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
-    // Check for lazy verification deferral
+    // Stop controls — pattern matching on last assistant message
     {
-        import matcher : contains;
-        auto lastMsg = extractLastAssistantMessage(input);
-        if (lastMsg !is null && contains(lastMsg, "Ready for you to verify")) {
-            attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"lazy-verify"}`);
-            sqlite3_close(db);
-            writeStopResponseAndNotify("Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction.");
-            return 0;
-        }
-    }
-
-    // QNTX-scoped Stop controls
-    {
-        import matcher : contains, containsWord;
-        auto lastMsg = extractLastAssistantMessage(input);
-        if (lastMsg !is null && cwd !is null && contains(cwd, "/QNTX")) {
-            if (contains(lastMsg, "make wasm")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"make-dev-includes-wasm"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`Please note that "make dev" also rebuilds the wasm, see the Makefile.`);
-                return 0;
-            }
-            if (contains(lastMsg, "binary might be stale") || contains(lastMsg, "binary may be stale")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"no-stale-binary-speculation"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`The developer is always running the latest version. Do not speculate about stale binaries.`);
-                return 0;
-            }
-            if (containsWord(lastMsg, "port 877") || contains(lastMsg, "8820")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"port-check-am-toml"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`You mentioned a default port. Check am.toml in the project root for the actual port configuration.`);
-                return 0;
-            }
-        }
-    }
-
-    // ego-death — catch overconfident language in responses
-    {
-        import matcher : contains;
+        import matcher : containsWord;
+        import controls : stopScopes;
+        import hooks : scopeMatches;
         auto lastMsg = extractLastAssistantMessage(input);
         if (lastMsg !is null) {
-            if (contains(lastMsg, "The most effective fix is")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`You said "The most effective fix is" — according to whom? The user will go apeshit if you are pulling this out of your ass, be sure to ground it in verification or real facts.`);
-                return 0;
-            }
-            if (contains(lastMsg, "feeling is probably")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`You said "feeling is probably" — do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.`);
-                return 0;
-            }
-            if (contains(lastMsg, "likely because")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`You said "likely because" — that's a guess, not a diagnosis. Check the data before proposing a cause.`);
-                return 0;
-            }
-            if (contains(lastMsg, "Nothing left to do")) {
-                attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"ego-death"}`);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(`You said "Nothing left to do" — you made a completeness claim. What specifically was not verified?`);
-                return 0;
+            foreach (ref sc; stopScopes) {
+                if (!scopeMatches(sc.path, cwd))
+                    continue;
+                foreach (ref c; sc.controls) {
+                    if (c.trigger.value.length == 0) continue;
+                    if (!containsWord(lastMsg, c.trigger.value)) continue;
+
+                    __gshared ZBuf stopAttrs;
+                    stopAttrs.reset();
+                    stopAttrs.put(`{"control":"`);
+                    stopAttrs.put(c.name);
+                    stopAttrs.put(`"}`);
+                    attestEvent(db, "GraundedStop", cwd, sessionId, stopAttrs.slice());
+                    sqlite3_close(db);
+                    writeStopResponseAndNotify(c.msg.value);
+                    return 0;
+                }
             }
         }
     }

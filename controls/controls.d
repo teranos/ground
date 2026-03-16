@@ -84,11 +84,35 @@ static immutable qntxExcludedPromptControls = [
         msg("QNTX — Continuous Intelligence. Domain-agnostic knowledge system built on verifiable attestations (who said what, when, in what context). Core: Attestation Type System (ATS). Query with AX. Graunde shares its node db; https://github.com/teranos/QNTX")),
 ];
 
+static immutable stopControls = [
+    control("lazy-verify", stop("Ready for you to verify"),
+        msg("Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction.")),
+    control("ego-death-effective-fix", stop("The most effective fix is"),
+        msg("You made a strong claim — according to whom? Ground it in verification or real facts.")),
+    control("ego-death-feeling-probably", stop("feeling is probably"),
+        msg("Do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.")),
+    control("ego-death-likely-because", stop("likely because"),
+        msg("That's a guess, not a diagnosis. Check the data before proposing a cause.")),
+    control("ego-death-nothing-left", stop("Nothing left to do"),
+        msg("You made a completeness claim. What specifically was not verified?")),
+];
+
+static immutable qntxStopControls = [
+    control("make-dev-includes-wasm", stop("make wasm"),
+        msg(`"make dev" also rebuilds the wasm, see the Makefile.`)),
+    control("no-stale-binary-speculation-might", stop("binary might be stale"),
+        msg("The developer is always running the latest version. Do not speculate about stale binaries.")),
+    control("no-stale-binary-speculation-may", stop("binary may be stale"),
+        msg("The developer is always running the latest version. Do not speculate about stale binaries.")),
+    control("port-check-am-toml-877", stop("port 877"),
+        msg("You mentioned a default port. Check am.toml in the project root for the actual port configuration.")),
+    control("port-check-am-toml-8820", stop("8820"),
+        msg("You mentioned a default port. Check am.toml in the project root for the actual port configuration.")),
+];
+
 // TODO: stale binary correction on Stop — detect when installed binary doesn't match compiled version
 // TODO: catch hardcoded URLs in error messages that claim to report runtime values
 // TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
-// TODO: ego-death — confident claims about niche/untrained topics trigger grace and humility
-// TODO: stop() trigger for inline Stop controls (ego-death, QNTX-scoped) — move from stop.d into controls/
 
 static immutable allScopes = () {
     auto base = [
@@ -116,6 +140,13 @@ static immutable userPromptScopes = () {
         Scope("", "allow", userPromptControls),
         Scope("!/graunde", "allow", graundeExcludedPromptControls),
         Scope("!/QNTX", "allow", qntxExcludedPromptControls),
+    ];
+}();
+
+static immutable stopScopes = () {
+    return [
+        Scope("", "allow", stopControls),
+        Scope("/QNTX", "allow", qntxStopControls),
     ];
 }();
 
