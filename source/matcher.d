@@ -1,6 +1,7 @@
 module matcher;
 
 import controls;
+import hooks : scopeMatches;
 
 struct Match {
     const(Control)* control;
@@ -29,6 +30,23 @@ bool contains(const(char)[] haystack, const(char)[] needle) {
     foreach (i; 0 .. haystack.length - needle.length + 1)
         if (haystack[i .. i + needle.length] == needle)
             return true;
+    return false;
+}
+
+bool containsCI(const(char)[] haystack, const(char)[] needle) {
+    if (needle.length == 0) return true;
+    if (needle.length > haystack.length) return false;
+    foreach (i; 0 .. haystack.length - needle.length + 1) {
+        bool match = true;
+        foreach (j; 0 .. needle.length) {
+            char a = haystack[i + j];
+            char b = needle[j];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) { match = false; break; }
+        }
+        if (match) return true;
+    }
     return false;
 }
 
@@ -166,7 +184,7 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
-                    if (sc.path.length > 0 && !contains(cwd, sc.path))
+                    if (!scopeMatches(sc.path, cwd))
                         continue;
                     foreach (ref c; sc.controls) {
                         if (commandMatch(segment, c.cmd.value)) {
@@ -240,7 +258,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
-                    if (sc.path.length > 0 && !contains(cwd, sc.path))
+                    if (!scopeMatches(sc.path, cwd))
                         continue;
                     foreach (ref c; sc.controls) {
                         if (commandMatch(segment, c.cmd.value)) {
@@ -341,7 +359,7 @@ FileMatch checkFilePath(const(char)[] filePath, const(char)[] cwd) {
     const(char)[] firstName;
 
     foreach (ref sc; fileScopes) {
-        if (sc.path.length > 0 && !contains(cwd, sc.path))
+        if (!scopeMatches(sc.path, cwd))
             continue;
         foreach (ref c; sc.controls) {
             if (c.filepath.value.length > 0 && contains(filePath, c.filepath.value)) {
