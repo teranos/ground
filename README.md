@@ -39,10 +39,10 @@ Claude receives: *"ADRs are in docs/adr/ — check existing decisions before pro
 
 A session starts in a project with local configuration:
 ```d
-control("am-toml-reminder", sessionstart(),
-    msg("am.toml in the project root has the db path and node configuration.")),
+control("config-reminder", sessionstart(),
+    msg("Config is in config.toml — check it before assuming defaults.")),
 ```
-Claude receives: *"am.toml in the project root has the db path and node configuration."*
+Claude receives: *"Config is in config.toml — check it before assuming defaults."*
 
 ## Install
 
