@@ -70,8 +70,13 @@ struct Tmo {
 Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
+struct UserPrompt {
+    string value;
+}
+
 Trigger stop() { return Trigger("Stop"); }
 Trigger precompact() { return Trigger("PreCompact"); }
+UserPrompt userprompt(string s) { return UserPrompt(s); }
 FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
 Bg bg() { return Bg(true); }
@@ -84,6 +89,7 @@ struct Control {
     Omit omit;
     Trigger trigger;
     FilePath filepath;
+    UserPrompt userprompt;
     Msg msg;
     Bg bg;
     Tmo tmo;
@@ -120,6 +126,10 @@ Control control(string name, Trigger t, Msg m, Cmd c) {
 
 Control control(string name, FilePath fp, Msg m) {
     Control ctrl; ctrl.name = name; ctrl.filepath = fp; ctrl.msg = m; return ctrl;
+}
+
+Control control(string name, UserPrompt up, Msg m) {
+    Control ctrl; ctrl.name = name; ctrl.userprompt = up; ctrl.msg = m; return ctrl;
 }
 
 // Groups controls by scope and decision.

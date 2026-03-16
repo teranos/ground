@@ -65,11 +65,23 @@ static immutable graunde = [
         msg("Run make install to update the live hook binary.")),
 ];
 
+static immutable userPromptControls = [
+    control("graunde-reminder", userprompt("graunde"),
+        msg("Graunde — a hook that fires on every hook event, tracks what happened in this session. Can rewrite PreToolUse hooks on the fly, nudges Claude Code into the right direction; https://github.com/teranos/graunde/tree/main")),
+    control("ax-reminder", userprompt("ax"),
+        msg("AX — attestation query, a natural-language-like syntax (Tim is tester of QNTX by attestor)")),
+    control("qntx-reminder", userprompt("qntx"),
+        msg("QNTX — Continuous Intelligence. Domain-agnostic knowledge system built on verifiable attestations (who said what, when, in what context). Core: Attestation Type System (ATS). Query with AX. Graunde shares its node db; https://github.com/teranos/QNTX")),
+    control("timer-reminder", userprompt("timer for"),
+        msg("You can set a timer on macOS. Run in background: sleep <seconds> && say \"time\" &")),
+    control("adr-reminder", userprompt("ADR"),
+        msg("ADRs are in docs/adr/ in the QNTX repo")),
+];
+
 // TODO: stale binary correction on Stop — detect when installed binary doesn't match compiled version
 // TODO: catch hardcoded URLs in error messages that claim to report runtime values
 // TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
 // TODO: ego-death — confident claims about niche/untrained topics trigger grace and humility
-// TODO: userprompt() trigger — move keyword controls from userprompt.d into controls/
 // TODO: stop() trigger for inline Stop controls (ego-death, QNTX-scoped) — move from stop.d into controls/
 
 static immutable allScopes = () {
@@ -91,6 +103,10 @@ static immutable fileScopes = () {
         return [Scope("/QNTX", "allow", qntx.files)];
     else
         return cast(immutable(Scope)[])[];
+}();
+
+static immutable userPromptScopes = () {
+    return [Scope("", "allow", userPromptControls)];
 }();
 
 static immutable postToolUseScopes = () {

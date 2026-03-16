@@ -32,6 +32,23 @@ bool contains(const(char)[] haystack, const(char)[] needle) {
     return false;
 }
 
+bool containsCI(const(char)[] haystack, const(char)[] needle) {
+    if (needle.length == 0) return true;
+    if (needle.length > haystack.length) return false;
+    foreach (i; 0 .. haystack.length - needle.length + 1) {
+        bool match = true;
+        foreach (j; 0 .. needle.length) {
+            char a = haystack[i + j];
+            char b = needle[j];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
 // Like contains, but the match must not be followed by a digit.
 // "port 877" matches in "port 877 is" but not in "port 8773".
 bool containsWord(const(char)[] haystack, const(char)[] needle) {
