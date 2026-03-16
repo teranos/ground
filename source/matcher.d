@@ -27,9 +27,14 @@ struct Buf {
 bool contains(const(char)[] haystack, const(char)[] needle) {
     if (needle.length == 0) return true;
     if (needle.length > haystack.length) return false;
-    foreach (i; 0 .. haystack.length - needle.length + 1)
-        if (haystack[i .. i + needle.length] == needle)
+    foreach (i; 0 .. haystack.length - needle.length + 1) {
+        if (haystack[i .. i + needle.length] == needle) {
+            auto after = i + needle.length;
+            if (after < haystack.length && haystack[after] >= '0' && haystack[after] <= '9')
+                continue;
             return true;
+        }
+    }
     return false;
 }
 
@@ -50,21 +55,6 @@ bool containsCI(const(char)[] haystack, const(char)[] needle) {
     return false;
 }
 
-// Like contains, but the match must not be followed by a digit.
-// "port 877" matches in "port 877 is" but not in "port 8773".
-bool containsWord(const(char)[] haystack, const(char)[] needle) {
-    if (needle.length == 0) return true;
-    if (needle.length > haystack.length) return false;
-    foreach (i; 0 .. haystack.length - needle.length + 1) {
-        if (haystack[i .. i + needle.length] == needle) {
-            auto after = i + needle.length;
-            if (after < haystack.length && haystack[after] >= '0' && haystack[after] <= '9')
-                continue;
-            return true;
-        }
-    }
-    return false;
-}
 
 ptrdiff_t indexOf(const(char)[] haystack, const(char)[] needle) {
     if (needle.length == 0) return 0;

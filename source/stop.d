@@ -82,7 +82,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // Stop controls — pattern matching on last assistant message
     {
-        import matcher : containsWord;
+        import matcher : contains;
         import controls : stopScopes;
         import hooks : scopeMatches;
         auto lastMsg = extractLastAssistantMessage(input);
@@ -92,7 +92,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     continue;
                 foreach (ref c; sc.controls) {
                     if (c.trigger.value.length == 0) continue;
-                    if (!containsWord(lastMsg, c.trigger.value)) continue;
+                    if (!contains(lastMsg, c.trigger.value)) continue;
 
                     __gshared ZBuf stopAttrs;
                     stopAttrs.reset();
