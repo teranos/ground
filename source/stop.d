@@ -178,7 +178,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 Budget("PreToolUse",       50_000),
                 Budget("PostToolUse",     100_000),
                 Budget("UserPromptSubmit", 50_000),
-                Budget("Stop",            500_000),
+                Budget("Stop",            700_000),
                 Budget("SessionStart",  2_000_000),
             ];
 
