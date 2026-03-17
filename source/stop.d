@@ -5,6 +5,14 @@ import sqlite : openDb, attestEvent,
                 getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, fputs;
 
+void putInt(ref ZBuf buf, long v) {
+    char[20] digits = 0;
+    int dLen = 0;
+    if (v == 0) { digits[0] = '0'; dLen = 1; }
+    else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
+    foreach (i; 0 .. dLen) buf.putChar(digits[dLen - 1 - i]);
+}
+
 // Notify loom of hook output so it appears as [hook] in weaves
 void notifyLoomHook(const(char)[] cwd, const(char)[] sessionId, const(char)[] message) {
     import loom : sendToLoom;
@@ -158,43 +166,49 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
-    // TODO: per-event-type budgets — Stop gets headroom for trail/CI, inter-event hooks should be near-instant
-    // Timing regression check — once per compaction window
+    // Per-event-type timing budgets — once per compaction window
     {
         import sqlite : attestationExists, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64,
-                        sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+                        sqlite3_bind_text, sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
+                        SQLITE_TRANSIENT;
 
         if (!attestationExists(db, "GraundedStop", "timing-regression", sessionId)) {
-            enum timingSql = "SELECT AVG(duration_us) FROM (SELECT duration_us FROM timing ORDER BY id DESC LIMIT 20)\0";
-            sqlite3_stmt* stmt;
-            if (sqlite3_prepare_v2(db, timingSql.ptr, -1, &stmt, null) == SQLITE_OK) {
+            struct Budget { string event; long thresholdUs; }
+            static immutable budgets = [
+                Budget("PreToolUse",       50_000),
+                Budget("PostToolUse",     100_000),
+                Budget("UserPromptSubmit", 50_000),
+                Budget("Stop",          1_000_000),
+                Budget("SessionStart",  2_000_000),
+            ];
+
+            enum timingSql = "SELECT AVG(duration_us), COUNT(*) FROM (SELECT duration_us FROM timing WHERE hook_event = ?1 ORDER BY id DESC LIMIT 20)\0";
+
+            foreach (ref b; budgets) {
+                sqlite3_stmt* stmt;
+                if (sqlite3_prepare_v2(db, timingSql.ptr, -1, &stmt, null) != SQLITE_OK)
+                    continue;
+                sqlite3_bind_text(stmt, 1, b.event.ptr, cast(int) b.event.length, SQLITE_TRANSIENT);
                 if (sqlite3_step(stmt) == SQLITE_ROW) {
                     auto avgUs = sqlite3_column_int64(stmt, 0);
-                    enum thresholdUs = 450_000; // 450ms budget
-                    if (avgUs > thresholdUs) {
+                    auto sampleCount = sqlite3_column_int64(stmt, 1);
+                    if (sampleCount >= 10 && avgUs > b.thresholdUs) {
                         sqlite3_finalize(stmt);
                         auto avgMs = avgUs / 1000;
+                        auto budgetMs = b.thresholdUs / 1000;
                         __gshared ZBuf timingMsg;
                         timingMsg.reset();
-                        timingMsg.put("graunde timing regression: average event takes ");
-                        // Write avgMs as decimal
-                        char[10] digits = 0;
-                        int dLen = 0;
-                        auto v = avgMs;
-                        if (v == 0) { digits[0] = '0'; dLen = 1; }
-                        else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
-                        foreach (i; 0 .. dLen) timingMsg.putChar(digits[dLen - 1 - i]);
-                        timingMsg.put("ms, budget is ");
-                        enum thresholdMs = thresholdUs / 1000;
-                        char[10] tDigits = 0;
-                        int tLen = 0;
-                        { auto tv = thresholdMs; if (tv == 0) { tDigits[0] = '0'; tLen = 1; } else { while (tv > 0) { tDigits[tLen++] = cast(char)('0' + tv % 10); tv /= 10; } } }
-                        foreach (i; 0 .. tLen) timingMsg.putChar(tDigits[tLen - 1 - i]);
+                        timingMsg.put("graunde timing regression: ");
+                        timingMsg.put(b.event);
+                        timingMsg.put(" averages ");
+                        putInt(timingMsg, avgMs);
+                        timingMsg.put("ms (budget ");
+                        putInt(timingMsg, budgetMs);
                         enum VERSION = import(".version");
-                        timingMsg.put("ms (graunde ");
+                        timingMsg.put("ms, graunde ");
                         foreach (vc; VERSION)
                             if (vc != '\n' && vc != '\r') timingMsg.putChar(vc);
-                        timingMsg.put(").");
+                        timingMsg.put(")");
                         attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
                         sqlite3_close(db);
                         writeStopResponseAndNotify(timingMsg.slice());

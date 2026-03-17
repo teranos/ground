@@ -168,20 +168,27 @@ void printDuration(long t0) {
     fputs("\n", stderr);
 }
 
-void recordTiming(long elapsedUs) {
+void recordTiming(long elapsedUs, const(char)[] hookEvent) {
     import sqlite : openDb, sqlite3_exec, sqlite3_prepare_v2, sqlite3_bind_int64,
-                    sqlite3_step, sqlite3_finalize, sqlite3_close, sqlite3_stmt, SQLITE_OK;
+                    sqlite3_bind_text, sqlite3_step, sqlite3_finalize, sqlite3_close,
+                    sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
 
     auto db = openDb();
     if (db is null) return;
 
-    enum createSql = "CREATE TABLE IF NOT EXISTS timing (id INTEGER PRIMARY KEY, duration_us INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+    enum createSql = "CREATE TABLE IF NOT EXISTS timing (id INTEGER PRIMARY KEY, duration_us INTEGER NOT NULL, hook_event TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
     sqlite3_exec(db, createSql.ptr, null, null, null);
 
-    enum sql = "INSERT INTO timing (duration_us) VALUES (?1)\0";
+    // Migrate: add hook_event column if missing
+    enum migrateSql = "ALTER TABLE timing ADD COLUMN hook_event TEXT\0";
+    sqlite3_exec(db, migrateSql.ptr, null, null, null);
+
+    enum sql = "INSERT INTO timing (duration_us, hook_event) VALUES (?1, ?2)\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
         sqlite3_bind_int64(stmt, 1, elapsedUs);
+        if (hookEvent.length > 0)
+            sqlite3_bind_text(stmt, 2, hookEvent.ptr, cast(int) hookEvent.length, SQLITE_TRANSIENT);
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
     }
@@ -196,14 +203,15 @@ extern (C) int main() {
     }
 
     auto t0 = usecNow();
-    auto rc = run();
+    const(char)[] eventName;
+    auto rc = run(eventName);
     auto elapsed = usecNow() - t0;
     printDuration(t0);
-    recordTiming(elapsed);
+    recordTiming(elapsed, eventName);
     return rc;
 }
 
-int run() {
+int run(ref const(char)[] outEventName) {
 
     auto input = readStdin();
     if (input is null) {
@@ -219,6 +227,7 @@ int run() {
 
     auto eventName = extractHookEventName(input);
     if (eventName is null) return 0;
+    outEventName = eventName;
 
     // Attest every event — even ones we don't handle yet
     {

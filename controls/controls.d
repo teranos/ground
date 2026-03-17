@@ -17,6 +17,8 @@ static immutable universal = [
         msg("Summarize what happened upstream since the last pull.")),
     control("ci-check", cmd("gh run list"),
         msg("Examine the result and report whether CI passed or failed.")),
+    control("use-read-not-cat", cmd("cat"),
+        msg("Use the Read tool instead of cat.")),
     control("ci-view", cmd("gh run view"),
         msg("")),
     control("ci-watch", cmd("gh run watch"),
