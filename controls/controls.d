@@ -67,14 +67,7 @@ static immutable graunde = [
         msg("Run make install to update the live hook binary.")),
 ];
 
-static immutable userPromptControls = [
-    control("ax-reminder", userprompt("ax"),
-        msg("AX — attestation query, a natural-language-like syntax (Tim is tester of QNTX by attestor)")),
-    control("timer-reminder", userprompt("timer for"),
-        msg("You can set a timer on macOS. Run in background: sleep <seconds> && say \"time\" &")),
-    control("adr-reminder", userprompt("ADR"),
-        msg("ADRs are in docs/adr/ in the QNTX repo")),
-];
+static immutable userPromptControls = cast(immutable(Control)[])[];
 
 static immutable graundeExcludedPromptControls = [
     control("graunde-reminder", userprompt("graunde"),
@@ -149,11 +142,16 @@ static immutable fileScopes = () {
 }();
 
 static immutable userPromptScopes = () {
-    return [
+    auto base = [
         Scope("", "allow", userPromptControls),
         Scope("!/graunde", "allow", graundeExcludedPromptControls),
         Scope("!/QNTX", "allow", qntxExcludedPromptControls),
     ];
+    static if (__traits(compiles, macos.macosPromptControls))
+        base = base ~ [Scope("", "allow", macos.macosPromptControls)];
+    static if (__traits(compiles, qntx.qntxPromptControls))
+        base = base ~ [Scope("/QNTX", "allow", qntx.qntxPromptControls)];
+    return base;
 }();
 
 static immutable stopScopes = () {
