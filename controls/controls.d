@@ -88,7 +88,7 @@ static immutable stopControls = [
         msg("You made a strong claim — according to whom? Ground it in verification or real facts.")),
     control("ego-death-feeling-probably", stop("feeling is probably"),
         msg("Do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.")),
-    control("ego-death-likely-because", stop("likely because"),
+    control("ego-death-speculative-cause", stop(["likely because", "probably because"]),
         msg("That's a guess, not a diagnosis. Check the data before proposing a cause.")),
     control("ego-death-nothing-left", stop("Nothing left to do"),
         msg("You made a completeness claim. What specifically was not verified?")),

@@ -99,8 +99,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 if (!scopeMatches(sc.path, cwd))
                     continue;
                 foreach (ref c; sc.controls) {
-                    if (c.trigger.value.length == 0) continue;
-                    if (!contains(lastMsg, c.trigger.value)) continue;
+                    if (c.trigger.len == 0) continue;
+                    bool matched = false;
+                    foreach (ref v; c.trigger.values)
+                        if (contains(lastMsg, v)) { matched = true; break; }
+                    if (!matched) continue;
 
                     __gshared ZBuf stopAttrs;
                     stopAttrs.reset();

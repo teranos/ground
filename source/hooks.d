@@ -47,7 +47,9 @@ struct Omit {
 }
 
 struct Trigger {
-    string value;
+    string[2] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
 }
 
 struct FilePath {
@@ -80,9 +82,11 @@ struct SessionStartTrigger {
     CheckFn check; // null = always fire
 }
 
-Trigger stop() { return Trigger(""); }
-Trigger stop(string s) { return Trigger(s); }
-Trigger precompact() { return Trigger("PreCompact"); }
+Trigger stop() { return Trigger.init; }
+Trigger stop(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
+Trigger stop(string[2] ss) { Trigger t; t._buf = ss; t.len = 2; return t; }
+Trigger precompact() { Trigger t; t._buf[0] = "PreCompact"; t.len = 1; return t; }
+
 UserPrompt userprompt(string s) { return UserPrompt(s); }
 SessionStartTrigger sessionstart() { return SessionStartTrigger(null); }
 SessionStartTrigger sessionstart(CheckFn fn) { return SessionStartTrigger(fn); }
