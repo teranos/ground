@@ -480,3 +480,64 @@ const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
     if (n == 0) return null;
     return outBuf[0 .. n];
 }
+
+// --- Defer write/read cycle tests ---
+
+unittest {
+    // Write a deferred message with 0 delay, read it back immediately
+    import sqlite : sqlite3_open, sqlite3_exec, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+
+    // Create attestations table
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(db, createSql.ptr, null, null, null);
+
+    writeDeferredMessage(db, "test-control", "/tmp/project", "sess-123", "hello from defer", 0);
+
+    auto result = readDeferredMessage(db, "sess-123");
+    assert(result.name == "test-control");
+    assert(result.message !is null);
+
+    import sqlite : sqlite3_close;
+    sqlite3_close(db);
+}
+
+unittest {
+    // Deferred message with future delay is not yet readable
+    import sqlite : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(db, createSql.ptr, null, null, null);
+
+    writeDeferredMessage(db, "future-control", "/tmp/project", "sess-456", "not yet", 9999);
+
+    auto result = readDeferredMessage(db, "sess-456");
+    assert(result.message is null); // not ready yet
+
+    sqlite3_close(db);
+}
+
+unittest {
+    // markDelivered prevents re-delivery
+    import sqlite : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(db, createSql.ptr, null, null, null);
+
+    writeDeferredMessage(db, "once-control", "/tmp/project", "sess-789", "deliver once", 0);
+
+    auto first = readDeferredMessage(db, "sess-789");
+    assert(first.message !is null);
+
+    markDelivered(db, first.name, "/tmp/project", "sess-789");
+
+    auto second = readDeferredMessage(db, "sess-789");
+    assert(second.message is null); // already delivered
+
+    sqlite3_close(db);
+}
