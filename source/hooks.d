@@ -68,6 +68,12 @@ struct Tmo {
     int value; // milliseconds
 }
 
+// Deferred PostToolUse controls — write to DB after a tool runs, deliver on Stop.
+//
+//   defer(300, "Reminder message")                   — fixed delay, static message
+//   defer(&myDelay, &myDeliver, "Prefix: ")          — dynamic delay + live query on delivery
+//
+// See controls.d for ci-check-defer (dynamic) and review-nudge (fixed) examples.
 alias DelayFn = int function(const(char)[] cwd);
 alias DeliverFn = const(char)[] function(const(char)[] cwd);
 

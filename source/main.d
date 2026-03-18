@@ -41,19 +41,6 @@ long usecNow() {
     return tv.tv_sec * 1_000_000 + tv.tv_usec;
 }
 
-// Extract PR number from "gh pr comment 39 ..." or "gh pr review 39 ..."
-const(char)[] extractPrNumber(const(char)[] cmd) {
-    foreach (prefix; ["gh pr comment ", "gh pr review "]) {
-        auto idx = indexOf(cmd, prefix);
-        if (idx < 0) continue;
-        auto start = cast(size_t) idx + prefix.length;
-        auto end = start;
-        while (end < cmd.length && cmd[end] >= '0' && cmd[end] <= '9') end++;
-        if (end > start) return cmd[start .. end];
-    }
-    return null;
-}
-
 // Parse hook_event_name string to HookEvent. CTFE-unrolled.
 bool parseHookEvent(const(char)[] name, ref HookEvent event) {
     static foreach (member; __traits(allMembers, HookEvent)) {
