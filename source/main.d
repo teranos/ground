@@ -22,7 +22,7 @@ module main;
 //   updatedInput             — (PreToolUse) replaces tool input before execution
 //   additionalContext        — (UserPromptSubmit required, PostToolUse optional) injected into context
 
-import matcher : checkCommand, checkAllCommands, MatchSet, applyArg, applyOmit, checkFilePath, FileMatch, indexOf, contains, hasSegment, Buf;
+import matcher : checkCommand, checkAllCommands, MatchSet, applyArg, applyOmit, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, writeJsonString, fputs2;
 import controls : HookEvent;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite, FILE;
@@ -331,9 +331,44 @@ int run(ref const(char)[] outEventName) {
         // TODO: updatedInput for non-Bash tools (run_in_background, timeout, new_description)
         auto filePath = extractFilePath(input);
         if (filePath !is null) {
-            auto fileResult = checkFilePath(filePath, cwd);
-            if (fileResult.matched) {
-                writeContextResponse(fileResult.msg, fileResult.decision);
+            import controls : fileScopes;
+            import hooks : scopeMatches;
+            import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
+
+            auto db = openDb();
+            __gshared Buf fileMsgBuf;
+            fileMsgBuf = Buf.init;
+            const(char)[] fileDecision;
+
+            foreach (ref sc; fileScopes) {
+                if (!scopeMatches(sc.path, cwd)) continue;
+                foreach (ref c; sc.controls) {
+                    if (c.filepath.value.length == 0) continue;
+                    if (!contains(filePath, c.filepath.value)) continue;
+                    if (db !is null && attestationExists(db, "GraundedPreToolUse", c.name, sessionId))
+                        continue;
+
+                    if (fileMsgBuf.len > 0) fileMsgBuf.put(" ");
+                    fileMsgBuf.put(c.msg.value);
+
+                    if (sc.decision == "ask") fileDecision = "ask";
+                    else if (fileDecision.length == 0) fileDecision = sc.decision;
+
+                    if (db !is null) {
+                        __gshared ZBuf fileAttrs;
+                        fileAttrs.reset();
+                        fileAttrs.put(`{"control":"`);
+                        fileAttrs.put(c.name);
+                        fileAttrs.put(`"}`);
+                        attestEvent(db, "GraundedPreToolUse", cwd, sessionId, fileAttrs.slice());
+                    }
+                }
+            }
+
+            if (db !is null) sqlite3_close(db);
+
+            if (fileMsgBuf.len > 0) {
+                writeContextResponse(fileMsgBuf.slice(), fileDecision);
                 return 0;
             }
         }
