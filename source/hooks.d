@@ -16,10 +16,14 @@ enum HookEvent {
                         // TODO: continue:false — halt Claude entirely after a tool completes
                         // TODO: suppressOutput:true — hide stdout from verbose mode
     PostToolUseFailure, // trigger-matched hints on failure (e.g. wrong directory)
-    Notification,       // TODO: additionalContext on notification — can't block/modify
-                        //   matchers: permission_prompt, idle_prompt, auth_success, elicitation_dialog
-    SubagentStart,      // TODO: additionalContext injected into subagent's context on spawn
-    SubagentStop,       // TODO: decision:block with reason — same pattern as Stop
+    Notification,       // TODO: cross-session awareness — session A completes a 4+ min task, idle_prompt
+                        //   fires; combine with session B's next Notification to surface the result
+    SubagentStart,      // TODO: agent-type scoped controls — inject context or adjust decisions per type
+                        //   payload: agent_type, agent_id, session_id, cwd
+                        //   time-scoped modes could auto-approve agent spawning during event windows
+    SubagentStop,       // attested (full payload incl. last_assistant_message, agent_transcript_path)
+                        //   stop_hook_active:false — Claude Code may ignore responses
+                        //   TODO: verify what response fields are honored
     Stop,               // trail controls, deferred messages, lazy-verify, CI nudge
     TeammateIdle,       // TODO: quality gates before teammate stops — exit 2 to continue, continue:false to halt
     TaskCompleted,      // TODO: enforce completion criteria — exit 2 blocks with feedback, continue:false halts
