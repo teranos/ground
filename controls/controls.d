@@ -59,6 +59,34 @@ static immutable postToolUse = [
         msg("Push the tag: git push origin <tag>")),
 ];
 
+int ciDelay(const(char)[] cwd) {
+    import deferred : getCIAvgDuration, computeDelay;
+    import sqlite : getBranch;
+    auto branch = getBranch(cwd);
+    if (branch is null) return 60;
+    return computeDelay(getCIAvgDuration(cwd, branch));
+}
+
+const(char)[] ciDeliver(const(char)[] cwd) {
+    import deferred : checkCIStatus;
+    import sqlite : getBranch;
+    auto branch = getBranch(cwd);
+    if (branch is null) return null;
+    return checkCIStatus(cwd, branch);
+}
+
+static immutable postToolUseDeferred = [
+    control("ci-check-defer", cmd("git push"),
+        defer(&ciDelay, &ciDeliver, "CI: ")),
+    control("review-nudge", cmd("gh pr"), posttool("@claude review"),
+        defer(300, "Claude left a review comment.")),
+];
+
+static immutable postToolUseFailure = [
+    control("wrong-directory", posttool("No rule to make target"),
+        msg("Run pwd — you may be in the wrong directory.")),
+];
+
 static immutable universalPreCompact = [
     control("branch-context", precompact(),
         msg("Current branch: "), cmd("git branch --show-current")),
@@ -172,6 +200,14 @@ static immutable sessionStartScopes = () {
 
 static immutable postToolUseScopes = () {
     return [Scope("", "allow", postToolUse)];
+}();
+
+static immutable postToolUseDeferredScopes = () {
+    return [Scope("", "allow", postToolUseDeferred)];
+}();
+
+static immutable postToolUseFailureScopes = () {
+    return [Scope("", "allow", postToolUseFailure)];
 }();
 
 static immutable preCompactScopes = () {

@@ -4,6 +4,8 @@ import parse : extractBool, extractLastAssistantMessage, writeJsonString;
 import sqlite : openDb, attestEvent,
                 getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, fputs;
+import deferred : DeferredMsg;
+import hooks : DeliverFn;
 
 void putInt(ref ZBuf buf, long v) {
     char[20] digits = 0;
@@ -11,6 +13,38 @@ void putInt(ref ZBuf buf, long v) {
     if (v == 0) { digits[0] = '0'; dLen = 1; }
     else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
     foreach (i; 0 .. dLen) buf.putChar(digits[dLen - 1 - i]);
+}
+
+// Look up a deferred control and produce the delivery message.
+// Returns null to suppress delivery (e.g. deliverFn returned nothing).
+const(char)[] deliverDeferred(DeferredMsg deferred, const(char)[] cwd) {
+    import controls : postToolUseDeferredScopes;
+    import hooks : scopeMatches;
+
+    DeliverFn deliverFn = null;
+    const(char)[] msgPrefix = null;
+    foreach (ref scope_; postToolUseDeferredScopes) {
+        if (!scopeMatches(scope_.path, cwd)) continue;
+        foreach (ref c; scope_.controls) {
+            if (c.name == deferred.name) {
+                deliverFn = c.defer.deliverFn;
+                msgPrefix = c.defer.msgPrefix;
+                break;
+            }
+        }
+    }
+
+    if (deliverFn !is null) {
+        auto result = deliverFn(cwd);
+        if (result is null) return null;
+        __gshared ZBuf deliverBuf;
+        deliverBuf.reset();
+        if (msgPrefix.length > 0) deliverBuf.put(msgPrefix);
+        deliverBuf.put(result);
+        return deliverBuf.slice();
+    }
+
+    return deferred.message;
 }
 
 // Notify loom of hook output so it appears as [hook] in weaves
@@ -121,34 +155,14 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // Check session-scoped deferred messages — deliver if ready
     {
-        import deferred : readDeferredMessage, markDelivered, DeferredMsg, checkCIStatus;
-        import matcher : contains;
+        import deferred : readDeferredMessage, markDelivered;
         auto deferred = readDeferredMessage(db, sessionId);
         if (deferred.message !is null) {
             markDelivered(db, deferred.name, cwd, sessionId);
-
-            // ci-check: query live status, say nothing if no runs exist
-            if (contains(deferred.name, "ci-check")) {
-                auto branch = getBranch(cwd);
-                auto status = branch !is null ? checkCIStatus(cwd, branch) : null;
-                if (status !is null) {
-                    __gshared ZBuf ciBuf;
-                    ciBuf.reset();
-                    ciBuf.put("CI: ");
-                    ciBuf.put(status);
-                    sqlite3_close(db);
-                    writeStopResponseAndNotify(ciBuf.slice());
-
-                    return 0;
-                }
-                // No CI runs — nothing to report
-                sqlite3_close(db);
-                return 0;
-            }
-
+            auto msg = deliverDeferred(deferred, cwd);
             sqlite3_close(db);
-            writeStopResponseAndNotify(deferred.message);
-
+            if (msg !is null)
+                writeStopResponseAndNotify(msg);
             return 0;
         }
     }
@@ -201,7 +215,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         auto budgetMs = b.thresholdUs / 1000;
                         __gshared ZBuf timingMsg;
                         timingMsg.reset();
-                        timingMsg.put("graunde timing regression: ");
+                        timingMsg.put("fyi: graunde timing regression: ");
                         timingMsg.put(b.event);
                         timingMsg.put(" averages ");
                         putInt(timingMsg, avgMs);
@@ -225,4 +239,20 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     sqlite3_close(db);
     return 0;
+}
+
+// --- Defer delivery tests ---
+
+unittest {
+    // deliverDeferred with no matching control falls back to stored message
+    auto msg = deliverDeferred(DeferredMsg("nonexistent-control", "stored message"), "/tmp");
+    assert(msg == "stored message");
+}
+
+unittest {
+    // deliverDeferred finds ci-check-defer and calls deliverFn
+    // (deliverFn calls gh which won't work in test, so result is null = suppressed)
+    auto msg = deliverDeferred(DeferredMsg("ci-check-defer", "fallback"), "/tmp");
+    // deliverFn returns null (no git repo) → delivery suppressed
+    assert(msg is null);
 }

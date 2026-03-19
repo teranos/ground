@@ -41,19 +41,6 @@ long usecNow() {
     return tv.tv_sec * 1_000_000 + tv.tv_usec;
 }
 
-// Extract PR number from "gh pr comment 39 ..." or "gh pr review 39 ..."
-const(char)[] extractPrNumber(const(char)[] cmd) {
-    foreach (prefix; ["gh pr comment ", "gh pr review "]) {
-        auto idx = indexOf(cmd, prefix);
-        if (idx < 0) continue;
-        auto start = cast(size_t) idx + prefix.length;
-        auto end = start;
-        while (end < cmd.length && cmd[end] >= '0' && cmd[end] <= '9') end++;
-        if (end > start) return cmd[start .. end];
-    }
-    return null;
-}
-
 // Parse hook_event_name string to HookEvent. CTFE-unrolled.
 bool parseHookEvent(const(char)[] name, ref HookEvent event) {
     static foreach (member; __traits(allMembers, HookEvent)) {
@@ -440,56 +427,65 @@ int run(ref const(char)[] outEventName) {
             }
         }
 
-        // After git push — defer CI check
-        if (detail !is null && hasSegment(detail, "git push")) {
-            import sqlite : openDb, getBranch, sqlite3_close, ZBuf;
-            import deferred : writeDeferredMessage, getCIAvgDuration, computeDelay;
-            auto db = openDb();
-            if (db !is null) {
-                auto branch = getBranch(cwd);
-                if (branch !is null) {
-                    auto delay = computeDelay(getCIAvgDuration(cwd, branch));
-                    __gshared ZBuf msgBuf;
-                    msgBuf.reset();
-                    msgBuf.put("Check CI: gh run list --branch ");
-                    msgBuf.put(branch);
-                    msgBuf.put(" --limit 1");
-                    writeDeferredMessage(db, "ci-check", cwd, sessionId, msgBuf.slice(), delay);
-                }
-                sqlite3_close(db);
-            }
-        }
+        // Check deferred PostToolUse controls
+        if (detail !is null) {
+            import controls : postToolUseDeferredScopes;
+            import hooks : scopeMatches;
+            foreach (ref scope_; postToolUseDeferredScopes) {
+                if (!scopeMatches(scope_.path, cwd))
+                    continue;
+                foreach (ref c; scope_.controls) {
+                    if (c.cmd.value.length == 0 || !hasSegment(detail, c.cmd.value))
+                        continue;
+                    // Secondary trigger pattern (if set, must also match)
+                    if (c.trigger.len > 0) {
+                        bool triggerHit = false;
+                        foreach (ref v; c.trigger.values)
+                            if (contains(detail, v)) { triggerHit = true; break; }
+                        if (!triggerHit) continue;
+                    }
 
-        // After gh pr comment/review containing @claude review — defer reminder
-        if (detail !is null && contains(detail, "gh pr") && contains(detail, "@claude review")) {
-            import sqlite : openDb, sqlite3_close, ZBuf;
-            import deferred : writeDeferredMessage;
-            auto db = openDb();
-            if (db !is null) {
-                __gshared ZBuf reviewMsg;
-                reviewMsg.reset();
-                reviewMsg.put("Claude left a review comment. Check PR");
-                auto prNum = extractPrNumber(detail);
-                if (prNum.length > 0) {
-                    reviewMsg.put(" #");
-                    reviewMsg.put(prNum);
+                    import sqlite : openDb, sqlite3_close;
+                    import deferred : writeDeferredMessage;
+                    auto db = openDb();
+                    if (db is null) continue;
+
+                    auto delay = c.defer.delayFn !is null
+                        ? c.defer.delayFn(cwd)
+                        : c.defer.delaySec;
+                    writeDeferredMessage(db, c.name, cwd, sessionId, c.defer.msgPrefix, delay);
+                    sqlite3_close(db);
                 }
-                reviewMsg.put(" for @claude review comments.");
-                writeDeferredMessage(db, "review-nudge", cwd, sessionId, reviewMsg.slice(), 300);
-                sqlite3_close(db);
             }
         }
 
         return 0;
     }
 
-    // PostToolUseFailure — contextual hints on failure
+    // PostToolUseFailure — control-driven hints on failure
     if (event == HookEvent.PostToolUseFailure) {
         import parse : extractError;
+        import controls : postToolUseFailureScopes;
+        import hooks : scopeMatches;
         auto error = extractError(input);
-        if (error !is null && contains(error, "No rule to make target")) {
-            fputs(`{"systemMessage":"Run pwd — you may be in the wrong directory."}`, stdout);
-            fputs("\n", stdout);
+        if (error !is null) {
+            foreach (ref scope_; postToolUseFailureScopes) {
+                if (!scopeMatches(scope_.path, cwd))
+                    continue;
+                foreach (ref c; scope_.controls) {
+                    if (c.trigger.len == 0) continue;
+                    bool matched = false;
+                    foreach (ref v; c.trigger.values)
+                        if (contains(error, v)) { matched = true; break; }
+                    if (!matched) continue;
+
+                    fputs(`{"systemMessage":"`, stdout);
+                    fputs2(c.msg.value);
+                    fputs(`"}`, stdout);
+                    fputs("\n", stdout);
+                    return 0;
+                }
+            }
         }
         return 0;
     }

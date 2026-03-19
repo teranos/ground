@@ -15,11 +15,15 @@ enum HookEvent {
                         // TODO: exit 2 — stderr fed back to Claude as feedback
                         // TODO: continue:false — halt Claude entirely after a tool completes
                         // TODO: suppressOutput:true — hide stdout from verbose mode
-    PostToolUseFailure, // TODO: additionalContext on failure — give Claude context about what went wrong
-    Notification,       // TODO: additionalContext on notification — can't block/modify
-                        //   matchers: permission_prompt, idle_prompt, auth_success, elicitation_dialog
-    SubagentStart,      // TODO: additionalContext injected into subagent's context on spawn
-    SubagentStop,       // TODO: decision:block with reason — same pattern as Stop
+    PostToolUseFailure, // trigger-matched hints on failure (e.g. wrong directory)
+    Notification,       // TODO: cross-session awareness — session A completes a 4+ min task, idle_prompt
+                        //   fires; combine with session B's next Notification to surface the result
+    SubagentStart,      // TODO: agent-type scoped controls — inject context or adjust decisions per type
+                        //   payload: agent_type, agent_id, session_id, cwd
+                        //   time-scoped modes could auto-approve agent spawning during event windows
+    SubagentStop,       // attested (full payload incl. last_assistant_message, agent_transcript_path)
+                        //   stop_hook_active:false — Claude Code may ignore responses
+                        //   TODO: verify what response fields are honored
     Stop,               // trail controls, deferred messages, lazy-verify, CI nudge
     TeammateIdle,       // TODO: quality gates before teammate stops — exit 2 to continue, continue:false to halt
     TaskCompleted,      // TODO: enforce completion criteria — exit 2 blocks with feedback, continue:false halts
@@ -68,6 +72,22 @@ struct Tmo {
     int value; // milliseconds
 }
 
+// Deferred PostToolUse controls — write to DB after a tool runs, deliver on Stop.
+//
+//   defer(300, "Reminder message")                   — fixed delay, static message
+//   defer(&myDelay, &myDeliver, "Prefix: ")          — dynamic delay + live query on delivery
+//
+// See controls.d for ci-check-defer (dynamic) and review-nudge (fixed) examples.
+alias DelayFn = int function(const(char)[] cwd);
+alias DeliverFn = const(char)[] function(const(char)[] cwd);
+
+struct Defer {
+    int delaySec;         // fixed delay (used when delayFn is null)
+    DelayFn delayFn;      // dynamic delay computation (null = use delaySec)
+    DeliverFn deliverFn;  // runs at delivery time, output becomes the message (null = deliver msg as-is)
+    string msgPrefix;     // prepended to deliverFn output, or used as full message if deliverFn is null
+}
+
 
 Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
@@ -86,6 +106,7 @@ Trigger stop() { return Trigger.init; }
 Trigger stop(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
 Trigger stop(string[2] ss) { Trigger t; t._buf = ss; t.len = 2; return t; }
 Trigger precompact() { Trigger t; t._buf[0] = "PreCompact"; t.len = 1; return t; }
+Trigger posttool(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
 
 UserPrompt userprompt(string s) { return UserPrompt(s); }
 SessionStartTrigger sessionstart() { return SessionStartTrigger(null); }
@@ -94,6 +115,12 @@ FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
 Bg bg() { return Bg(true); }
 Tmo tmo(int ms) { return Tmo(ms); }
+Defer defer(int sec, string msgPrefix) {
+    return Defer(sec, null, null, msgPrefix);
+}
+Defer defer(DelayFn fn, DeliverFn deliver, string msgPrefix) {
+    return Defer(0, fn, deliver, msgPrefix);
+}
 
 struct Control {
     string name;
@@ -107,6 +134,7 @@ struct Control {
     Msg msg;
     Bg bg;
     Tmo tmo;
+    Defer defer;
 }
 
 Control control(string name, Cmd c, Arg a, Msg m) {
@@ -148,6 +176,16 @@ Control control(string name, UserPrompt up, Msg m) {
 
 Control control(string name, SessionStartTrigger ss, Msg m) {
     Control ctrl; ctrl.name = name; ctrl.sessionstart = ss; ctrl.msg = m; return ctrl;
+}
+
+// Deferred PostToolUse — cmd match + defer (delay, command, message all in Defer)
+Control control(string name, Cmd c, Defer d) {
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.defer = d; return ctrl;
+}
+
+// Deferred PostToolUse — cmd + secondary pattern + defer
+Control control(string name, Cmd c, Trigger t, Defer d) {
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.trigger = t; ctrl.defer = d; return ctrl;
 }
 
 // Groups controls by scope and decision.
