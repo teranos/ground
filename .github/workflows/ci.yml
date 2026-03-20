@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v30
       - run: nix build .#graunde
       - run: nix develop .#default --command dub test
 
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v30
       - run: nix build .#graunde
       - run: cp result/bin/graunde graunde-${{ matrix.target }}
       - uses: actions/upload-artifact@v4
