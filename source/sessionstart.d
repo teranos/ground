@@ -1,9 +1,7 @@
 module sessionstart;
 
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, FILE, fopen, fread, fclose;
-
-extern (C) FILE* popen(const(char)* command, const(char)* mode);
-extern (C) int pclose(FILE* stream);
+import sqlite : popen, pclose;
 import matcher : contains, indexOf;
 
 // Only arch — Claude already receives Platform and OS Version from the environment.

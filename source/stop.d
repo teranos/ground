@@ -2,18 +2,10 @@ module stop;
 
 import parse : extractBool, extractLastAssistantMessage, writeJsonString;
 import sqlite : openDb, attestEvent,
-                getBranch, sqlite3, sqlite3_close, ZBuf;
+                getBranch, sqlite3, sqlite3_close, ZBuf, buildControlAttrs;
 import core.stdc.stdio : stdout, fputs;
 import deferred : DeferredMsg;
 import hooks : DeliverFn;
-
-void putInt(ref ZBuf buf, long v) {
-    char[20] digits = 0;
-    int dLen = 0;
-    if (v == 0) { digits[0] = '0'; dLen = 1; }
-    else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
-    foreach (i; 0 .. dLen) buf.putChar(digits[dLen - 1 - i]);
-}
 
 // Look up a deferred control and produce the delivery message.
 // Returns null to suppress delivery (e.g. deliverFn returned nothing).
@@ -105,10 +97,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto trailResult = checkTrailControls(branch, db);
         if (trailResult.control !is null) {
             __gshared ZBuf graundedAttrs;
-            graundedAttrs.reset();
-            graundedAttrs.put(`{"control":"`);
-            graundedAttrs.put(trailResult.control.name);
-            graundedAttrs.put(`"}`);
+            buildControlAttrs(graundedAttrs, trailResult.control.name);
             attestEvent(db, "GraundedStop", cwd, sessionId, graundedAttrs.slice());
             sqlite3_close(db);
             writeStopResponseAndNotify(trailResult.reason);
@@ -134,10 +123,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (!matched) continue;
 
                     __gshared ZBuf stopAttrs;
-                    stopAttrs.reset();
-                    stopAttrs.put(`{"control":"`);
-                    stopAttrs.put(c.name);
-                    stopAttrs.put(`"}`);
+                    buildControlAttrs(stopAttrs, c.name);
                     attestEvent(db, "GraundedStop", cwd, sessionId, stopAttrs.slice());
                     sqlite3_close(db);
                     writeStopResponseAndNotify(c.msg.value);
@@ -212,9 +198,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         timingMsg.put("fyi: graunde timing regression: ");
                         timingMsg.put(b.event);
                         timingMsg.put(" averages ");
-                        putInt(timingMsg, avgMs);
+                        timingMsg.putInt(avgMs);
                         timingMsg.put("ms (budget ");
-                        putInt(timingMsg, budgetMs);
+                        timingMsg.putInt(budgetMs);
                         enum VERSION = import(".version");
                         timingMsg.put("ms, graunde ");
                         foreach (vc; VERSION)

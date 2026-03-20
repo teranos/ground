@@ -4,14 +4,10 @@ import matcher : indexOf;
 import sqlite : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_finalize, sqlite3_column_text,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT,
-                ZBuf, jsonArray1, getBranch, formatTimestamp, versionString, attestEvent;
+                ZBuf, jsonArray1, getBranch, formatTimestamp, versionString, attestEvent,
+                popen, pclose;
 import core.stdc.stdio : fread, FILE;
 import core.stdc.time : time;
-
-extern (C) {
-    FILE* popen(const(char)* command, const(char)* type);
-    int pclose(FILE* stream);
-}
 
 // --- Deferred message queue ---
 
@@ -36,16 +32,7 @@ void jsonAttributesDeferred(ref ZBuf buf, const(char)[] event, const(char)[] det
         written++;
     }
     buf.put(`","after":`);
-    // Write unix timestamp as decimal
-    char[20] tbuf = 0;
-    int tlen = 0;
-    long v = afterUnix;
-    if (v == 0) { tbuf[0] = '0'; tlen = 1; }
-    else {
-        while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
-        foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
-    }
-    buf.put(tbuf[0 .. tlen]);
+    buf.putInt(afterUnix);
     buf.put(`}`);
 }
 

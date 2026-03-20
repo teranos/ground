@@ -136,73 +136,88 @@ bool hasSegment(const(char)[] command, const(char)[] cmd) {
     return false;
 }
 
+// Match a single segment against all scopes. Returns the best match
+// (amendment controls take priority over plain matches, "ask" beats "allow").
+private Match matchSegment(const(char)[] segment, const(char)[] cwd) {
+    const(Control)* amendment = null;
+    const(Control)* fallback = null;
+    const(char)[] decision;
+
+    foreach (ref sc; allScopes) {
+        if (!scopeMatches(sc.path, cwd))
+            continue;
+        foreach (ref c; sc.controls) {
+            if (commandMatch(segment, c.cmd.value)) {
+                if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
+                    continue;
+
+                if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
+                    amendment = &c;
+                if (fallback is null)
+                    fallback = &c;
+
+                if (sc.decision == "ask")
+                    decision = "ask";
+                else if (decision.length == 0)
+                    decision = sc.decision;
+            }
+        }
+    }
+
+    auto matched = amendment !is null ? amendment : fallback;
+    if (matched !is null)
+        return Match(matched, segment, decision);
+    return Match(null, "", "");
+}
+
+// Iterates over pipe/chain-separated segments of a compound command.
+// Splits on |, ;, and && — strips whitespace from each segment.
+private struct SegmentIter {
+    const(char)[] command;
+    size_t start;
+    size_t pos;
+
+    // Returns the next non-empty segment, or null when exhausted.
+    const(char)[] next() {
+        while (pos <= command.length) {
+            bool isSep = false;
+            size_t skip = 0;
+
+            if (pos == command.length) {
+                isSep = true;
+            } else if (command[pos] == '|' || command[pos] == ';') {
+                isSep = true;
+                skip = 1;
+            } else if (pos + 1 < command.length && command[pos] == '&' && command[pos + 1] == '&') {
+                isSep = true;
+                skip = 2;
+            }
+
+            if (isSep) {
+                auto segment = strip(command[start .. pos]);
+                start = pos + skip;
+                if (skip > 0) { pos += skip; } else { pos++; }
+                if (segment.length > 0)
+                    return segment;
+                continue;
+            }
+            pos++;
+        }
+        return null;
+    }
+}
+
 // Iterates over pipe/chain segments and returns the first matching control.
 // Scopes filter by cwd — empty scope path matches everywhere.
 Match checkCommand(const(char)[] command, const(char)[] cwd) {
-    size_t start = 0;
-    size_t i = 0;
-
-    while (i <= command.length) {
-        bool isSep = false;
-        size_t skip = 0;
-
-        if (i == command.length) {
-            isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
-            isSep = true;
-            skip = 1;
-        } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
-            isSep = true;
-            skip = 2;
-        }
-
-        if (isSep) {
-            auto segment = strip(command[start .. i]);
-            if (segment.length > 0) {
-                // Scan all scopes — collect amendment and most restrictive decision
-                const(Control)* amendment = null;
-                const(Control)* fallback = null;
-                const(char)[] decision;
-
-                foreach (ref sc; allScopes) {
-                    if (!scopeMatches(sc.path, cwd))
-                        continue;
-                    foreach (ref c; sc.controls) {
-                        if (commandMatch(segment, c.cmd.value)) {
-                            if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
-                                continue;
-
-                            // First amendment control (has arg or omit)
-                            if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
-                                amendment = &c;
-
-                            // First match of any kind
-                            if (fallback is null)
-                                fallback = &c;
-
-                            // "ask" beats "allow"
-                            if (sc.decision == "ask")
-                                decision = "ask";
-                            else if (decision.length == 0)
-                                decision = sc.decision;
-                        }
-                    }
-                }
-
-                if (amendment !is null)
-                    return Match(amendment, segment, decision);
-                if (fallback !is null)
-                    return Match(fallback, segment, decision);
-            }
-            start = i + skip;
-            if (skip > 0) {
-                i += skip;
-                continue;
-            }
-        }
-        i++;
+    auto iter = SegmentIter(command);
+    while (true) {
+        auto segment = iter.next();
+        if (segment is null) break;
+        auto m = matchSegment(segment, cwd);
+        if (m.control !is null)
+            return m;
     }
-
     return Match(null, "", "");
 }
 
@@ -214,64 +229,16 @@ struct MatchSet {
 // Returns all matching controls across all segments of a compound command.
 MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
     MatchSet result;
-    size_t start = 0;
-    size_t i = 0;
-
-    while (i <= command.length) {
-        bool isSep = false;
-        size_t skip = 0;
-
-        if (i == command.length) {
-            isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
-            isSep = true;
-            skip = 1;
-        } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
-            isSep = true;
-            skip = 2;
+    auto iter = SegmentIter(command);
+    while (true) {
+        auto segment = iter.next();
+        if (segment is null) break;
+        auto m = matchSegment(segment, cwd);
+        if (m.control !is null && result.count < result.matches.length) {
+            result.matches[result.count] = m;
+            result.count++;
         }
-
-        if (isSep) {
-            auto segment = strip(command[start .. i]);
-            if (segment.length > 0) {
-                const(Control)* amendment = null;
-                const(Control)* fallback = null;
-                const(char)[] decision;
-
-                foreach (ref sc; allScopes) {
-                    if (!scopeMatches(sc.path, cwd))
-                        continue;
-                    foreach (ref c; sc.controls) {
-                        if (commandMatch(segment, c.cmd.value)) {
-                            if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
-                                continue;
-                            if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
-                                amendment = &c;
-                            if (fallback is null)
-                                fallback = &c;
-                            if (sc.decision == "ask")
-                                decision = "ask";
-                            else if (decision.length == 0)
-                                decision = sc.decision;
-                        }
-                    }
-                }
-
-                auto matched = amendment !is null ? amendment : fallback;
-                if (matched !is null && result.count < result.matches.length) {
-                    result.matches[result.count] = Match(matched, segment, decision);
-                    result.count++;
-                }
-            }
-            start = i + skip;
-            if (skip > 0) {
-                i += skip;
-                continue;
-            }
-        }
-        i++;
     }
-
     return result;
 }
 

@@ -67,6 +67,15 @@ struct ZBuf {
     const(char)[] slice() {
         return data[0 .. len];
     }
+
+    // Append a long as decimal digits.
+    void putInt(long v) {
+        char[20] digits = 0;
+        int dLen = 0;
+        if (v == 0) { digits[0] = '0'; dLen = 1; }
+        else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
+        foreach (i; 0 .. dLen) putChar(digits[dLen - 1 - i]);
+    }
 }
 
 // --- DB lifecycle ---
@@ -381,6 +390,20 @@ const(char)[] versionString() {
     while (end > 0 && (VERSION[end - 1] == '\n' || VERSION[end - 1] == '\r'))
         end--;
     return VERSION[0 .. end];
+}
+
+// Builds {"control":"<name>","decision":"<decision>"} or {"control":"<name>"} in a buffer.
+void buildControlAttrs(ref ZBuf buf, const(char)[] controlName, const(char)[] decision = null) {
+    buf.reset();
+    buf.put(`{"control":"`);
+    buf.put(controlName);
+    buf.put(`"`);
+    if (decision.length > 0) {
+        buf.put(`,"decision":"`);
+        buf.put(decision);
+        buf.put(`"`);
+    }
+    buf.put(`}`);
 }
 
 // --- Universal event attestation ---

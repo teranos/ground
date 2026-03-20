@@ -111,16 +111,6 @@ const(char)[] extractFilePath(const(char)[] json) {
     return extractJsonString(json, `"file_path"`, &buf[0], buf.length);
 }
 
-const(char)[] extractStdout(const(char)[] json) {
-    __gshared char[4096] buf = 0;
-    return extractJsonString(json, `"stdout"`, &buf[0], buf.length);
-}
-
-const(char)[] extractStderr(const(char)[] json) {
-    __gshared char[4096] buf = 0;
-    return extractJsonString(json, `"stderr"`, &buf[0], buf.length);
-}
-
 const(char)[] extractError(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"error"`, &buf[0], buf.length);
@@ -129,12 +119,6 @@ const(char)[] extractError(const(char)[] json) {
 const(char)[] extractLastAssistantMessage(const(char)[] json) {
     __gshared char[8192] buf = 0;
     return extractJsonString(json, `"last_assistant_message"`, &buf[0], buf.length);
-}
-
-// tool_response.filePath (camelCase, distinct from tool_input.file_path)
-const(char)[] extractResponseFilePath(const(char)[] json) {
-    __gshared char[4096] buf = 0;
-    return extractJsonString(json, `"filePath"`, &buf[0], buf.length);
 }
 
 bool extractBool(const(char)[] json, string key) {

@@ -25,8 +25,8 @@ module main;
 import matcher : checkCommand, checkAllCommands, MatchSet, applyArg, applyOmit, indexOf, contains, hasSegment, Buf;
 import parse : extractCommand, extractCwd, extractSessionId, extractToolUseId, extractHookEventName, extractToolName, extractFilePath, extractSource, writeJsonString, fputs2;
 import controls : HookEvent;
+import sqlite : ZBuf, buildControlAttrs, popen, pclose;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fprintf, fwrite, FILE;
-import sqlite : popen, pclose;
 import core.stdc.stdlib : exit;
 import core.sys.posix.unistd : isatty;
 
@@ -97,17 +97,10 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
         fputs(`,"run_in_background":true`, stdout);
     if (timeout > 0) {
         fputs(`,"timeout":`, stdout);
-        // Write int as decimal
-        char[16] tbuf = 0;
-        int tlen = 0;
-        int t = timeout;
-        if (t == 0) { tbuf[0] = '0'; tlen = 1; }
-        else {
-            while (t > 0 && tlen < 15) { tbuf[tlen++] = cast(char)('0' + t % 10); t /= 10; }
-            // Reverse
-            foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
-        }
-        fwrite(&tbuf[0], 1, tlen, stdout);
+        __gshared ZBuf tmoBuf;
+        tmoBuf.reset();
+        tmoBuf.putInt(timeout);
+        fwrite(&tmoBuf.data[0], 1, tmoBuf.len, stdout);
     }
     fputs(`},"additionalContext":"`, stdout);
     writeJsonString(context);
@@ -241,7 +234,7 @@ int run(ref const(char)[] outEventName) {
             auto results = checkAllCommands(command, cwd);
 
             if (results.count > 0) {
-                import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
+                import sqlite : openDb, attestationExists, attestEvent, sqlite3_close;
                 auto db = openDb();
 
                 const(char)[] finalDecision;
@@ -277,12 +270,7 @@ int run(ref const(char)[] outEventName) {
                             allMessages.put(c.msg.value);
                             if (db !is null) {
                                 __gshared ZBuf graundedAttrs;
-                                graundedAttrs.reset();
-                                graundedAttrs.put(`{"control":"`);
-                                graundedAttrs.put(c.name);
-                                graundedAttrs.put(`","decision":"`);
-                                graundedAttrs.put(m.decision);
-                                graundedAttrs.put(`"}`);
+                                buildControlAttrs(graundedAttrs, c.name, m.decision);
                                 attestEvent(db, "GraundedPreToolUse", cwd, sessionId, graundedAttrs.slice());
                             }
                         }
@@ -333,7 +321,7 @@ int run(ref const(char)[] outEventName) {
         if (filePath !is null) {
             import controls : fileScopes;
             import hooks : scopeMatches;
-            import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
+            import sqlite : openDb, attestationExists, attestEvent, sqlite3_close;
 
             auto db = openDb();
             __gshared Buf fileMsgBuf;
@@ -356,10 +344,7 @@ int run(ref const(char)[] outEventName) {
 
                     if (db !is null) {
                         __gshared ZBuf fileAttrs;
-                        fileAttrs.reset();
-                        fileAttrs.put(`{"control":"`);
-                        fileAttrs.put(c.name);
-                        fileAttrs.put(`"}`);
+                        buildControlAttrs(fileAttrs, c.name);
                         attestEvent(db, "GraundedPreToolUse", cwd, sessionId, fileAttrs.slice());
                     }
                 }

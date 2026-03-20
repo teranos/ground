@@ -7,7 +7,7 @@ import parse : extractJsonString;
 import matcher : contains;
 import controls : userPromptScopes;
 import hooks : scopeMatches;
-import sqlite : ZBuf, openDb, attestationExists, attestEvent, sqlite3_close;
+import sqlite : ZBuf, openDb, attestationExists, attestEvent, sqlite3_close, buildControlAttrs;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
 const(char)[] extractPrompt(const(char)[] json) {
@@ -42,10 +42,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
 
             if (db !is null) {
                 __gshared ZBuf attrs;
-                attrs.reset();
-                attrs.put(`{"control":"`);
-                attrs.put(c.name);
-                attrs.put(`"}`);
+                buildControlAttrs(attrs, c.name);
                 attestEvent(db, "GraundedUserPromptSubmit", cwd, sessionId, attrs.slice());
             }
         }
