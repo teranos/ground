@@ -73,6 +73,7 @@ scope {
     userprompt: "ADR"
     msg: "ADRs are in docs/adr/ in the QNTX repo"
   }
+  
 }
 
 # QNTX — PreCompact

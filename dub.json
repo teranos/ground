@@ -8,5 +8,6 @@
     "dflags": ["-betterC"],
     "libs": ["sqlite3"],
     "lflags": ["-L/usr/local/opt/sqlite/lib"],
+    "extraDependencyFiles": [".ctfe/sand"],
     "preBuildCommands": ["git describe --tags --always > .version || true", "cat controls/*.pbt > .ctfe/sand"]
 }
