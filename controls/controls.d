@@ -1,6 +1,7 @@
 module controls;
 
 public import hooks;
+import proto : parsePbt, buildScopes, ScopeSet, mergeScopes;
 
 static if (__traits(compiles, { import qntx; }))
     import qntx;
@@ -8,56 +9,122 @@ static if (__traits(compiles, { import qntx; }))
 version (OSX)
     import macos;
 
-static immutable universal = [
-    control("no-skip-hooks", cmd("git"), omit("--no-verify"),
-        msg("Git hooks must not be bypassed, ever..")),
-    control("short-commit-message-reminder", cmd("git add"),
-        msg("A commit typically follows. Start thinking about the commit message — focus on why, not what.")),
-    control("sync-main", cmd("git checkout main"),
-        msg("Summarize what happened upstream since the last pull.")),
-    control("ci-check", cmd("gh run list"),
-        msg("Examine the result and report whether CI passed or failed.")),
-    control("use-read-not-cat", cmd("cat"),
-        msg("Use the Read tool instead of cat.")),
-    control("ci-view", cmd("gh run view"),
-        msg("")),
-    control("ci-watch", cmd("gh run watch"),
-        msg("")),
-    control("issue-list", cmd("gh issue list"),
-        msg("")),
-    control("issue-view", cmd("gh issue view"),
-        msg("")),
-    control("pr-list", cmd("gh pr list"),
-        msg("")),
-    control("pr-view", cmd("gh pr view"),
-        msg("")),
-    control("pr-ready", cmd("gh pr ready"),
-        msg("This means the pr is ready to merge")),
-];
+// --- Parsed pbt (CTFE) ---
 
-static immutable checkpoints = [
-    control("git-commit", cmd("git commit"),
-        msg("Commit requires manual approval")),
-    control("git-push-pull-first", cmd("git push"),
-        msg("If you haven't pulled since the last commit, pull first and resolve conflicts before pushing")),
-    control("git-tag-semver", cmd("git tag"),
-        msg("Check the latest tag first and ensure the new version follows semver")),
-    control("pr-create", cmd("gh pr create"),
-        msg("PR creation requires manual approval. Keep the description high signal — you can refine it later with gh pr edit.")),
-    control("pr-edit-ref-reminder", cmd("gh pr edit"),
-        msg("Reference any docs edited or created in this PR. Do not describe implementation details — the diff speaks for itself. Focus on why, not what.")),
-    control("git-checkout-b", cmd("git checkout -b"),
-        msg("Check main for unpushed commits and push them first. Update documentation to describe intended behavior. Ask critical design questions. Then open a PR.")),
-    control("pr-merge-checkout-main", cmd("gh pr merge"),
-        msg("After merge, checkout main and pull to sync local.")),
-];
+enum baseParsed = parsePbt(import("controls/controls.pbt"));
 
-static immutable postToolUse = [
-    control("commit-push-reminder", cmd("git commit"),
-        msg("A push typically follows.")),
-    control("tag-push-reminder", cmd("git tag"),
-        msg("Push the tag: git push origin <tag>")),
-];
+// --- Handler resolvers (CTFE) ---
+
+CheckFn resolveCheck(string name) {
+    switch (name) {
+        case "binaryShadowed": return &binaryShadowed;
+        case "controlsAreStale": return &controlsAreStale;
+        default: return null;
+    }
+}
+
+DelayFn resolveDelay(string name) {
+    switch (name) {
+        case "ciDelay": return &ciDelay;
+        default: return null;
+    }
+}
+
+DeliverFn resolveDeliver(string name) {
+    switch (name) {
+        case "ciDeliver": return &ciDeliver;
+        default: return null;
+    }
+}
+
+// --- Scope arrays (CTFE) ---
+// Two-step: build ScopeSet (by value, no escape), then slice the static immutable.
+
+// TODO: catch hardcoded URLs in error messages that claim to report runtime values
+// TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
+
+// PreToolUse
+private static immutable _preToolBase = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(baseParsed, "PreToolUse");
+
+static if (__traits(compiles, macos.macosScopes))
+    private static immutable _preToolMacos = macos.macosScopes;
+static if (__traits(compiles, qntx.qntxScopes))
+    private static immutable _preToolQntx = qntx.qntxScopes;
+
+static if (__traits(compiles, _preToolQntx) && __traits(compiles, _preToolMacos)) {
+    private static immutable _preToolMerged = mergeScopes(&_preToolBase, &_preToolMacos, &_preToolQntx);
+    static immutable allScopes = _preToolMerged.items[0 .. _preToolMerged.len];
+} else static if (__traits(compiles, _preToolQntx)) {
+    private static immutable _preToolMerged = mergeScopes(&_preToolBase, &_preToolQntx);
+    static immutable allScopes = _preToolMerged.items[0 .. _preToolMerged.len];
+} else static if (__traits(compiles, _preToolMacos)) {
+    private static immutable _preToolMerged = mergeScopes(&_preToolBase, &_preToolMacos);
+    static immutable allScopes = _preToolMerged.items[0 .. _preToolMerged.len];
+} else {
+    static immutable allScopes = _preToolBase.items[0 .. _preToolBase.len];
+}
+
+// PreToolUseFile
+static if (__traits(compiles, qntx.qntxFileScopes)) {
+    private static immutable _fileSet = qntx.qntxFileScopes;
+    static immutable fileScopes = _fileSet.items[0 .. _fileSet.len];
+} else {
+    static immutable Scope[] fileScopes = [];
+}
+
+// UserPromptSubmit
+private static immutable _upBase = buildScopes(baseParsed, "UserPromptSubmit");
+
+static if (__traits(compiles, macos.macosUserPromptScopes))
+    private static immutable _upMacos = macos.macosUserPromptScopes;
+static if (__traits(compiles, qntx.qntxUserPromptScopes))
+    private static immutable _upQntx = qntx.qntxUserPromptScopes;
+
+static if (__traits(compiles, _upQntx) && __traits(compiles, _upMacos)) {
+    private static immutable _upMerged = mergeScopes(&_upBase, &_upMacos, &_upQntx);
+    static immutable userPromptScopes = _upMerged.items[0 .. _upMerged.len];
+} else static if (__traits(compiles, _upQntx)) {
+    private static immutable _upMerged = mergeScopes(&_upBase, &_upQntx);
+    static immutable userPromptScopes = _upMerged.items[0 .. _upMerged.len];
+} else static if (__traits(compiles, _upMacos)) {
+    private static immutable _upMerged = mergeScopes(&_upBase, &_upMacos);
+    static immutable userPromptScopes = _upMerged.items[0 .. _upMerged.len];
+} else {
+    static immutable userPromptScopes = _upBase.items[0 .. _upBase.len];
+}
+
+// Stop
+private static immutable _stopSet = buildScopes(baseParsed, "Stop");
+static immutable stopScopes = _stopSet.items[0 .. _stopSet.len];
+
+// SessionStart
+private static immutable _ssSet = buildScopes!(resolveCheck)(baseParsed, "SessionStart");
+static immutable sessionStartScopes = _ssSet.items[0 .. _ssSet.len];
+
+// PostToolUse
+private static immutable _ptuSet = buildScopes(baseParsed, "PostToolUse");
+static immutable postToolUseScopes = _ptuSet.items[0 .. _ptuSet.len];
+
+// PostToolUseDeferred
+private static immutable _ptudSet = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(baseParsed, "PostToolUseDeferred");
+static immutable postToolUseDeferredScopes = _ptudSet.items[0 .. _ptudSet.len];
+
+// PostToolUseFailure
+private static immutable _ptufSet = buildScopes(baseParsed, "PostToolUseFailure");
+static immutable postToolUseFailureScopes = _ptufSet.items[0 .. _ptufSet.len];
+
+// PreCompact
+private static immutable _pcBase = buildScopes(baseParsed, "PreCompact");
+
+static if (__traits(compiles, qntx.qntxPreCompactScopes)) {
+    private static immutable _pcQntx = qntx.qntxPreCompactScopes;
+    private static immutable _pcMerged = mergeScopes(&_pcBase, &_pcQntx);
+    static immutable preCompactScopes = _pcMerged.items[0 .. _pcMerged.len];
+} else {
+    static immutable preCompactScopes = _pcBase.items[0 .. _pcBase.len];
+}
+
+// --- Handler functions ---
 
 int ciDelay(const(char)[] cwd) {
     import deferred : getCIAvgDuration, computeDelay;
@@ -75,149 +142,6 @@ const(char)[] ciDeliver(const(char)[] cwd) {
     return checkCIStatus(cwd, branch);
 }
 
-static immutable postToolUseDeferred = [
-    control("ci-check-defer", cmd("git push"),
-        defer(&ciDelay, &ciDeliver, "CI: ")),
-    control("review-nudge", cmd("gh pr"), posttool("@claude review"),
-        defer(300, "Claude left a review comment.")),
-];
-
-static immutable postToolUseFailure = [
-    control("wrong-directory", posttool("No rule to make target"),
-        msg("Run pwd — you may be in the wrong directory.")),
-];
-
-static immutable universalPreCompact = [
-    control("branch-context", precompact(),
-        msg("Current branch: "), cmd("git branch --show-current")),
-];
-
-static immutable graunde = [
-    control("install-after-build", cmd("dub build"), bg(),
-        msg("Run make install to update the live hook binary.")),
-];
-
-static immutable userPromptControls = cast(immutable(Control)[])[];
-
-static immutable graundeExcludedPromptControls = [
-    control("graunde-reminder", userprompt("graunde"),
-        msg("Graunde — a hook that fires on every hook event, tracks what happened in this session. Can rewrite PreToolUse hooks on the fly, nudges Claude Code into the right direction; https://github.com/teranos/graunde/tree/main")),
-];
-
-static immutable qntxExcludedPromptControls = [
-    control("qntx-reminder", userprompt("qntx"),
-        msg("QNTX — Continuous Intelligence. Domain-agnostic knowledge system built on verifiable attestations (who said what, when, in what context). Core: Attestation Type System (ATS). Query with AX. Graunde shares its node db; https://github.com/teranos/QNTX")),
-];
-
-static immutable stopControls = [
-    control("lazy-verify", stop("Ready for you to verify"),
-        msg("Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction.")),
-    control("ego-death-effective-fix", stop("The most effective fix is"),
-        msg("You made a strong claim — according to whom? Ground it in verification or real facts.")),
-    control("ego-death-feeling-probably", stop("feeling is probably"),
-        msg("Do not attribute subjective impressions to the user. They observe and report facts. Restate based on what was actually measured or said.")),
-    control("ego-death-speculative-cause", stop(["likely because", "probably because"]),
-        msg("That's a guess, not a diagnosis. Check the data before proposing a cause.")),
-    control("ego-death-nothing-left", stop("Nothing left to do"),
-        msg("You made a completeness claim. What specifically was not verified?")),
-];
-
-static immutable qntxStopControls = [
-    control("make-dev-includes-wasm", stop("make wasm"),
-        msg(`"make dev" also rebuilds the wasm, see the Makefile.`)),
-    control("no-stale-binary-speculation-might", stop("binary might be stale"),
-        msg("The developer is always running the latest version. Do not speculate about stale binaries.")),
-    control("no-stale-binary-speculation-may", stop("binary may be stale"),
-        msg("The developer is always running the latest version. Do not speculate about stale binaries.")),
-    control("port-check-am-toml-877", stop("port 877"),
-        msg("You mentioned a default port. Check am.toml in the project root for the actual port configuration.")),
-    control("port-check-am-toml-8820", stop("8820"),
-        msg("You mentioned a default port. Check am.toml in the project root for the actual port configuration.")),
-];
-
-static immutable sessionStartControls = [
-    control("stale-binary-shadow", sessionstart(&binaryShadowed),
-        msg("/usr/local/bin/graunde exists and shadows ~/.local/bin/graunde — remove it with: rm /usr/local/bin/graunde")),
-    control("stale-controls", sessionstart(&controlsAreStale),
-        msg("graunde binary is out of date with source — recompile with dub test && make install")),
-];
-
-static immutable qntxSessionStartControls = [
-    control("am-toml-reminder", sessionstart(),
-        msg("am.toml in the project root has the db path and node configuration. Check it before assuming database locations.")),
-];
-
-// TODO: catch hardcoded URLs in error messages that claim to report runtime values
-// TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
-
-static immutable allScopes = () {
-    auto base = [
-        Scope("", "allow", universal),
-        Scope("", "ask", checkpoints),
-        Scope("/graunde", "allow", graunde),
-    ];
-    static if (__traits(compiles, macos.commands))
-        base = base ~ [Scope("/graunde", "deny", macos.commands)];
-    static if (__traits(compiles, qntx.commands))
-        return base ~ [Scope("/QNTX", "allow", qntx.commands)];
-    else
-        return base;
-}();
-
-static immutable fileScopes = () {
-    static if (__traits(compiles, qntx.files))
-        return [Scope("/QNTX", "allow", qntx.files)];
-    else
-        return cast(immutable(Scope)[])[];
-}();
-
-static immutable userPromptScopes = () {
-    auto base = [
-        Scope("", "allow", userPromptControls),
-        Scope("!/graunde", "allow", graundeExcludedPromptControls),
-        Scope("!/QNTX", "allow", qntxExcludedPromptControls),
-    ];
-    static if (__traits(compiles, macos.macosPromptControls))
-        base = base ~ [Scope("", "allow", macos.macosPromptControls)];
-    static if (__traits(compiles, qntx.qntxPromptControls))
-        base = base ~ [Scope("/QNTX", "allow", qntx.qntxPromptControls)];
-    return base;
-}();
-
-static immutable stopScopes = () {
-    return [
-        Scope("", "allow", stopControls),
-        Scope("/QNTX", "allow", qntxStopControls),
-    ];
-}();
-
-static immutable sessionStartScopes = () {
-    return [
-        Scope("", "allow", sessionStartControls),
-        Scope("/QNTX", "allow", qntxSessionStartControls),
-    ];
-}();
-
-static immutable postToolUseScopes = () {
-    return [Scope("", "allow", postToolUse)];
-}();
-
-static immutable postToolUseDeferredScopes = () {
-    return [Scope("", "allow", postToolUseDeferred)];
-}();
-
-static immutable postToolUseFailureScopes = () {
-    return [Scope("", "allow", postToolUseFailure)];
-}();
-
-static immutable preCompactScopes = () {
-    auto base = [Scope("", "allow", universalPreCompact)];
-    static if (__traits(compiles, qntx.compaction))
-        return base ~ [Scope("/QNTX", "allow", qntx.compaction)];
-    else
-        return base;
-}();
-
 // --- Check functions for sessionstart() controls ---
 
 extern (C) int access(const(char)* path, int mode);
@@ -234,7 +158,12 @@ uint fnv1a(const(char)[] data) {
     return h;
 }
 
-enum CONTROLS_HASH = fnv1a(import("controls/controls.d") ~ import("source/hooks.d"));
+enum CONTROLS_HASH = fnv1a(
+    import("controls/controls.pbt")
+    ~ import("controls/qntx.pbt")
+    ~ import("controls/macos.pbt")
+    ~ import("source/proto.d")
+);
 
 bool controlsAreStale(const(char)[] cwd) {
     if (cwd is null || cwd.length == 0) return false;
@@ -243,7 +172,12 @@ bool controlsAreStale(const(char)[] cwd) {
     __gshared char[131072] concat;
     size_t total = 0;
 
-    static foreach (suffix; ["/controls/controls.d", "/source/hooks.d"]) {{
+    static foreach (suffix; [
+        "/controls/controls.pbt",
+        "/controls/qntx.pbt",
+        "/controls/macos.pbt",
+        "/source/proto.d",
+    ]) {{
         if (cwd.length + suffix.length + 1 > pathBuf.length) return false;
         foreach (j, c; cwd) pathBuf[j] = c;
         foreach (j, c; suffix) pathBuf[cwd.length + j] = c;

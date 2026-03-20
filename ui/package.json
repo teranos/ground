@@ -1,0 +1,16 @@
+{
+  "name": "graunde-ui",
+  "private": true,
+  "scripts": {
+    "build": "bun run build.ts",
+    "dev": "bun run build.ts --watch"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.5.0",
+    "svelte": "5.28.2"
+  },
+  "devDependencies": {
+    "esbuild-svelte": "0.9.3",
+    "svelte-preprocess-esbuild": "3.0.1"
+  }
+}

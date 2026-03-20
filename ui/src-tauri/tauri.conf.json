@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicoulaj/tauri-config-schema/refs/heads/main/schema.json",
+  "productName": "graunde",
+  "version": "0.1.0",
+  "identifier": "nl.sbvh.graunde",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "graunde",
+        "width": 1100,
+        "height": 700,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
