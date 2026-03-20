@@ -482,8 +482,8 @@ const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
     // Prepend "CI: " label
     __gshared char[520] resultBuf = 0;
     enum prefix = "CI: ";
-    resultBuf[0 .. prefix.length] = prefix;
-    resultBuf[prefix.length .. prefix.length + n] = outBuf[0 .. n];
+    foreach (i, c; prefix) resultBuf[i] = c;
+    foreach (i; 0 .. n) resultBuf[prefix.length + i] = outBuf[i];
     return resultBuf[0 .. prefix.length + n];
 }
 

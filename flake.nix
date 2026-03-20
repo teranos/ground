@@ -25,19 +25,13 @@
             inherit version;
             src = ./.;
 
-            nativeBuildInputs = [ pkgs.ldc pkgs.git ];
+            nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git ];
             buildInputs = [ pkgs.sqlite ];
 
             buildPhase = ''
+              export HOME=$(mktemp -d)
               echo "${version}" > .version
-              ${pkgs.ldc}/bin/ldc2 \
-                -betterC \
-                -O2 \
-                -of=graunde \
-                -J. \
-                -L-L${pkgs.sqlite.out}/lib \
-                -L-lsqlite3 \
-                $(find source controls -name '*.d')
+              ${pkgs.dub}/bin/dub build --build=release
             '';
 
             installPhase = ''
