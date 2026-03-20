@@ -1,4 +1,5 @@
 # QNTX — commands
+# TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
 scope {
   path: "/QNTX"
   decision: "allow"

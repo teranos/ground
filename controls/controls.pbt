@@ -38,37 +38,31 @@ scope {
   control {
     name: "ci-view"
     cmd: "gh run view"
-    msg: ""
   }
 
   control {
     name: "ci-watch"
     cmd: "gh run watch"
-    msg: ""
   }
 
   control {
     name: "issue-list"
     cmd: "gh issue list"
-    msg: ""
   }
 
   control {
     name: "issue-view"
     cmd: "gh issue view"
-    msg: ""
   }
 
   control {
     name: "pr-list"
     cmd: "gh pr list"
-    msg: ""
   }
 
   control {
     name: "pr-view"
     cmd: "gh pr view"
-    msg: ""
   }
 
   control {

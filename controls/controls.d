@@ -41,7 +41,6 @@ DeliverFn resolveDeliver(string name) {
 // Two-step: build ScopeSet (by value, no escape), then slice the static immutable.
 
 // TODO: catch hardcoded URLs in error messages that claim to report runtime values
-// TODO: catch entity IDs used as subjects — IDs belong in attributes, not subjects
 
 // PreToolUse
 private static immutable _preToolBase = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(baseParsed, "PreToolUse");
