@@ -1,11 +1,12 @@
 {
-  "name": "tower",
+  "name": "graunde-ui",
   "private": true,
   "scripts": {
     "build": "bun run build.ts",
-    "dev": "bun run dev-server.ts"
+    "dev": "bun run build.ts --watch"
   },
   "dependencies": {
+    "@tauri-apps/api": "2.5.0",
     "svelte": "5.28.2"
   },
   "devDependencies": {

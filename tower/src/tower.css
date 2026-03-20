@@ -29,7 +29,13 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-body { padding: 12px 24px; }
+body {
+  padding: 0;
+}
+
+#app {
+  padding: 12px 24px;
+}
 
 ::selection { background: rgba(122, 202, 122, 0.3); }
 

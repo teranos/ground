@@ -12,7 +12,7 @@ install: build
 	cp graunde $(PREFIX)/bin/graunde
 
 tower:
-	cd tower && bun install --frozen-lockfile && bun run build
+	cd tower && bun install --frozen-lockfile && cargo tauri build
 
 tower-dev:
-	cd tower && bun install && bun run dev
+	cd tower && bun install && cargo tauri dev

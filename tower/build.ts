@@ -1,6 +1,9 @@
 import { build } from "esbuild";
 import sveltePlugin from "esbuild-svelte";
 import { typescript } from "svelte-preprocess-esbuild";
+import { copyFileSync, mkdirSync } from "fs";
+
+mkdirSync("dist", { recursive: true });
 
 await build({
   entryPoints: ["src/main.ts"],
@@ -16,3 +19,6 @@ await build({
   ],
   logLevel: "info",
 });
+
+copyFileSync("index.html", "dist/index.html");
+copyFileSync("src/tower.css", "dist/tower.css");

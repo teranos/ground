@@ -4,8 +4,8 @@
 
   type FireData = Record<string, {
     count: number;
-    lastFired: string | null;
-    recent: { session: string; cwd: string; timestamp: string }[];
+    last_fired: string | null;
+    buckets: number[];
   }>;
 
   let { files, fires }: {

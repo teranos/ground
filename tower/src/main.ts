@@ -1,45 +1,28 @@
 import { mount } from "svelte";
+import { invoke } from "@tauri-apps/api/core";
 import App from "./App.svelte";
 import { parseTextproto, type ParseResult } from "./parse.js";
 
-const TEXTPROTO_FILES = [
-  "controls/controls.textproto",
-  "controls/qntx.textproto",
-  "controls/macos.textproto",
-];
+type TextprotoFile = { name: string; content: string };
 
 type FireData = Record<string, {
   count: number;
-  lastFired: string | null;
-  recent: { session: string; cwd: string; timestamp: string }[];
+  last_fired: string | null;
+  buckets: number[];
 }>;
 
 async function init() {
-  const [files, firesRes] = await Promise.all([
-    Promise.all(
-      TEXTPROTO_FILES.map(async (path) => {
-        const res = await fetch(`/${path}`);
-        if (!res.ok) return null;
-        const text = await res.text();
-        const name = path.split("/").pop()!.replace(".textproto", "");
-        return parseTextproto(text, name);
-      })
-    ),
-    fetch("/api/fires").then(r => r.ok ? r.json() : {}).catch(() => ({})),
+  const [rawFiles, fires] = await Promise.all([
+    invoke<TextprotoFile[]>("read_textprotos"),
+    invoke<FireData>("read_fires"),
   ]);
 
-  const parsed = files.filter((f): f is ParseResult => f !== null);
-  const fires = firesRes as FireData;
+  const files = rawFiles.map(f => parseTextproto(f.content, f.name));
 
   mount(App, {
     target: document.getElementById("app")!,
-    props: { files: parsed, fires },
+    props: { files, fires },
   });
-
-  const sse = new EventSource("/api/events");
-  sse.onmessage = (e) => {
-    if (e.data === "reload") location.reload();
-  };
 }
 
 init();

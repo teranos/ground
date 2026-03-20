@@ -42,3 +42,4 @@ docs/
 # Tower
 tower/dist/
 tower/node_modules/
+tower/src-tauri/target/
