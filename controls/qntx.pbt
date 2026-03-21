@@ -77,8 +77,6 @@ scope {
 }
 
 # QNTX — PreCompact
-# NOTE: PreCompact controls are not attested (no GraundedPreCompact predicate),
-# so fire counts are invisible in Tower. For critical context, use SessionStart.
 scope {
   path: "/QNTX"
 
