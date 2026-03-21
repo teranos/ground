@@ -310,6 +310,6 @@ scope {
 
   control {
     name: "am-toml-reminder"
-    msg: "am.toml in the project root has the db path and node configuration. Check it before assuming database locations."
+    msg: "Read am.toml in the project root and report back: port number, db path, logfile location, and enabled plugins."
   }
 }

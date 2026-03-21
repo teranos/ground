@@ -429,6 +429,21 @@ int run(ref const(char)[] outEventName) {
                         }
                     }
                 }
+
+                // Attest the fire
+                {
+                    import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
+                    auto pcDb = openDb();
+                    if (pcDb !is null) {
+                        __gshared ZBuf pcAttrs;
+                        pcAttrs.reset();
+                        pcAttrs.put(`{"control":"`);
+                        pcAttrs.put(c.name);
+                        pcAttrs.put(`"}`);
+                        attestEvent(pcDb, "GraundedPreCompact", cwd, sessionId, pcAttrs.slice());
+                        sqlite3_close(pcDb);
+                    }
+                }
             }
         }
 
@@ -451,6 +466,20 @@ int run(ref const(char)[] outEventName) {
                     continue;
                 foreach (ref c; scope_.controls) {
                     if (c.cmd.value.length > 0 && hasSegment(detail, c.cmd.value) && c.msg.value.length > 0) {
+                        // Attest the fire
+                        {
+                            import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
+                            auto ptDb = openDb();
+                            if (ptDb !is null) {
+                                __gshared ZBuf ptAttrs;
+                                ptAttrs.reset();
+                                ptAttrs.put(`{"control":"`);
+                                ptAttrs.put(c.name);
+                                ptAttrs.put(`"}`);
+                                attestEvent(ptDb, "GraundedPostToolUse", cwd, sessionId, ptAttrs.slice());
+                                sqlite3_close(ptDb);
+                            }
+                        }
                         fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"`, stdout);
                         import parse : writeJsonString;
                         writeJsonString(c.msg.value);
@@ -480,7 +509,7 @@ int run(ref const(char)[] outEventName) {
                         if (!triggerHit) continue;
                     }
 
-                    import sqlite : openDb, sqlite3_close;
+                    import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
                     import deferred : writeDeferredMessage;
                     auto db = openDb();
                     if (db is null) continue;
@@ -489,6 +518,17 @@ int run(ref const(char)[] outEventName) {
                         ? c.defer.delayFn(cwd)
                         : c.defer.delaySec;
                     writeDeferredMessage(db, c.name, cwd, sessionId, c.defer.msg, delay);
+
+                    // Attest the fire
+                    {
+                        __gshared ZBuf dfAttrs;
+                        dfAttrs.reset();
+                        dfAttrs.put(`{"control":"`);
+                        dfAttrs.put(c.name);
+                        dfAttrs.put(`"}`);
+                        attestEvent(db, "GraundedPostToolUseDeferred", cwd, sessionId, dfAttrs.slice());
+                    }
+
                     sqlite3_close(db);
                 }
             }
@@ -514,6 +554,20 @@ int run(ref const(char)[] outEventName) {
                         if (contains(error, v)) { matched = true; break; }
                     if (!matched) continue;
 
+                    // Attest the fire
+                    {
+                        import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
+                        auto pfDb = openDb();
+                        if (pfDb !is null) {
+                            __gshared ZBuf pfAttrs;
+                            pfAttrs.reset();
+                            pfAttrs.put(`{"control":"`);
+                            pfAttrs.put(c.name);
+                            pfAttrs.put(`"}`);
+                            attestEvent(pfDb, "GraundedPostToolUseFailure", cwd, sessionId, pfAttrs.slice());
+                            sqlite3_close(pfDb);
+                        }
+                    }
                     fputs(`{"systemMessage":"`, stdout);
                     fputs2(c.msg.value);
                     fputs(`"}`, stdout);

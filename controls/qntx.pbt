@@ -77,13 +77,10 @@ scope {
 }
 
 # QNTX — PreCompact
+# NOTE: PreCompact controls are not attested (no GraundedPreCompact predicate),
+# so fire counts are invisible in Tower. For critical context, use SessionStart.
 scope {
   path: "/QNTX"
 
   event: "PreCompact"
-
-  control {
-    name: "qntx-am-toml"
-    msg: "am.toml in the project root has the db path and node configuration. Check it before assuming database locations."
-  }
 }

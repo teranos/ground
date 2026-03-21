@@ -123,6 +123,11 @@ void attestTypes() {
     attestType(db, "GraundedPreToolUse", "Graunded", `{}`);
     attestType(db, "GraundedStop", "Graunded", `{}`);
     attestType(db, "GraundedUserPromptSubmit", "Graunded", `{}`);
+    attestType(db, "GraundedSessionStart", "Graunded", `{}`);
+    attestType(db, "GraundedPreCompact", "Graunded", `{}`);
+    attestType(db, "GraundedPostToolUse", "Graunded", `{}`);
+    attestType(db, "GraundedPostToolUseFailure", "Graunded", `{}`);
+    attestType(db, "GraundedPostToolUseDeferred", "Graunded", `{}`);
 
     sqlite3_close(db);
 }
@@ -199,6 +204,21 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 if (any) ctx.put(" | ");
                 ctx.put(c.msg.value);
                 any = true;
+
+                // Attest the fire
+                {
+                    import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
+                    auto adb = openDb();
+                    if (adb !is null) {
+                        __gshared ZBuf ssAttrs;
+                        ssAttrs.reset();
+                        ssAttrs.put(`{"control":"`);
+                        ssAttrs.put(c.name);
+                        ssAttrs.put(`"}`);
+                        attestEvent(adb, "GraundedSessionStart", cwd, sessionId, ssAttrs.slice());
+                        sqlite3_close(adb);
+                    }
+                }
             }
         }
     }
