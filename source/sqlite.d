@@ -376,6 +376,17 @@ const(char)[] versionString() {
     return VERSION[0 .. end];
 }
 
+bool jsonValid(sqlite3* db, const(char)[] payload) {
+    enum checkSql = "SELECT json_valid(?1)\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, checkSql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return true; // can't check, let it through
+    sqlite3_bind_text(stmt, 1, payload.ptr, cast(int) payload.length, SQLITE_TRANSIENT);
+    bool valid = sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) == 1;
+    sqlite3_finalize(stmt);
+    return valid;
+}
+
 // --- Universal event attestation ---
 // Stores the full hook payload as attributes — no field extraction, no truncation.
 
@@ -452,6 +463,13 @@ void attestEvent(
     idBuf.put(eventName);
     idBuf.put(":");
     idBuf.put(ts);
+
+    // Validate payload is valid JSON — truncated payloads (>64KB) break json_extract indexes
+    if (payload.length > 0 && !jsonValid(db, payload)) {
+        import core.stdc.stdio : stderr, fputs;
+        fputs("graunde: dropped attestation — payload is not valid JSON (truncated?)\n\0".ptr, stderr);
+        return;
+    }
 
     enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
