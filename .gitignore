@@ -20,6 +20,8 @@ graunde-test-application
 
 # Generated
 .version
+.builddate
+graunde.db
 .ctfe/*
 !.ctfe/.gitkeep
 result

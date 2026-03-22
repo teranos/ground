@@ -129,7 +129,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         if (contains(lastMsg, v)) { matched = true; break; }
                     if (!matched) continue;
 
-                    import sqlite : attestControlFire;
+                    import sqlite : attestationExists, attestControlFire;
+                    if (attestationExists(db, "GraundedStop", c.name, sessionId))
+                        continue;
                     attestControlFire(db, "GraundedStop", c.name, cwd, sessionId);
                     sqlite3_close(db);
                     writeStopResponseAndNotify(c.msg.value);

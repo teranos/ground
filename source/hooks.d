@@ -51,7 +51,7 @@ struct Omit {
 }
 
 struct Trigger {
-    string[2] _buf;
+    string[16] _buf;
     ubyte len;
     const(string)[] values() const return { return _buf[0 .. len]; }
 }
@@ -104,7 +104,6 @@ struct SessionStartTrigger {
 
 Trigger stop() { return Trigger.init; }
 Trigger stop(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
-Trigger stop(string[2] ss) { Trigger t; t._buf = ss; t.len = 2; return t; }
 Trigger precompact() { Trigger t; t._buf[0] = "PreCompact"; t.len = 1; return t; }
 Trigger posttool(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
 

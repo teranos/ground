@@ -131,6 +131,17 @@ scope {
   }
 }
 
+scope {
+  path: "/graunde"
+  event: "PreToolUseFile"
+
+  control {
+    name: "control-ritual"
+    filepath: ".pbt"
+    msg: "Controls are data-driven. Before writing a trigger, query the db for real assistant messages that contain the phrase. Verify matches exist and check context. No trigger without evidence."
+  }
+}
+
 # PostToolUse — reminders after tool execution
 scope {
   event: "PostToolUse"
@@ -243,8 +254,7 @@ scope {
 
   control {
     name: "ego-death-speculative-cause"
-    stop: "likely because"
-    stop: "probably because"
+    stop: ["likely because", "probably because"]
     msg: "That's a guess, not a diagnosis. Check the data before proposing a cause."
   }
 
@@ -252,6 +262,19 @@ scope {
     name: "ego-death-nothing-left"
     stop: "Nothing left to do"
     msg: "You made a completeness claim. What specifically was not verified?"
+  }
+
+  control {
+    name: "previous-conversations-accessible"
+    stop: [
+        "each conversation starts fresh",
+        "each session starts fresh",
+        "don't have access to previous conversation",
+        "don't have access to previous session",
+        "don't have access to conversation history",
+        "dialogue isn't stored anywhere"
+    ]
+    msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The graunde db at ~/.local/share/graunde/graunde.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
   }
 }
 

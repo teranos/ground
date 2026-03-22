@@ -7,7 +7,7 @@ import hooks;
 struct ParsedControl {
     string name;
     string cmd, arg, omit;
-    string[2] triggers;
+    string[16] triggers;
     ubyte triggerCount;
     string filepath, userprompt, msg;
     bool bg;
@@ -231,9 +231,23 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
             case "defer_sec":       c.deferSec = parseInt(val); break;
             case "stop":
             case "posttool":
-                assert(c.triggerCount < 2);
-                c.triggers[c.triggerCount] = val;
-                c.triggerCount++;
+                if (val is null) {
+                    // List syntax: stop: ["a", "b", ...]
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.triggerCount < 16);
+                        c.triggers[c.triggerCount] = item;
+                        c.triggerCount++;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    assert(c.triggerCount < 16);
+                    c.triggers[c.triggerCount] = val;
+                    c.triggerCount++;
+                }
                 break;
             default: assert(0, "Unknown control field");
         }
@@ -272,6 +286,10 @@ string readValue(ref string s, ref size_t pos) {
         return readQuotedString(s, pos);
     if (pos < s.length && s[pos] == '`')
         return readBacktickString(s, pos);
+    if (pos < s.length && s[pos] == '[') {
+        pos++; // consume '['
+        return null; // signal list to caller
+    }
     // Unquoted value (true, false, integer)
     auto start = pos;
     while (pos < s.length && s[pos] != ' ' && s[pos] != '\t' && s[pos] != '\n'
@@ -388,11 +406,28 @@ scope {
     cmd: "echo"
   }
 }
+
+scope {
+  event: "Stop"
+
+  control {
+    name: "test-stop-list"
+    stop: [
+        "each conversation starts fresh",
+        "each session starts fresh",
+        "don't have access to previous conversation",
+        "don't have access to previous session",
+        "don't have access to conversation history",
+        "dialogue isn't stored anywhere"
+    ]
+    msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The graunde db at ~/.local/share/graunde/graunde.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
+  }
+}
 `;
 
 // Test parse structure
 enum testParsed = parsePbt(testInput);
-static assert(testParsed.scopeCount == 5);
+static assert(testParsed.scopeCount == 6);
 
 // Scope 0: PreToolUse
 static assert(testParsed.scopes[0].path == "");
@@ -428,6 +463,17 @@ static assert(testParsed.scopes[4].decision == "");
 static assert(testParsed.scopes[4].controls[0].name == "test-defaults");
 static assert(testParsed.scopes[4].controls[0].msg == "");
 
+// Scope 5: Stop with list triggers
+static assert(testParsed.scopes[5].event == "Stop");
+static assert(testParsed.scopes[5].controls[0].name == "test-stop-list");
+static assert(testParsed.scopes[5].controls[0].triggerCount == 6);
+static assert(testParsed.scopes[5].controls[0].triggers[0] == "each conversation starts fresh");
+static assert(testParsed.scopes[5].controls[0].triggers[1] == "each session starts fresh");
+static assert(testParsed.scopes[5].controls[0].triggers[2] == "don't have access to previous conversation");
+static assert(testParsed.scopes[5].controls[0].triggers[3] == "don't have access to previous session");
+static assert(testParsed.scopes[5].controls[0].triggers[4] == "don't have access to conversation history");
+static assert(testParsed.scopes[5].controls[0].triggers[5] == "dialogue isn't stored anywhere");
+
 // Test buildScopes without handlers (default resolvers)
 enum testBuilt = buildScopes(testParsed, "PreToolUse");
 static assert(testBuilt.len == 2);
@@ -442,7 +488,27 @@ static assert(testBuilt.items[0].controls[1].tmo.value == 5000);
 
 // Test Stop scope filtering
 enum testStopBuilt = buildScopes(testParsed, "Stop");
-static assert(testStopBuilt.len == 1);
+static assert(testStopBuilt.len == 2);
 static assert(testStopBuilt.items[0].path == "/QNTX");
 static assert(testStopBuilt.items[0].controls[0].trigger.len == 2);
 static assert(testStopBuilt.items[0].controls[0].trigger._buf[0] == "likely because");
+static assert(testStopBuilt.items[1].controls[0].trigger.len == 6);
+static assert(testStopBuilt.items[1].controls[0].trigger._buf[0] == "each conversation starts fresh");
+static assert(testStopBuilt.items[1].controls[0].trigger._buf[5] == "dialogue isn't stored anywhere");
+
+// Minimal list parse test — readValue returns null on '[', triggers collected
+enum listInput = `
+scope {
+  event: "Stop"
+  control {
+    name: "list-3"
+    stop: ["a", "b", "c"]
+    msg: "x"
+  }
+}
+`;
+enum listParsed = parsePbt(listInput);
+static assert(listParsed.scopes[0].controls[0].triggerCount == 3);
+static assert(listParsed.scopes[0].controls[0].triggers[0] == "a");
+static assert(listParsed.scopes[0].controls[0].triggers[1] == "b");
+static assert(listParsed.scopes[0].controls[0].triggers[2] == "c");
