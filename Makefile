@@ -2,7 +2,7 @@
 
 PREFIX ?= $(HOME)/.local
 build:
-	dub build --build=release
+	time dub build --build=release
 
 test:
 	dub test
