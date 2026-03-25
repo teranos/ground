@@ -100,9 +100,7 @@ const(char)[] stripGitDashC(const(char)[] segment) {
 bool commandMatch(const(char)[] segment, const(char)[] cmd) {
     auto s = stripGitDashC(segment);
     if (s.length < cmd.length) return false;
-    if (s[0 .. cmd.length] != cmd) return false;
-    if (s.length == cmd.length) return true;
-    return s[cmd.length] == ' ';
+    return s[0 .. cmd.length] == cmd;
 }
 
 // Returns true if any segment in a compound command matches cmd as a prefix.
@@ -462,9 +460,9 @@ static if (__traits(compiles, { import qntx; })) {
     }
 
     unittest {
-        // Prefix match only — "go testing" is not "go test"
-        auto result = checkCommand("go testing", QNTX);
-        assert(result.control is null);
+        // Prefix match — "go test" with trailing space matches
+        assert(commandMatch("go test ./...", "go test"));
+        assert(commandMatch("go testing", "go test"));
     }
 }
 

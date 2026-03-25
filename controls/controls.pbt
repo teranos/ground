@@ -163,6 +163,12 @@ scope {
   }
 
   control {
+    name: "handover-doc"
+    cmd: "git checkout claude/"
+    msg: "This branch originated from a remote Claude session. Find and read HANDOVER.md — report open questions, proposed next steps, and whether foundational infrastructure/prerequisites are complete."
+  }
+
+  control {
     name: "tag-push-reminder"
     cmd: "git tag"
     msg: "Push the tag: git push origin <tag>"
@@ -284,6 +290,7 @@ scope {
         "don't have access to conversation history",
         "dialogue isn't stored anywhere",
         "no previous conversation transcripts",
+        "no previous conversation history",
         "no session history"
     ]
     msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The graunde db at ~/.local/share/graunde/graunde.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
