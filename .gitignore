@@ -29,10 +29,13 @@ result
 # Debug captures
 captured_hook_payload.json
 
-# User controls — controls.d and pbt are tracked, everything else is local
+# User controls — shared pbt tracked, personal pbt in controls/local/ (gitignored)
 controls/*
 !controls/controls.d
 !controls/*.pbt
+!controls/local/
+controls/local/*
+!controls/local/.gitkeep
 
 # DUB
 .dub

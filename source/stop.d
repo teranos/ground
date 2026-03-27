@@ -141,6 +141,36 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
+    // Deliver-based Stop controls — no trigger, main only, compaction-window dedup
+    {
+        auto branch = getBranch(cwd);
+        if (branch == "main" || branch == "master") {
+            import controls : stopScopes;
+            import hooks : scopeMatches;
+
+            foreach (ref sc; stopScopes) {
+                if (!scopeMatches(sc.path, cwd))
+                    continue;
+                foreach (ref c; sc.controls) {
+                    if (c.trigger.len > 0) continue;       // skip trigger-based (handled above)
+                    if (c.defer.deliverFn is null) continue; // nothing to deliver
+
+                    import sqlite : attestationExists, attestControlFire;
+                    if (attestationExists(db, "GraundedStop", c.name, sessionId))
+                        continue;
+
+                    auto delivered = c.defer.deliverFn(cwd);
+                    if (delivered is null) continue;
+
+                    attestControlFire(db, "GraundedStop", c.name, cwd, sessionId);
+                    sqlite3_close(db);
+                    writeStopResponseAndNotify(delivered);
+                    return 0;
+                }
+            }
+        }
+    }
+
     // Check session-scoped deferred messages — deliver if ready
     {
         import deferred : readDeferredMessage, markDelivered;

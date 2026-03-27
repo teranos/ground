@@ -201,8 +201,39 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             foreach (ref c; sc.controls) {
                 if (c.sessionstart.check !is null && !c.sessionstart.check(cwd))
                     continue;
-                if (any) ctx.put(" | ");
-                ctx.put(c.msg.value);
+
+                // Interval check — skip if fired too recently
+                if (c.interval > 0) {
+                    import sqlite : openDb, sqlite3_close, sqlite3_prepare_v2,
+                                    sqlite3_step, sqlite3_finalize, sqlite3_stmt,
+                                    sqlite3_bind_text, sqlite3_bind_int64,
+                                    SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+                    auto idb = openDb();
+                    if (idb !is null) {
+                        enum intervalSql = "SELECT 1 FROM attestations WHERE json_extract(attributes, '$.control') = ?1 AND json_extract(predicates, '$[0]') = 'GraundedSessionStart' AND timestamp > datetime('now', '-' || ?2 || ' seconds') LIMIT 1\0";
+                        sqlite3_stmt* istmt;
+                        if (sqlite3_prepare_v2(idb, intervalSql.ptr, -1, &istmt, null) == SQLITE_OK) {
+                            sqlite3_bind_text(istmt, 1, c.name.ptr, cast(int) c.name.length, SQLITE_TRANSIENT);
+                            sqlite3_bind_int64(istmt, 2, c.interval);
+                            bool fresh = sqlite3_step(istmt) == SQLITE_ROW;
+                            sqlite3_finalize(istmt);
+                            sqlite3_close(idb);
+                            if (fresh) continue; // fired recently, skip
+                        } else {
+                            sqlite3_close(idb);
+                        }
+                    }
+                }
+
+                if (c.sessionstart.deliver !is null) {
+                    auto delivered = c.sessionstart.deliver(cwd);
+                    if (delivered is null) continue;
+                    if (any) ctx.put(" | ");
+                    ctx.put(delivered);
+                } else {
+                    if (any) ctx.put(" | ");
+                    ctx.put(c.msg.value);
+                }
                 any = true;
 
                 // Attest the fire

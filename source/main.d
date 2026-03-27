@@ -176,6 +176,9 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent) {
     enum migrateSql = "ALTER TABLE timing ADD COLUMN hook_event TEXT\0";
     sqlite3_exec(db, migrateSql.ptr, null, null, null);
 
+    enum idxTiming = "CREATE INDEX IF NOT EXISTS idx_timing_event_id ON timing(hook_event, id)\0";
+    sqlite3_exec(db, idxTiming.ptr, null, null, null);
+
     enum sql = "INSERT INTO timing (duration_us, hook_event) VALUES (?1, ?2)\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {

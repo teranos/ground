@@ -9,5 +9,5 @@
     "libs": ["sqlite3"],
     "lflags": ["-L/usr/local/opt/sqlite/lib"],
     "extraDependencyFiles": [".ctfe/sand"],
-    "preBuildCommands": ["git describe --tags --always > .version || true", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "cat controls/*.pbt > .ctfe/sand"]
+    "preBuildCommands": ["git describe --tags --always > .version || true", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "cat controls/*.pbt > .ctfe/sand; cat controls/local/*.pbt >> .ctfe/sand 2>/dev/null; true"]
 }

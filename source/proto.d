@@ -15,6 +15,7 @@ struct ParsedControl {
     string checkHandler, delayHandler, deliverHandler;
     string deferMsg;
     int deferSec;
+    int interval;
 }
 
 struct ParsedScope {
@@ -80,8 +81,16 @@ ScopeSet buildScopes(
             if (pc.checkHandler.length > 0) {
                 auto fn = resolveCheck(pc.checkHandler);
                 assert(fn !is null);
-                c.sessionstart = SessionStartTrigger(fn);
+                c.sessionstart = SessionStartTrigger(fn, null);
             }
+
+            if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
+                auto dfn = resolveDeliver(pc.deliverHandler);
+                assert(dfn !is null);
+                c.sessionstart.deliver = dfn;
+            }
+
+            c.interval = pc.interval;
 
             if (pc.delayHandler.length > 0 || pc.deliverHandler.length > 0) {
                 c.defer.delayFn = pc.delayHandler.length > 0
@@ -229,6 +238,7 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
             case "deliver_handler": c.deliverHandler = val; break;
             case "defer_msg":       c.deferMsg = val; break;
             case "defer_sec":       c.deferSec = parseInt(val); break;
+            case "interval":        c.interval = parseInt(val); break;
             case "stop":
             case "posttool":
                 if (val is null) {
@@ -495,6 +505,40 @@ static assert(testStopBuilt.items[0].controls[0].trigger._buf[0] == "likely beca
 static assert(testStopBuilt.items[1].controls[0].trigger.len == 6);
 static assert(testStopBuilt.items[1].controls[0].trigger._buf[0] == "each conversation starts fresh");
 static assert(testStopBuilt.items[1].controls[0].trigger._buf[5] == "dialogue isn't stored anywhere");
+
+// Test Stop with deliver_handler + interval (upstream-briefing pattern)
+enum stopDeliverInput = `
+scope {
+  path: "/my-fork"
+  event: "Stop"
+  control {
+    name: "upstream-briefing-stop"
+    deliver_handler: "testDeliver"
+    interval: 604800
+  }
+}
+`;
+enum stopDeliverParsed = parsePbt(stopDeliverInput);
+static assert(stopDeliverParsed.scopeCount == 1);
+static assert(stopDeliverParsed.scopes[0].event == "Stop");
+static assert(stopDeliverParsed.scopes[0].path == "/my-fork");
+static assert(stopDeliverParsed.scopes[0].controls[0].name == "upstream-briefing-stop");
+static assert(stopDeliverParsed.scopes[0].controls[0].deliverHandler == "testDeliver");
+static assert(stopDeliverParsed.scopes[0].controls[0].interval == 604800);
+static assert(stopDeliverParsed.scopes[0].controls[0].triggerCount == 0);
+
+// buildScopes for Stop with deliver_handler — wires defer.deliverFn
+private const(char)[] testDeliverFn(const(char)[]) { return "test"; }
+private DeliverFn testResolveDeliver(string name) {
+    if (name == "testDeliver") return &testDeliverFn;
+    return null;
+}
+enum stopDeliverBuilt = buildScopes!(defaultResolveCheck, defaultResolveDelay, testResolveDeliver)(stopDeliverParsed, "Stop");
+static assert(stopDeliverBuilt.len == 1);
+static assert(stopDeliverBuilt.items[0].controls[0].name == "upstream-briefing-stop");
+static assert(stopDeliverBuilt.items[0].controls[0].defer.deliverFn !is null);  // deliver_handler wired
+static assert(stopDeliverBuilt.items[0].controls[0].interval == 604800);
+static assert(stopDeliverBuilt.items[0].controls[0].trigger.len == 0);  // no trigger — unconditional
 
 // Minimal list parse test — readValue returns null on '[', triggers collected
 enum listInput = `

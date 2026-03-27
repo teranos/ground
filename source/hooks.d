@@ -99,7 +99,8 @@ struct UserPrompt {
 alias CheckFn = bool function(const(char)[] cwd);
 
 struct SessionStartTrigger {
-    CheckFn check; // null = always fire
+    CheckFn check;     // null = always fire
+    DeliverFn deliver; // null = use static msg
 }
 
 Trigger stop() { return Trigger.init; }
@@ -134,6 +135,7 @@ struct Control {
     Bg bg;
     Tmo tmo;
     Defer defer;
+    int interval; // minimum seconds between fires (0 = no limit)
 }
 
 Control control(string name, Cmd c, Arg a, Msg m) {
