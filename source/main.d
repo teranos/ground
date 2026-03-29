@@ -218,11 +218,13 @@ extern (C) int main() {
 
 int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming) {
 
+    auto r0 = usecNow();
     auto input = readStdin();
     if (input is null) {
         fputs("graunde: empty stdin\n", stderr);
         return 1;
     }
+    auto r1 = usecNow();
 
     // Common fields
     auto cwd = extractCwd(input);
@@ -237,6 +239,8 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     if (eventName is null) return 0;
     outEventName = eventName;
 
+    auto r2 = usecNow();
+
     // Attest every event — even ones we don't handle yet
     {
         import sqlite : openDb, attestEvent, sqlite3_close;
@@ -246,6 +250,8 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
             sqlite3_close(db);
         }
     }
+
+    auto r3 = usecNow();
 
     HookEvent event;
     if (!parseHookEvent(eventName, event)) return 0;
@@ -402,6 +408,9 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     if (event == HookEvent.Stop) {
         import stop : handleStop;
         auto stopRc = handleStop(input, cwd, sessionId);
+        auto r4 = usecNow();
+        fprintf(stderr, "MAIN-PROFILE stdin=%ldus parse=%ldus attest=%ldus stop=%ldus\n".ptr,
+            r1-r0, r2-r1, r3-r2, r4-r3);
         if (stopRc == 2) { outSkipTiming = true; return 0; }
         return stopRc;
     }
