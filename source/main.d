@@ -207,14 +207,16 @@ extern (C) int main() {
     auto t0 = usecNow();
     const(char)[] eventName;
     const(char)[] project;
-    auto rc = run(eventName, project);
+    bool skipTiming;
+    auto rc = run(eventName, project, skipTiming);
     auto elapsed = usecNow() - t0;
     printDuration(t0);
-    recordTiming(elapsed, eventName, project);
+    if (!skipTiming)
+        recordTiming(elapsed, eventName, project);
     return rc;
 }
 
-int run(ref const(char)[] outEventName, ref const(char)[] outProject) {
+int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming) {
 
     auto input = readStdin();
     if (input is null) {
@@ -399,7 +401,9 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject) {
     // Stop — trail controls, deferred messages, lazy-verify
     if (event == HookEvent.Stop) {
         import stop : handleStop;
-        return handleStop(input, cwd, sessionId);
+        auto stopRc = handleStop(input, cwd, sessionId);
+        if (stopRc == 2) { outSkipTiming = true; return 0; }
+        return stopRc;
     }
 
     // SessionStart — emit arch context on startup/clear

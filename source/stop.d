@@ -196,6 +196,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     auto t5 = usecNow();
 
     // Check session-scoped deferred messages — deliver if ready
+    // Returns 2 to signal delivery happened (skip timing — subprocess is intentionally slow)
     {
         import deferred : readDeferredMessage, markDelivered;
         auto deferred = readDeferredMessage(db, sessionId);
@@ -205,7 +206,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             sqlite3_close(db);
             if (msg !is null)
                 writeStopResponseAndNotify(msg);
-            return 0;
+            return 2;
         }
     }
 
@@ -219,8 +220,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
                 sqlite3_close(db);
                 writeStopResponseAndNotify(projDeferred.message);
-
-                return 0;
+                return 2;
             }
         }
     }
