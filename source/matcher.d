@@ -97,7 +97,10 @@ const(char)[] stripGitDashC(const(char)[] segment) {
 // Matches cmd as a command prefix — not a substring anywhere in the segment.
 // "go test" matches "go test ./..." but not "git commit -m 'go test'"
 // Also handles "git -C <path>" by normalizing before matching.
+// If cmd starts with '*', uses wildcardContains for substring/wildcard matching.
 bool commandMatch(const(char)[] segment, const(char)[] cmd) {
+    if (cmd.length > 0 && cmd[0] == '*')
+        return wildcardContains(segment, cmd);
     auto s = stripGitDashC(segment);
     if (s.length < cmd.length) return false;
     return s[0 .. cmd.length] == cmd;
@@ -409,10 +412,10 @@ bool wildcardContains(const(char)[] haystack, const(char)[] pattern) {
     return true;
 }
 
-// --- Strip quoted content from commands ---
-// Removes content between matching quotes (single and double).
+// --- Strip double-quoted content from commands ---
+// Only strips double quotes — single quotes preserve content (URLs, paths).
 // "git commit -m "Migrate sed/awk"" → "git commit -m "
-// "sed -i 's/foo/bar/' file"        → "sed -i  file"
+// "curl 'http://localhost:877'"      → "curl 'http://localhost:877'" (preserved)
 
 struct StripBuf {
     char[8192] data = 0;
@@ -425,10 +428,10 @@ StripBuf stripQuoted(const(char)[] cmd) {
     size_t i = 0;
     while (i < cmd.length && result.len < result.data.length) {
         char c = cmd[i];
-        if (c == '"' || c == '\'') {
-            // Skip until matching close quote
+        if (c == '"') {
+            // Skip until matching close double quote
             i++;
-            while (i < cmd.length && cmd[i] != c) i++;
+            while (i < cmd.length && cmd[i] != '"') i++;
             if (i < cmd.length) i++; // skip closing quote
         } else {
             result.data[result.len++] = c;
@@ -441,12 +444,13 @@ StripBuf stripQuoted(const(char)[] cmd) {
 // --- stripQuoted tests ---
 
 static assert(stripQuoted(`git commit -m "Migrate sed/awk"`).slice == `git commit -m `);
-static assert(stripQuoted(`sed -i 's/foo/bar/' file`).slice == `sed -i  file`);
 static assert(stripQuoted(`echo "hello world"`).slice == `echo `);
 static assert(stripQuoted(`sleep 3 && say "time"`).slice == `sleep 3 && say `);
-static assert(stripQuoted(`awk '{print $1}' file.txt`).slice == `awk  file.txt`);
 static assert(stripQuoted(`no quotes here`).slice == `no quotes here`);
-static assert(stripQuoted(`sed 's/a/b/' "my file.txt"`).slice == `sed  `);
+// Single quotes preserved — URLs and paths stay intact
+static assert(stripQuoted(`curl 'http://localhost:877/api'`).slice == `curl 'http://localhost:877/api'`);
+static assert(stripQuoted(`sed -i 's/foo/bar/' file`).slice == `sed -i 's/foo/bar/' file`);
+static assert(stripQuoted(`sed 's/a/b/' "my file.txt"`).slice == `sed 's/a/b/' `);
 
 // --- Major Tom's test suite ---
 
@@ -630,6 +634,18 @@ unittest {
     assert(hasSegment("git push origin main", "git push"));
     assert(!hasSegment(`git commit -m "run git push later"`, "git push"));
     assert(hasSegment("echo ok; git push", "git push"));
+}
+
+unittest {
+    // Wildcard cmd — starts with * uses wildcardContains
+    assert(commandMatch("curl -s 'http://localhost:877/api/query'", "*:877/*"));
+    assert(!commandMatch("curl -s 'http://localhost:8772/api/query'", "*:877/*"));
+    assert(commandMatch("curl http://localhost:8820/foo", "*:8820/*"));
+    // Wildcard in compound command
+    assert(hasSegment("echo ok && curl 'http://localhost:877/api' | jq .", "*:877/*"));
+    // Non-wildcard still prefix-matches
+    assert(commandMatch("curl http://localhost:877/api", "curl"));
+    assert(!commandMatch("echo curl", "curl"));
 }
 
 unittest {
