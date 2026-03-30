@@ -1,6 +1,6 @@
 module permission;
 
-import matcher : wildcardContains, stripQuoted;
+import matcher : wildcardContains, stripQuoted, contains;
 import proto : ParseResult, ParsedPermission, parsePbt;
 
 // --- Runtime permission structs ---
@@ -12,6 +12,7 @@ struct PatternList {
 }
 
 struct Permission {
+    string name;
     string tool;       // "Bash", "Write", "Edit", etc.
     PatternList allow;
     PatternList deny;
@@ -27,7 +28,7 @@ struct PermissionScope {
 // --- Permission set (built at CTFE from parsed pbt) ---
 
 struct PermissionSet {
-    PermissionScope[32] items;
+    PermissionScope[64] items;
     Permission[128] permPool;
     size_t len;
 
@@ -46,6 +47,7 @@ PermissionSet buildPermissions(const ParseResult parsed) {
         foreach (j; 0 .. ps.permissionCount) {
             auto pp = &ps.permissions[j];
             Permission p;
+            p.name = pp.name;
             p.tool = pp.tool;
             p.msg = pp.msg;
 
@@ -76,7 +78,35 @@ enum Decision { none, allow, ask, deny }
 
 struct PermissionResult {
     Decision decision;
+    const(char)[] name;
     const(char)[] msg; // only set on deny
+}
+
+// Match a permission pattern against a value.
+// For Bash: uses stripQuoted + wildcardContains (substring match).
+// For file-path tools: relative patterns (no leading / or *) match as path suffixes.
+bool permMatch(const(char)[] value, const(char)[] pat) {
+    if (pat.length == 0) return false;
+    // Absolute or wildcard patterns — match directly
+    if (pat[0] == '/' || pat[0] == '*')
+        return wildcardContains(value, pat);
+    // Relative pattern — match as path suffix: "/.env" at end, "/secrets/" in path
+    // Check if value ends with /<pat> or contains /<pat> followed by / or end
+    bool hasWild = contains(pat, "*");
+    foreach (i; 0 .. value.length) {
+        if (value[i] != '/') continue;
+        auto rest = value[i + 1 .. $];
+        if (rest.length < pat.length) continue;
+        if (hasWild) {
+            if (wildcardContains(rest, pat)) return true;
+        } else {
+            if (rest[0 .. pat.length] == pat) {
+                if (rest.length == pat.length) return true;
+                if (rest[pat.length] == '/') return true;
+            }
+        }
+    }
+    return false;
 }
 
 PermissionResult evaluatePermission(
@@ -87,7 +117,7 @@ PermissionResult evaluatePermission(
 ) {
     import hooks : scopeMatches;
 
-    // Strip quoted content so patterns match commands, not their string arguments
+    // Strip double-quoted content so patterns match commands, not their string arguments
     auto stripped = stripQuoted(command);
     auto cmd = stripped.slice;
 
@@ -99,26 +129,34 @@ PermissionResult evaluatePermission(
         foreach (ref p; sc.permissions) {
             if (p.tool.length > 0 && p.tool != toolName) continue;
 
+            // Bash: match against stripped command with wildcardContains
+            // File-path tools: match against raw path with permMatch
+            bool isBash = (toolName == "Bash");
+
             // Check deny first
             foreach (ref pat; p.deny.values) {
-                if (wildcardContains(cmd, pat)) {
-                    return PermissionResult(Decision.deny, p.msg);
+                if (isBash ? wildcardContains(cmd, pat) : permMatch(command, pat)) {
+                    return PermissionResult(Decision.deny, p.name, p.msg);
                 }
             }
 
             // Check ask
             foreach (ref pat; p.ask.values) {
-                if (wildcardContains(cmd, pat)) {
-                    if (result.decision < Decision.ask)
+                if (isBash ? wildcardContains(cmd, pat) : permMatch(command, pat)) {
+                    if (result.decision < Decision.ask) {
                         result.decision = Decision.ask;
+                        result.name = p.name;
+                    }
                 }
             }
 
             // Check allow
             foreach (ref pat; p.allow.values) {
-                if (wildcardContains(cmd, pat)) {
-                    if (result.decision < Decision.allow)
+                if (isBash ? wildcardContains(cmd, pat) : permMatch(command, pat)) {
+                    if (result.decision < Decision.allow) {
                         result.decision = Decision.allow;
+                        result.name = p.name;
+                    }
                 }
             }
         }
@@ -201,3 +239,82 @@ static assert(r9.decision == Decision.none);
 // Quoted content ignored — deny pattern in unquoted part still fires
 enum r10 = evaluatePermission(testPermSet[], "/home/user/project", "Bash", `rm -rf /tmp && echo "done"`);
 static assert(r10.decision == Decision.deny);
+
+// --- Name inference tests ---
+
+// Inferred name = cleaned first pattern (tool prefix added at attestation time)
+static assert(r1.name == "go build"); // allow: first pattern "go build*" → stripped
+static assert(r3.name == "go build"); // deny match, but name from first allow of same block
+static assert(r4.name == "go build"); // ask match, same block
+
+// Explicit name overrides inference
+enum namedPermPbt = `
+scope {
+  path: "/"
+  permission {
+    name: "go-toolchain"
+    tool: "Bash"
+    allow: ["go build*", "go test*"]
+  }
+  permission {
+    name: "destructive-sql"
+    tool: "Bash"
+    allow: ["sqlite3*"]
+    ask: ["sqlite3*DELETE*"]
+  }
+}
+`;
+enum namedParsed = parsePbt(namedPermPbt);
+enum namedSet = buildPermissions(namedParsed);
+
+enum n1 = evaluatePermission(namedSet[], "/home/user/project", "Bash", "go build ./...");
+static assert(n1.decision == Decision.allow);
+static assert(n1.name == "go-toolchain");
+
+enum n2 = evaluatePermission(namedSet[], "/home/user/project", "Bash", "sqlite3 db DELETE FROM foo");
+static assert(n2.decision == Decision.ask);
+static assert(n2.name == "destructive-sql");
+
+// No match — name stays empty
+enum n3 = evaluatePermission(namedSet[], "/home/user/project", "Bash", "echo hello");
+static assert(n3.decision == Decision.none);
+
+// --- Path matching tests (Read/Write/Edit) ---
+
+enum pathPermPbt = `
+scope {
+  path: "/"
+  permission {
+    tool: "Read"
+    deny: [".env", ".env.*", "secrets/*"]
+    msg: "Secrets are off-limits"
+  }
+}
+`;
+enum pathParsed = parsePbt(pathPermPbt);
+enum pathSet = buildPermissions(pathParsed);
+
+// .env at project root
+enum p1 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/.env");
+static assert(p1.decision == Decision.deny);
+
+// .env.local matches .env.*
+enum p2 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/.env.local");
+static assert(p2.decision == Decision.deny);
+
+// secrets/config.json matches secrets/*
+enum p3 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/secrets/config.json");
+static assert(p3.decision == Decision.deny);
+
+// Normal file — no match
+enum p4 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/src/main.d");
+static assert(p4.decision == Decision.none);
+
+// .env buried in path — still matches
+enum p5 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/other/project/.env");
+static assert(p5.decision == Decision.deny);
+
+// .environment — should NOT match .env (not a suffix match)
+enum p6 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/.environment");
+static assert(p6.decision == Decision.none);
+static assert(n3.name == "");

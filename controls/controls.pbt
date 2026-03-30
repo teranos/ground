@@ -328,7 +328,7 @@ scope {
 
   control {
     name: "port-check-am-toml-877"
-    stop: "port 877"
+    stop: ["port 877", ":877"]
     msg: "You mentioned a default port. Check am.toml in the project root for the actual port configuration."
   }
 

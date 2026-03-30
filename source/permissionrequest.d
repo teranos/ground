@@ -16,11 +16,19 @@ int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[
     auto result = evaluatePermission(permissionScopes, cwd, toolName, command);
 
     if (result.decision == Decision.deny) {
+        if (result.name.length > 0) {
+            import sqlite : attestControlFire;
+            attestControlFire(null, "GraundedPermissionDeny", result.name, cwd, sessionId);
+        }
         writeDenyResponse(result.msg);
         return 0;
     }
 
     if (result.decision == Decision.allow) {
+        if (result.name.length > 0) {
+            import sqlite : attestControlFire;
+            attestControlFire(null, "GraundedPermissionAllow", result.name, cwd, sessionId);
+        }
         writeAllowResponse();
         return 0;
     }

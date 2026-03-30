@@ -5,6 +5,7 @@ import hooks;
 // --- Fixed-size intermediate structs (no GC) ---
 
 struct ParsedPermission {
+    string name;
     string tool;          // "Bash", "Write", "Edit", etc.
     string[16] allow;
     ubyte allowCount;
@@ -39,7 +40,7 @@ struct ParsedScope {
 }
 
 struct ParseResult {
-    ParsedScope[32] scopes;
+    ParsedScope[64] scopes;
     size_t scopeCount;
 }
 
@@ -180,14 +181,14 @@ ParseResult parsePbt(string input) {
         if (word == "scope") {
             skipWS(input, pos);
             expect(input, pos, '{');
-            assert(result.scopeCount < result.scopes.length);
+            assert(result.scopeCount < result.scopes.length, "Scope limit reached — increase ParseResult.scopes array size in proto.d");
             result.scopes[result.scopeCount] = parseScope(input, pos);
             result.scopeCount++;
         } else if (word == "permission") {
             // Top-level permission — wrap in a scope with path "/"
             skipWS(input, pos);
             expect(input, pos, '{');
-            assert(result.scopeCount < result.scopes.length);
+            assert(result.scopeCount < result.scopes.length, "Scope limit reached — increase ParseResult.scopes array size in proto.d");
             ParsedScope sc;
             sc.path = "/";
             sc.permissions[0] = parsePermission(input, pos);
@@ -198,7 +199,7 @@ ParseResult parsePbt(string input) {
             // Top-level control — wrap in a scope with path "/"
             skipWS(input, pos);
             expect(input, pos, '{');
-            assert(result.scopeCount < result.scopes.length);
+            assert(result.scopeCount < result.scopes.length, "Scope limit reached — increase ParseResult.scopes array size in proto.d");
             ParsedScope sc;
             sc.path = "/";
             sc.controls[0] = parseControl(input, pos);
@@ -309,13 +310,33 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
     assert(0, "Unterminated control block");
 }
 
+// Infer permission name: strip wildcards/spaces from first pattern
+string inferFirstPattern(const ref ParsedPermission p) {
+    string pat;
+    if (p.allowCount > 0) pat = p.allow[0];
+    else if (p.denyCount > 0) pat = p.deny[0];
+    else if (p.askCount > 0) pat = p.ask[0];
+    else return null;
+
+    size_t start = 0;
+    size_t end = pat.length;
+    while (start < end && (pat[start] == '*' || pat[start] == ' ')) start++;
+    while (end > start && (pat[end - 1] == '*' || pat[end - 1] == ' ')) end--;
+    if (start >= end) return null;
+    return pat[start .. end];
+}
+
 ParsedPermission parsePermission(ref string input, ref size_t pos) {
     ParsedPermission p;
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;
         if (input[pos] == '#') { skipLine(input, pos); continue; }
-        if (input[pos] == '}') { pos++; return p; }
+        if (input[pos] == '}') {
+            pos++;
+            if (p.name is null) p.name = inferFirstPattern(p);
+            return p;
+        }
 
         auto key = readWord(input, pos);
         skipWS(input, pos);
@@ -324,6 +345,7 @@ ParsedPermission parsePermission(ref string input, ref size_t pos) {
         auto val = readValue(input, pos);
 
         switch (key) {
+            case "name": p.name = val; break;
             case "tool": p.tool = val; break;
             case "msg":  p.msg = val; break;
             case "allow":
