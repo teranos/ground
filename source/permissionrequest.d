@@ -33,10 +33,23 @@ int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[
         return 0;
     }
 
-    // Decision.ask or Decision.none — fall through to normal prompt
+    if (result.decision == Decision.ask) {
+        if (result.name.length > 0) {
+            import sqlite : attestControlFire;
+            attestControlFire(null, "GraundedPermissionAsk", result.name, cwd, sessionId);
+        }
+        // Fall through to normal prompt
+        return 0;
+    }
+
+    // Decision.none — no match, fall through to normal prompt
     return 0;
 }
 
+// PermissionRequest JSON format (distinct from PreToolUse):
+//   {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow|deny","message":"..."}}}
+// PreToolUse uses "permissionDecision" key instead — see main.d writeDenyResponse.
+// writeJsonString emits escaped content without surrounding quotes.
 void writeAllowResponse() {
     fputs(`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}`, stdout);
     fputs("\n", stdout);

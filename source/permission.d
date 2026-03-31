@@ -82,23 +82,48 @@ struct PermissionResult {
     const(char)[] msg; // only set on deny
 }
 
+// Match a wildcard pattern anchored at the start of haystack.
+// "secrets/*" matches "secrets/config.json" but NOT "nosecrets/foo".
+bool wildcardMatchAnchored(const(char)[] haystack, const(char)[] pattern) {
+    size_t hi = 0, pi = 0;
+    size_t starIdx = size_t.max, matchPos = 0;
+
+    while (hi < haystack.length) {
+        if (pi < pattern.length && pattern[pi] == '*') {
+            starIdx = pi++;
+            matchPos = hi;
+        } else if (pi < pattern.length && haystack[hi] == pattern[pi]) {
+            hi++; pi++;
+        } else if (starIdx != size_t.max) {
+            pi = starIdx + 1;
+            hi = ++matchPos;
+        } else {
+            return false;
+        }
+    }
+    while (pi < pattern.length && pattern[pi] == '*') pi++;
+    return pi == pattern.length;
+}
+
 // Match a permission pattern against a value.
 // For Bash: uses stripQuoted + wildcardContains (substring match).
 // For file-path tools: relative patterns (no leading / or *) match as path suffixes.
+// TODO: if extractFilePath ever returns relative paths, permMatch silently misses — all
+//       deny rules require a '/' before the pattern. Add leading-slash assertion or fallback.
 bool permMatch(const(char)[] value, const(char)[] pat) {
     if (pat.length == 0) return false;
     // Absolute or wildcard patterns — match directly
     if (pat[0] == '/' || pat[0] == '*')
         return wildcardContains(value, pat);
     // Relative pattern — match as path suffix: "/.env" at end, "/secrets/" in path
-    // Check if value ends with /<pat> or contains /<pat> followed by / or end
+    // Anchored: "secrets/*" matches after "/" only at start of component, not "nosecrets/"
     bool hasWild = contains(pat, "*");
     foreach (i; 0 .. value.length) {
         if (value[i] != '/') continue;
         auto rest = value[i + 1 .. $];
         if (rest.length < pat.length) continue;
         if (hasWild) {
-            if (wildcardContains(rest, pat)) return true;
+            if (wildcardMatchAnchored(rest, pat)) return true;
         } else {
             if (rest[0 .. pat.length] == pat) {
                 if (rest.length == pat.length) return true;
@@ -242,10 +267,10 @@ static assert(r10.decision == Decision.deny);
 
 // --- Name inference tests ---
 
-// Inferred name = cleaned first pattern (tool prefix added at attestation time)
-static assert(r1.name == "go build"); // allow: first pattern "go build*" → stripped
-static assert(r3.name == "go build"); // deny match, but name from first allow of same block
-static assert(r4.name == "go build"); // ask match, same block
+// No explicit name — inferred from first pattern in the permission block ("go build*" → "go build")
+static assert(r1.name == "go build"); // allow match
+static assert(r3.name == "go build"); // deny match — name is per-block, not per-list
+static assert(r4.name == "go build"); // ask match — same block, same inferred name
 
 // Explicit name overrides inference
 enum namedPermPbt = `
@@ -317,4 +342,8 @@ static assert(p5.decision == Decision.deny);
 // .environment — should NOT match .env (not a suffix match)
 enum p6 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/.environment");
 static assert(p6.decision == Decision.none);
+
+// nosecrets/ — should NOT match secrets/* (anchored to path component)
+enum p7 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/nosecrets/foo");
+static assert(p7.decision == Decision.none);
 static assert(n3.name == "");
