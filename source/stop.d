@@ -237,7 +237,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             struct Budget { string event; long thresholdUs; }
             static immutable budgets = [
                 Budget("PreToolUse",       50_000),
-                Budget("PostToolUse",     100_000),
+                Budget("PostToolUse",     200_000),
                 Budget("UserPromptSubmit", 50_000),
                 Budget("Stop",            300_000),
                 Budget("SessionStart",  2_000_000),
