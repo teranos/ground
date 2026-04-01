@@ -150,6 +150,14 @@ scope {
     name: "build-timing"
     cmd: "make install"
   }
+
+  permission {
+    tool: "Bash"
+    allow: [
+      "dub build*", "dub test*", "make install*",
+      "ldc2*", "graunde*"
+    ]
+  }
 }
 
 # PostToolUse — reminders after tool execution
@@ -371,7 +379,12 @@ scope {
 # Permissions — auto-allow/deny for permission dialogs
 permission {
   tool: "Bash"
-  allow: ["sleep *", "say *", "time *"]
+  allow: [
+    "sleep *", "say *", "time *",
+    "find *", "cargo build*",
+    "gh run list*", "gh run view*", "gh run watch*",
+    "gh issue list*", "gh release list*"
+  ]
   deny: ["sed *", "awk *"]
   msg: "Use Edit tool instead of sed/awk"
 }
