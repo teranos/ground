@@ -171,12 +171,6 @@ scope {
   }
 
   control {
-    name: "handover-doc"
-    cmd: "git checkout claude/"
-    msg: "This branch originated from a remote Claude session. Find and read HANDOVER.md — report open questions, proposed next steps, and whether foundational infrastructure/prerequisites are complete."
-  }
-
-  control {
     name: "tag-push-reminder"
     cmd: "git tag"
     msg: "Push the tag: git push origin <tag>"
@@ -242,17 +236,6 @@ scope {
   }
 }
 
-# UserPromptSubmit — qntx-excluded
-scope {
-  path: "!/QNTX"
-  event: "UserPromptSubmit"
-
-  control {
-    name: "qntx-reminder"
-    userprompt: "qntx"
-    msg: "QNTX — Continuous Intelligence. Domain-agnostic knowledge system built on verifiable attestations (who said what, when, in what context). Core: Attestation Type System (ATS). Query with AX. Graunde shares its node db; https://github.com/teranos/QNTX"
-  }
-}
 
 # Stop — pattern matching on last assistant message
 scope {
