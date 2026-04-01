@@ -32,7 +32,7 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
-// Standalone db at ~/.local/share/graunde/graunde.db — created when QNTX node db is unavailable.
+// Standalone db at ~/.local/share/ground/ground.db — created when QNTX node db is unavailable.
 // QNTX users get the shared node db. All array columns are JSON arrays of strings.
 // Query pattern: WHERE subjects LIKE '%"value"%' — quotes are part of JSON serialization.
 
@@ -76,7 +76,7 @@ extern (C) {
     int mkdir(const(char)* path, uint mode);
 }
 
-// Open graunde's own db at ~/.local/share/graunde/graunde.db
+// Open ground's own db at ~/.local/share/ground/ground.db
 sqlite3* openDb() {
     return openStandaloneDb();
 }
@@ -85,19 +85,19 @@ sqlite3* openStandaloneDb() {
     auto home = getenv("HOME\0".ptr);
     if (home is null) return null;
 
-    // Build path: $HOME/.local/share/graunde/graunde.db
+    // Build path: $HOME/.local/share/ground/ground.db
     __gshared ZBuf pathBuf;
     pathBuf.reset();
 
     size_t homeLen = 0;
     while (home[homeLen] != 0) homeLen++;
     pathBuf.put(home[0 .. homeLen]);
-    pathBuf.put("/.local/share/graunde");
+    pathBuf.put("/.local/share/ground");
 
     // mkdir -p: create each directory level
     mkdirP(pathBuf.slice());
 
-    pathBuf.put("/graunde.db");
+    pathBuf.put("/ground.db");
 
     sqlite3* db;
     if (sqlite3_open(pathBuf.ptr(), &db) != SQLITE_OK) {
@@ -155,7 +155,7 @@ void walCheckpoint(sqlite3* db) {
 
 // Check if a Grounded attestation exists for a control in this session,
 // and hasn't been invalidated by a subsequent compaction.
-bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)[] controlName, const(char)[] sessionId) {
+bool attestationExists(sqlite3* db, const(char)[] groundedPredicate, const(char)[] controlName, const(char)[] sessionId) {
     __gshared ZBuf ctx;
     ctx.reset();
     ctx.put("%session:");
@@ -168,7 +168,7 @@ bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
         return false;
 
-    sqlite3_bind_text(stmt, 1, graundedPredicate.ptr, cast(int) graundedPredicate.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, groundedPredicate.ptr, cast(int) groundedPredicate.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, controlName.ptr, cast(int) controlName.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
 
@@ -199,7 +199,7 @@ bool attestationExists(sqlite3* db, const(char)[] graundedPredicate, const(char)
 }
 
 // Extract last two path components from cwd.
-// "/Users/s.b.vanhouten/SBVH/teranos/tmp/graunde" → "tmp/graunde"
+// "/Users/s.b.vanhouten/SBVH/teranos/tmp/ground" → "tmp/ground"
 const(char)[] cwdTail(const(char)[] path) {
     if (path.length == 0) return "unknown";
     // Find last slash
@@ -458,14 +458,14 @@ void attestEvent(
     contexts.put(sessionId);
     contexts.put(`"]`);
 
-    jsonArray1(actors, "graunde");
+    jsonArray1(actors, "ground");
 
     source.reset();
-    source.put("graunde ");
+    source.put("ground ");
     source.put(versionString());
 
     idBuf.reset();
-    idBuf.put("graunde:payload:");
+    idBuf.put("ground:payload:");
     idBuf.put(eventName);
     idBuf.put(":");
     idBuf.put(ts);
@@ -473,7 +473,7 @@ void attestEvent(
     // Validate payload is valid JSON — truncated payloads (>64KB) break json_extract indexes
     if (payload.length > 0 && !jsonValid(db, payload)) {
         import core.stdc.stdio : stderr, fputs;
-        fputs("graunde: dropped attestation — payload is not valid JSON (truncated?)\n\0".ptr, stderr);
+        fputs("ground: dropped attestation — payload is not valid JSON (truncated?)\n\0".ptr, stderr);
         return;
     }
 
@@ -522,7 +522,7 @@ void attestControlFire(sqlite3* db, const(char)[] predicate, const(char)[] contr
 
 // --- Type attestation ---
 // Attests a type definition so QNTX knows what to do with the data.
-// ID encodes version — re-attested when graunde updates. INSERT OR IGNORE prevents duplicates.
+// ID encodes version — re-attested when ground updates. INSERT OR IGNORE prevents duplicates.
 
 void attestType(sqlite3* db, const(char)[] name, const(char)[] context, const(char)[] attributes) {
     auto ts = formatTimestamp();
@@ -533,7 +533,7 @@ void attestType(sqlite3* db, const(char)[] name, const(char)[] context, const(ch
     __gshared ZBuf ctxBuf;
 
     idBuf.reset();
-    idBuf.put("graunde:type:");
+    idBuf.put("ground:type:");
     idBuf.put(name);
     idBuf.put(":");
     idBuf.put(versionString());
@@ -543,7 +543,7 @@ void attestType(sqlite3* db, const(char)[] name, const(char)[] context, const(ch
     jsonArray1(ctxBuf, context);
 
     enum preds = `["type"]` ~ "\0";
-    enum src = "graunde\0";
+    enum src = "ground\0";
     enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
     sqlite3_stmt* stmt;

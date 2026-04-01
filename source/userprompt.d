@@ -33,7 +33,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
             if (!contains(prompt, c.userprompt.value)) continue;
 
             // Once per session
-            if (db !is null && attestationExists(db, "GraundedUserPromptSubmit", c.name, sessionId))
+            if (db !is null && attestationExists(db, "GroundedUserPromptSubmit", c.name, sessionId))
                 continue;
 
             if (any) ctx.put(" | ");
@@ -42,7 +42,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
 
             if (db !is null) {
                 import sqlite : attestControlFire;
-                attestControlFire(db, "GraundedUserPromptSubmit", c.name, cwd, sessionId);
+                attestControlFire(db, "GroundedUserPromptSubmit", c.name, cwd, sessionId);
             }
         }
     }

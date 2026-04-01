@@ -13,7 +13,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: cachix/install-nix-action@v30
-      - run: nix build .#graunde
+      - run: nix build .#ground
       - run: nix develop .#default --command dub test
 
   release:
@@ -32,12 +32,12 @@ jobs:
         with:
           fetch-depth: 0
       - uses: cachix/install-nix-action@v30
-      - run: nix build .#graunde
-      - run: cp result/bin/graunde graunde-${{ matrix.target }}
+      - run: nix build .#ground
+      - run: cp result/bin/ground ground-${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: graunde-${{ matrix.target }}
-          path: graunde-${{ matrix.target }}
+          name: ground-${{ matrix.target }}
+          path: ground-${{ matrix.target }}
 
   github-release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -51,4 +51,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            graunde-*/graunde-*
+            ground-*/ground-*

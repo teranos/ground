@@ -94,20 +94,20 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
                 if (isMsgOnly) {
                     bool alreadyFired = db !is null &&
-                        attestationExists(db, "GraundedPreToolUse", c.name, sessionId);
+                        attestationExists(db, "GroundedPreToolUse", c.name, sessionId);
 
                     if (!alreadyFired) {
                         if (allMessages.len > 0) allMessages.put(" | ");
                         allMessages.put(c.msg.value);
                         if (db !is null) {
-                            __gshared ZBuf graundedAttrs;
-                            graundedAttrs.reset();
-                            graundedAttrs.put(`{"control":"`);
-                            graundedAttrs.put(c.name);
-                            graundedAttrs.put(`","decision":"`);
-                            graundedAttrs.put(m.decision);
-                            graundedAttrs.put(`"}`);
-                            attestEvent(db, "GraundedPreToolUse", cwd, sessionId, graundedAttrs.slice());
+                            __gshared ZBuf groundedAttrs;
+                            groundedAttrs.reset();
+                            groundedAttrs.put(`{"control":"`);
+                            groundedAttrs.put(c.name);
+                            groundedAttrs.put(`","decision":"`);
+                            groundedAttrs.put(m.decision);
+                            groundedAttrs.put(`"}`);
+                            attestEvent(db, "GroundedPreToolUse", cwd, sessionId, groundedAttrs.slice());
                         }
                     }
                 } else {
@@ -163,7 +163,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 auto pdb = openDb();
                 if (pdb !is null) {
                     import sqlite : attestControlFire;
-                    attestControlFire(pdb, "GraundedPermissionDeny", permResult.name, cwd, sessionId);
+                    attestControlFire(pdb, "GroundedPermissionDeny", permResult.name, cwd, sessionId);
                     sqlite3_close(pdb);
                 }
             }
@@ -189,7 +189,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             foreach (ref c; sc.controls) {
                 if (c.filepath.value.length == 0) continue;
                 if (!contains(filePath, c.filepath.value)) continue;
-                if (db !is null && attestationExists(db, "GraundedPreToolUse", c.name, sessionId))
+                if (db !is null && attestationExists(db, "GroundedPreToolUse", c.name, sessionId))
                     continue;
 
                 if (fileMsgBuf.len > 0) fileMsgBuf.put(" ");
@@ -200,7 +200,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
                 if (db !is null) {
                     import sqlite : attestControlFire;
-                    attestControlFire(db, "GraundedPreToolUse", c.name, cwd, sessionId);
+                    attestControlFire(db, "GroundedPreToolUse", c.name, cwd, sessionId);
                 }
             }
         }

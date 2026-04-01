@@ -9,4 +9,4 @@ test:
 
 install: build
 	mkdir -p $(PREFIX)/bin
-	cp graunde $(PREFIX)/bin/graunde
+	cp ground $(PREFIX)/bin/ground

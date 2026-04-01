@@ -15,13 +15,13 @@
 *.exe
 
 # Binaries
-graunde
-graunde-test-application
+ground
+ground-test-application
 
 # Generated
 .version
 .builddate
-graunde.db
+ground.db
 .ctfe/*
 !.ctfe/.gitkeep
 result

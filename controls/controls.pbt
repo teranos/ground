@@ -118,9 +118,9 @@ scope {
   }
 }
 
-# Graunde project-scoped
+# Ground project-scoped
 scope {
-  path: "/graunde"
+  path: "/ground"
   event: "PreToolUse"
 
   control {
@@ -132,7 +132,7 @@ scope {
 }
 
 scope {
-  path: "/graunde"
+  path: "/ground"
   event: "PreToolUseFile"
 
   control {
@@ -143,7 +143,7 @@ scope {
 }
 
 scope {
-  path: "/graunde"
+  path: "/ground"
   event: "PostToolUse"
 
   control {
@@ -155,7 +155,7 @@ scope {
     tool: "Bash"
     allow: [
       "dub build*", "dub test*", "make install*",
-      "ldc2*", "graunde*"
+      "ldc2*", "ground*"
     ]
   }
 }
@@ -224,15 +224,15 @@ scope {
   event: "UserPromptSubmit"
 }
 
-# UserPromptSubmit — graunde-excluded
+# UserPromptSubmit — ground-excluded
 scope {
-  path: "!/graunde"
+  path: "!/ground"
   event: "UserPromptSubmit"
 
   control {
-    name: "graunde-reminder"
-    userprompt: "graunde"
-    msg: "Graunde — a hook that fires on every hook event, tracks what happened in this session. Can rewrite PreToolUse hooks on the fly, nudges Claude Code into the right direction; https://github.com/teranos/graunde/tree/main"
+    name: "ground-reminder"
+    userprompt: "ground"
+    msg: "Ground Control — a hook that fires on every hook event, tracks what happened in this session. Can rewrite PreToolUse hooks on the fly, nudges Claude Code into the right direction; https://github.com/teranos/ground/tree/main"
   }
 }
 
@@ -296,7 +296,7 @@ scope {
         "no previous conversation history",
         "no session history"
     ]
-    msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The graunde db at ~/.local/share/graunde/graunde.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
+    msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The ground db at ~/.local/share/ground/ground.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
   }
 }
 
@@ -343,7 +343,7 @@ scope {
   control {
     name: "stale-binary-shadow"
     check_handler: "binaryShadowed"
-    msg: "/usr/local/bin/graunde exists and shadows ~/.local/bin/graunde — remove it with: rm /usr/local/bin/graunde"
+    msg: "/usr/local/bin/ground exists and shadows ~/.local/bin/ground — remove it with: rm /usr/local/bin/ground"
   }
 
 }

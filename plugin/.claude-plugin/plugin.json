@@ -1,12 +1,12 @@
 {
-  "name": "graunde",
+  "name": "ground",
   "version": "0.2.0",
   "description": "Ground Control for Claude Code",
   "author": {
     "name": "teranos",
     "url": "https://github.com/teranos"
   },
-  "repository": "https://github.com/teranos/graunde",
+  "repository": "https://github.com/teranos/ground",
   "license": "MIT",
   "keywords": ["git", "commit", "ci", "semver", "workflow", "policy", "guardrails", "approval", "verification", "automate", "streamline", "ritual", "context", "nudge", "remember"]
 }

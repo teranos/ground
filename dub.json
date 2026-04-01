@@ -1,8 +1,8 @@
 {
-    "name": "graunde",
+    "name": "ground",
     "description": "Workflow enforcement for Claude Code",
     "targetType": "executable",
-    "targetName": "graunde",
+    "targetName": "ground",
     "sourcePaths": ["source"],
     "stringImportPaths": ["."],
     "dflags": ["-betterC"],

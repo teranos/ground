@@ -1,6 +1,6 @@
 module main;
 
-// Hook output reference — graunde responds via exit code and optional JSON on stdout.
+// Hook output reference — ground responds via exit code and optional JSON on stdout.
 //
 // Exit codes:
 //   0     — action proceeds, stdout parsed for JSON
@@ -73,7 +73,7 @@ enum VERSION = import(".version");
 enum BUILDDATE = import(".builddate");
 
 void printVersion() {
-    fputs("graunde ", stderr);
+    fputs("ground ", stderr);
     foreach (c; VERSION)
         if (c != '\n' && c != '\r') {
             char[1] buf = c;
@@ -91,7 +91,7 @@ void printDuration(long t0) {
     auto elapsed = usecNow() - t0;
     auto ms = elapsed / 1000;
     auto us = elapsed % 1000;
-    // Write "graunde: XXms" to stderr
+    // Write "ground: XXms" to stderr
     char[32] buf = 0;
     int pos = 0;
     // ms part
@@ -110,7 +110,7 @@ void printDuration(long t0) {
     buf[pos++] = cast(char)('0' + us % 10);
     buf[pos++] = 'm';
     buf[pos++] = 's';
-    fputs("graunde: ", stderr);
+    fputs("ground: ", stderr);
     fwrite(&buf[0], 1, pos, stderr);
     fputs("\n", stderr);
 }
@@ -174,7 +174,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
 
     auto input = readStdin();
     if (input is null) {
-        fputs("graunde: empty stdin\n", stderr);
+        fputs("ground: empty stdin\n", stderr);
         return 1;
     }
     // Common fields
@@ -274,7 +274,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
                 // Attest the fire
                 {
                     import sqlite : attestControlFire;
-                    attestControlFire(null, "GraundedPreCompact", c.name, cwd, sessionId);
+                    attestControlFire(null, "GroundedPreCompact", c.name, cwd, sessionId);
                 }
             }
         }
@@ -312,7 +312,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
                         // Attest the fire
                         {
                             import sqlite : attestControlFire;
-                            attestControlFire(null, "GraundedPostToolUse", c.name, cwd, sessionId);
+                            attestControlFire(null, "GroundedPostToolUse", c.name, cwd, sessionId);
                         }
                         fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"`, stdout);
                         import parse : writeJsonString;
@@ -356,7 +356,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
                     // Attest the fire
                     {
                         import sqlite : attestControlFire;
-                        attestControlFire(db, "GraundedPostToolUseDeferred", c.name, cwd, sessionId);
+                        attestControlFire(db, "GroundedPostToolUseDeferred", c.name, cwd, sessionId);
                     }
 
                     sqlite3_close(db);
@@ -387,7 +387,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
                     // Attest the fire
                     {
                         import sqlite : attestControlFire;
-                        attestControlFire(null, "GraundedPostToolUseFailure", c.name, cwd, sessionId);
+                        attestControlFire(null, "GroundedPostToolUseFailure", c.name, cwd, sessionId);
                     }
                     fputs(`{"systemMessage":"`, stdout);
                     fputs2(c.msg.value);

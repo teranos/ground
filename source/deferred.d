@@ -86,10 +86,10 @@ void writeDeferredMessage(
     contexts.put(sessionId);
     contexts.put(`"]`);
 
-    jsonArray1(actors, "graunde");
+    jsonArray1(actors, "ground");
 
     source.reset();
-    source.put("graunde ");
+    source.put("ground ");
     source.put(versionString());
 
     // Unique id for deferred message
@@ -230,7 +230,7 @@ void markDelivered(sqlite3* db, const(char)[] name, const(char)[] cwd, const(cha
 
 // --- Project-scoped deferred messages ---
 // QNTX writes deferred attestations with contexts like ["project:tmp3/QNTX"].
-// Graunde picks them up when cwd ends with the project path.
+// Ground picks them up when cwd ends with the project path.
 
 struct ProjectDeferredMsg {
     const(char)[] name;
@@ -382,10 +382,10 @@ void markProjectDelivered(sqlite3* db, const(char)[] name, const(char)[] project
     contexts.put(projectContext);
     contexts.put(`"]`);
 
-    jsonArray1(actors, "graunde");
+    jsonArray1(actors, "ground");
 
     source.reset();
-    source.put("graunde ");
+    source.put("ground ");
     source.put(versionString());
 
     import parse : buildEventId;

@@ -21,14 +21,14 @@ enum OTHER = "/Users/dev/other-project";
 
 static if (__traits(compiles, { import qntx; })) {
     unittest {
-        // Major Tom runs "go test" in QNTX — Graunde Control catches it
+        // Major Tom runs "go test" in QNTX — Ground Control catches it
         auto result = checkCommand("go test ./...", QNTX);
         assert(result.control !is null);
         assert(result.control.name == "go-test-args");
     }
 
     unittest {
-        // Major Tom forgets build tags — Graunde Control amends
+        // Major Tom forgets build tags — Ground Control amends
         auto result = checkCommand("go test ./...", QNTX);
         auto amended = applyArg(result.control, result.segment);
         assert(amended.slice() == `go test -tags "rustsqlite,qntxwasm" -short ./...`);
@@ -58,26 +58,26 @@ static if (__traits(compiles, { import qntx; })) {
 }
 
 unittest {
-    // Major Tom runs "go test" outside QNTX — Graunde Control lets it pass
+    // Major Tom runs "go test" outside QNTX — Ground Control lets it pass
     auto result = checkCommand("go test ./...", OTHER);
     assert(result.control is null);
 }
 
 unittest {
-    // Major Tom runs "ls -la" — Graunde Control lets it pass
+    // Major Tom runs "ls -la" — Ground Control lets it pass
     auto result = checkCommand("ls -la", QNTX);
     assert(result.control is null);
 }
 
 unittest {
-    // Major Tom tries --no-verify — Graunde Control catches it (universal)
+    // Major Tom tries --no-verify — Ground Control catches it (universal)
     auto result = checkCommand(`git commit --no-verify -m "fix bug"`, OTHER);
     assert(result.control !is null);
     assert(result.control.name == "no-skip-hooks");
 }
 
 unittest {
-    // Major Tom tries --no-verify — Graunde Control strips it
+    // Major Tom tries --no-verify — Ground Control strips it
     auto result = checkCommand(`git commit --no-verify -m "fix bug"`, OTHER);
     auto amended = applyOmit(result.control, result.segment);
     assert(amended.slice() == `git commit -m "fix bug"`);
@@ -92,7 +92,7 @@ unittest {
 }
 
 unittest {
-    // Major Tom runs normal git — Graunde Control lets it pass
+    // Major Tom runs normal git — Ground Control lets it pass
     auto result = checkCommand("git status", OTHER);
     assert(result.control is null);
 }

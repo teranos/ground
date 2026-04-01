@@ -37,7 +37,7 @@ TrailMatch checkTrailControls(const(char)[] branch, sqlite3* db) {
 
 bool clippyMatch(sqlite3* db, const(char)[] branch) {
     import sqlite : buildSubject;
-    // Build the full subject (e.g. "tmp/graunde:main") to match the indexed column
+    // Build the full subject (e.g. "tmp/ground:main") to match the indexed column
     __gshared ZBuf subjectVal;
     // Need cwd to build subject — get it from the global in stop.d
     import stop : g_cwd;

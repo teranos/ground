@@ -91,7 +91,7 @@ extern (C) int access(const(char)* path, int mode);
 
 bool binaryShadowed(const(char)[] cwd) {
     enum F_OK = 0;
-    return access("/usr/local/bin/graunde\0".ptr, F_OK) == 0;
+    return access("/usr/local/bin/ground\0".ptr, F_OK) == 0;
 }
 
 // --- Upstream briefing ---

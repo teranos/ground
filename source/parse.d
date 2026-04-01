@@ -157,7 +157,7 @@ const(char)[] buildEventId(const(char)[] eventName) {
     import sqlite : formatTimestamp;
     __gshared char[256] buf = 0;
     size_t len = 0;
-    foreach (c; "graunde:") { if (len < 255) buf[len++] = c; }
+    foreach (c; "ground:") { if (len < 255) buf[len++] = c; }
     foreach (c; eventName) { if (len < 255) buf[len++] = c; }
     if (len < 255) buf[len++] = ':';
     foreach (c; formatTimestamp()) { if (len < 255) buf[len++] = c; }

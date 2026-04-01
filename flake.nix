@@ -1,5 +1,5 @@
 {
-  description = "Graunde — Ground Control for Claude Code";
+  description = "Ground Control for Claude Code";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -20,8 +20,8 @@
 
           version = self.shortRev or "dirty";
 
-          graunde = pkgs.stdenv.mkDerivation {
-            pname = "graunde";
+          ground = pkgs.stdenv.mkDerivation {
+            pname = "ground";
             inherit version;
             src = ./.;
 
@@ -37,12 +37,12 @@
 
             installPhase = ''
               mkdir -p $out/bin
-              cp graunde $out/bin/
+              cp ground $out/bin/
             '';
           };
         in {
-          default = graunde;
-          inherit graunde;
+          default = ground;
+          inherit ground;
         }
       );
 

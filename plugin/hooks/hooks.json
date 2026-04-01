@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graunde >/dev/null && exec graunde"
+            "command": "command -v ground >/dev/null && exec ground"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graunde >/dev/null && exec graunde"
+            "command": "command -v ground >/dev/null && exec ground"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graunde >/dev/null && exec graunde"
+            "command": "command -v ground >/dev/null && exec ground"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graunde >/dev/null && exec graunde || echo '{\"systemMessage\": \"The graunde plugin is installed but not yet functional. Help the user get it working — figure out what is needed and ask questions if anything is unclear.\"}'"
+            "command": "command -v ground >/dev/null && exec ground || echo '{\"systemMessage\": \"The ground plugin is installed but not yet functional. Help the user get it working — figure out what is needed and ask questions if anything is unclear.\"}'"
           }
         ]
       }
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graunde >/dev/null && exec graunde"
+            "command": "command -v ground >/dev/null && exec ground"
           }
         ]
       }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graunde >/dev/null && exec graunde"
+            "command": "command -v ground >/dev/null && exec ground"
           }
         ]
       }

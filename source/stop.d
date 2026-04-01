@@ -122,7 +122,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto trailResult = checkTrailControls(branch, db);
         if (trailResult.control !is null) {
             import sqlite : attestControlFire;
-            attestControlFire(db, "GraundedStop", trailResult.control.name, cwd, sessionId);
+            attestControlFire(db, "GroundedStop", trailResult.control.name, cwd, sessionId);
             sqlite3_close(db);
             writeStopResponseAndNotify(trailResult.reason);
             return 0;
@@ -150,9 +150,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (!matched) continue;
 
                     import sqlite : attestationExists, attestControlFire;
-                    if (attestationExists(db, "GraundedStop", c.name, sessionId))
+                    if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
-                    attestControlFire(db, "GraundedStop", c.name, cwd, sessionId);
+                    attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
                     sqlite3_close(db);
                     writeStopResponseAndNotify(c.msg.value);
                     return 0;
@@ -178,13 +178,13 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (c.defer.deliverFn is null) continue; // nothing to deliver
 
                     import sqlite : attestationExists, attestControlFire;
-                    if (attestationExists(db, "GraundedStop", c.name, sessionId))
+                    if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
 
                     auto delivered = c.defer.deliverFn(cwd);
                     if (delivered is null) continue;
 
-                    attestControlFire(db, "GraundedStop", c.name, cwd, sessionId);
+                    attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
                     sqlite3_close(db);
                     writeStopResponseAndNotify(delivered);
                     return 0;
@@ -233,7 +233,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         sqlite3_bind_text, sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
                         SQLITE_TRANSIENT, cwdTail;
 
-        if (!attestationExists(db, "GraundedStop", "timing-regression", sessionId)) {
+        if (!attestationExists(db, "GroundedStop", "timing-regression", sessionId)) {
             struct Budget { string event; long thresholdUs; }
             static immutable budgets = [
                 Budget("PreToolUse",       50_000),
@@ -261,14 +261,14 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         auto budgetMs = b.thresholdUs / 1000;
                         __gshared ZBuf timingMsg;
                         timingMsg.reset();
-                        timingMsg.put("fyi: graunde timing regression: ");
+                        timingMsg.put("fyi: ground timing regression: ");
                         timingMsg.put(b.event);
                         timingMsg.put(" averages ");
                         putInt(timingMsg, avgMs);
                         timingMsg.put("ms (budget ");
                         putInt(timingMsg, budgetMs);
                         enum VERSION = import(".version");
-                        timingMsg.put("ms, graunde ");
+                        timingMsg.put("ms, ground ");
                         foreach (vc; VERSION)
                             if (vc != '\n' && vc != '\r') timingMsg.putChar(vc);
                         timingMsg.put(")");
@@ -288,7 +288,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         timingMsg.put("ms timing=");
                         putInt(timingMsg, (t7-t6)/1000);
                         timingMsg.put("ms]");
-                        attestEvent(db, "GraundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
+                        attestEvent(db, "GroundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
                         sqlite3_close(db);
                         writeStopResponseAndNotify(timingMsg.slice());
                         return 0;

@@ -55,7 +55,7 @@ const(char)[] checkTagStaleness() {
     }
     if (localLen == 0) return null;
 
-    auto pipe = popen("curl -sf https://api.github.com/repos/teranos/graunde/releases/latest 2>/dev/null", "r");
+    auto pipe = popen("curl -sf https://api.github.com/repos/teranos/ground/releases/latest 2>/dev/null", "r");
     if (pipe is null) return null;
 
     __gshared char[16384] buf;
@@ -86,20 +86,20 @@ const(char)[] checkTagStaleness() {
     return null;
 }
 
-// Graunded Types — QNTX Attestation Schema
+// Grounded Types — QNTX Attestation Schema
 //
 // Attested on every SessionStart so QNTX knows what to do with the data.
-// ID: graunde:type:<name>:<version> — re-attested when graunde updates.
+// ID: ground:type:<name>:<version> — re-attested when ground updates.
 // INSERT OR IGNORE prevents duplicates within the same version.
 //
 // Event types — attributes contain the raw Claude Code hook payload, verbatim.
 // Type definitions specify rich_string_fields so QNTX knows which fields are long text.
 //
-// Grounded types — when graunde acts on an event, a separate attestation records
-// only graunde's own decisions. Claude's payload stays in the event attestation.
-//   GraundedPreToolUse: control, decision
-//   GraundedStop:       control
-//   GraundedUserPromptSubmit: control
+// Grounded types — when ground acts on an event, a separate attestation records
+// only ground's own decisions. Claude's payload stays in the event attestation.
+//   GroundedPreToolUse: control, decision
+//   GroundedStop:       control
+//   GroundedUserPromptSubmit: control
 //
 // Schema: see sqlite.d attestType / attestEvent.
 //
@@ -119,15 +119,15 @@ void attestTypes() {
     ])
         attestType(db, name, "ClaudeCode", `{}`);
 
-    // Grounded types — <Type> is type of Graunded
-    attestType(db, "GraundedPreToolUse", "Graunded", `{}`);
-    attestType(db, "GraundedStop", "Graunded", `{}`);
-    attestType(db, "GraundedUserPromptSubmit", "Graunded", `{}`);
-    attestType(db, "GraundedSessionStart", "Graunded", `{}`);
-    attestType(db, "GraundedPreCompact", "Graunded", `{}`);
-    attestType(db, "GraundedPostToolUse", "Graunded", `{}`);
-    attestType(db, "GraundedPostToolUseFailure", "Graunded", `{}`);
-    attestType(db, "GraundedPostToolUseDeferred", "Graunded", `{}`);
+    // Grounded types — <Type> is type of Grounded
+    attestType(db, "GroundedPreToolUse", "Grounded", `{}`);
+    attestType(db, "GroundedStop", "Grounded", `{}`);
+    attestType(db, "GroundedUserPromptSubmit", "Grounded", `{}`);
+    attestType(db, "GroundedSessionStart", "Grounded", `{}`);
+    attestType(db, "GroundedPreCompact", "Grounded", `{}`);
+    attestType(db, "GroundedPostToolUse", "Grounded", `{}`);
+    attestType(db, "GroundedPostToolUseFailure", "Grounded", `{}`);
+    attestType(db, "GroundedPostToolUseDeferred", "Grounded", `{}`);
 
     walCheckpoint(db);
     sqlite3_close(db);
@@ -211,7 +211,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                                     SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
                     auto idb = openDb();
                     if (idb !is null) {
-                        enum intervalSql = "SELECT 1 FROM attestations WHERE json_extract(attributes, '$.control') = ?1 AND json_extract(predicates, '$[0]') = 'GraundedSessionStart' AND timestamp > datetime('now', '-' || ?2 || ' seconds') LIMIT 1\0";
+                        enum intervalSql = "SELECT 1 FROM attestations WHERE json_extract(attributes, '$.control') = ?1 AND json_extract(predicates, '$[0]') = 'GroundedSessionStart' AND timestamp > datetime('now', '-' || ?2 || ' seconds') LIMIT 1\0";
                         sqlite3_stmt* istmt;
                         if (sqlite3_prepare_v2(idb, intervalSql.ptr, -1, &istmt, null) == SQLITE_OK) {
                             sqlite3_bind_text(istmt, 1, c.name.ptr, cast(int) c.name.length, SQLITE_TRANSIENT);
@@ -240,7 +240,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 // Attest the fire
                 {
                     import sqlite : attestControlFire;
-                    attestControlFire(null, "GraundedSessionStart", c.name, cwd, sessionId);
+                    attestControlFire(null, "GroundedSessionStart", c.name, cwd, sessionId);
                 }
             }
         }
@@ -248,9 +248,9 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     if (newerTag !is null) {
         if (any) ctx.put(" | ");
-        ctx.put("graunde ");
+        ctx.put("ground ");
         ctx.put(newerTag);
-        ctx.put(" is available at https://github.com/teranos/graunde/releases/latest");
+        ctx.put(" is available at https://github.com/teranos/ground/releases/latest");
         any = true;
     }
 
@@ -272,7 +272,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         return 0;
     }
 
-    // TODO: compact — compaction summary may lose session-specific context graunde injected.
+    // TODO: compact — compaction summary may lose session-specific context ground injected.
     //   Re-inject reminders and session state that got lost.
     // TODO: resume — happens after time away. Merges may have landed on main, branch may be stale.
     //   Check branch staleness against main, surface recent upstream changes.

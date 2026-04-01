@@ -1,6 +1,6 @@
-# graunde
+# ground
 
-Ground Control for Claude Code. CLAUDE.md is advisory — graunde is the control.
+Ground Control for Claude Code. CLAUDE.md is advisory — ground is the control.
 
 ## Problem
 
@@ -14,7 +14,7 @@ Claude tries to commit with `--no-verify`:
 ```
 git commit --no-verify -m "fix tests"
 ```
-Graunde strips the flag and lets the command through:
+Ground strips the flag and lets the command through:
 ```
 git commit -m "fix tests"
 ```
@@ -24,21 +24,21 @@ Claude tries `go test ./...` in a project that needs build tags:
 ```
 go test ./...
 ```
-Graunde inserts the missing arguments:
+Ground inserts the missing arguments:
 ```
 go test -tags "rustsqlite,qntxwasm" -short ./...
 ```
 Claude receives: *"Build tags and -short are required for go test in QNTX."*
 
-The user mentions "graunde" in a prompt:
+The user mentions "ground" in a prompt:
 ```
 scope {
   event: "UserPromptSubmit"
 
   control {
-    name: "graunde-reminder"
-    userprompt: "graunde"
-    msg: "Graunde — a hook that fires on every hook event..."
+    name: "ground-reminder"
+    userprompt: "ground"
+    msg: "Ground Control — a hook that fires on every hook event..."
   }
 }
 ```
@@ -68,20 +68,21 @@ Claude corrects itself and checks the transcripts.
 ## Install
 
 ```
-claude plugin install /path/to/graunde/plugin
+claude /plugin marketplace add teranos/ground
+claude /plugin install ground@teranos-ground
 ```
 
-On first session, graunde detects the binary isn't installed and tells Claude how to set it up — prebuilt binaries are available from [GitHub Releases](https://github.com/teranos/graunde/releases).
+On first session, ground detects the binary isn't installed and tells Claude how to set it up — prebuilt binaries are available from [GitHub Releases](https://github.com/teranos/ground/releases).
 
 To build from source instead (requires [LDC](https://dlang.org/download.html) and libsqlite3):
 
 ```
-git clone https://github.com/teranos/graunde.git
-cd graunde
+git clone https://github.com/teranos/ground.git
+cd ground
 make install
 ```
 
-Installs to `~/.local/bin/graunde`. Override with `PREFIX=/usr/local make install`.
+Installs to `~/.local/bin/ground`. Override with `PREFIX=/usr/local make install`.
 
 ## How it works
 
