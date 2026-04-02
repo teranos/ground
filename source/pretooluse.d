@@ -61,6 +61,32 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     auto command = extractCommand(input);
 
     if (command !is null) {
+        // Hard deny: binary files in git add
+        {
+            import binary : checkGitAddForBinary;
+            auto binaryFile = checkGitAddForBinary(command, cwd);
+            if (binaryFile !is null) {
+                import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
+                auto db = openDb();
+                if (db !is null) {
+                    __gshared ZBuf attrs;
+                    attrs.reset();
+                    attrs.put(`{"control":"no-binary-files","file":"`);
+                    attrs.put(binaryFile);
+                    attrs.put(`"}`);
+                    attestEvent(db, "GroundedPreToolUse", cwd, sessionId, attrs.slice());
+                    sqlite3_close(db);
+                }
+                __gshared ZBuf denyMsg;
+                denyMsg.reset();
+                denyMsg.put("Binary file detected: ");
+                denyMsg.put(binaryFile);
+                denyMsg.put(". Binary files must not be committed.");
+                writeDenyResponse(denyMsg.slice());
+                return 0;
+            }
+        }
+
         // Bash — check controls
         auto results = checkAllCommands(command, cwd);
 

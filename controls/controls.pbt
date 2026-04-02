@@ -70,6 +70,30 @@ scope {
   }
 }
 
+# Deny — hard blocks. "=" prefix means exact match (no trailing args).
+scope {
+  decision: "deny"
+  event: "PreToolUse"
+
+  control {
+    name: "no-bulk-add"
+    cmd: "=git add ."
+    msg: "Stage files by name. Do not use git add . — it bypasses binary file detection and may include unintended files."
+  }
+
+  control {
+    name: "no-bulk-add-all"
+    cmd: "=git add -A"
+    msg: "Stage files by name. Do not use git add -A — it bypasses binary file detection and may include unintended files."
+  }
+
+  control {
+    name: "no-bulk-add-all-long"
+    cmd: "=git add --all"
+    msg: "Stage files by name. Do not use git add --all — it bypasses binary file detection and may include unintended files."
+  }
+}
+
 # Checkpoints — require manual approval
 scope {
   decision: "ask"

@@ -98,9 +98,15 @@ const(char)[] stripGitDashC(const(char)[] segment) {
 // "go test" matches "go test ./..." but not "git commit -m 'go test'"
 // Also handles "git -C <path>" by normalizing before matching.
 // If cmd starts with '*', uses wildcardContains for substring/wildcard matching.
+// If cmd starts with '=', requires exact match (no trailing content).
 bool commandMatch(const(char)[] segment, const(char)[] cmd) {
     if (cmd.length > 0 && cmd[0] == '*')
         return wildcardContains(segment, cmd);
+    if (cmd.length > 0 && cmd[0] == '=') {
+        auto exact = cmd[1 .. $];
+        auto s = stripGitDashC(segment);
+        return s == exact;
+    }
     auto s = stripGitDashC(segment);
     if (s.length < cmd.length) return false;
     return s[0 .. cmd.length] == cmd;
@@ -163,6 +169,7 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                 // Scan all scopes — collect amendment and most restrictive decision
                 const(Control)* amendment = null;
                 const(Control)* fallback = null;
+                const(Control)* denyCtrl = null;
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
@@ -181,8 +188,12 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                             if (fallback is null)
                                 fallback = &c;
 
-                            // "ask" beats "allow"
-                            if (sc.decision == "ask")
+                            // deny > ask > allow
+                            if (sc.decision == "deny") {
+                                decision = "deny";
+                                if (denyCtrl is null) denyCtrl = &c;
+                            }
+                            else if (sc.decision == "ask" && decision != "deny")
                                 decision = "ask";
                             else if (decision.length == 0)
                                 decision = sc.decision;
@@ -190,10 +201,11 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                     }
                 }
 
-                if (amendment !is null)
-                    return Match(amendment, segment, decision);
-                if (fallback !is null)
-                    return Match(fallback, segment, decision);
+                // Deny control takes priority
+                auto matched = denyCtrl !is null ? denyCtrl :
+                    amendment !is null ? amendment : fallback;
+                if (matched !is null)
+                    return Match(matched, segment, decision);
             }
             start = i + skip;
             if (skip > 0) {
@@ -237,6 +249,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
             if (segment.length > 0) {
                 const(Control)* amendment = null;
                 const(Control)* fallback = null;
+                const(Control)* denyCtrl = null;
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
@@ -250,7 +263,11 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                                 amendment = &c;
                             if (fallback is null)
                                 fallback = &c;
-                            if (sc.decision == "ask")
+                            if (sc.decision == "deny") {
+                                decision = "deny";
+                                if (denyCtrl is null) denyCtrl = &c;
+                            }
+                            else if (sc.decision == "ask" && decision != "deny")
                                 decision = "ask";
                             else if (decision.length == 0)
                                 decision = sc.decision;
@@ -258,7 +275,9 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                     }
                 }
 
-                auto matched = amendment !is null ? amendment : fallback;
+                // Deny control takes priority over amendment/fallback
+                auto matched = denyCtrl !is null ? denyCtrl :
+                    amendment !is null ? amendment : fallback;
                 if (matched !is null && result.count < result.matches.length) {
                     result.matches[result.count] = Match(matched, segment, decision);
                     result.count++;
