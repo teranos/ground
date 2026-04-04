@@ -17,7 +17,7 @@ int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[
 
     if (result.decision == Decision.deny) {
         if (result.name.length > 0) {
-            import sqlite : attestControlFire;
+            import db : attestControlFire;
             attestControlFire(null, "GroundedPermissionDeny", result.name, cwd, sessionId);
         }
         writeDenyResponse(result.msg);
@@ -26,7 +26,7 @@ int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[
 
     if (result.decision == Decision.allow) {
         if (result.name.length > 0) {
-            import sqlite : attestControlFire;
+            import db : attestControlFire;
             attestControlFire(null, "GroundedPermissionAllow", result.name, cwd, sessionId);
         }
         writeAllowResponse();
@@ -35,7 +35,7 @@ int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[
 
     if (result.decision == Decision.ask) {
         if (result.name.length > 0) {
-            import sqlite : attestControlFire;
+            import db : attestControlFire;
             attestControlFire(null, "GroundedPermissionAsk", result.name, cwd, sessionId);
         }
         // Fall through to normal prompt

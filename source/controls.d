@@ -71,7 +71,7 @@ static immutable permissionScopes = _permSet.items[0 .. _permSet.len];
 
 int ciDelay(const(char)[] cwd) {
     import deferred : getCIAvgDuration, computeDelay;
-    import sqlite : getBranch;
+    import db : getBranch;
     auto branch = getBranch(cwd);
     if (branch is null) return 60;
     return computeDelay(getCIAvgDuration(cwd, branch));
@@ -79,7 +79,7 @@ int ciDelay(const(char)[] cwd) {
 
 const(char)[] ciDeliver(const(char)[] cwd) {
     import deferred : checkCIStatus;
-    import sqlite : getBranch;
+    import db : getBranch;
     auto branch = getBranch(cwd);
     if (branch is null) return null;
     return checkCIStatus(cwd, branch);
@@ -97,7 +97,7 @@ bool binaryShadowed(const(char)[] cwd) {
 // --- Upstream briefing ---
 
 const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
-    import sqlite : popen, pclose, ZBuf;
+    import db : popen, pclose, ZBuf;
     import core.stdc.stdio : fread, FILE;
 
     // Get upstream repo owner/name

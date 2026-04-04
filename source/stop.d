@@ -1,7 +1,7 @@
 module stop;
 
 import parse : extractBool, extractLastAssistantMessage, writeJsonString;
-import sqlite : openDb, attestEvent,
+import db : openDb, attestEvent,
                 getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, stderr, fputs, fprintf;
 
@@ -55,7 +55,7 @@ const(char)[] deliverDeferred(DeferredMsg deferred, const(char)[] cwd) {
 // Notify loom of hook output so it appears as [hook] in weaves
 void notifyLoomHook(const(char)[] cwd, const(char)[] sessionId, const(char)[] message) {
     import loom : sendToLoom;
-    import sqlite : jsonArray1, buildSubject;
+    import db : jsonArray1, buildSubject;
     auto branch = getBranch(cwd);
     if (branch is null) branch = "unknown";
 
@@ -121,7 +121,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto branch = getBranch(cwd);
         auto trailResult = checkTrailControls(branch, db);
         if (trailResult.control !is null) {
-            import sqlite : attestControlFire;
+            import db : attestControlFire;
             attestControlFire(db, "GroundedStop", trailResult.control.name, cwd, sessionId);
             sqlite3_close(db);
             writeStopResponseAndNotify(trailResult.reason);
@@ -149,7 +149,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         if (wildcardContains(lastMsg, v)) { matched = true; break; }
                     if (!matched) continue;
 
-                    import sqlite : attestationExists, attestControlFire;
+                    import db : attestationExists, attestControlFire;
                     if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
@@ -177,7 +177,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (c.trigger.len > 0) continue;       // skip trigger-based (handled above)
                     if (c.defer.deliverFn is null) continue; // nothing to deliver
 
-                    import sqlite : attestationExists, attestControlFire;
+                    import db : attestationExists, attestControlFire;
                     if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
 
@@ -229,7 +229,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // Per-event-type timing budgets — once per compaction window
     {
-        import sqlite : attestationExists, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64,
+        import db : attestationExists, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64,
                         sqlite3_bind_text, sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
                         SQLITE_TRANSIENT, cwdTail;
 

@@ -3,7 +3,7 @@ module precompact;
 import matcher : contains;
 import parse : fputs2;
 import core.stdc.stdio : stdin, stdout, fputs, fread, fwrite, FILE;
-import sqlite : popen, pclose;
+import db : popen, pclose;
 
 int handlePreCompact(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import controls : preCompactScopes;
@@ -38,7 +38,7 @@ int handlePreCompact(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             }
 
             {
-                import sqlite : attestControlFire;
+                import db : attestControlFire;
                 attestControlFire(null, "GroundedPreCompact", c.name, cwd, sessionId);
             }
         }
@@ -49,7 +49,7 @@ int handlePreCompact(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     // Checkpoint WAL so the next Stop doesn't pay for our writes
     {
-        import sqlite : openDb, walCheckpoint, sqlite3_close;
+        import db : openDb, walCheckpoint, sqlite3_close;
         auto cpDb = openDb();
         if (cpDb !is null) {
             walCheckpoint(cpDb);

@@ -1,4 +1,4 @@
-module sqlite;
+module db;
 
 import matcher : indexOf, contains;
 import core.stdc.stdio : FILE;

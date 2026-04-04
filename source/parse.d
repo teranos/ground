@@ -154,7 +154,7 @@ bool extractBool(const(char)[] json, string key) {
 
 // Build unique ID for non-tool events (no tool_use_id available)
 const(char)[] buildEventId(const(char)[] eventName) {
-    import sqlite : formatTimestamp;
+    import db : formatTimestamp;
     __gshared char[256] buf = 0;
     size_t len = 0;
     foreach (c; "ground:") { if (len < 255) buf[len++] = c; }

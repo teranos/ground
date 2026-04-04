@@ -104,7 +104,7 @@ const(char)[] checkTagStaleness() {
 // Schema: see sqlite.d attestType / attestEvent.
 //
 void attestTypes() {
-    import sqlite : openDb, attestType, walCheckpoint, sqlite3_close;
+    import db : openDb, attestType, walCheckpoint, sqlite3_close;
     auto db = openDb();
     if (db is null) return;
 
@@ -140,7 +140,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     // Cache project part of subject for this session (avoids cwd drift when Claude cd's)
     if (sessionId !is null && cwd !is null) {
-        import sqlite : openDb, sqlite3_close, sqlite3_prepare_v2, sqlite3_bind_text,
+        import db : openDb, sqlite3_close, sqlite3_prepare_v2, sqlite3_bind_text,
                         sqlite3_step, sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT,
                         cwdTail, ZBuf;
         auto db = openDb();
@@ -166,7 +166,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     // Check for project-scoped deferred messages (from QNTX)
     const(char)[] projectNews = null;
     {
-        import sqlite : openDb, sqlite3_close;
+        import db : openDb, sqlite3_close;
         import deferred : readProjectDeferredMessage, markProjectDelivered;
         auto db = openDb();
         if (db !is null) {
@@ -186,7 +186,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     // Iterate sessionstart controls
     import controls : sessionStartScopes;
     import hooks : scopeMatches;
-    import sqlite : ZBuf;
+    import db : ZBuf;
 
     __gshared ZBuf ctx;
     ctx.reset();
@@ -205,7 +205,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
                 // Interval check — skip if fired too recently
                 if (c.interval > 0) {
-                    import sqlite : openDb, sqlite3_close, sqlite3_prepare_v2,
+                    import db : openDb, sqlite3_close, sqlite3_prepare_v2,
                                     sqlite3_step, sqlite3_finalize, sqlite3_stmt,
                                     sqlite3_bind_text, sqlite3_bind_int64,
                                     SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -239,7 +239,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
                 // Attest the fire
                 {
-                    import sqlite : attestControlFire;
+                    import db : attestControlFire;
                     attestControlFire(null, "GroundedSessionStart", c.name, cwd, sessionId);
                 }
             }

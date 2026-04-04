@@ -51,7 +51,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // Check PostToolUse controls (msg-only fire once per session)
     {
         import controls : postToolUseScopes;
-        import sqlite : openDb, attestationExists, sqlite3_close;
+        import db : openDb, attestationExists, sqlite3_close;
         auto db = openDb();
 
         foreach (ref scope_; postToolUseScopes) {
@@ -64,7 +64,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     continue;
 
                 {
-                    import sqlite : attestControlFire;
+                    import db : attestControlFire;
                     attestControlFire(db, "GroundedPostToolUse", c.name, cwd, sessionId);
                 }
                 if (db !is null) sqlite3_close(db);
@@ -94,7 +94,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (!triggerHit) continue;
                 }
 
-                import sqlite : openDb, sqlite3_close;
+                import db : openDb, sqlite3_close;
                 import deferred : writeDeferredMessage;
                 auto db = openDb();
                 if (db is null) continue;
@@ -105,7 +105,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 writeDeferredMessage(db, c.name, cwd, sessionId, c.defer.msg, delay);
 
                 {
-                    import sqlite : attestControlFire;
+                    import db : attestControlFire;
                     attestControlFire(db, "GroundedPostToolUseDeferred", c.name, cwd, sessionId);
                 }
 

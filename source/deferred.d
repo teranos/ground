@@ -1,7 +1,7 @@
 module deferred;
 
 import matcher : indexOf;
-import sqlite : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
+import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_finalize, sqlite3_column_text,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT,
                 ZBuf, jsonArray1, getBranch, formatTimestamp, versionString, attestEvent;
@@ -488,7 +488,7 @@ const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
 
 unittest {
     // Write a deferred message with 0 delay, read it back immediately
-    import sqlite : sqlite3_open, sqlite3_exec, SQLITE_OK;
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
@@ -502,13 +502,13 @@ unittest {
     assert(result.name == "test-control");
     assert(result.message !is null);
 
-    import sqlite : sqlite3_close;
+    import db : sqlite3_close;
     sqlite3_close(db);
 }
 
 unittest {
     // Deferred message with future delay is not yet readable
-    import sqlite : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
@@ -525,7 +525,7 @@ unittest {
 
 unittest {
     // markDelivered prevents re-delivery
-    import sqlite : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 

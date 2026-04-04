@@ -66,7 +66,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             import binary : checkGitAddForBinary;
             auto binaryFile = checkGitAddForBinary(command, cwd);
             if (binaryFile !is null) {
-                import sqlite : openDb, attestEvent, sqlite3_close, ZBuf;
+                import db : openDb, attestEvent, sqlite3_close, ZBuf;
                 auto db = openDb();
                 if (db !is null) {
                     __gshared ZBuf attrs;
@@ -91,7 +91,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         auto results = checkAllCommands(command, cwd);
 
         if (results.count > 0) {
-            import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
+            import db : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
             auto db = openDb();
 
             const(char)[] finalDecision;
@@ -185,10 +185,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         auto permResult = evaluatePermission(permissionScopes, cwd, toolName, filePath);
         if (permResult.decision == Decision.deny) {
             if (permResult.name.length > 0) {
-                import sqlite : openDb, sqlite3_close;
+                import db : openDb, sqlite3_close;
                 auto pdb = openDb();
                 if (pdb !is null) {
-                    import sqlite : attestControlFire;
+                    import db : attestControlFire;
                     attestControlFire(pdb, "GroundedPermissionDeny", permResult.name, cwd, sessionId);
                     sqlite3_close(pdb);
                 }
@@ -203,7 +203,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     if (filePath !is null) {
         import controls : fileScopes;
         import hooks : scopeMatches;
-        import sqlite : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
+        import db : openDb, attestationExists, attestEvent, sqlite3_close, ZBuf;
 
         auto db = openDb();
         __gshared Buf fileMsgBuf;
@@ -225,7 +225,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 else if (fileDecision.length == 0) fileDecision = sc.decision;
 
                 if (db !is null) {
-                    import sqlite : attestControlFire;
+                    import db : attestControlFire;
                     attestControlFire(db, "GroundedPreToolUse", c.name, cwd, sessionId);
                 }
             }

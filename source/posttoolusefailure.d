@@ -23,7 +23,7 @@ int handlePostToolUseFailure(const(char)[] input, const(char)[] cwd, const(char)
             if (!matched) continue;
 
             {
-                import sqlite : attestControlFire;
+                import db : attestControlFire;
                 attestControlFire(null, "GroundedPostToolUseFailure", c.name, cwd, sessionId);
             }
             fputs(`{"systemMessage":"`, stdout);

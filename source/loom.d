@@ -1,6 +1,6 @@
 module loom;
 
-import sqlite : ZBuf;
+import zbuf : ZBuf;
 
 // --- UDP send to loom ---
 

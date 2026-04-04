@@ -114,7 +114,7 @@ void printDuration(long t0) {
 }
 
 void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project) {
-    import sqlite : openDb, sqlite3_exec, sqlite3_prepare_v2, sqlite3_bind_int64,
+    import db : openDb, sqlite3_exec, sqlite3_prepare_v2, sqlite3_bind_int64,
                     sqlite3_bind_text, sqlite3_step, sqlite3_finalize, sqlite3_close,
                     sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
 
@@ -181,7 +181,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     auto sessionId = extractSessionId(input);
     if (sessionId is null) sessionId = "";
 
-    import sqlite : cwdTail;
+    import db : cwdTail;
     outProject = cwdTail(cwd);
 
     auto eventName = extractHookEventName(input);
@@ -190,7 +190,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
 
     // Attest every event — even ones we don't handle yet
     {
-        import sqlite : openDb, attestEvent, sqlite3_close;
+        import db : openDb, attestEvent, sqlite3_close;
         auto db = openDb();
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);

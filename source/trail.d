@@ -5,7 +5,7 @@ module trail;
 // on Stop so Claude has the complete picture, not just individual control checks.
 
 import controls : Control, control, stop, Trigger, Msg, msg;
-import sqlite : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
+import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_finalize, sqlite3_column_text,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, ZBuf;
 import matcher : contains;
@@ -36,7 +36,7 @@ TrailMatch checkTrailControls(const(char)[] branch, sqlite3* db) {
 // Timestamps are ISO strings — lexicographic comparison suffices.
 
 bool clippyMatch(sqlite3* db, const(char)[] branch) {
-    import sqlite : buildSubject;
+    import db : buildSubject;
     // Build the full subject (e.g. "tmp/ground:main") to match the indexed column
     __gshared ZBuf subjectVal;
     // Need cwd to build subject — get it from the global in stop.d
