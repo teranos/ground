@@ -134,6 +134,57 @@ bool permMatch(const(char)[] value, const(char)[] pat) {
     return false;
 }
 
+// Normalize "git -C <path> <subcmd>" → "git <subcmd>" so permissions don't need -C variants.
+// Returns a struct with a static buffer (no GC). Input unchanged if not a git -C command.
+struct NormalizedCmd {
+    char[512] _buf;
+    size_t len;
+    const(char)[] slice() const return { return _buf[0 .. len]; }
+}
+
+NormalizedCmd normalizeGitC(const(char)[] cmd) {
+    NormalizedCmd r;
+
+    // Not a git -C command — copy as-is
+    if (cmd.length < 8 || cmd[0 .. 4] != "git " || cmd[4 .. 6] != "-C") {
+        auto n = cmd.length < r._buf.length ? cmd.length : r._buf.length;
+        r._buf[0 .. n] = cmd[0 .. n];
+        r.len = n;
+        return r;
+    }
+
+    // Skip "-C" and optional space
+    size_t i = 6;
+    if (i < cmd.length && cmd[i] == ' ') i++;
+
+    // Skip the path argument (possibly quoted)
+    if (i < cmd.length && cmd[i] == '"') {
+        i++;
+        while (i < cmd.length && cmd[i] != '"') i++;
+        if (i < cmd.length) i++;
+    } else {
+        while (i < cmd.length && cmd[i] != ' ') i++;
+    }
+
+    // Skip space after path
+    if (i < cmd.length && cmd[i] == ' ') i++;
+
+    if (i >= cmd.length) {
+        auto n = cmd.length < r._buf.length ? cmd.length : r._buf.length;
+        r._buf[0 .. n] = cmd[0 .. n];
+        r.len = n;
+        return r;
+    }
+
+    // "git " + rest
+    r._buf[0 .. 4] = "git ";
+    auto rest = cmd[i .. $];
+    auto n = rest.length < (r._buf.length - 4) ? rest.length : (r._buf.length - 4);
+    r._buf[4 .. 4 + n] = rest[0 .. n];
+    r.len = 4 + n;
+    return r;
+}
+
 PermissionResult evaluatePermission(
     const(PermissionScope)[] scopes,
     const(char)[] cwd,
@@ -144,7 +195,8 @@ PermissionResult evaluatePermission(
 
     // Strip double-quoted content so patterns match commands, not their string arguments
     auto stripped = stripQuoted(command);
-    auto cmd = stripped.slice;
+    auto normalized = normalizeGitC(stripped.slice);
+    auto cmd = normalized.slice;
 
     PermissionResult result;
 
@@ -346,3 +398,41 @@ static assert(p6.decision == Decision.none);
 enum p7 = evaluatePermission(pathSet[], "/home/user/project", "Read", "/home/user/project/nosecrets/foo");
 static assert(p7.decision == Decision.none);
 static assert(n3.name == "");
+
+// --- git -C normalization tests ---
+
+// "git -C /path log" should match "git log*" permission
+enum gitCPermPbt = `
+scope {
+  path: "/"
+  permission {
+    allow: ["git log*", "git status*", "git diff*"]
+  }
+}
+`;
+enum gitCParsed = parsePbt(gitCPermPbt);
+enum gitCSet = buildPermissions(gitCParsed);
+
+// Direct git command — matches
+enum gc1 = evaluatePermission(gitCSet[], "/home/user/project", "Bash", "git log --oneline");
+static assert(gc1.decision == Decision.allow);
+
+// git -C — should also match after normalization
+enum gc2 = evaluatePermission(gitCSet[], "/home/user/project", "Bash", "git -C /other/repo log --oneline");
+static assert(gc2.decision == Decision.allow);
+
+// git -C with status
+enum gc3 = evaluatePermission(gitCSet[], "/home/user/project", "Bash", "git -C /foo/bar status");
+static assert(gc3.decision == Decision.allow);
+
+// git -C with diff
+enum gc4 = evaluatePermission(gitCSet[], "/home/user/project", "Bash", "git -C /some/path diff HEAD~1");
+static assert(gc4.decision == Decision.allow);
+
+// git -C with unmatched subcommand — no match
+enum gc5 = evaluatePermission(gitCSet[], "/home/user/project", "Bash", "git -C /foo push origin main");
+static assert(gc5.decision == Decision.none);
+
+// git -C with quoted path
+enum gc6 = evaluatePermission(gitCSet[], "/home/user/project", "Bash", `git -C "/path with spaces/repo" log`);
+static assert(gc6.decision == Decision.allow);
