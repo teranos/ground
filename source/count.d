@@ -9,6 +9,7 @@ struct PbtCounts {
     int maxPermsPerScope;
     int totalControls;
     int totalPerms;
+    int totalProjects;
 }
 
 PbtCounts countPbt(string input) {
@@ -41,6 +42,11 @@ PbtCounts countPbt(string input) {
             r.totalScopes++;
             r.totalPerms++;
             if (r.maxPermsPerScope < 1) r.maxPermsPerScope = 1;
+        } else if (wm.base == "project") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            r.totalProjects++;
+            countProject(input, pos, r);
         }
     }
     return r;
@@ -85,6 +91,12 @@ void countScope(ref string input, ref size_t pos, ref PbtCounts r) {
             expect(input, pos, '{');
             skipBlock(input, pos);
             perms++;
+        } else if (wm.base == "project") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            hasChildren = true;
+            r.totalProjects++;
+            countProject(input, pos, r);
         } else {
             // Field: key: value
             skipWS(input, pos);
@@ -93,6 +105,57 @@ void countScope(ref string input, ref size_t pos, ref PbtCounts r) {
             auto val = readValue(input, pos);
             if (val is null) {
                 // List — skip to ]
+                while (pos < input.length && input[pos] != ']') {
+                    skipWS(input, pos);
+                    if (pos < input.length && input[pos] == ']') break;
+                    readValue(input, pos);
+                    skipWS(input, pos);
+                    if (pos < input.length && input[pos] == ',') pos++;
+                }
+                if (pos < input.length) pos++;
+            }
+        }
+    }
+}
+
+// Count inside a project block — delegates to countScope for scopes,
+// counts controls/permissions directly (project can contain all three).
+void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
+    import lexer : skipWS, skipLine, readWord, splitMode, expect, readValue;
+
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return; }
+
+        auto key = readWord(input, pos);
+        auto wm = splitMode(key);
+        if (wm.base == "scope") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            countScope(input, pos, r);
+        } else if (wm.base == "control") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
+            r.totalScopes++;
+            r.totalControls++;
+            if (r.maxControlsPerScope < 1) r.maxControlsPerScope = 1;
+        } else if (wm.base == "permission") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
+            r.totalScopes++;
+            r.totalPerms++;
+            if (r.maxPermsPerScope < 1) r.maxPermsPerScope = 1;
+        } else {
+            // Field: key: value
+            skipWS(input, pos);
+            expect(input, pos, ':');
+            skipWS(input, pos);
+            auto val = readValue(input, pos);
+            if (val is null) {
                 while (pos < input.length && input[pos] != ']') {
                     skipWS(input, pos);
                     if (pos < input.length && input[pos] == ']') break;

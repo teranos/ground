@@ -49,6 +49,10 @@ struct ParsedScope {
     size_t permissionCount() const { return permEnd - permStart; }
 }
 
+struct ParsedProject {
+    string path;
+}
+
 struct ParseResult {
     ParsedScope[pbtCounts.totalScopes + 1] scopes;
     size_t scopeCount;
@@ -56,6 +60,8 @@ struct ParseResult {
     size_t ctrlPoolLen;
     ParsedPermission[pbtCounts.totalPerms + 1] permPool;
     size_t permPoolLen;
+    ParsedProject[pbtCounts.totalProjects + 1] projects;
+    size_t projectCount;
 }
 
 // --- Default (no-op) handler resolvers ---
@@ -229,8 +235,12 @@ ParseResult parsePbt(string input) {
             sc.controlEnd = result.ctrlPoolLen;
             result.scopes[result.scopeCount] = sc;
             result.scopeCount++;
+        } else if (wm.base == "project") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            parseProject(input, pos, result);
         } else {
-            assert(0, "Expected 'scope', 'permission', or 'control'");
+            assert(0, "Expected 'scope', 'permission', 'control', or 'project'");
         }
     }
     return result;
@@ -298,6 +308,11 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             result.permPool[result.permPoolLen] = parsePermission(input, pos);
             result.permPool[result.permPoolLen].mode = wm.mode;
             result.permPoolLen++;
+        } else if (wm.base == "project") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            hasChildren = true;
+            parseProject(input, pos, result);
         } else {
             skipWS(input, pos);
             expect(input, pos, ':');
@@ -312,6 +327,72 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
         }
     }
     assert(0, "Unterminated scope block");
+}
+
+void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
+    string projectPath;
+
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') {
+            pos++;
+            assert(result.projectCount < result.projects.length);
+            result.projects[result.projectCount].path = projectPath;
+            result.projectCount++;
+            return;
+        }
+
+        auto key = readWord(input, pos);
+        auto wm = splitMode(key);
+        if (wm.base == "scope") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            parseScope(input, pos, result, "", "");
+        } else if (wm.base == "control") {
+            // Control directly in project — wrap in scope with path "/"
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(result.scopeCount < result.scopes.length);
+            ParsedScope sc;
+            sc.path = "/";
+            sc.controlStart = result.ctrlPoolLen;
+            assert(result.ctrlPoolLen < result.ctrlPool.length);
+            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos);
+            result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
+            sc.event = result.ctrlPool[result.ctrlPoolLen].event;
+            result.ctrlPoolLen++;
+            sc.controlEnd = result.ctrlPoolLen;
+            result.scopes[result.scopeCount] = sc;
+            result.scopeCount++;
+        } else if (wm.base == "permission") {
+            // Permission directly in project — wrap in scope with path "/"
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(result.scopeCount < result.scopes.length);
+            ParsedScope sc;
+            sc.path = "/";
+            sc.permStart = result.permPoolLen;
+            assert(result.permPoolLen < result.permPool.length);
+            result.permPool[result.permPoolLen] = parsePermission(input, pos);
+            result.permPool[result.permPoolLen].mode = wm.mode;
+            result.permPoolLen++;
+            sc.permEnd = result.permPoolLen;
+            result.scopes[result.scopeCount] = sc;
+            result.scopeCount++;
+        } else {
+            skipWS(input, pos);
+            expect(input, pos, ':');
+            skipWS(input, pos);
+            auto val = readValue(input, pos);
+            switch (key) {
+                case "path": projectPath = val; break;
+                default: assert(0, "Unknown project field");
+            }
+        }
+    }
+    assert(0, "Unterminated project block");
 }
 
 ParsedControl parseControl(ref string input, ref size_t pos) {
