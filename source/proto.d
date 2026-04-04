@@ -51,6 +51,8 @@ struct ParsedScope {
 
 struct ParsedProject {
     string path;
+    string[4096] files;
+    size_t fileCount;
 }
 
 struct ParseResult {
@@ -331,6 +333,10 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
 
 void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
     string projectPath;
+    size_t fileIdx;
+    // Temporary file storage — copied to project on close
+    string[4096] files;
+    size_t fCount;
 
     while (pos < input.length) {
         skipWS(input, pos);
@@ -340,6 +346,8 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             pos++;
             assert(result.projectCount < result.projects.length);
             result.projects[result.projectCount].path = projectPath;
+            result.projects[result.projectCount].files = files;
+            result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
             return;
         }
@@ -388,6 +396,21 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             auto val = readValue(input, pos);
             switch (key) {
                 case "path": projectPath = val; break;
+                case "files":
+                    if (val is null) {
+                        // List syntax: files: ["a", "b", ...]
+                        while (pos < input.length) {
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ']') { pos++; break; }
+                            auto item = readValue(input, pos);
+                            assert(fCount < files.length, "Too many files in project");
+                            files[fCount] = item;
+                            fCount++;
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ',') pos++;
+                        }
+                    }
+                    break;
                 default: assert(0, "Unknown project field");
             }
         }

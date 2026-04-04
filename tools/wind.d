@@ -2,14 +2,14 @@
 ///
 /// 1. Concatenates controls/*.pbt and controls/local/*.pbt into .ctfe/sand.
 /// 2. Parses project { path: "..." } blocks from sand.
-/// 3. Walks project directories, outputs filenames to .ctfe/vocab.
+/// 3. Walks project directories, rewrites project blocks with files: [...].
 
 import std.file : dirEntries, read, SpanMode, mkdirRecurse, exists, write, isDir;
-import std.algorithm : sort, endsWith, startsWith, canFind;
+import std.algorithm : sort, canFind;
 import std.array : array;
-import std.path : baseName;
+import std.path : baseName, relativePath;
 import std.stdio : stderr;
-import std.string : strip, indexOf;
+import std.string : indexOf;
 
 void main() {
     mkdirRecurse(".ctfe");
@@ -30,49 +30,59 @@ void main() {
         }
     }
 
-    write(".ctfe/sand", sand);
-    stderr.writefln("wind: .ctfe/sand (%d bytes)", sand.length);
+    // --- Phase 2: extract project paths, walk dirs, append files ---
+    auto projects = extractProjectPaths(sand);
+    size_t totalFiles;
 
-    // --- Phase 2: extract project paths from sand ---
-    auto paths = extractProjectPaths(sand);
-
-    // --- Phase 3: walk project directories → vocab ---
-    string vocab;
-    size_t fileCount;
-
-    foreach (projectPath; paths) {
-        if (!exists(projectPath) || !isDir(projectPath)) {
-            stderr.writefln("wind: skip %s (not found)", projectPath);
+    foreach (ref proj; projects) {
+        if (!exists(proj.path) || !isDir(proj.path)) {
+            stderr.writefln("wind: skip %s (not found)", proj.path);
             continue;
         }
 
-        foreach (entry; dirEntries(projectPath, SpanMode.depth)) {
+        string fileList;
+        size_t count;
+        foreach (entry; dirEntries(proj.path, SpanMode.depth)) {
             if (entry.isDir) continue;
             auto name = entry.name;
-            // Skip hidden dirs and build artifacts
             if (canFind(name, "/.") || canFind(name, "/node_modules/") ||
                 canFind(name, "/.dub/"))
                 continue;
-            // Skip binary files — check first 512 bytes for null byte
             if (isBinary(name)) continue;
-            vocab ~= name;
-            vocab ~= '\n';
-            fileCount++;
+            auto rel = relativePath(name, proj.path);
+            if (count > 0) fileList ~= ",\n";
+            fileList ~= "    \"" ~ rel ~ "\"";
+            count++;
         }
+
+        if (count > 0) {
+            // Rewrite the project block: inject files before closing }
+            auto projBlock = findProjectClose(sand, proj.path);
+            if (projBlock >= 0) {
+                sand = sand[0 .. projBlock] ~
+                    "  files: [\n" ~ fileList ~ "\n  ]\n" ~
+                    sand[projBlock .. $];
+            }
+        }
+        totalFiles += count;
     }
 
-    write(".ctfe/vocab", vocab);
-    stderr.writefln("wind: .ctfe/vocab (%d files from %d projects)", fileCount, paths.length);
+    write(".ctfe/sand", sand);
+    stderr.writefln("wind: .ctfe/sand (%d bytes, %d files from %d projects)",
+        sand.length, totalFiles, projects.length);
 }
 
-/// Extracts path values from project { path: "..." } blocks.
-/// Minimal parser — just finds project blocks and their path fields.
-string[] extractProjectPaths(string input) {
-    string[] paths;
+struct ProjectInfo {
+    string path;
+}
+
+/// Find the closing } of the project block that contains the given path.
+/// Returns the index just before the }, or -1 if not found.
+long findProjectClose(string input, string path) {
     size_t pos = 0;
 
     while (pos < input.length) {
-        // Skip whitespace and comments
+        // Skip whitespace
         while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t' ||
                input[pos] == '\n' || input[pos] == '\r'))
             pos++;
@@ -82,85 +92,119 @@ string[] extractProjectPaths(string input) {
             continue;
         }
 
-        // Read word
         auto wordStart = pos;
         while (pos < input.length && input[pos] != ' ' && input[pos] != '\t' &&
                input[pos] != '\n' && input[pos] != '{')
             pos++;
         auto word = input[wordStart .. pos];
-
-        // Strip mode suffix (project.r etc)
         auto dot = word.indexOf('.');
         auto base = dot >= 0 ? word[0 .. dot] : word;
 
+        // Skip to {
+        while (pos < input.length && input[pos] != '{') pos++;
+        if (pos >= input.length) break;
+        pos++;
+
         if (base == "project") {
-            // Skip to {
-            while (pos < input.length && input[pos] != '{') pos++;
-            if (pos < input.length) pos++;
-            // Parse inside project block
-            auto path = parseProjectBlock(input, pos);
-            if (path.length > 0)
-                paths ~= path;
-        } else if (input[pos .. $].startsWith("{")) {
-            // Skip non-project blocks
-            pos++;
+            // Check if this project has our path
+            auto blockPath = findPathInBlock(input, pos);
+            if (blockPath == path) {
+                // Find the closing } at depth 1
+                int depth = 1;
+                while (pos < input.length && depth > 0) {
+                    if (input[pos] == '"') {
+                        pos++;
+                        while (pos < input.length && input[pos] != '"') pos++;
+                        if (pos < input.length) pos++;
+                    } else if (input[pos] == '{') { depth++; pos++; }
+                    else if (input[pos] == '}') {
+                        depth--;
+                        if (depth == 0) return cast(long) pos;
+                        pos++;
+                    }
+                    else pos++;
+                }
+            } else {
+                skipBlock(input, pos);
+            }
+        } else {
             skipBlock(input, pos);
         }
     }
-    return paths;
+    return -1;
 }
 
-/// Parse inside a project { } block, return the path value.
-string parseProjectBlock(ref string input, ref size_t pos) {
-    string path;
+/// Find `path: "..."` inside a block (without consuming past the block).
+string findPathInBlock(string input, size_t startPos) {
+    auto pos = startPos;
     int depth = 1;
-
     while (pos < input.length && depth > 0) {
-        // Skip whitespace and comments
         while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t' ||
                input[pos] == '\n' || input[pos] == '\r'))
             pos++;
         if (pos >= input.length) break;
-        if (input[pos] == '#') {
-            while (pos < input.length && input[pos] != '\n') pos++;
-            continue;
-        }
-        if (input[pos] == '}') { pos++; depth--; continue; }
+        if (input[pos] == '}') return null;
         if (input[pos] == '{') { pos++; depth++; continue; }
 
-        // Read key
         auto keyStart = pos;
         while (pos < input.length && input[pos] != ':' && input[pos] != ' ' &&
                input[pos] != '\t' && input[pos] != '\n' && input[pos] != '{')
             pos++;
         auto key = input[keyStart .. pos];
 
-        // Skip to value
         while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t')) pos++;
         if (pos < input.length && input[pos] == ':') pos++;
         while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t')) pos++;
 
         if (pos < input.length && input[pos] == '"') {
-            // Read quoted string
             pos++;
             auto valStart = pos;
             while (pos < input.length && input[pos] != '"') pos++;
             auto val = input[valStart .. pos];
             if (pos < input.length) pos++;
-
-            if (key == "path" && depth == 1)
-                path = val;
-        } else if (pos < input.length && input[pos] == '[') {
-            // Skip list
-            while (pos < input.length && input[pos] != ']') pos++;
-            if (pos < input.length) pos++;
-        } else if (pos < input.length && input[pos] == '{') {
-            // Nested block
-            pos++;
-            depth++;
+            if (key == "path") return val;
         }
     }
-    return path;
+    return null;
+}
+
+/// Extracts project paths from pbt input.
+ProjectInfo[] extractProjectPaths(string input) {
+    ProjectInfo[] projects;
+    size_t pos = 0;
+
+    while (pos < input.length) {
+        while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t' ||
+               input[pos] == '\n' || input[pos] == '\r'))
+            pos++;
+        if (pos >= input.length) break;
+        if (input[pos] == '#') {
+            while (pos < input.length && input[pos] != '\n') pos++;
+            continue;
+        }
+
+        auto wordStart = pos;
+        while (pos < input.length && input[pos] != ' ' && input[pos] != '\t' &&
+               input[pos] != '\n' && input[pos] != '{')
+            pos++;
+        auto word = input[wordStart .. pos];
+        auto dot = word.indexOf('.');
+        auto base = dot >= 0 ? word[0 .. dot] : word;
+
+        while (pos < input.length && input[pos] != '{') pos++;
+        if (pos >= input.length) break;
+        pos++;
+
+        if (base == "project") {
+            auto path = findPathInBlock(input, pos);
+            if (path.length > 0)
+                projects ~= ProjectInfo(path);
+            skipBlock(input, pos);
+        } else {
+            skipBlock(input, pos);
+        }
+    }
+    return projects;
 }
 
 /// Check if a file is binary by looking for null bytes in the first 512 bytes.
@@ -171,11 +215,11 @@ bool isBinary(string path) {
             if (b == 0) return true;
         return false;
     } catch (Exception) {
-        return true; // can't read → skip
+        return true;
     }
 }
 
-/// Skip to matching } — handles nested blocks and quoted strings.
+/// Skip to matching }.
 void skipBlock(ref string input, ref size_t pos) {
     int depth = 1;
     while (pos < input.length && depth > 0) {

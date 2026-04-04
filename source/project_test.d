@@ -70,3 +70,22 @@ enum projectWithControlParsed = parsePbt(projectWithControlInput);
 static assert(projectWithControlParsed.projectCount == 1);
 static assert(projectWithControlParsed.scopeCount == 1);
 static assert(ctrl(projectWithControlParsed, 0, 0).name == "direct-ctrl");
+
+// Project with files list (wind-generated)
+enum projectWithFilesInput = `
+project {
+  path: "/Users/me/code/ground"
+  files: [
+    "source/main.d",
+    "source/proto.d",
+    "controls/controls.pbt"
+  ]
+}
+`;
+enum projectWithFilesParsed = parsePbt(projectWithFilesInput);
+static assert(projectWithFilesParsed.projectCount == 1);
+static assert(projectWithFilesParsed.projects[0].path == "/Users/me/code/ground");
+static assert(projectWithFilesParsed.projects[0].fileCount == 3);
+static assert(projectWithFilesParsed.projects[0].files[0] == "source/main.d");
+static assert(projectWithFilesParsed.projects[0].files[1] == "source/proto.d");
+static assert(projectWithFilesParsed.projects[0].files[2] == "controls/controls.pbt");
