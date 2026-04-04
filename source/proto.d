@@ -220,11 +220,12 @@ ParseResult parsePbt(string input) {
 private:
 
 void parseScope(ref string input, ref size_t pos, ref ParseResult result,
-    string parentPath, string parentDecision)
+    string parentPath, string parentDecision, string parentEvent = "")
 {
     ParsedScope sc;
     sc.path = parentPath;
     sc.decision = parentDecision;
+    sc.event = parentEvent;
     bool hasChildren = false;
 
     while (pos < input.length) {
@@ -249,7 +250,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             expect(input, pos, '{');
             hasChildren = true;
-            parseScope(input, pos, result, sc.path, sc.decision);
+            parseScope(input, pos, result, sc.path, sc.decision, sc.event);
         } else if (wm.base == "control") {
             skipWS(input, pos);
             expect(input, pos, '{');

@@ -470,6 +470,35 @@ static assert(nestedParsed.scopes[1].path == "/ground");
 static assert(nestedParsed.scopes[1].event == "PostToolUse");
 static assert(nestedParsed.scopes[1].controls[0].name == "nested-post");
 
+// Child inherits event from parent
+enum nestedEventInput = `
+scope {
+  event: "PreToolUse"
+
+  scope {
+    control {
+      name: "allow-ctrl"
+      cmd: "echo"
+      msg: "test"
+    }
+  }
+
+  scope {
+    decision: "deny"
+    control {
+      name: "deny-ctrl"
+      cmd: "rm"
+      msg: "blocked"
+    }
+  }
+}
+`;
+enum nestedEventParsed = parsePbt(nestedEventInput);
+static assert(nestedEventParsed.scopeCount == 2);
+static assert(nestedEventParsed.scopes[0].event == "PreToolUse");
+static assert(nestedEventParsed.scopes[1].event == "PreToolUse");
+static assert(nestedEventParsed.scopes[1].decision == "deny");
+
 // Child inherits path but can override with its own
 enum nestedOverrideInput = `
 scope {
