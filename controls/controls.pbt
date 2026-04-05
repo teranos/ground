@@ -135,7 +135,7 @@ scope {
     control {
       name: "control-ritual"
       filepath: ".pbt"
-      msg: "Controls are data-driven. Before writing a trigger, query the db for real assistant messages that contain the phrase. Verify matches exist and check context. No trigger without evidence."
+      msg: "After writing a control, verify it works: simulate the scenario that would trigger it and confirm the control fires as expected."
     }
   }
 
