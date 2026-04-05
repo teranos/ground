@@ -62,7 +62,7 @@ struct ParseResult {
     size_t ctrlPoolLen;
     ParsedPermission[pbtCounts.totalPerms + 1] permPool;
     size_t permPoolLen;
-    ParsedProject[pbtCounts.totalProjects + 1] projects;
+    ParsedProject[pbtCounts.totalProjects + 4] projects;
     size_t projectCount;
 }
 
