@@ -197,7 +197,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         any = true;
 
         foreach (ref sc; sessionStartScopes) {
-            if (!scopeMatches(sc.path, cwd))
+            if (!scopeMatches(sc, cwd))
                 continue;
             foreach (ref c; sc.controls) {
                 if (c.sessionstart.check !is null && !c.sessionstart.check(cwd))

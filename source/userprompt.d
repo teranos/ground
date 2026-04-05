@@ -26,7 +26,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     bool any = false;
 
     foreach (ref sc; userPromptScopes) {
-        if (!scopeMatches(sc.path, cwd))
+        if (!scopeMatches(sc, cwd))
             continue;
         foreach (ref c; sc.controls) {
             if (c.userprompt.value.length == 0) continue;

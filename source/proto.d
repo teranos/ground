@@ -41,7 +41,9 @@ struct ParsedControl {
 }
 
 struct ParsedScope {
-    string path, decision, event;
+    string[8] paths;
+    ubyte pathCount;
+    string decision, event;
     size_t controlStart, controlEnd;     // indices into ParseResult.ctrlPool
     size_t permStart, permEnd;           // indices into ParseResult.permPool
 
@@ -173,7 +175,12 @@ ScopeSet buildScopes(
 
         assert(result.len < result.items.length);
         auto decision = ps.decision.length > 0 ? ps.decision : "allow";
-        result.items[result.len] = Scope(ps.path, decision, result.ctrlPool[ctrlStart .. poolLen]);
+        Scope s;
+        s.paths = ps.paths;
+        s.pathCount = ps.pathCount;
+        s.decision = decision;
+        s.controls = result.ctrlPool[ctrlStart .. poolLen];
+        result.items[result.len] = s;
         result.len++;
     }
     return result;
@@ -237,7 +244,7 @@ ParseResult parsePbt(string input) {
             expect(input, pos, '{');
             assert(result.scopeCount < result.scopes.length, "Scope overflow — pbtCounts.totalScopes too small");
             ParsedScope sc;
-            sc.path = "/";
+            sc.paths[0] = "/"; sc.pathCount = 1;
             sc.permStart = result.permPoolLen;
             assert(result.permPoolLen < result.permPool.length);
             result.permPool[result.permPoolLen] = parsePermission(input, pos);
@@ -252,7 +259,7 @@ ParseResult parsePbt(string input) {
             expect(input, pos, '{');
             assert(result.scopeCount < result.scopes.length, "Scope overflow — pbtCounts.totalScopes too small");
             ParsedScope sc;
-            sc.path = "/";
+            sc.paths[0] = "/"; sc.pathCount = 1;
             sc.controlStart = result.ctrlPoolLen;
             assert(result.ctrlPoolLen < result.ctrlPool.length);
             result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos);
@@ -281,7 +288,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
     string parentPath, string parentDecision, string parentEvent = "")
 {
     ParsedScope sc;
-    sc.path = parentPath;
+    if (parentPath.length > 0) { sc.paths[0] = parentPath; sc.pathCount = 1; }
     sc.decision = parentDecision;
     sc.event = parentEvent;
     sc.controlStart = result.ctrlPoolLen;
@@ -320,7 +327,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             expect(input, pos, '{');
             hasChildren = true;
-            parseScope(input, pos, result, sc.path, sc.decision, sc.event);
+            parseScope(input, pos, result, sc.pathCount > 0 ? sc.paths[0] : "", sc.decision, sc.event);
         } else if (wm.base == "control") {
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -346,7 +353,22 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             auto val = readValue(input, pos);
             switch (key) {
-                case "path":     sc.path = val; break;
+                case "path":
+                    if (val is null) {
+                        // List syntax: path: ["/ctp/", "/qntx-plugins/"]
+                        while (pos < input.length) {
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ']') { pos++; break; }
+                            auto item = readValue(input, pos);
+                            assert(sc.pathCount < 8, "Path list overflow");
+                            sc.paths[sc.pathCount++] = item;
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ',') pos++;
+                        }
+                    } else if (val.length > 0) {
+                        sc.paths[0] = val; sc.pathCount = 1;
+                    }
+                    break;
                 case "decision": sc.decision = val; break;
                 case "event":    sc.event = val; break;
                 default: assert(0, "Unknown scope field");
@@ -389,7 +411,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             expect(input, pos, '{');
             assert(result.scopeCount < result.scopes.length);
             ParsedScope sc;
-            sc.path = "/";
+            sc.paths[0] = "/"; sc.pathCount = 1;
             sc.controlStart = result.ctrlPoolLen;
             assert(result.ctrlPoolLen < result.ctrlPool.length);
             result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos);
@@ -405,7 +427,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             expect(input, pos, '{');
             assert(result.scopeCount < result.scopes.length);
             ParsedScope sc;
-            sc.path = "/";
+            sc.paths[0] = "/"; sc.pathCount = 1;
             sc.permStart = result.permPoolLen;
             assert(result.permPoolLen < result.permPool.length);
             result.permPool[result.permPoolLen] = parsePermission(input, pos);

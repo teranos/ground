@@ -21,7 +21,8 @@ struct Permission {
 }
 
 struct PermissionScope {
-    string path;
+    string[8] paths;
+    ubyte pathCount;
     const(Permission)[] permissions;
 }
 
@@ -66,7 +67,11 @@ PermissionSet buildPermissions(const ParseResult parsed) {
         }
 
         assert(result.len < result.items.length);
-        result.items[result.len] = PermissionScope(ps.path, result.permPool[permStart .. poolLen]);
+        PermissionScope psc;
+        psc.paths = ps.paths;
+        psc.pathCount = ps.pathCount;
+        psc.permissions = result.permPool[permStart .. poolLen];
+        result.items[result.len] = psc;
         result.len++;
     }
     return result;
@@ -203,7 +208,7 @@ PermissionResult evaluatePermission(
     PermissionResult result;
 
     foreach (ref sc; scopes) {
-        if (!scopeMatches(sc.path, cwd)) continue;
+        if (!scopeMatches(sc, cwd)) continue;
 
         foreach (ref p; sc.permissions) {
             if (p.mode.length > 0) {

@@ -196,17 +196,23 @@ Control control(string name, Cmd c, Trigger t, Defer d) {
 // "!" prefix inverts: "!/QNTX" means cwd must NOT contain "/QNTX".
 // Decision: "allow" auto-approves, "ask" shows the permission prompt.
 struct Scope {
-    string path;
+    string[8] paths;
+    ubyte pathCount;
     string decision;
     const(Control)[] controls;
 }
 
-bool scopeMatches(const(char)[] scopePath, const(char)[] cwd) {
-    if (scopePath.length == 0) return true;
-    if (scopePath[0] == '!') {
-        import matcher : contains;
-        return !contains(cwd, scopePath[1 .. $]);
-    }
+bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
+    if (sc.pathCount == 0) return true;
     import matcher : contains;
-    return contains(cwd, scopePath);
+    foreach (i; 0 .. sc.pathCount) {
+        auto p = sc.paths[i];
+        if (p.length == 0) continue;
+        if (p[0] == '!') {
+            if (!contains(cwd, p[1 .. $])) return true;
+        } else {
+            if (contains(cwd, p)) return true;
+        }
+    }
+    return false;
 }

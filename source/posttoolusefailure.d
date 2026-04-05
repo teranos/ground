@@ -13,7 +13,7 @@ int handlePostToolUseFailure(const(char)[] input, const(char)[] cwd, const(char)
     if (error is null) return 0;
 
     foreach (ref scope_; postToolUseFailureScopes) {
-        if (!scopeMatches(scope_.path, cwd))
+        if (!scopeMatches(scope_, cwd))
             continue;
         foreach (ref c; scope_.controls) {
             if (c.trigger.len == 0) continue;

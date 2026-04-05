@@ -106,7 +106,7 @@ enum testParsed = parsePbt(testInput);
 static assert(testParsed.scopeCount == 6);
 
 // Scope 0: PreToolUse
-static assert(testParsed.scopes[0].path == "");
+static assert(testParsed.scopes[0].pathCount == 0);
 static assert(testParsed.scopes[0].decision == "allow");
 static assert(testParsed.scopes[0].event == "PreToolUse");
 static assert(testParsed.scopes[0].controlCount == 2);
@@ -118,7 +118,7 @@ static assert(ctrl(testParsed, 0, 1).bg == true);
 static assert(ctrl(testParsed, 0, 1).tmo == 5000);
 
 // Scope 1: Stop with multi-trigger
-static assert(testParsed.scopes[1].path == "/QNTX");
+static assert(testParsed.scopes[1].paths[0] == "/QNTX");
 static assert(testParsed.scopes[1].event == "Stop");
 static assert(ctrl(testParsed, 1, 0).triggerCount == 2);
 static assert(ctrl(testParsed, 1, 0).triggers[0] == "likely because");
@@ -134,7 +134,7 @@ static assert(ctrl(testParsed, 2, 0).deferMsg == "");
 static assert(ctrl(testParsed, 3, 0).checkHandler == "testCheck");
 
 // Scope 4: defaults — path="" and decision="allow" when omitted
-static assert(testParsed.scopes[4].path == "");
+static assert(testParsed.scopes[4].pathCount == 0);
 static assert(testParsed.scopes[4].decision == "");
 static assert(ctrl(testParsed, 4, 0).name == "test-defaults");
 static assert(ctrl(testParsed, 4, 0).msg == "");
@@ -165,7 +165,7 @@ static assert(testBuilt.items[0].controls[1].tmo.value == 5000);
 // Test Stop scope filtering
 enum testStopBuilt = buildScopes(testParsed, "Stop");
 static assert(testStopBuilt.len == 2);
-static assert(testStopBuilt.items[0].path == "/QNTX");
+static assert(testStopBuilt.items[0].paths[0] == "/QNTX");
 static assert(testStopBuilt.items[0].controls[0].trigger.len == 2);
 static assert(testStopBuilt.items[0].controls[0].trigger._buf[0] == "likely because");
 static assert(testStopBuilt.items[1].controls[0].trigger.len == 6);
@@ -187,7 +187,7 @@ scope {
 enum stopDeliverParsed = parsePbt(stopDeliverInput);
 static assert(stopDeliverParsed.scopeCount == 1);
 static assert(stopDeliverParsed.scopes[0].event == "Stop");
-static assert(stopDeliverParsed.scopes[0].path == "/my-fork");
+static assert(stopDeliverParsed.scopes[0].paths[0] == "/my-fork");
 static assert(ctrl(stopDeliverParsed, 0, 0).name == "upstream-briefing-stop");
 static assert(ctrl(stopDeliverParsed, 0, 0).deliverHandler == "testDeliver");
 static assert(ctrl(stopDeliverParsed, 0, 0).interval == 604800);
@@ -238,7 +238,7 @@ scope {
 `;
 enum permParsed = parsePbt(permInput);
 static assert(permParsed.scopeCount == 1);
-static assert(permParsed.scopes[0].path == "/");
+static assert(permParsed.scopes[0].paths[0] == "/");
 static assert(permParsed.scopes[0].permissionCount == 1);
 static assert(perm(permParsed, 0, 0).mode == "");
 static assert(perm(permParsed, 0, 0).allowCount == 3);
@@ -337,15 +337,15 @@ scope {
 `;
 enum permTopParsed = parsePbt(permTopLevelInput);
 static assert(permTopParsed.scopeCount == 3);
-static assert(permTopParsed.scopes[0].path == "/");
+static assert(permTopParsed.scopes[0].paths[0] == "/");
 static assert(permTopParsed.scopes[0].permissionCount == 1);
 static assert(perm(permTopParsed, 0, 0).mode == "");
 static assert(perm(permTopParsed, 0, 0).allowCount == 2);
 static assert(perm(permTopParsed, 0, 0).allow[0] == "go build*");
-static assert(permTopParsed.scopes[1].path == "/");
+static assert(permTopParsed.scopes[1].paths[0] == "/");
 static assert(perm(permTopParsed, 1, 0).denyCount == 1);
 static assert(perm(permTopParsed, 1, 0).msg == "No force pushes");
-static assert(permTopParsed.scopes[2].path == "/my-project");
+static assert(permTopParsed.scopes[2].paths[0] == "/my-project");
 static assert(permTopParsed.scopes[2].controlCount == 1);
 
 // Top-level control (no scope) — wraps in scope with path "/"
@@ -359,7 +359,7 @@ control {
 `;
 enum ctrlTopParsed = parsePbt(ctrlTopLevelInput);
 static assert(ctrlTopParsed.scopeCount == 1);
-static assert(ctrlTopParsed.scopes[0].path == "/");
+static assert(ctrlTopParsed.scopes[0].paths[0] == "/");
 static assert(ctrlTopParsed.scopes[0].controlCount == 1);
 static assert(ctrl(ctrlTopParsed, 0, 0).name == "check-logs");
 static assert(ctrl(ctrlTopParsed, 0, 0).triggers[0] == "check the*log");
@@ -386,7 +386,7 @@ static assert(ctrl(ptuFileParsed, 0, 0).cmd == "");
 
 enum ptuFileBuilt = buildScopes(ptuFileParsed, "PostToolUse");
 static assert(ptuFileBuilt.len == 1);
-static assert(ptuFileBuilt.items[0].path == "/ground");
+static assert(ptuFileBuilt.items[0].paths[0] == "/ground");
 static assert(ptuFileBuilt.items[0].controls[0].filepath.value == ".pbt");
 static assert(ptuFileBuilt.items[0].controls[0].cmd.value == "");
 static assert(ptuFileBuilt.items[0].controls[0].msg.value == "Controls changed. Run make install to update the binary.");
@@ -459,10 +459,10 @@ scope {
 `;
 enum nestedParsed = parsePbt(nestedInput);
 static assert(nestedParsed.scopeCount == 2);
-static assert(nestedParsed.scopes[0].path == "/ground");
+static assert(nestedParsed.scopes[0].paths[0] == "/ground");
 static assert(nestedParsed.scopes[0].event == "PreToolUse");
 static assert(ctrl(nestedParsed, 0, 0).name == "nested-pre");
-static assert(nestedParsed.scopes[1].path == "/ground");
+static assert(nestedParsed.scopes[1].paths[0] == "/ground");
 static assert(nestedParsed.scopes[1].event == "PostToolUse");
 static assert(ctrl(nestedParsed, 1, 0).name == "nested-post");
 
@@ -513,7 +513,7 @@ scope {
 `;
 enum nestedOverrideParsed = parsePbt(nestedOverrideInput);
 static assert(nestedOverrideParsed.scopeCount == 1);
-static assert(nestedOverrideParsed.scopes[0].path == "/other");
+static assert(nestedOverrideParsed.scopes[0].paths[0] == "/other");
 
 // Nested scope inherits decision from parent
 enum nestedDecisionInput = `
@@ -534,4 +534,4 @@ scope {
 enum nestedDecisionParsed = parsePbt(nestedDecisionInput);
 static assert(nestedDecisionParsed.scopeCount == 1);
 static assert(nestedDecisionParsed.scopes[0].decision == "deny");
-static assert(nestedDecisionParsed.scopes[0].path == "/ground");
+static assert(nestedDecisionParsed.scopes[0].paths[0] == "/ground");

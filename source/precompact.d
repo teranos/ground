@@ -1,6 +1,7 @@
 module precompact;
 
 import matcher : contains;
+import hooks : scopeMatches;
 import parse : fputs2;
 import core.stdc.stdio : stdin, stdout, fputs, fread, fwrite, FILE;
 import db : popen, pclose;
@@ -12,7 +13,7 @@ int handlePreCompact(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     fputs(`{"systemMessage":"`, stdout);
 
     foreach (ref scope_; preCompactScopes) {
-        if (scope_.path.length > 0 && (cwd is null || !contains(cwd, scope_.path)))
+        if (!scopeMatches(scope_, cwd))
             continue;
         foreach (ref c; scope_.controls) {
             if (!first) fputs(" | ", stdout);

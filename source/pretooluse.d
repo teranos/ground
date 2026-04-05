@@ -247,7 +247,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         const(char)[] fileDecision;
 
         foreach (ref sc; fileScopes) {
-            if (!scopeMatches(sc.path, cwd)) continue;
+            if (!scopeMatches(sc, cwd)) continue;
             foreach (ref c; sc.controls) {
                 if (c.filepath.value.length == 0) continue;
                 if (!contains(filePath, c.filepath.value)) continue;

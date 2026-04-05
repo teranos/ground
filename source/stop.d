@@ -34,7 +34,7 @@ const(char)[] deliverDeferred(DeferredMsg deferred, const(char)[] cwd) {
 
     DeliverFn deliverFn = null;
     foreach (ref scope_; postToolUseDeferredScopes) {
-        if (!scopeMatches(scope_.path, cwd)) continue;
+        if (!scopeMatches(scope_, cwd)) continue;
         foreach (ref c; scope_.controls) {
             if (c.name == deferred.name) {
                 deliverFn = c.defer.deliverFn;
@@ -139,7 +139,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto lastMsg = extractLastAssistantMessage(input);
         if (lastMsg !is null) {
             foreach (ref sc; stopScopes) {
-                if (!scopeMatches(sc.path, cwd))
+                if (!scopeMatches(sc, cwd))
                     continue;
                 foreach (ref c; sc.controls) {
                     if (c.trigger.len == 0) continue;
@@ -207,7 +207,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             import hooks : scopeMatches;
 
             foreach (ref sc; stopScopes) {
-                if (!scopeMatches(sc.path, cwd))
+                if (!scopeMatches(sc, cwd))
                     continue;
                 foreach (ref c; sc.controls) {
                     if (c.trigger.len > 0) continue;       // skip trigger-based (handled above)

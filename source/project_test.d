@@ -127,3 +127,40 @@ static assert(multiFiles.files[2] == "lib/c.d");
 // Project without files — contributes nothing
 enum noFilesFiles = extractProjectFiles(projectStandaloneParsed);
 static assert(noFilesFiles.len == 0);
+
+// --- Path list tests ---
+
+// Scope with path list — OR matching
+enum pathListInput = `
+scope {
+  path: ["/ctp/", "/qntx-plugins/"]
+  event: "PreToolUse"
+  control {
+    name: "use-makefile"
+    cmd: "cmake"
+    msg: "Use the Makefile."
+  }
+}
+`;
+enum pathListParsed = parsePbt(pathListInput);
+static assert(pathListParsed.scopeCount == 1);
+static assert(pathListParsed.scopes[0].pathCount == 2);
+static assert(pathListParsed.scopes[0].paths[0] == "/ctp/");
+static assert(pathListParsed.scopes[0].paths[1] == "/qntx-plugins/");
+
+// Scope with single path — still works
+enum singlePathInput = `
+scope {
+  path: "/ground"
+  event: "PreToolUse"
+  control {
+    name: "test"
+    cmd: "echo"
+    msg: "test"
+  }
+}
+`;
+enum singlePathParsed = parsePbt(singlePathInput);
+static assert(singlePathParsed.scopeCount == 1);
+static assert(singlePathParsed.scopes[0].pathCount == 1);
+static assert(singlePathParsed.scopes[0].paths[0] == "/ground");

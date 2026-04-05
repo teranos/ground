@@ -55,7 +55,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         auto db = openDb();
 
         foreach (ref scope_; postToolUseScopes) {
-            if (!scopeMatches(scope_.path, cwd)) continue;
+            if (!scopeMatches(scope_, cwd)) continue;
             foreach (ref c; scope_.controls) {
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
                 if (c.msg.value.length == 0) continue;
@@ -83,7 +83,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     {
         import controls : postToolUseDeferredScopes;
         foreach (ref scope_; postToolUseDeferredScopes) {
-            if (!scopeMatches(scope_.path, cwd)) continue;
+            if (!scopeMatches(scope_, cwd)) continue;
             foreach (ref c; scope_.controls) {
                 if (c.cmd.value.length == 0 || !hasSegment(detail, c.cmd.value))
                     continue;

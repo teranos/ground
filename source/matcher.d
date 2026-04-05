@@ -173,7 +173,7 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
-                    if (!scopeMatches(sc.path, cwd))
+                    if (!scopeMatches(sc, cwd))
                         continue;
                     foreach (ref c; sc.controls) {
                         if (commandMatch(segment, c.cmd.value)) {
@@ -253,7 +253,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
-                    if (!scopeMatches(sc.path, cwd))
+                    if (!scopeMatches(sc, cwd))
                         continue;
                     foreach (ref c; sc.controls) {
                         if (commandMatch(segment, c.cmd.value)) {
@@ -360,7 +360,7 @@ FileMatch checkFilePath(const(char)[] filePath, const(char)[] cwd) {
     const(char)[] firstName;
 
     foreach (ref sc; fileScopes) {
-        if (!scopeMatches(sc.path, cwd))
+        if (!scopeMatches(sc, cwd))
             continue;
         foreach (ref c; sc.controls) {
             if (c.filepath.value.length > 0 && contains(filePath, c.filepath.value)) {

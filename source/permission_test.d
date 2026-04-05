@@ -26,7 +26,7 @@ scope {
 enum testPermParsed = parsePbt(testPermPbt);
 enum testPermSet = buildPermissions(testPermParsed);
 static assert(testPermSet.len == 2);
-static assert(testPermSet.items[0].path == "/");
+static assert(testPermSet.items[0].paths[0] == "/");
 static assert(testPermSet.items[0].permissions.length == 1);
 static assert(testPermSet.items[0].permissions[0].mode == "");
 static assert(testPermSet.items[0].permissions[0].allow.len == 2);
