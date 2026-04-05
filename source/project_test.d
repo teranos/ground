@@ -89,3 +89,41 @@ static assert(projectWithFilesParsed.projects[0].fileCount == 3);
 static assert(projectWithFilesParsed.projects[0].files[0] == "source/main.d");
 static assert(projectWithFilesParsed.projects[0].files[1] == "source/proto.d");
 static assert(projectWithFilesParsed.projects[0].files[2] == "controls/controls.pbt");
+
+// --- extractProjectFiles: flatten all project file lists into one array ---
+
+import proto : extractProjectFiles;
+
+// Single project with files
+enum singleFiles = extractProjectFiles(projectWithFilesParsed);
+static assert(singleFiles.len == 3);
+static assert(singleFiles.files[0] == "source/main.d");
+static assert(singleFiles.files[1] == "source/proto.d");
+static assert(singleFiles.files[2] == "controls/controls.pbt");
+
+// Multiple projects
+enum multiProjectInput = `
+project {
+  path: "/Users/me/code/alpha"
+  files: [
+    "src/a.d",
+    "src/b.d"
+  ]
+}
+project {
+  path: "/Users/me/code/beta"
+  files: [
+    "lib/c.d"
+  ]
+}
+`;
+enum multiProjectParsed = parsePbt(multiProjectInput);
+enum multiFiles = extractProjectFiles(multiProjectParsed);
+static assert(multiFiles.len == 3);
+static assert(multiFiles.files[0] == "src/a.d");
+static assert(multiFiles.files[1] == "src/b.d");
+static assert(multiFiles.files[2] == "lib/c.d");
+
+// Project without files — contributes nothing
+enum noFilesFiles = extractProjectFiles(projectStandaloneParsed);
+static assert(noFilesFiles.len == 0);

@@ -67,6 +67,11 @@ static immutable preCompactScopes = _pcSet.items[0 .. _pcSet.len];
 private static immutable _permSet = buildPermissions(allParsed);
 static immutable permissionScopes = _permSet.items[0 .. _permSet.len];
 
+// Project file vocabulary — built at CTFE from project { files: [...] } blocks
+import proto : extractProjectFiles;
+private static immutable _projFiles = extractProjectFiles(allParsed);
+static immutable projectFiles = _projFiles.files[0 .. _projFiles.len];
+
 // --- Handler functions ---
 
 int ciDelay(const(char)[] cwd) {

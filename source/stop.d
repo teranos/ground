@@ -161,6 +161,42 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
+    // Unread file claim detection — scan assistant message for project files not Read this session
+    {
+        import matcher : contains;
+        import controls : projectFiles;
+        import hooks : scopeMatches;
+        auto lastMsg = extractLastAssistantMessage(input);
+        if (lastMsg !is null && projectFiles.length > 0) {
+            foreach (ref f; projectFiles) {
+                if (!contains(lastMsg, f)) continue;
+
+                import db : readAttestationExists, attestationExists, attestControlFire;
+                if (readAttestationExists(db, f, sessionId)) continue;
+
+                // Build dedup key: "unread-file-claim:<filename>"
+                __gshared ZBuf dedupKey;
+                dedupKey.reset();
+                dedupKey.put("unread-file-claim:");
+                dedupKey.put(f);
+
+                if (attestationExists(db, "GroundedStop", dedupKey.slice(), sessionId))
+                    continue;
+
+                __gshared ZBuf msg;
+                msg.reset();
+                msg.put("You referenced `");
+                msg.put(f);
+                msg.put("` but never Read it this session. Use the Read tool before making claims about file contents.");
+
+                attestControlFire(db, "GroundedStop", dedupKey.slice(), cwd, sessionId);
+                sqlite3_close(db);
+                writeStopResponseAndNotify(msg.slice());
+                return 0;
+            }
+        }
+    }
+
     auto t4 = usecNow();
 
     // Deliver-based Stop controls — no trigger, main only, compaction-window dedup

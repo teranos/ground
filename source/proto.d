@@ -66,6 +66,31 @@ struct ParseResult {
     size_t projectCount;
 }
 
+// --- Flat file list extraction (CTFE) ---
+// Flattens all project file lists into a single array for runtime lookup.
+
+struct ProjectFileList(size_t N) {
+    string[N] files;
+    size_t len;
+}
+
+auto extractProjectFiles(PR)(const PR parsed) {
+    // Count total files across all projects
+    size_t total = 0;
+    foreach (i; 0 .. parsed.projectCount)
+        total += parsed.projects[i].fileCount;
+
+    ProjectFileList!(PR.init.projects.length * 4096) result;
+    size_t pos = 0;
+    foreach (i; 0 .. parsed.projectCount) {
+        foreach (j; 0 .. parsed.projects[i].fileCount) {
+            result.files[pos++] = parsed.projects[i].files[j];
+        }
+    }
+    result.len = pos;
+    return result;
+}
+
 // --- Default (no-op) handler resolvers ---
 
 private CheckFn defaultResolveCheck(string) { return null; }
