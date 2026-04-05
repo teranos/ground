@@ -29,8 +29,12 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         if (!scopeMatches(sc, cwd))
             continue;
         foreach (ref c; sc.controls) {
-            if (c.userprompt.value.length == 0) continue;
-            if (!contains(prompt, c.userprompt.value)) continue;
+            if (c.userprompt.len == 0) continue;
+            bool matched = false;
+            import matcher : wildcardContains;
+            foreach (ref v; c.userprompt.values)
+                if (wildcardContains(prompt, v)) { matched = true; break; }
+            if (!matched) continue;
 
             // Once per session
             if (db !is null && attestationExists(db, "GroundedUserPromptSubmit", c.name, sessionId))

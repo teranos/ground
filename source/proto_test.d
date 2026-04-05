@@ -588,3 +588,33 @@ static assert(editedBuilt.len == 1);
 static assert(editedBuilt.items[0].editedCount == 3);
 static assert(editedBuilt.items[0].edited[0] == "!/ctp/");
 static assert(editedBuilt.items[0].edited[1] == "!/qntx-plugins/");
+
+// --- userprompt list syntax ---
+
+enum upListInput = `
+scope {
+  event: "UserPromptSubmit"
+
+  control {
+    name: "dig-before-control"
+    userprompt: ["create*control", "as a control", "new control"]
+    msg: "Dig first"
+  }
+
+  control {
+    name: "single-prompt"
+    userprompt: "permission"
+    msg: "Check permissions"
+  }
+}
+`;
+enum upListParsed = parsePbt(upListInput);
+static assert(upListParsed.scopeCount == 1);
+static assert(ctrl(upListParsed, 0, 0).name == "dig-before-control");
+static assert(ctrl(upListParsed, 0, 0).userpromptCount == 3);
+static assert(ctrl(upListParsed, 0, 0).userprompts[0] == "create*control");
+static assert(ctrl(upListParsed, 0, 0).userprompts[1] == "as a control");
+static assert(ctrl(upListParsed, 0, 0).userprompts[2] == "new control");
+static assert(ctrl(upListParsed, 0, 1).name == "single-prompt");
+static assert(ctrl(upListParsed, 0, 1).userpromptCount == 1);
+static assert(ctrl(upListParsed, 0, 1).userprompts[0] == "permission");

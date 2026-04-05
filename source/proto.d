@@ -31,7 +31,9 @@ struct ParsedControl {
     string cmd, arg, omit;
     string[16] triggers;
     ubyte triggerCount;
-    string filepath, userprompt, msg;
+    string filepath, msg;
+    string[8] userprompts;
+    ubyte userpromptCount;
     bool bg;
     int tmo;
     string checkHandler, delayHandler, deliverHandler;
@@ -135,7 +137,10 @@ ScopeSet buildScopes(
             c.arg = Arg(pc.arg);
             c.omit = Omit(pc.omit);
             c.filepath = FilePath(pc.filepath);
-            c.userprompt = UserPrompt(pc.userprompt);
+            if (pc.userpromptCount > 0) {
+                c.userprompt._buf = pc.userprompts;
+                c.userprompt.len = pc.userpromptCount;
+            }
             c.msg = Msg(pc.msg);
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
@@ -506,7 +511,21 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
             case "arg":             c.arg = val; break;
             case "omit":            c.omit = val; break;
             case "filepath":        c.filepath = val; break;
-            case "userprompt":      c.userprompt = val; break;
+            case "userprompt":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.userpromptCount < 8);
+                        c.userprompts[c.userpromptCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.userprompts[0] = val; c.userpromptCount = 1;
+                }
+                break;
             case "msg":             c.msg = val; break;
             case "bg":              c.bg = (val == "true"); break;
             case "tmo":             c.tmo = parseInt(val); break;

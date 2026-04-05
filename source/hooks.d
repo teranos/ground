@@ -94,7 +94,10 @@ Cmd cmd(string s) { return Cmd(s); }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
 struct UserPrompt {
-    string value;
+    string[8] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
+    string value() const { return len > 0 ? _buf[0] : ""; }
 }
 
 alias CheckFn = bool function(const(char)[] cwd);
@@ -109,7 +112,7 @@ Trigger stop(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
 Trigger precompact() { Trigger t; t._buf[0] = "PreCompact"; t.len = 1; return t; }
 Trigger posttool(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
 
-UserPrompt userprompt(string s) { return UserPrompt(s); }
+UserPrompt userprompt(string s) { UserPrompt u; u._buf[0] = s; u.len = 1; return u; }
 SessionStartTrigger sessionstart() { return SessionStartTrigger(null); }
 SessionStartTrigger sessionstart(CheckFn fn) { return SessionStartTrigger(fn); }
 FilePath filepath(string s) { return FilePath(s); }

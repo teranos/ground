@@ -169,6 +169,12 @@ scope {
       userprompt: "permission"
       msg: "Permissions are defined in controls/permissions.pbt — not in ~/.claude/settings.json or .claude/settings.local.json. Check permissions.pbt for existing patterns before adding new ones."
     }
+
+    control {
+      name: "dig-before-control"
+      userprompt: ["create*control", "as a control", "new control"]
+      msg: "Before writing a control, dig into the db: ground shovel <event> <pattern>. Check real historical matches first — no trigger without evidence."
+    }
   }
 }
 
