@@ -32,6 +32,8 @@
               export HOME=$(mktemp -d)
               echo "${version}" > .version
               date -u +%Y-%m-%dT%H:%M:%SZ > .builddate
+              mkdir -p tools
+              ${pkgs.ldc}/bin/ldc2 -of=tools/wind tools/wind.d
               ${pkgs.dub}/bin/dub build --build=release
             '';
 
