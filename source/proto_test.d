@@ -618,3 +618,31 @@ static assert(ctrl(upListParsed, 0, 0).userprompts[2] == "new control");
 static assert(ctrl(upListParsed, 0, 1).name == "single-prompt");
 static assert(ctrl(upListParsed, 0, 1).userpromptCount == 1);
 static assert(ctrl(upListParsed, 0, 1).userprompts[0] == "permission");
+
+// --- cmd: scope field (session command history gate) ---
+
+enum cmdScopeInput = `
+scope {
+  path: "/QNTX"
+  cmd: ["!make install"]
+  event: "Stop"
+
+  control {
+    name: "build-before-commit"
+    stop: ["want me to commit", "ready to commit"]
+    msg: "Run make install first"
+  }
+}
+`;
+enum cmdScopeParsed = parsePbt(cmdScopeInput);
+static assert(cmdScopeParsed.scopeCount == 1);
+static assert(cmdScopeParsed.scopes[0].cmdCount == 1);
+static assert(cmdScopeParsed.scopes[0].cmds[0] == "!make install");
+static assert(cmdScopeParsed.scopes[0].paths[0] == "/QNTX");
+static assert(cmdScopeParsed.scopes[0].event == "Stop");
+
+// buildScopes preserves cmd on Scope
+enum cmdScopeBuilt = buildScopes(cmdScopeParsed, "Stop");
+static assert(cmdScopeBuilt.len == 1);
+static assert(cmdScopeBuilt.items[0].cmdCount == 1);
+static assert(cmdScopeBuilt.items[0].cmds[0] == "!make install");

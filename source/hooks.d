@@ -203,6 +203,8 @@ struct Scope {
     ubyte pathCount;
     string[8] edited;
     ubyte editedCount;
+    string[8] cmds;
+    ubyte cmdCount;
     string decision;
     const(Control)[] controls;
 }

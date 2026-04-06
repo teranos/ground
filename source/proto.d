@@ -47,6 +47,8 @@ struct ParsedScope {
     ubyte pathCount;
     string[8] edited;
     ubyte editedCount;
+    string[8] cmds;
+    ubyte cmdCount;
     string decision, event;
     size_t controlStart, controlEnd;     // indices into ParseResult.ctrlPool
     size_t permStart, permEnd;           // indices into ParseResult.permPool
@@ -187,6 +189,8 @@ ScopeSet buildScopes(
         s.pathCount = ps.pathCount;
         s.edited = ps.edited;
         s.editedCount = ps.editedCount;
+        s.cmds = ps.cmds;
+        s.cmdCount = ps.cmdCount;
         s.decision = decision;
         s.controls = result.ctrlPool[ctrlStart .. poolLen];
         result.items[result.len] = s;
@@ -393,6 +397,21 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
                         }
                     } else if (val.length > 0) {
                         sc.edited[0] = val; sc.editedCount = 1;
+                    }
+                    break;
+                case "cmd":
+                    if (val is null) {
+                        while (pos < input.length) {
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ']') { pos++; break; }
+                            auto item = readValue(input, pos);
+                            assert(sc.cmdCount < 8, "Cmd list overflow");
+                            sc.cmds[sc.cmdCount++] = item;
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ',') pos++;
+                        }
+                    } else if (val.length > 0) {
+                        sc.cmds[0] = val; sc.cmdCount = 1;
                     }
                     break;
                 default: assert(0, "Unknown scope field");

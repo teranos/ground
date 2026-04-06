@@ -160,6 +160,24 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (exclCount > 0 && editAttestationOutside(db, exclPats.ptr, exclCount, sessionId))
                         continue;
                 }
+                // cmd: scope gate — check session command history
+                if (sc.cmdCount > 0) {
+                    import db : cmdAttestationExists;
+                    bool cmdGateFailed;
+                    foreach (ci; 0 .. sc.cmdCount) {
+                        auto cp = sc.cmds[ci];
+                        if (cp.length > 0 && cp[0] == '!') {
+                            // Negated: command must NOT have run
+                            if (cmdAttestationExists(db, cp[1 .. $], sessionId))
+                                cmdGateFailed = true;
+                        } else {
+                            // Positive: command must have run
+                            if (!cmdAttestationExists(db, cp, sessionId))
+                                cmdGateFailed = true;
+                        }
+                    }
+                    if (cmdGateFailed) continue;
+                }
                 foreach (ref c; sc.controls) {
                     if (c.trigger.len == 0) continue;
                     bool matched = false;

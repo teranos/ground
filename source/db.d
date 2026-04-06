@@ -287,6 +287,34 @@ bool editAttestationOutside(sqlite3* db, const(char)[]* patterns, size_t patCoun
     return found;
 }
 
+// Check if a Bash command matching a pattern was run this session.
+bool cmdAttestationExists(sqlite3* db, const(char)[] cmdPattern, const(char)[] sessionId) {
+    __gshared ZBuf ctx, cmdPat;
+
+    ctx.reset();
+    ctx.put("%session:");
+    ctx.put(sessionId);
+    ctx.put("%");
+
+    cmdPat.reset();
+    cmdPat.put("%");
+    cmdPat.put(cmdPattern);
+    cmdPat.put("%");
+
+    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND contexts LIKE ?1 AND json_extract(attributes, '$.tool_name') = 'Bash' AND json_extract(attributes, '$.tool_input.command') LIKE ?2 LIMIT 1\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return false;
+
+    sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, cmdPat.ptr(), cast(int) cmdPat.len, SQLITE_TRANSIENT);
+
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 public import git : cwdTail, buildSubject, getBranch;
 
 
