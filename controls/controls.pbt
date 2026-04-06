@@ -324,54 +324,6 @@ scope {
   }
 }
 
-# QNTX project-scoped
-scope {
-  path: "/QNTX"
-
-  scope {
-    event: "Stop"
-
-    control {
-      name: "make-dev-includes-wasm"
-      stop: "make wasm"
-      msg: `"make dev" also rebuilds the wasm, see the Makefile.`
-    }
-
-    control {
-      name: "no-stale-binary-speculation-might"
-      stop: "binary might be stale"
-      msg: "The developer is always running the latest version. Do not speculate about stale binaries."
-    }
-
-    control {
-      name: "no-stale-binary-speculation-may"
-      stop: "binary may be stale"
-      msg: "The developer is always running the latest version. Do not speculate about stale binaries."
-    }
-
-    control {
-      name: "port-check-am-toml-877"
-      stop: ["port 877", ":877"]
-      msg: "You mentioned a default port. Check am.toml in the project root for the actual port configuration."
-    }
-
-    control {
-      name: "port-check-am-toml-8820"
-      stop: "8820"
-      msg: "You mentioned a default port. Check am.toml in the project root for the actual port configuration."
-    }
-  }
-
-  scope {
-    event: "SessionStart"
-
-    control {
-      name: "am-toml-reminder"
-      msg: "Read am.toml in the project root and report back: port number, db path, logfile location, and enabled plugins."
-    }
-  }
-}
-
 # SessionStart — checks on startup
 scope {
   event: "SessionStart"
