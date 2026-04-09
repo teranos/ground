@@ -93,9 +93,11 @@ sqlite3* openStandaloneDb() {
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";
+    enum idxPredSession = "CREATE INDEX IF NOT EXISTS idx_attestations_pred_session ON attestations(json_extract(predicates, '$[0]'), json_extract(contexts, '$[0]'))\0";
     sqlite3_exec(db, idxPredicate.ptr, null, null, null);
     sqlite3_exec(db, idxControl.ptr, null, null, null);
     sqlite3_exec(db, idxSubject.ptr, null, null, null);
+    sqlite3_exec(db, idxPredSession.ptr, null, null, null);
 
     return db;
 }
@@ -127,12 +129,11 @@ void walCheckpoint(sqlite3* db) {
 bool attestationExists(sqlite3* db, const(char)[] groundedPredicate, const(char)[] controlName, const(char)[] sessionId) {
     __gshared ZBuf ctx;
     ctx.reset();
-    ctx.put("%session:");
+    ctx.put("session:");
     ctx.put(sessionId);
-    ctx.put("%");
 
-    // Find the control attestation's rowid — uses json_extract indexes
-    enum sql = "SELECT rowid FROM attestations WHERE json_extract(predicates, '$[0]') = ?1 AND json_extract(attributes, '$.control') = ?2 AND contexts LIKE ?3 ORDER BY rowid DESC LIMIT 1\0";
+    // Find the control attestation's rowid — uses compound (predicate, session) index
+    enum sql = "SELECT rowid FROM attestations WHERE json_extract(predicates, '$[0]') = ?1 AND json_extract(attributes, '$.control') = ?2 AND json_extract(contexts, '$[0]') = ?3 ORDER BY rowid DESC LIMIT 1\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
         return false;
@@ -152,7 +153,7 @@ bool attestationExists(sqlite3* db, const(char)[] groundedPredicate, const(char)
     sqlite3_finalize(stmt);
 
     // Check if a PreCompact event occurred after this attestation in the same session
-    enum compactSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PreCompact' AND contexts LIKE ?1 AND rowid > ?2 LIMIT 1\0";
+    enum compactSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PreCompact' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 LIMIT 1\0";
     sqlite3_stmt* compactStmt;
     if (sqlite3_prepare_v2(db, compactSql.ptr, -1, &compactStmt, null) != SQLITE_OK)
         return true; // can't check, assume still valid
@@ -174,9 +175,8 @@ bool fileAttestationExists(sqlite3* db, const(char)[] filename, const(char)[] se
     __gshared ZBuf ctx, filePat;
 
     ctx.reset();
-    ctx.put("%session:");
+    ctx.put("session:");
     ctx.put(sessionId);
-    ctx.put("%");
 
     // Match file_path ending with the filename (covers absolute paths)
     filePat.reset();
@@ -185,7 +185,7 @@ bool fileAttestationExists(sqlite3* db, const(char)[] filename, const(char)[] se
     filePat.put("%");
 
     // Find the most recent matching file attestation
-    enum sql = "SELECT rowid FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND contexts LIKE ?1 AND json_extract(attributes, '$.tool_name') IN ('Read', 'Write', 'Edit') AND json_extract(attributes, '$.tool_input.file_path') LIKE ?2 ORDER BY rowid DESC LIMIT 1\0";
+    enum sql = "SELECT rowid FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND json_extract(contexts, '$[0]') = ?1 AND json_extract(attributes, '$.tool_name') IN ('Read', 'Write', 'Edit') AND json_extract(attributes, '$.tool_input.file_path') LIKE ?2 ORDER BY rowid DESC LIMIT 1\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
@@ -204,7 +204,7 @@ bool fileAttestationExists(sqlite3* db, const(char)[] filename, const(char)[] se
     sqlite3_finalize(stmt);
 
     // Check if a compaction happened after — invalidates the attestation
-    enum compactSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PreCompact' AND contexts LIKE ?1 AND rowid > ?2 LIMIT 1\0";
+    enum compactSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PreCompact' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 LIMIT 1\0";
     sqlite3_stmt* compactStmt;
     if (sqlite3_prepare_v2(db, compactSql.ptr, -1, &compactStmt, null) != SQLITE_OK)
         return true; // can't check, assume valid
@@ -224,16 +224,15 @@ bool editAttestationContains(sqlite3* db, const(char)[] pattern, const(char)[] s
     __gshared ZBuf ctx, filePat;
 
     ctx.reset();
-    ctx.put("%session:");
+    ctx.put("session:");
     ctx.put(sessionId);
-    ctx.put("%");
 
     filePat.reset();
     filePat.put("%");
     filePat.put(pattern);
     filePat.put("%");
 
-    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND contexts LIKE ?1 AND json_extract(attributes, '$.tool_name') IN ('Write', 'Edit') AND json_extract(attributes, '$.tool_input.file_path') LIKE ?2 LIMIT 1\0";
+    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND json_extract(contexts, '$[0]') = ?1 AND json_extract(attributes, '$.tool_name') IN ('Write', 'Edit') AND json_extract(attributes, '$.tool_input.file_path') LIKE ?2 LIMIT 1\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
@@ -253,13 +252,12 @@ bool editAttestationOutside(sqlite3* db, const(char)[]* patterns, size_t patCoun
     __gshared ZBuf ctx, sqlBuf;
 
     ctx.reset();
-    ctx.put("%session:");
+    ctx.put("session:");
     ctx.put(sessionId);
-    ctx.put("%");
 
     // Build: SELECT 1 FROM attestations WHERE ... AND file_path NOT LIKE %p1% AND NOT LIKE %p2% ...
     sqlBuf.reset();
-    sqlBuf.put("SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND contexts LIKE ?1 AND json_extract(attributes, '$.tool_name') IN ('Write', 'Edit')");
+    sqlBuf.put("SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND json_extract(contexts, '$[0]') = ?1 AND json_extract(attributes, '$.tool_name') IN ('Write', 'Edit')");
     foreach (i; 0 .. patCount) {
         sqlBuf.put(" AND json_extract(attributes, '$.tool_input.file_path') NOT LIKE ?");
         sqlBuf.putChar(cast(char)('2' + i));
@@ -292,16 +290,15 @@ bool cmdAttestationExists(sqlite3* db, const(char)[] cmdPattern, const(char)[] s
     __gshared ZBuf ctx, cmdPat;
 
     ctx.reset();
-    ctx.put("%session:");
+    ctx.put("session:");
     ctx.put(sessionId);
-    ctx.put("%");
 
     cmdPat.reset();
     cmdPat.put("%");
     cmdPat.put(cmdPattern);
     cmdPat.put("%");
 
-    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND contexts LIKE ?1 AND json_extract(attributes, '$.tool_name') = 'Bash' AND json_extract(attributes, '$.tool_input.command') LIKE ?2 LIMIT 1\0";
+    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND json_extract(contexts, '$[0]') = ?1 AND json_extract(attributes, '$.tool_name') = 'Bash' AND json_extract(attributes, '$.tool_input.command') LIKE ?2 LIMIT 1\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)

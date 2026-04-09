@@ -34,7 +34,10 @@ import core.stdc.stdio : stdout, fputs, fwrite;
 const(char)[] extractJsonString(const(char)[] json, string key, char* buf, size_t bufLen) {
     auto idx = indexOf(json, key);
     if (idx < 0) return null;
+    return extractJsonStringAt(json, idx, key, buf, bufLen);
+}
 
+const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key, char* buf, size_t bufLen) {
     // Skip past key, then whitespace, then colon, then whitespace, then opening quote
     size_t pos = cast(size_t) idx + key.length;
     while (pos < json.length && json[pos] == ' ') pos++;
@@ -138,7 +141,11 @@ const(char)[] extractError(const(char)[] json) {
 
 const(char)[] extractLastAssistantMessage(const(char)[] json) {
     __gshared char[8192] buf = 0;
-    return extractJsonString(json, `"last_assistant_message"`, &buf[0], buf.length);
+    // last_assistant_message is near the end of the JSON — search backwards
+    import matcher : lastIndexOf;
+    auto idx = lastIndexOf(json, `"last_assistant_message"`);
+    if (idx < 0) return null;
+    return extractJsonStringAt(json, idx, `"last_assistant_message"`, &buf[0], buf.length);
 }
 
 // tool_response.filePath (camelCase, distinct from tool_input.file_path)

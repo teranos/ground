@@ -66,6 +66,19 @@ ptrdiff_t indexOf(const(char)[] haystack, const(char)[] needle) {
     return -1;
 }
 
+ptrdiff_t lastIndexOf(const(char)[] haystack, const(char)[] needle) {
+    if (needle.length == 0) return 0;
+    if (needle.length > haystack.length) return -1;
+    size_t i = haystack.length - needle.length;
+    while (true) {
+        if (haystack[i .. i + needle.length] == needle)
+            return cast(ptrdiff_t) i;
+        if (i == 0) break;
+        i--;
+    }
+    return -1;
+}
+
 const(char)[] strip(const(char)[] s) {
     size_t start = 0;
     while (start < s.length && s[start] == ' ')

@@ -132,11 +132,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     auto t3 = usecNow();
 
     // Stop controls — pattern matching on last assistant message
+    auto lastMsg = extractLastAssistantMessage(input);
     {
         import matcher : contains;
         import controls : stopScopes;
         import hooks : scopeMatches;
-        auto lastMsg = extractLastAssistantMessage(input);
         if (lastMsg !is null) {
             foreach (ref sc; stopScopes) {
                 if (!scopeMatches(sc, cwd))
@@ -202,8 +202,6 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     {
         import matcher : containsExact;
         import controls : projectFiles;
-        import hooks : scopeMatches;
-        auto lastMsg = extractLastAssistantMessage(input);
         if (lastMsg !is null && projectFiles.length > 0) {
             foreach (ref f; projectFiles) {
                 if (!containsExact(lastMsg, f)) continue;
