@@ -127,6 +127,11 @@ unittest {
 
 unittest {
     // git commit without user requesting it — denied by commitNotRequested handler
+    // Set dummy session so handler queries db (no matching data → deny)
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-commit-check";
+    scope(exit) g_sessionId = null;
+
     auto result = checkCommand("git commit -m \"hello\"", OTHER);
     assert(result.control !is null);
     assert(result.control.name == "commit-not-requested");
@@ -135,6 +140,10 @@ unittest {
 
 unittest {
     // git commit: deny wins over ask (commit-not-requested deny > git-commit ask)
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-commit-check";
+    scope(exit) g_sessionId = null;
+
     auto results = checkAllCommands("git commit -m \"hello\"", OTHER);
     assert(results.count == 1); // single segment = single match
     assert(results.matches[0].control.name == "commit-not-requested");

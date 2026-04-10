@@ -16,8 +16,8 @@ bool binaryShadowed(const(char)[] cwd, const(char)[] input) {
 }
 
 bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
-    // Test context (no session) — deny by default
-    if (g_sessionId.length == 0) return true;
+    // No session — can't check, don't block
+    if (g_sessionId.length == 0) return false;
 
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
                 sqlite3_step, sqlite3_column_int64, sqlite3_finalize, sqlite3_close,
