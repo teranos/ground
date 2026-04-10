@@ -16,6 +16,7 @@ import control_handlers;
 CheckFn resolveCheck(string name) {
     switch (name) {
         case "binaryShadowed": return &control_handlers.binaryShadowed;
+        case "commitNotRequested": return &control_handlers.commitNotRequested;
         case "strikethrough": return &control_handlers.strikethroughCheck;
         default: return null;
     }
@@ -42,7 +43,6 @@ DeliverFn resolveDeliver(string name) {
 
 private static immutable _preToolSet = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(allParsed, "PreToolUse");
 static immutable allScopes = _preToolSet.items[0 .. _preToolSet.len];
-
 
 private static immutable _upSet = buildScopes(allParsed, "UserPromptSubmit");
 static immutable userPromptScopes = _upSet.items[0 .. _upSet.len];

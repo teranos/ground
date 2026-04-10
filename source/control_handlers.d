@@ -2,6 +2,9 @@ module control_handlers;
 
 import matcher : contains;
 
+// Set by PreToolUse handler before calling checkAllCommands.
+__gshared const(char)[] g_sessionId;
+
 // --- Check handlers ---
 // bool function(cwd, input) — return true to fire the control.
 
@@ -10,6 +13,54 @@ extern (C) int access(const(char)* path, int mode);
 bool binaryShadowed(const(char)[] cwd, const(char)[] input) {
     enum F_OK = 0;
     return access("/usr/local/bin/ground\0".ptr, F_OK) == 0;
+}
+
+bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
+    // Test context (no session) — deny by default
+    if (g_sessionId.length == 0) return true;
+
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
+                sqlite3_step, sqlite3_column_int64, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto db = openDb();
+    if (db is null) return true; // can't check, deny
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    // Find the most recent successful git commit — GroundedPostToolUse fires only after
+    // the commit actually ran (denied PreToolUse never reaches PostToolUse).
+    enum lastCommitSql = "SELECT rowid FROM attestations WHERE json_extract(predicates, '$[0]') = 'GroundedPostToolUse' AND json_extract(contexts, '$[0]') = ?1 AND json_extract(attributes, '$.control') = 'commit-push-reminder' ORDER BY rowid DESC LIMIT 1\0";
+
+    sqlite3_stmt* commitStmt;
+    long lastCommitRowid = 0;
+    if (sqlite3_prepare_v2(db, lastCommitSql.ptr, -1, &commitStmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(commitStmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        if (sqlite3_step(commitStmt) == SQLITE_ROW)
+            lastCommitRowid = sqlite3_column_int64(commitStmt, 0);
+        sqlite3_finalize(commitStmt);
+    }
+
+    // Check if user said "commit" after that rowid (or ever, if no prior commit)
+    enum userSaidSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 AND attributes LIKE '%commit%' LIMIT 1\0";
+
+    sqlite3_stmt* userStmt;
+    bool userSaid = false;
+    if (sqlite3_prepare_v2(db, userSaidSql.ptr, -1, &userStmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(userStmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(userStmt, 2, lastCommitRowid);
+        userSaid = sqlite3_step(userStmt) == SQLITE_ROW;
+        sqlite3_finalize(userStmt);
+    }
+
+    sqlite3_close(db);
+
+    // Fire (deny) if user did NOT say commit
+    return !userSaid;
 }
 
 bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {

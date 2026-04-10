@@ -126,11 +126,19 @@ unittest {
 }
 
 unittest {
-    // git commit triggers checkpoint with "ask" decision
+    // git commit without user requesting it — denied by commitNotRequested handler
     auto result = checkCommand("git commit -m \"hello\"", OTHER);
     assert(result.control !is null);
-    assert(result.control.name == "git-commit");
-    assert(result.decision == "ask");
+    assert(result.control.name == "commit-not-requested");
+    assert(result.decision == "deny");
+}
+
+unittest {
+    // git commit: deny wins over ask (commit-not-requested deny > git-commit ask)
+    auto results = checkAllCommands("git commit -m \"hello\"", OTHER);
+    assert(results.count == 1); // single segment = single match
+    assert(results.matches[0].control.name == "commit-not-requested");
+    assert(results.matches[0].decision == "deny");
 }
 
 unittest {

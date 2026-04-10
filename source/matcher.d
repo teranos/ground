@@ -203,6 +203,8 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                         if (commandMatch(segment, c.cmd.value)) {
                             if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
                                 continue;
+                            if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, null))
+                                continue;
 
                             // First amendment control (has arg or omit)
                             if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
@@ -282,6 +284,8 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                     foreach (ref c; sc.controls) {
                         if (commandMatch(segment, c.cmd.value)) {
                             if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
+                                continue;
+                            if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, null))
                                 continue;
                             if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
                                 amendment = &c;

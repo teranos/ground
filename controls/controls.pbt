@@ -48,6 +48,13 @@ scope {
     decision: "deny"
 
     control {
+      name: "commit-not-requested"
+      cmd: "git commit"
+      check_handler: "commitNotRequested"
+      msg: "Do not commit. The developer has not verified this work. Tests passing does not confirm correctness — only the developer's manual verification does. Wait for the developer to explicitly request a commit after they have seen the change working."
+    }
+
+    control {
       name: "no-bulk-add"
       cmd: "=git add ."
       msg: "Stage files by name. Do not use git add . — it bypasses binary file detection and may include unintended files."
