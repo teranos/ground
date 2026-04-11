@@ -181,6 +181,25 @@ scope {
   }
 
   scope {
+    event: "SessionStart"
+
+    control {
+      name: "local-controls-separate-repo-start"
+      msg: "controls/local/ is a separate private GitHub repo, not part of this repository."
+    }
+  }
+
+  scope {
+    event: "PostToolUse"
+
+    control {
+      name: "local-controls-separate-repo-cd"
+      cmd: "cd"
+      msg: "controls/local/ is a separate private GitHub repo, not part of this repository."
+    }
+  }
+
+  scope {
     event: "UserPromptSubmit"
 
     control {
