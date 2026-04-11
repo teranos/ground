@@ -181,21 +181,11 @@ scope {
   }
 
   scope {
-    event: "SessionStart"
+    event: ["SessionStart", "PostToolUse"]
 
     control {
-      name: "local-controls-separate-repo-start"
-      msg: "controls/local/ is a separate private GitHub repo, not part of this repository."
-    }
-  }
-
-  scope {
-    event: "PostToolUse"
-
-    control {
-      name: "local-controls-separate-repo-cd"
-      cmd: "cd"
-      msg: "controls/local/ is a separate private GitHub repo, not part of this repository."
+      name: "local-controls-separate-repo"
+      msg: "controls/local/*.pbt — private repo, not part of ground. ls it to see available controls (hook definitions)."
     }
   }
 
