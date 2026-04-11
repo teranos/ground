@@ -247,6 +247,62 @@ unittest {
     assert(results.matches[1].control.name == "git-checkout-b");
 }
 
+// --- isCommitApproval tests ---
+
+unittest {
+    // Explicit "commit" in message — approved
+    import control_handlers : isCommitApproval;
+    assert(isCommitApproval("ok commit"));
+}
+
+unittest {
+    // "ok" by itself — counts as approval (post-denial confirmation)
+    import control_handlers : isCommitApproval;
+    assert(isCommitApproval("ok"));
+}
+
+unittest {
+    // "y" by itself — counts as approval
+    import control_handlers : isCommitApproval;
+    assert(isCommitApproval("y"));
+}
+
+unittest {
+    // "ok" with whitespace — still counts
+    import control_handlers : isCommitApproval;
+    assert(isCommitApproval("  ok  "));
+}
+
+unittest {
+    // "y" with whitespace — still counts
+    import control_handlers : isCommitApproval;
+    assert(isCommitApproval("  y\n"));
+}
+
+unittest {
+    // "sure" by itself — counts as approval
+    import control_handlers : isCommitApproval;
+    assert(isCommitApproval("sure"));
+}
+
+unittest {
+    // Random message without "commit" — not approved
+    import control_handlers : isCommitApproval;
+    assert(!isCommitApproval("fix the bug please"));
+}
+
+unittest {
+    // "ok" inside a longer message — not a bare confirmation
+    import control_handlers : isCommitApproval;
+    assert(!isCommitApproval("ok fix the bug"));
+}
+
+unittest {
+    // "yes" is not "y" — not a bare confirmation (and no "commit")
+    import control_handlers : isCommitApproval;
+    assert(!isCommitApproval("yes"));
+}
+
 // --- containsExact (case-sensitive) tests ---
 
 static assert(containsExact("LICENSE", "LICENSE"));

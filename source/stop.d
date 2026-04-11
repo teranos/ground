@@ -191,7 +191,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         continue;
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
                     sqlite3_close(db);
-                    writeStopResponseAndNotify(c.msg.value);
+                    import matcher : envSubst;
+                    writeStopResponseAndNotify(envSubst(c.msg.value, cwd));
                     return 0;
                 }
             }

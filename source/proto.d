@@ -59,8 +59,15 @@ struct ParsedScope {
 
 struct ParsedProject {
     string path;
-    string[4096] files;
+    string[256] files;
     size_t fileCount;
+}
+
+struct ParsedEnv {
+    string path;
+    string[16] keys;
+    string[16] values;
+    ubyte count;
 }
 
 struct ParseResult {
@@ -72,6 +79,8 @@ struct ParseResult {
     size_t permPoolLen;
     ParsedProject[pbtCounts.totalProjects + 4] projects;
     size_t projectCount;
+    ParsedEnv[pbtCounts.totalEnvs + 1] envs;
+    size_t envCount;
 }
 
 // --- Flat file list extraction (CTFE) ---
@@ -97,6 +106,36 @@ auto extractProjectFiles(PR)(const PR parsed) {
     }
     result.len = pos;
     return result;
+}
+
+// --- Env lookup (CTFE) ---
+// Finds the env block whose path best matches cwd, returns value for key.
+// Returns null if no match. Used by CTFE tests; runtime uses envSubst.
+
+string envLookup(PR)(const PR parsed, string cwd, string key) {
+    int bestIdx = -1;
+    size_t bestLen = 0;
+    foreach (i; 0 .. parsed.envCount) {
+        auto p = parsed.envs[i].path;
+        if (p.length > 0 && cwd.length >= p.length) {
+            // Substring match (same as runtime contains)
+            foreach (j; 0 .. cwd.length - p.length + 1) {
+                if (cwd[j .. j + p.length] == p) {
+                    if (p.length > bestLen) {
+                        bestLen = p.length;
+                        bestIdx = cast(int) i;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    if (bestIdx < 0) return null;
+    foreach (k; 0 .. parsed.envs[bestIdx].count) {
+        if (parsed.envs[bestIdx].keys[k] == key)
+            return parsed.envs[bestIdx].values[k];
+    }
+    return null;
 }
 
 // --- Default (no-op) handler resolvers ---
@@ -425,8 +464,12 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
     string projectPath;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
-    string[4096] files;
+    string[256] files;
     size_t fCount;
+    // Env stored in separate lightweight pool (not in ParsedProject — too large)
+    string[16] envKeys;
+    string[16] envValues;
+    ubyte envCount;
 
     while (pos < input.length) {
         skipWS(input, pos);
@@ -439,12 +482,25 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
+            // Store env block separately with project path
+            if (envCount > 0) {
+                assert(result.envCount < result.envs.length, "Env overflow");
+                result.envs[result.envCount].path = projectPath;
+                result.envs[result.envCount].keys = envKeys;
+                result.envs[result.envCount].values = envValues;
+                result.envs[result.envCount].count = envCount;
+                result.envCount++;
+            }
             return;
         }
 
         auto key = readWord(input, pos);
         auto wm = splitMode(key);
-        if (wm.base == "scope") {
+        if (wm.base == "env") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            parseEnvBlock(input, pos, envKeys, envValues, envCount);
+        } else if (wm.base == "scope") {
             skipWS(input, pos);
             expect(input, pos, '{');
             parseScope(input, pos, result, "", "");
@@ -506,6 +562,28 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
         }
     }
     assert(0, "Unterminated project block");
+}
+
+void parseEnvBlock(ref string input, ref size_t pos,
+    ref string[16] keys, ref string[16] values, ref ubyte count)
+{
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+        assert(count < 16, "Too many env variables");
+        keys[count] = key;
+        values[count] = val;
+        count++;
+    }
+    assert(0, "Unterminated env block");
 }
 
 ParsedControl parseControl(ref string input, ref size_t pos) {

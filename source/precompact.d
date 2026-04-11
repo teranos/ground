@@ -1,6 +1,6 @@
 module precompact;
 
-import matcher : contains;
+import matcher : contains, envSubst;
 import hooks : scopeMatches;
 import parse : fputs2;
 import core.stdc.stdio : stdin, stdout, fputs, fread, fwrite, FILE;
@@ -20,7 +20,7 @@ int handlePreCompact(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             first = false;
 
             if (c.msg.value.length > 0)
-                fputs2(c.msg.value);
+                fputs2(envSubst(c.msg.value, cwd));
 
             if (c.cmd.value.length > 0) {
                 __gshared char[4096] cmdBuf = 0;

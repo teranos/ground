@@ -45,22 +45,50 @@ bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
         sqlite3_finalize(commitStmt);
     }
 
-    // Check if user said "commit" after that rowid (or ever, if no prior commit)
-    enum userSaidSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 AND attributes LIKE '%commit%' LIMIT 1\0";
+    // Check last 3 user messages after the last commit — any approval counts.
+    // Window: 3 past messages. After denial, user says "ok"/"y", next attempt sees it.
+    enum last3Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 ORDER BY rowid DESC LIMIT 3\0";
 
+    import db : sqlite3_column_text;
     sqlite3_stmt* userStmt;
     bool userSaid = false;
-    if (sqlite3_prepare_v2(db, userSaidSql.ptr, -1, &userStmt, null) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, last3Sql.ptr, -1, &userStmt, null) == SQLITE_OK) {
         sqlite3_bind_text(userStmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
         sqlite3_bind_int64(userStmt, 2, lastCommitRowid);
-        userSaid = sqlite3_step(userStmt) == SQLITE_ROW;
+        while (sqlite3_step(userStmt) == SQLITE_ROW) {
+            auto text = sqlite3_column_text(userStmt, 0);
+            if (text !is null) {
+                size_t tlen = 0;
+                while (text[tlen] != 0) tlen++;
+                if (isCommitApproval(text[0 .. tlen])) {
+                    userSaid = true;
+                    break;
+                }
+            }
+        }
         sqlite3_finalize(userStmt);
     }
 
     sqlite3_close(db);
 
-    // Fire (deny) if user did NOT say commit
+    // Fire (deny) if user did NOT approve a commit
     return !userSaid;
+}
+
+// Returns true if message is a commit approval: contains "commit", or is bare "ok"/"y".
+bool isCommitApproval(const(char)[] msg) {
+    if (contains(msg, "commit")) return true;
+
+    // Trim whitespace
+    size_t start = 0;
+    while (start < msg.length && (msg[start] == ' ' || msg[start] == '\t' || msg[start] == '\n' || msg[start] == '\r'))
+        start++;
+    size_t end = msg.length;
+    while (end > start && (msg[end - 1] == ' ' || msg[end - 1] == '\t' || msg[end - 1] == '\n' || msg[end - 1] == '\r'))
+        end--;
+    auto trimmed = msg[start .. end];
+
+    return trimmed == "ok" || trimmed == "y" || trimmed == "sure";
 }
 
 bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {

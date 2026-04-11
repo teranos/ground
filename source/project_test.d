@@ -90,6 +90,24 @@ static assert(projectWithFilesParsed.projects[0].files[0] == "source/main.d");
 static assert(projectWithFilesParsed.projects[0].files[1] == "source/proto.d");
 static assert(projectWithFilesParsed.projects[0].files[2] == "controls/controls.pbt");
 
+// Project with env block
+enum projectWithEnvInput = `
+project {
+  path: "/Users/me/code/qntx"
+  env {
+    port: "8771"
+  }
+}
+`;
+enum projectWithEnvParsed = parsePbt(projectWithEnvInput);
+static assert(projectWithEnvParsed.projectCount == 1);
+static assert(projectWithEnvParsed.projects[0].path == "/Users/me/code/qntx");
+static assert(projectWithEnvParsed.envCount == 1);
+static assert(projectWithEnvParsed.envs[0].path == "/Users/me/code/qntx");
+static assert(projectWithEnvParsed.envs[0].keys[0] == "port");
+static assert(projectWithEnvParsed.envs[0].values[0] == "8771");
+static assert(projectWithEnvParsed.envs[0].count == 1);
+
 // --- extractProjectFiles: flatten all project file lists into one array ---
 
 import proto : extractProjectFiles;

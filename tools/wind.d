@@ -35,6 +35,7 @@ void main() {
     size_t totalFiles;
 
     foreach (ref proj; projects) {
+        if (proj.envOnly) continue; // env-only projects don't need file lists
         if (!exists(proj.path) || !isDir(proj.path)) {
             stderr.writefln("wind: skip %s (not found)", proj.path);
             continue;
@@ -74,6 +75,7 @@ void main() {
 
 struct ProjectInfo {
     string path;
+    bool envOnly;
 }
 
 /// Find the closing } of the project block that contains the given path.
@@ -196,9 +198,26 @@ ProjectInfo[] extractProjectPaths(string input) {
         pos++;
 
         if (base == "project") {
+            auto blockStart = pos;
             auto path = findPathInBlock(input, pos);
+            // Check if block contains "env {" — env-only projects skip file walking
+            bool hasEnv = false;
+            {
+                auto scan = blockStart;
+                int d = 1;
+                while (scan < input.length && d > 0) {
+                    if (input[scan] == '"') { scan++; while (scan < input.length && input[scan] != '"') scan++; if (scan < input.length) scan++; }
+                    else if (input[scan] == '{') { d++; scan++; }
+                    else if (input[scan] == '}') { d--; scan++; }
+                    else {
+                        if (scan + 3 < input.length && input[scan .. scan + 3] == "env")
+                            hasEnv = true;
+                        scan++;
+                    }
+                }
+            }
             if (path.length > 0)
-                projects ~= ProjectInfo(path);
+                projects ~= ProjectInfo(path, hasEnv);
             skipBlock(input, pos);
         } else {
             skipBlock(input, pos);

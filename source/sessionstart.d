@@ -4,7 +4,7 @@ import core.stdc.stdio : stdout, stderr, fputs, fwrite, FILE, fopen, fread, fclo
 
 extern (C) FILE* popen(const(char)* command, const(char)* mode);
 extern (C) int pclose(FILE* stream);
-import matcher : contains, indexOf;
+import matcher : contains, indexOf, envSubst;
 
 // Only arch — Claude already receives Platform and OS Version from the environment.
 version (X86_64) enum ARCH = "x86_64";
@@ -233,7 +233,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                     ctx.put(delivered);
                 } else {
                     if (any) ctx.put(" | ");
-                    ctx.put(c.msg.value);
+                    ctx.put(envSubst(c.msg.value, cwd));
                 }
                 any = true;
 

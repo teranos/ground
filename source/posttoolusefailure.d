@@ -1,6 +1,6 @@
 module posttoolusefailure;
 
-import matcher : contains;
+import matcher : contains, envSubst;
 import hooks : scopeMatches;
 import parse : fputs2;
 import core.stdc.stdio : stdout, fputs;
@@ -27,7 +27,7 @@ int handlePostToolUseFailure(const(char)[] input, const(char)[] cwd, const(char)
                 attestControlFire(null, "GroundedPostToolUseFailure", c.name, cwd, sessionId);
             }
             fputs(`{"systemMessage":"`, stdout);
-            fputs2(c.msg.value);
+            fputs2(envSubst(c.msg.value, cwd));
             fputs(`"}`, stdout);
             fputs("\n", stdout);
             return 0;

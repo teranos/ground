@@ -397,7 +397,7 @@ FileMatch checkFilePath(const(char)[] filePath, const(char)[] cwd) {
 
                 if (msgBuf.len > 0)
                     msgBuf.put(" ");
-                msgBuf.put(c.msg.value);
+                msgBuf.put(envSubst(c.msg.value, cwd));
 
                 if (sc.decision == "ask")
                     decision = "ask";
@@ -486,5 +486,72 @@ StripBuf stripQuoted(const(char)[] cmd) {
         }
     }
     return result;
+}
+
+// --- Environment variable substitution ---
+// Replaces ${key} placeholders in msg using the env block from the project
+// whose path matches cwd. Longest-path-wins for multiple matches.
+
+const(char)[] envSubst(const(char)[] msg, const(char)[] cwd) {
+    // Fast path: no ${} in message
+    bool hasDollar = false;
+    foreach (i; 0 .. msg.length) {
+        if (i + 1 < msg.length && msg[i] == '$' && msg[i + 1] == '{') {
+            hasDollar = true;
+            break;
+        }
+    }
+    if (!hasDollar) return msg;
+
+    // Find matching env block — longest path wins
+    import controls : allParsed;
+    static immutable parsed = allParsed;
+
+    int bestIdx = -1;
+    size_t bestLen = 0;
+    foreach (i; 0 .. parsed.envCount) {
+        if (parsed.envs[i].path.length > 0 && contains(cwd, parsed.envs[i].path)) {
+            if (parsed.envs[i].path.length > bestLen) {
+                bestLen = parsed.envs[i].path.length;
+                bestIdx = cast(int) i;
+            }
+        }
+    }
+    if (bestIdx < 0) return msg;
+
+    // Substitute ${key} with values from the matching env block
+    __gshared Buf envBuf;
+    envBuf.len = 0;
+
+    size_t pos = 0;
+    while (pos < msg.length) {
+        if (pos + 1 < msg.length && msg[pos] == '$' && msg[pos + 1] == '{') {
+            auto keyStart = pos + 2;
+            auto keyEnd = keyStart;
+            while (keyEnd < msg.length && msg[keyEnd] != '}') keyEnd++;
+            if (keyEnd >= msg.length) {
+                envBuf.put(msg[pos .. $]);
+                break;
+            }
+            auto key = msg[keyStart .. keyEnd];
+
+            bool found = false;
+            foreach (k; 0 .. parsed.envs[bestIdx].count) {
+                if (parsed.envs[bestIdx].keys[k] == key) {
+                    envBuf.put(parsed.envs[bestIdx].values[k]);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                envBuf.put(msg[pos .. keyEnd + 1]);
+            }
+            pos = keyEnd + 1;
+        } else {
+            envBuf.data[envBuf.len++] = msg[pos];
+            pos++;
+        }
+    }
+    return envBuf.slice();
 }
 

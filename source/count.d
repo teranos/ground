@@ -10,6 +10,7 @@ struct PbtCounts {
     int totalControls;
     int totalPerms;
     int totalProjects;
+    int totalEnvs;
 }
 
 PbtCounts countPbt(string input) {
@@ -149,6 +150,11 @@ void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
             r.totalScopes++;
             r.totalPerms++;
             if (r.maxPermsPerScope < 1) r.maxPermsPerScope = 1;
+        } else if (wm.base == "env") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
+            r.totalEnvs++;
         } else {
             // Field: key: value
             skipWS(input, pos);

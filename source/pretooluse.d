@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, indexOf, contains, hasSegment, Buf;
+import matcher : checkAllCommands, applyArg, applyOmit, indexOf, contains, hasSegment, Buf, envSubst;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
@@ -129,7 +129,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
                     if (!alreadyFired) {
                         if (allMessages.len > 0) allMessages.put(" | ");
-                        allMessages.put(c.msg.value);
+                        allMessages.put(envSubst(c.msg.value, cwd));
                         if (db !is null) {
                             __gshared ZBuf groundedAttrs;
                             groundedAttrs.reset();
@@ -162,7 +162,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
                     if (c.msg.value.length > 0) {
                         if (allMessages.len > 0) allMessages.put(" | ");
-                        allMessages.put(c.msg.value);
+                        allMessages.put(envSubst(c.msg.value, cwd));
                     }
                 }
             }
@@ -261,7 +261,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     continue;
 
                 if (fileMsgBuf.len > 0) fileMsgBuf.put(" ");
-                fileMsgBuf.put(c.msg.value);
+                fileMsgBuf.put(envSubst(c.msg.value, cwd));
 
                 if (sc.decision == "ask") fileDecision = "ask";
                 else if (fileDecision.length == 0) fileDecision = sc.decision;

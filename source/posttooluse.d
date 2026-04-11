@@ -1,6 +1,6 @@
 module posttooluse;
 
-import matcher : hasSegment, contains;
+import matcher : hasSegment, contains, envSubst;
 import hooks : Control, scopeMatches;
 import parse : extractCommand, extractFilePath, extractToolName, writeJsonString;
 import core.stdc.stdio : stdout, fputs;
@@ -71,7 +71,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 if (db !is null) sqlite3_close(db);
 
                 fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"`, stdout);
-                writeJsonString(c.msg.value);
+                writeJsonString(envSubst(c.msg.value, cwd));
                 fputs(`"}}`, stdout);
                 fputs("\n", stdout);
                 return 0;

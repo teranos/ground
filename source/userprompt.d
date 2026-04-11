@@ -4,7 +4,7 @@ module userprompt;
 // TODO: use permission_mode to adjust behavior (e.g. stricter in plan mode)
 
 import parse : extractJsonString;
-import matcher : contains;
+import matcher : contains, envSubst;
 import controls : userPromptScopes;
 import hooks : scopeMatches;
 import db : ZBuf, openDb, attestationExists, attestEvent, sqlite3_close;
@@ -41,7 +41,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
                 continue;
 
             if (any) ctx.put(" | ");
-            ctx.put(c.msg.value);
+            ctx.put(envSubst(c.msg.value, cwd));
             any = true;
 
             if (db !is null) {
