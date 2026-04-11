@@ -646,3 +646,35 @@ enum cmdScopeBuilt = buildScopes(cmdScopeParsed, "Stop");
 static assert(cmdScopeBuilt.len == 1);
 static assert(cmdScopeBuilt.items[0].cmdCount == 1);
 static assert(cmdScopeBuilt.items[0].cmds[0] == "!make install");
+
+// --- event: array syntax (multi-event scopes) ---
+
+enum multiEventInput = `
+scope {
+  path: "/ground"
+  event: ["SessionStart", "PostToolUse"]
+
+  control {
+    name: "local-controls-reminder"
+    msg: "controls/local/ is a separate repo"
+  }
+}
+`;
+enum multiEventParsed = parsePbt(multiEventInput);
+// Single scope in parsed output, but matches both events
+static assert(multiEventParsed.scopeCount == 1);
+static assert(multiEventParsed.scopes[0].paths[0] == "/ground");
+static assert(ctrl(multiEventParsed, 0, 0).name == "local-controls-reminder");
+
+// buildScopes should find this scope for both events
+enum multiEventSessionStart = buildScopes(multiEventParsed, "SessionStart");
+static assert(multiEventSessionStart.len == 1);
+static assert(multiEventSessionStart.items[0].controls[0].name == "local-controls-reminder");
+
+enum multiEventPostToolUse = buildScopes(multiEventParsed, "PostToolUse");
+static assert(multiEventPostToolUse.len == 1);
+static assert(multiEventPostToolUse.items[0].controls[0].name == "local-controls-reminder");
+
+// Should NOT match unrelated events
+enum multiEventStop = buildScopes(multiEventParsed, "Stop");
+static assert(multiEventStop.len == 0);

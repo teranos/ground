@@ -50,6 +50,8 @@ struct ParsedScope {
     string[8] cmds;
     ubyte cmdCount;
     string decision, event;
+    string[3] extraEvents;
+    ubyte extraEventCount;
     size_t controlStart, controlEnd;     // indices into ParseResult.ctrlPool
     size_t permStart, permEnd;           // indices into ParseResult.permPool
 
@@ -166,7 +168,12 @@ ScopeSet buildScopes(
 
     foreach (i; 0 .. parsed.scopeCount) {
         auto ps = &parsed.scopes[i];
-        if (ps.event != eventFilter) continue;
+        if (ps.event != eventFilter) {
+            bool found = false;
+            foreach (ei; 0 .. ps.extraEventCount)
+                if (ps.extraEvents[ei] == eventFilter) { found = true; break; }
+            if (!found) continue;
+        }
 
         auto ctrlStart = poolLen;
         foreach (j; ps.controlStart .. ps.controlEnd) {
@@ -422,7 +429,26 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
                     }
                     break;
                 case "decision": sc.decision = val; break;
-                case "event":    sc.event = val; break;
+                case "event":
+                    if (val is null) {
+                        // Array syntax: event: ["SessionStart", "PostToolUse"]
+                        bool first = true;
+                        while (pos < input.length) {
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ']') { pos++; break; }
+                            auto item = readValue(input, pos);
+                            if (first) { sc.event = item; first = false; }
+                            else {
+                                assert(sc.extraEventCount < 3, "Event list overflow");
+                                sc.extraEvents[sc.extraEventCount++] = item;
+                            }
+                            skipWS(input, pos);
+                            if (pos < input.length && input[pos] == ',') pos++;
+                        }
+                    } else {
+                        sc.event = val;
+                    }
+                    break;
                 case "edited":
                     if (val is null) {
                         while (pos < input.length) {

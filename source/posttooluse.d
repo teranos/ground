@@ -36,6 +36,8 @@ bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] file
 {
     if (c.mode.value.length > 0 && !modeMatches(c.mode.value, toolName))
         return false;
+    if (c.cmd.value.length == 0 && c.filepath.value.length == 0)
+        return true;
     if (c.cmd.value.length > 0 && command.length > 0 && hasSegment(command, c.cmd.value))
         return true;
     if (c.filepath.value.length > 0 && filePath.length > 0 && contains(filePath, c.filepath.value))
