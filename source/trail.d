@@ -37,63 +37,52 @@ TrailMatch checkTrailControls(const(char)[] branch, sqlite3* db) {
 
 bool clippyMatch(sqlite3* db, const(char)[] branch) {
     import db : buildSubject;
-    // Build the full subject (e.g. "tmp/ground:main") to match the indexed column
     __gshared ZBuf subjectVal;
-    // Need cwd to build subject — get it from the global in stop.d
     import stop : g_cwd;
     buildSubject(subjectVal, g_cwd, branch);
 
-    enum sql = "SELECT attributes, timestamp FROM attestations WHERE json_extract(subjects, '$[0]') = ?1 ORDER BY timestamp ASC\0";
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return false;
-    sqlite3_bind_text(stmt, 1, subjectVal.ptr(), cast(int) subjectVal.len, SQLITE_TRANSIENT);
+    // Three targeted queries instead of full table scan.
+    // Each finds the latest timestamp for its category, ordered DESC LIMIT 1.
 
     __gshared char[32] latestClippy = 0;
     __gshared char[32] latestRs = 0;
     __gshared char[32] latestReminder = 0;
-    __gshared size_t clippyLen;
-    __gshared size_t rsLen;
-    __gshared size_t reminderLen;
-    clippyLen = 0;
-    rsLen = 0;
-    reminderLen = 0;
+    size_t clippyLen = 0;
+    size_t rsLen = 0;
+    size_t reminderLen = 0;
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto attrsPtr = sqlite3_column_text(stmt, 0);
-        auto tsPtr = sqlite3_column_text(stmt, 1);
-        if (attrsPtr is null || tsPtr is null) continue;
+    // Latest .rs edit (Write or Edit)
+    // Match .rs" — the trailing quote ensures it's a filename ending in .rs inside JSON
+    enum rsSql = "SELECT timestamp FROM attestations WHERE json_extract(subjects, '$[0]') = ?1 AND attributes LIKE '%.rs\"%' AND (attributes LIKE '%\"Write\"%' OR attributes LIKE '%\"Edit\"%') ORDER BY timestamp DESC LIMIT 1\0";
+    rsLen = queryLatestTs(db, rsSql, subjectVal, latestRs);
+    if (rsLen == 0) return false; // no .rs edits — nothing to check
 
-        size_t attrsLen = 0;
-        while (attrsPtr[attrsLen] != 0) attrsLen++;
-        auto attrs = attrsPtr[0 .. attrsLen];
-
-        size_t tsLen = 0;
-        while (tsPtr[tsLen] != 0) tsLen++;
-        auto ts = tsPtr[0 .. tsLen];
-
-        // Rows are ordered ASC, so last match wins (= latest timestamp)
-        if (contains(attrs, "cargo clippy")) {
-            copyTs(ts, latestClippy);
-            clippyLen = tsLen < 32 ? tsLen : 32;
-        }
-        if (contains(attrs, `.rs"`) && (contains(attrs, `"Write"`) || contains(attrs, `"Edit"`))) {
-            copyTs(ts, latestRs);
-            rsLen = tsLen < 32 ? tsLen : 32;
-        }
-        if (contains(attrs, "clippy-reminder")) {
-            copyTs(ts, latestReminder);
-            reminderLen = tsLen < 32 ? tsLen : 32;
-        }
-    }
-
-    sqlite3_finalize(stmt);
-
-    if (rsLen == 0) return false;
+    // Latest clippy-reminder delivery
+    enum reminderSql = "SELECT timestamp FROM attestations WHERE json_extract(subjects, '$[0]') = ?1 AND attributes LIKE '%clippy-reminder%' ORDER BY timestamp DESC LIMIT 1\0";
+    reminderLen = queryLatestTs(db, reminderSql, subjectVal, latestReminder);
     if (reminderLen > 0 && compareTs(latestReminder[0 .. reminderLen], latestRs[0 .. rsLen]) >= 0) return false;
+
+    // Latest cargo clippy run
+    enum clippySql = "SELECT timestamp FROM attestations WHERE json_extract(subjects, '$[0]') = ?1 AND attributes LIKE '%cargo clippy%' ORDER BY timestamp DESC LIMIT 1\0";
+    clippyLen = queryLatestTs(db, clippySql, subjectVal, latestClippy);
     if (clippyLen == 0) return true; // .rs edits but never ran clippy
     return compareTs(latestRs[0 .. rsLen], latestClippy[0 .. clippyLen]) > 0;
+}
+
+size_t queryLatestTs(sqlite3* db, const(char)* sql, ref ZBuf subjectVal, ref char[32] tsBuf) {
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, null) != SQLITE_OK)
+        return 0;
+    sqlite3_bind_text(stmt, 1, subjectVal.ptr(), cast(int) subjectVal.len, SQLITE_TRANSIENT);
+    size_t len = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto tsPtr = sqlite3_column_text(stmt, 0);
+        if (tsPtr !is null) {
+            while (tsPtr[len] != 0 && len < 32) { tsBuf[len] = tsPtr[len]; len++; }
+        }
+    }
+    sqlite3_finalize(stmt);
+    return len;
 }
 
 void copyTs(const(char)[] src, ref char[32] dst) {

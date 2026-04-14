@@ -110,7 +110,7 @@ scope {
     control {
       name: "git-checkout-b"
       cmd: "git checkout -b"
-      msg: "Check main for unpushed commits and push them first. Update documentation to describe intended behavior. Ask critical design questions. Then open a PR."
+      msg: "Check main for unpushed commits and push them first. Update documentation to describe intended behavior. Ask 1 critical design question. Then open a PR."
     }
 
     control {
@@ -155,6 +155,12 @@ scope {
       name: "control-ritual"
       filepath: ".pbt"
       msg: "After writing a control, verify it works: simulate the scenario that would trigger it and confirm the control fires as expected."
+    }
+
+    control {
+      name: "controls-dir-reminder"
+      filepath: "controls/"
+      msg: "controls/ has two directories: controls/*.pbt (open source, compiled in) and controls/local/*.pbt (private repo). Search both."
     }
   }
 
