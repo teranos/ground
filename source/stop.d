@@ -283,14 +283,18 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     }
 
     // Check project-scoped deferred messages (from QNTX)
+    // Gate: if cwd is a git repo, only deliver on main/master
     {
-        import deferred : readProjectDeferredMessage, markProjectDelivered;
-        auto projDeferred = readProjectDeferredMessage(db, cwd);
-        if (projDeferred.message !is null) {
-            markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
-            sqlite3_close(db);
-            writeStopResponseAndNotify(projDeferred.message);
-            return 2;
+        auto branch = getBranch(cwd);
+        if (branch is null || branch == "main" || branch == "master") {
+            import deferred : readProjectDeferredMessage, markProjectDelivered;
+            auto projDeferred = readProjectDeferredMessage(db, cwd);
+            if (projDeferred.message !is null) {
+                markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
+                sqlite3_close(db);
+                writeStopResponseAndNotify(projDeferred.message);
+                return 2;
+            }
         }
     }
 

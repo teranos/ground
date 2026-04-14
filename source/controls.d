@@ -73,3 +73,8 @@ import proto : extractProjectFiles;
 private static immutable _projFiles = extractProjectFiles(allParsed);
 static immutable projectFiles = _projFiles.files[0 .. _projFiles.len];
 
+// QNTX nodes and attestations — built at CTFE from qntx/attestation blocks
+import proto : ParsedQntxNode, ParsedAttestation;
+static immutable qntxNodes = allParsed.qntxNodes[0 .. allParsed.qntxNodeCount];
+static immutable attestations = allParsed.attestations[0 .. allParsed.attestationCount];
+

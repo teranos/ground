@@ -48,6 +48,10 @@ PbtCounts countPbt(string input) {
             expect(input, pos, '{');
             r.totalProjects++;
             countProject(input, pos, r);
+        } else if (wm.base == "qntx" || wm.base == "attestation") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
         }
     }
     return r;

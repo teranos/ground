@@ -716,3 +716,45 @@ static assert(mcpBuilt.len == 1);
 static assert(mcpBuilt.items[0].mcpTool == "read_messages");
 static assert(mcpBuilt.items[0].controls[0].mcpArg.value == "Alice");
 static assert(mcpBuilt.items[0].controls[1].mcpArg.value == "Bob");
+
+// --- qntx block + attestation block ---
+
+enum qntxInput = `
+qntx {
+  node {
+    url: "http://localhost:8771"
+  }
+  node {
+    url: "http://localhost:8772"
+  }
+}
+
+attestation {
+  subject: "telegram:chat:1667286968"
+  predicate: "raven:route"
+  context: "project:SBVH"
+  attributes: {
+    "chat_id": 1667286968,
+    "project": "SBVH",
+    "chat_name": "Danilo"
+  }
+}
+
+attestation {
+  subject: "telegram:chat:355422856"
+  predicate: "raven:route"
+  context: "project:SBVH"
+}
+`;
+enum qntxParsed = parsePbt(qntxInput);
+static assert(qntxParsed.qntxNodeCount == 2);
+static assert(qntxParsed.qntxNodes[0].url == "http://localhost:8771");
+static assert(qntxParsed.qntxNodes[1].url == "http://localhost:8772");
+static assert(qntxParsed.attestationCount == 2);
+static assert(qntxParsed.attestations[0].subject == "telegram:chat:1667286968");
+static assert(qntxParsed.attestations[0].predicate == "raven:route");
+static assert(qntxParsed.attestations[0].context == "project:SBVH");
+static assert(qntxParsed.attestations[0].attributes.length > 0);
+static assert(qntxParsed.attestations[1].subject == "telegram:chat:355422856");
+static assert(qntxParsed.attestations[1].predicate == "raven:route");
+static assert(qntxParsed.attestations[1].attributes.length == 0);

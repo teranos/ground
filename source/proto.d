@@ -73,6 +73,17 @@ struct ParsedEnv {
     ubyte count;
 }
 
+struct ParsedQntxNode {
+    string url;
+}
+
+struct ParsedAttestation {
+    string subject;
+    string predicate;
+    string context;
+    string attributes; // raw JSON
+}
+
 struct ParseResult {
     ParsedScope[pbtCounts.totalScopes + 1] scopes;
     size_t scopeCount;
@@ -84,6 +95,10 @@ struct ParseResult {
     size_t projectCount;
     ParsedEnv[pbtCounts.totalEnvs + 4] envs;
     size_t envCount;
+    ParsedQntxNode[16] qntxNodes;
+    size_t qntxNodeCount;
+    ParsedAttestation[32] attestations;
+    size_t attestationCount;
 }
 
 // --- Flat file list extraction (CTFE) ---
@@ -335,8 +350,16 @@ ParseResult parsePbt(string input) {
             skipWS(input, pos);
             expect(input, pos, '{');
             parseProject(input, pos, result);
+        } else if (wm.base == "qntx") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            parseQntx(input, pos, result);
+        } else if (wm.base == "attestation") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            parseAttestation(input, pos, result);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', or 'project'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'qntx', or 'attestation'");
         }
     }
     return result;
@@ -785,5 +808,91 @@ ParsedPermission parsePermission(ref string input, ref size_t pos) {
         }
     }
     assert(0, "Unterminated permission block");
+}
+
+void parseQntx(ref string input, ref size_t pos, ref ParseResult result) {
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return; }
+
+        auto key = readWord(input, pos);
+        if (key == "node") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(result.qntxNodeCount < result.qntxNodes.length, "QNTX node overflow");
+            result.qntxNodes[result.qntxNodeCount] = parseQntxNode(input, pos);
+            result.qntxNodeCount++;
+        } else {
+            assert(0, "Unknown qntx field — expected 'node'");
+        }
+    }
+    assert(0, "Unterminated qntx block");
+}
+
+ParsedQntxNode parseQntxNode(ref string input, ref size_t pos) {
+    ParsedQntxNode n;
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return n; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+        switch (key) {
+            case "url": n.url = val; break;
+            default: assert(0, "Unknown node field");
+        }
+    }
+    assert(0, "Unterminated node block");
+}
+
+void parseAttestation(ref string input, ref size_t pos, ref ParseResult result) {
+    assert(result.attestationCount < result.attestations.length, "Attestation overflow");
+    ParsedAttestation a;
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') {
+            pos++;
+            result.attestations[result.attestationCount] = a;
+            result.attestationCount++;
+            return;
+        }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+
+        if (key == "attributes") {
+            // Capture raw JSON block between { and matching }
+            assert(pos < input.length && input[pos] == '{', "Expected '{' for attributes");
+            size_t start = pos;
+            int depth = 0;
+            while (pos < input.length) {
+                if (input[pos] == '{') depth++;
+                else if (input[pos] == '}') { depth--; if (depth == 0) { pos++; break; } }
+                else if (input[pos] == '"') { pos++; while (pos < input.length && input[pos] != '"') pos++; }
+                pos++;
+            }
+            a.attributes = input[start .. pos];
+        } else {
+            auto val = readValue(input, pos);
+            switch (key) {
+                case "subject": a.subject = val; break;
+                case "predicate": a.predicate = val; break;
+                case "context": a.context = val; break;
+                default: assert(0, "Unknown attestation field");
+            }
+        }
+    }
+    assert(0, "Unterminated attestation block");
 }
 

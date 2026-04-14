@@ -172,6 +172,10 @@ extern (C) int main(int argc, const(char)** argv) {
         const(char)[] cmd = argv[1][0 .. argLen(argv[1])];
         if (cmd == "shovel")
             return handleShovel(argc, argv);
+        if (cmd == "attest") {
+            import attest : handleAttest;
+            return handleAttest();
+        }
     }
 
     if (isatty(0)) {
