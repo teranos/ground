@@ -286,7 +286,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     // Gate: if cwd is a git repo, only deliver on main/master
     {
         auto branch = getBranch(cwd);
-        if (branch is null || branch == "main" || branch == "master") {
+        if (branch is null || branch == "unknown" || branch == "main" || branch == "master") {
             import deferred : readProjectDeferredMessage, markProjectDelivered;
             auto projDeferred = readProjectDeferredMessage(db, cwd);
             if (projDeferred.message !is null) {

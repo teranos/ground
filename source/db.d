@@ -74,6 +74,10 @@ sqlite3* openStandaloneDb() {
         return null;
     }
 
+    // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
+    // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
+    sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
+
     // Create table if needed
     enum schema = "CREATE TABLE IF NOT EXISTS attestations ("
         ~ "id TEXT PRIMARY KEY, subjects JSON NOT NULL, predicates JSON NOT NULL, "
@@ -94,10 +98,12 @@ sqlite3* openStandaloneDb() {
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";
     enum idxPredSession = "CREATE INDEX IF NOT EXISTS idx_attestations_pred_session ON attestations(json_extract(predicates, '$[0]'), json_extract(contexts, '$[0]'))\0";
+    enum idxSubjectTs = "CREATE INDEX IF NOT EXISTS idx_attestations_subject_ts ON attestations(json_extract(subjects, '$[0]'), timestamp DESC)\0";
     sqlite3_exec(db, idxPredicate.ptr, null, null, null);
     sqlite3_exec(db, idxControl.ptr, null, null, null);
     sqlite3_exec(db, idxSubject.ptr, null, null, null);
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
+    sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
 
     return db;
 }
