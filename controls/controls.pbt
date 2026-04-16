@@ -154,7 +154,7 @@ scope {
     control {
       name: "control-ritual"
       filepath: ".pbt"
-      msg: "After writing a control, verify it works: simulate the scenario that would trigger it and confirm the control fires as expected."
+      msg: `pbt syntax — all values are quoted strings. Example: scope { path: "/ctp/raven"  event: "UserPromptSubmit"  control { name: "x" userprompt: ["keyword1", "keyword2"] msg: "The message." } }. After writing, verify it works: simulate the trigger scenario and confirm it fires. controls/ has two dirs: controls/*.pbt (open source) and controls/local/*.pbt (private).`
     }
 
     control {
