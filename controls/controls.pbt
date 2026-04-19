@@ -41,6 +41,12 @@ scope {
       cmd: "gh pr ready"
       msg: "This means the pr is ready to merge"
     }
+
+    control {
+      name: "pr-description-no-stats"
+      cmd: ["gh pr create", "gh pr edit"]
+      msg: "PR descriptions: why, not what. No LOC counts, no file counts, no diff stats — GitHub shows those. No 'Scope' or 'Changes' sections that restate the diff."
+    }
   }
 
   # Deny — hard blocks. "=" prefix means exact match (no trailing args).
