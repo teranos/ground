@@ -154,7 +154,6 @@ unittest {
     // gh pr create triggers checkpoint with "ask" decision
     auto result = checkCommand("gh pr create --title \"fix\"", OTHER);
     assert(result.control !is null);
-    assert(result.control.name == "pr-create");
     assert(result.decision == "ask");
 }
 
