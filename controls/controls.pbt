@@ -116,7 +116,7 @@ scope {
     control {
       name: "git-checkout-b"
       cmd: "git checkout -b"
-      msg: "Check main for unpushed commits and push them first. Update documentation to describe intended behavior. Ask 1 critical design question. Then open a PR."
+      msg: "Check main for unpushed commits and push them first. Commit the smallest documentation change that describes intended behavior — before any code. Ask 1 critical design question. Then: TDD — failing test, confirm failure, make it pass. Stop after each step for review."
     }
 
     control {
