@@ -4,13 +4,24 @@ import matcher : checkAllCommands, applyArg, applyOmit, indexOf, contains, hasSe
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
+// Advisory controls inject context without overriding permission prompts.
+// Only explicit "ask" or "deny" should be sent as permissionDecision.
+const(char)[] advisoryDecision(const(char)[] decision) {
+    if (decision == "ask" || decision == "deny") return decision;
+    return "";
+}
+
 // --- JSON response writers (PreToolUse format) ---
 
 // Context-only response for non-Bash tools (no updatedInput).
 void writeContextResponse(const(char)[] context, const(char)[] decision) {
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"`, stdout);
-    fputs2(decision);
-    fputs(`","additionalContext":"`, stdout);
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`, stdout);
+    if (decision.length > 0) {
+        fputs(`,"permissionDecision":"`, stdout);
+        fputs2(decision);
+        fputs(`"`, stdout);
+    }
+    fputs(`,"additionalContext":"`, stdout);
     writeJsonString(context);
     fputs(`"}}`, stdout);
     fputs("\n", stdout);
@@ -284,7 +295,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (db !is null) sqlite3_close(db);
 
         if (mcpMsgBuf.len > 0) {
-            writeContextResponse(mcpMsgBuf.slice(), "allow");
+            writeContextResponse(mcpMsgBuf.slice(), "");
             return 0;
         }
     }
@@ -327,7 +338,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (db !is null) sqlite3_close(db);
 
         if (fileMsgBuf.len > 0) {
-            writeContextResponse(fileMsgBuf.slice(), fileDecision);
+            writeContextResponse(fileMsgBuf.slice(), advisoryDecision(fileDecision));
             return 0;
         }
     }

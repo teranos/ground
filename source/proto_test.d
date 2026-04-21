@@ -133,11 +133,20 @@ static assert(ctrl(testParsed, 2, 0).deferMsg == "");
 // Scope 3: SessionStart with check handler
 static assert(ctrl(testParsed, 3, 0).checkHandler == "testCheck");
 
-// Scope 4: defaults — path="" and decision="allow" when omitted
+// Scope 4: defaults — path="" and decision="" when omitted
 static assert(testParsed.scopes[4].pathCount == 0);
 static assert(testParsed.scopes[4].decision == "");
 static assert(ctrl(testParsed, 4, 0).name == "test-defaults");
 static assert(ctrl(testParsed, 4, 0).msg == "");
+
+// BUG: advisory filepath controls must not auto-approve edits.
+// Filepath controls inject context — they are not permission decisions.
+// A scope with no explicit decision: must not produce "allow" in the response.
+import pretooluse : advisoryDecision;
+static assert(advisoryDecision("allow") == "");   // default "allow" → no decision
+static assert(advisoryDecision("") == "");         // empty → no decision
+static assert(advisoryDecision("ask") == "ask");   // explicit ask → preserved
+static assert(advisoryDecision("deny") == "deny"); // explicit deny → preserved
 
 // Scope 5: Stop with list triggers
 static assert(testParsed.scopes[5].event == "Stop");
