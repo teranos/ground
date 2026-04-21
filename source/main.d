@@ -176,6 +176,15 @@ extern (C) int main(int argc, const(char)** argv) {
             import attest : handleAttest;
             return handleAttest();
         }
+        if (cmd == "decay") {
+            import decay : decayDb;
+            import db : openDb, sqlite3_close;
+            auto db = openDb();
+            if (db is null) { fputs("ground decay: cannot open db\n", stderr); return 1; }
+            auto rc = decayDb(db);
+            sqlite3_close(db);
+            return rc;
+        }
     }
 
     if (isatty(0)) {

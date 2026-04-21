@@ -15,3 +15,4 @@ install: build
 	mkdir -p $(PREFIX)/bin
 	cp ground $(PREFIX)/bin/ground
 	./ground attest
+	./ground decay

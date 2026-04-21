@@ -25,6 +25,7 @@ extern (C) {
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
     long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
+    int sqlite3_changes(sqlite3* db);
 }
 
 extern (C) {
