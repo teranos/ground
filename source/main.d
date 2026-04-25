@@ -197,6 +197,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import attest : handleAttest;
             return handleAttest();
         }
+        if (cmd == "profile") {
+            import profile : handleProfile;
+            return handleProfile(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
