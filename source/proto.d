@@ -34,7 +34,7 @@ struct ParsedControl {
     string arg, omit;
     string[16] triggers;
     ubyte triggerCount;
-    string filepath, msg, mcpArg;
+    string filepath, msg, mcpArg, content;
     string[8] userprompts;
     ubyte userpromptCount;
     bool bg;
@@ -213,6 +213,7 @@ ScopeSet buildScopes(
             }
             c.msg = Msg(pc.msg);
             c.mcpArg = McpArg(pc.mcpArg);
+            c.content = Content(pc.content);
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
 
@@ -698,6 +699,7 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
                 break;
             case "msg":             c.msg = val; break;
             case "mcp_arg":         c.mcpArg = val; break;
+            case "content":         c.content = val; break;
             case "bg":              c.bg = (val == "true"); break;
             case "tmo":             c.tmo = parseInt(val); break;
             case "check_handler":   c.checkHandler = val; break;

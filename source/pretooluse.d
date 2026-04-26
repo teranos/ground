@@ -369,25 +369,41 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         }
     }
 
-    // File-path controls (advisory context)
-    // TODO: updatedInput for non-Bash tools (run_in_background, timeout, new_description)
-    if (filePath !is null) {
+    // File-path and content controls (advisory context)
+    {
         import controls : allScopes;
         import hooks : scopeMatches;
         import db : openDb, attestationExists, attestEvent, sqlite3_close;
+        import parse : extractToolInputRegion;
 
         auto db = openDb();
         __gshared Buf fileMsgBuf;
         fileMsgBuf = Buf.init;
         const(char)[] fileDecision;
 
+        // Lazy-extract tool_input region for content matching
+        const(char)[] toolInput;
+        bool toolInputExtracted = false;
+
         foreach (ref sc; allScopes) {
             if (!scopeMatches(sc, cwd)) continue;
             foreach (ref c; sc.controls) {
                 if (c.cmd.len > 0) continue; // command controls handled above
-                if (c.filepath.value.length == 0 && c.sessionstart.check is null) continue;
-                if (c.filepath.value.length > 0 && !contains(filePath, c.filepath.value)) continue;
-                if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, input)) continue;
+
+                // Content match — check tool_input region (covers Edit new_string, Write content)
+                if (c.content.value.length > 0) {
+                    if (!toolInputExtracted) {
+                        toolInput = extractToolInputRegion(input);
+                        toolInputExtracted = true;
+                    }
+                    if (toolInput is null || !contains(toolInput, c.content.value)) continue;
+                } else {
+                    // File-path / check_handler controls
+                    if (c.filepath.value.length == 0 && c.sessionstart.check is null) continue;
+                    if (c.filepath.value.length > 0 && (filePath is null || !contains(filePath, c.filepath.value))) continue;
+                    if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, input)) continue;
+                }
+
                 if (db !is null && attestationExists(db, "GroundedPreToolUse", c.name, sessionId))
                     continue;
 
@@ -395,6 +411,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 fileMsgBuf.put(envSubst(c.msg.value, cwd));
 
                 if (sc.decision == "ask") fileDecision = "ask";
+                else if (sc.decision == "deny") fileDecision = "deny";
                 else if (fileDecision.length == 0) fileDecision = sc.decision;
 
                 if (db !is null) {

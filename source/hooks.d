@@ -97,6 +97,10 @@ struct McpArg {
     string value;
 }
 
+struct Content {
+    string value;
+}
+
 struct Bg {
     bool value;
 }
@@ -170,6 +174,7 @@ struct Control {
     SessionStartTrigger sessionstart;
     Msg msg;
     McpArg mcpArg;
+    Content content;
     Bg bg;
     Tmo tmo;
     Defer defer;

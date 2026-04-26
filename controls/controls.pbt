@@ -127,6 +127,17 @@ scope {
   }
 }
 
+# Universal content controls
+scope {
+  event: "PreToolUse"
+
+  control {
+    name: "no-create-table-in-code"
+    content: "CREATE TABLE"
+    msg: "STOP. CREATE TABLE in application code is NEVER acceptable. Tables are created ONLY through migrations. Rewrite your approach."
+  }
+}
+
 # Universal file-path controls
 scope {
   event: "PreToolUse"

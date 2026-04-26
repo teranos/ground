@@ -794,3 +794,28 @@ static assert(cmdArrayBuilt.len == 1);
 static assert(cmdArrayBuilt.items[0].controls[0].cmd.values.length == 2);
 static assert(cmdArrayBuilt.items[0].controls[0].cmd.values[0] == "gh pr create");
 static assert(cmdArrayBuilt.items[0].controls[0].cmd.values[1] == "gh pr edit");
+
+// --- content field on Control ---
+
+enum contentInput = `
+scope {
+  event: "PreToolUse"
+
+  control {
+    name: "no-create-table"
+    content: "CREATE TABLE"
+    msg: "STOP. Tables only through migrations."
+  }
+}
+`;
+enum contentParsed = parsePbt(contentInput);
+static assert(contentParsed.scopeCount == 1);
+static assert(ctrl(contentParsed, 0, 0).name == "no-create-table");
+static assert(ctrl(contentParsed, 0, 0).content == "CREATE TABLE");
+static assert(ctrl(contentParsed, 0, 0).msg == "STOP. Tables only through migrations.");
+
+// buildScopes wires content into Control
+enum contentBuilt = buildScopes(contentParsed, "PreToolUse");
+static assert(contentBuilt.len == 1);
+static assert(contentBuilt.items[0].controls[0].content.value == "CREATE TABLE");
+static assert(contentBuilt.items[0].controls[0].msg.value == "STOP. Tables only through migrations.");
