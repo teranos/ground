@@ -75,6 +75,10 @@ struct Omit {
     string value;
 }
 
+struct OmitLine {
+    string value;
+}
+
 struct Trigger {
     string[16] _buf;
     ubyte len;
@@ -168,6 +172,7 @@ struct Control {
     Cmd cmd;
     Arg arg;
     Omit omit;
+    OmitLine omitLine;
     Trigger trigger;
     FilePath filepath;
     UserPrompt userprompt;
@@ -251,13 +256,19 @@ struct Scope {
 bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
     if (sc.pathCount == 0) return true;
     import matcher : contains;
+
+    // Two-pass: positive paths OR, negative paths AND-filter.
+    bool hasPositive = false;
+    bool positiveMatch = false;
+
     foreach (i; 0 .. sc.pathCount) {
         auto p = sc.paths[i];
         if (p.length == 0) continue;
         if (p[0] == '!') {
-            if (!contains(cwd, p[1 .. $])) return true;
+            // Negative = filter. If cwd contains the excluded pattern, reject immediately.
+            if (contains(cwd, p[1 .. $])) return false;
         } else if (p[0] == '=') {
-            // Exact match — cwd must end with this path
+            hasPositive = true;
             auto exact = p[1 .. $];
             if (cwd.length >= exact.length) {
                 bool match = true;
@@ -268,11 +279,58 @@ bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
                     if (b >= 'A' && b <= 'Z') b += 32;
                     if (a != b) { match = false; break; }
                 }
-                if (match) return true;
+                if (match) positiveMatch = true;
             }
         } else {
-            if (contains(cwd, p)) return true;
+            hasPositive = true;
+            if (contains(cwd, p)) positiveMatch = true;
         }
     }
-    return false;
+
+    // If only negatives and none rejected, match everywhere.
+    if (!hasPositive) return true;
+    return positiveMatch;
+}
+
+unittest {
+    struct S {
+        string[8] paths;
+        ubyte pathCount;
+    }
+
+    // Positive + negative = AND: must match positive AND not match negative
+    S mixed;
+    mixed.paths[0] = "/QNTX";
+    mixed.paths[1] = "!/ctp/";
+    mixed.pathCount = 2;
+
+    // In QNTX root — should match (contains /QNTX, no /ctp/)
+    assert(scopeMatches(mixed, "/home/user/QNTX/src") == true);
+    // In QNTX/ctp/ — should NOT match (contains /QNTX but also /ctp/)
+    assert(scopeMatches(mixed, "/home/user/QNTX/ctp/werf") == false);
+    // Outside QNTX entirely — should NOT match
+    assert(scopeMatches(mixed, "/home/user/other") == false);
+
+    // Pure positive — OR behavior preserved
+    S pos;
+    pos.paths[0] = "/QNTX";
+    pos.pathCount = 1;
+    assert(scopeMatches(pos, "/home/user/QNTX/ctp/werf") == true);
+    assert(scopeMatches(pos, "/home/user/other") == false);
+
+    // Pure negative — fires everywhere except match
+    S neg;
+    neg.paths[0] = "!/ctp/";
+    neg.pathCount = 1;
+    assert(scopeMatches(neg, "/home/user/QNTX/src") == true);
+    assert(scopeMatches(neg, "/home/user/QNTX/ctp/werf") == false);
+
+    // Multiple negatives — all must pass
+    S multiNeg;
+    multiNeg.paths[0] = "!/ctp/";
+    multiNeg.paths[1] = "!/vendor/";
+    multiNeg.pathCount = 2;
+    assert(scopeMatches(multiNeg, "/home/user/QNTX/src") == true);
+    assert(scopeMatches(multiNeg, "/home/user/QNTX/ctp/x") == false);
+    assert(scopeMatches(multiNeg, "/home/user/QNTX/vendor/x") == false);
 }

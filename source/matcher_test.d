@@ -1,7 +1,7 @@
 module matcher_test;
 
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
-                 hasSegment, applyArg, applyOmit, wildcardContains, containsExact;
+                 hasSegment, applyArg, applyOmit, applyOmitLine, wildcardContains, containsExact;
 
 // --- stripQuoted tests ---
 
@@ -95,6 +95,29 @@ unittest {
     // Major Tom runs normal git — Ground Control lets it pass
     auto result = checkCommand("git status", OTHER);
     assert(result.control is null);
+}
+
+// --- omit_line tests ---
+
+unittest {
+    // omit_line strips the entire line containing the match
+    auto input = "git commit -m \"Fix bug\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n\"";
+    auto result = applyOmitLine(input, "Co-Authored-By:");
+    assert(result.slice() == "git commit -m \"Fix bug\n\n\"");
+}
+
+unittest {
+    // omit_line with match on last line (no trailing newline)
+    auto input = "git commit -m \"Fix bug\nCo-Authored-By: Claude <noreply@anthropic.com>\"";
+    auto result = applyOmitLine(input, "Co-Authored-By:");
+    assert(result.slice() == "git commit -m \"Fix bug\"");
+}
+
+unittest {
+    // omit_line with no match returns input unchanged
+    auto input = "git commit -m \"Fix bug\"";
+    auto result = applyOmitLine(input, "Co-Authored-By:");
+    assert(result.slice() == input);
 }
 
 unittest {

@@ -2,6 +2,10 @@ module proto;
 
 import hooks;
 
+// TODO: pbt variable/template support — define a message once, reference it in multiple controls.
+//       Like HCL locals: local { sbvh_ctx = "..." } then msg: local.sbvh_ctx
+//       Requires a pre-parse expansion pass before the two-pass CTFE.
+
 // --- Two-pass CTFE sizing ---
 // Pass 1 (count.d) counts blocks, pass 2 parses into right-sized arrays.
 
@@ -31,7 +35,7 @@ struct ParsedControl {
     string[8] cmds;
     ubyte cmdCount;
     string cmd() const { return cmdCount > 0 ? cmds[0] : ""; }
-    string arg, omit;
+    string arg, omit, omitLine;
     string[16] triggers;
     ubyte triggerCount;
     string filepath, msg, mcpArg, content;
@@ -206,6 +210,7 @@ ScopeSet buildScopes(
             }
             c.arg = Arg(pc.arg);
             c.omit = Omit(pc.omit);
+            c.omitLine = OmitLine(pc.omitLine);
             c.filepath = FilePath(pc.filepath);
             if (pc.userpromptCount > 0) {
                 c.userprompt._buf = pc.userprompts;
@@ -681,6 +686,7 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
             // "tool" removed — use control.w/r/x/m/a syntax instead
             case "arg":             c.arg = val; break;
             case "omit":            c.omit = val; break;
+            case "omit_line":       c.omitLine = val; break;
             case "filepath":        c.filepath = val; break;
             case "userprompt":
                 if (val is null) {

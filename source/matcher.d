@@ -374,6 +374,31 @@ Buf applyOmit(const(Control)* c, const(char)[] segment) {
     return buf;
 }
 
+// Strips the entire line containing the needle.
+Buf applyOmitLine(const(char)[] segment, const(char)[] needle) {
+    Buf buf;
+    auto idx = indexOf(segment, needle);
+    if (idx < 0) {
+        buf.put(segment);
+        return buf;
+    }
+
+    // Find line start (after previous \n)
+    size_t lineStart = cast(size_t) idx;
+    while (lineStart > 0 && segment[lineStart - 1] != '\n')
+        lineStart--;
+
+    // Find line end (up to and including \n)
+    size_t lineEnd = cast(size_t) idx + needle.length;
+    while (lineEnd < segment.length && segment[lineEnd] != '\n')
+        lineEnd++;
+    if (lineEnd < segment.length) lineEnd++; // include the \n
+
+    buf.put(segment[0 .. lineStart]);
+    buf.put(segment[lineEnd .. $]);
+    return buf;
+}
+
 struct FileMatch {
     bool matched;
     const(char)[] decision;
