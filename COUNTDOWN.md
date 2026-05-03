@@ -23,7 +23,7 @@ Git workflow rituals and attestation-backed state. Ground evolves from stateless
 
 **Phase 1 — ritual checkpoints. ✓** Msg-only controls with `"ask"` decision for each git lifecycle moment. Branch creation: check main for unpushed commits, commit intent (documentation first), push, open draft PR. Push: pull first, resolve conflicts. Tag: check latest tag, follow semver. PR finalization: tests, review, issues, rebase, reassess.
 
-**Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to QNTX node db on every control match. Subjects: branch name. Predicates: control name. Actor: `ground`. Source: `ground v{VERSION}`.
+**Phase 2 — libsqlite3 link. ✓** Linked against libsqlite3 via C interop. Attestations written to ground's own db on every control match. Subjects: branch name. Predicates: control name. Actor: `ground`. Source: `ground v{VERSION}`.
 
 **Phase 3 — ax controls. ✓** Controls that query the attestation trail via the QNTX ax extension. On Stop, ground loads the extension, queries attestations for the current branch, and matches against them. Deferred message queue delivers attestation-backed messages on Stop without blocking — CI nudge fires after `git push` with adaptive delay. Clippy reminder activates after push when .rs files were edited after the last `cargo clippy` run. Machine context attested on SessionStart via compile-time arch detection. PostToolUse captures full tool response. Msg-only controls emit their decision on every fire, message only on first. Future controls tracked as TODOs in `controls.d`.
 
