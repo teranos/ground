@@ -819,3 +819,26 @@ enum contentBuilt = buildScopes(contentParsed, "PreToolUse");
 static assert(contentBuilt.len == 1);
 static assert(contentBuilt.items[0].controls[0].content.value == "CREATE TABLE");
 static assert(contentBuilt.items[0].controls[0].msg.value == "STOP. Tables only through migrations.");
+
+// Scope-level cmd with control-level content — cmd stays on scope, not inherited by control
+enum scopeCmdContentInput = `
+scope {
+  path: "/project"
+  event: "PreToolUse"
+  cmd: ["git commit", "gh pr create"]
+  decision: "deny"
+
+  control {
+    name: "block-word-in-commits"
+    content: "blocked"
+    msg: "Word not allowed."
+  }
+}
+`;
+enum scopeCmdContentParsed = parsePbt(scopeCmdContentInput);
+static assert(scopeCmdContentParsed.scopeCount == 1);
+enum scopeCmdContentBuilt = buildScopes(scopeCmdContentParsed, "PreToolUse");
+static assert(scopeCmdContentBuilt.len == 1);
+static assert(scopeCmdContentBuilt.items[0].cmdCount == 2);
+static assert(scopeCmdContentBuilt.items[0].controls[0].cmd.len == 0);
+static assert(scopeCmdContentBuilt.items[0].controls[0].content.value == "blocked");

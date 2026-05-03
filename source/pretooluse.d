@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, indexOf, contains, hasSegment, Buf, envSubst;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite, stderr, fprintf;
 import db : ZBuf;
@@ -158,7 +158,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.bg.value) hasBg = true;
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
-                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0;
+                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0;
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -181,7 +181,9 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     }
                 } else {
                     Buf amended;
-                    if (c.omit.value.length > 0)
+                    if (c.omitLine.value.length > 0)
+                        amended = applyOmitLine(m.segment, c.omitLine.value);
+                    else if (c.omit.value.length > 0)
                         amended = applyOmit(c, m.segment);
                     else
                         amended = applyArg(c, m.segment);
@@ -387,6 +389,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         foreach (ref sc; allScopes) {
             if (!scopeMatches(sc, cwd)) continue;
+            if (sc.cmdCount > 0) continue; // scope-level cmd scopes only apply to Bash commands
             foreach (ref c; sc.controls) {
                 if (c.cmd.len > 0) continue; // command controls handled above
 
