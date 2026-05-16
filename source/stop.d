@@ -104,6 +104,13 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     g_cwd = cwd;
     g_sessionId = sessionId;
 
+    // Kill previous watcher for THIS session, write claim for the new one.
+    if (sessionId !is null) {
+        import watch : killSessionWatcher, writeWatchClaim;
+        killSessionWatcher(sessionId);
+        writeWatchClaim(sessionId);
+    }
+
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
     if (hookActive)
@@ -122,20 +129,6 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto tb0 = usecNow();
         branch = getBranch(cwd);
         branchUs = usecNow() - tb0;
-    }
-
-    import trail : checkTrailControls, TrailTiming;
-    TrailTiming trailTiming;
-    {
-        auto trailResult = checkTrailControls(branch, db);
-        trailTiming = trailResult.timing;
-        if (trailResult.control !is null) {
-            import db : attestControlFire;
-            attestControlFire(db, "GroundedStop", trailResult.control.name, cwd, sessionId);
-            sqlite3_close(db);
-            writeStopResponseAndNotify(trailResult.reason);
-            return 0;
-        }
     }
 
     auto t3 = usecNow();
@@ -359,17 +352,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         putInt(timingMsg, (t1-t0)/1000);
                         timingMsg.put("ms db=");
                         putInt(timingMsg, (t2-t1)/1000);
-                        timingMsg.put("ms trail=");
-                        putInt(timingMsg, (t3-t2)/1000);
-                        timingMsg.put("ms(branch=");
+                        timingMsg.put("ms branch=");
                         putInt(timingMsg, branchUs/1000);
-                        timingMsg.put("ms rsQ=");
-                        putInt(timingMsg, trailTiming.rsQueryUs/1000);
-                        timingMsg.put("ms remQ=");
-                        putInt(timingMsg, trailTiming.reminderQueryUs/1000);
-                        timingMsg.put("ms clipQ=");
-                        putInt(timingMsg, trailTiming.clippyQueryUs/1000);
-                        timingMsg.put("ms) triggers=");
+                        timingMsg.put("ms triggers=");
                         putInt(timingMsg, (t4-t3)/1000);
                         timingMsg.put("ms deliver=");
                         putInt(timingMsg, (t5-t4)/1000);
@@ -402,12 +387,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         prof.reset();
         prof.put("parse="); putInt(prof, t1-t0);
         prof.put("us db="); putInt(prof, t2-t1);
-        prof.put("us trail="); putInt(prof, t3-t2);
-        prof.put("us(branch="); putInt(prof, branchUs);
-        prof.put("us rsQ="); putInt(prof, trailTiming.rsQueryUs);
-        prof.put("us remQ="); putInt(prof, trailTiming.reminderQueryUs);
-        prof.put("us clipQ="); putInt(prof, trailTiming.clippyQueryUs);
-        prof.put("us) triggers="); putInt(prof, t4-t3);
+        prof.put("us branch="); putInt(prof, branchUs);
+        prof.put("us triggers="); putInt(prof, t4-t3);
         prof.put("us deliver="); putInt(prof, t5-t4);
         prof.put("us deferred="); putInt(prof, t6-t5);
         prof.put("us(sessQ="); putInt(prof, tDeferSess-t5);

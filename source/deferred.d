@@ -544,3 +544,5 @@ unittest {
 
     sqlite3_close(db);
 }
+
+// See immediate.d for immediate delivery (asyncRewake watcher).

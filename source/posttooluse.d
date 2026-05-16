@@ -158,13 +158,46 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         }
 
         auto tDeferred = usecNow();
+
+        // Clippy-reminder: .rs edit → write immediate, cargo clippy → delete
+        {
+            import control_handlers : isRustProject;
+            if (isRustProject(cwd)) {
+                bool isWrite = modeMatchesToolName('w', toolName);
+                bool isBash = modeMatchesToolName('x', toolName);
+
+                if (isWrite && filePath !is null && filePath.length >= 3
+                    && filePath[filePath.length - 3 .. $] == ".rs")
+                {
+                    import db : openDb, sqlite3_close;
+                    import immediate : writeClippyReminder;
+                    auto cdb = openDb();
+                    if (cdb !is null) {
+                        writeClippyReminder(cdb, cwd);
+                        sqlite3_close(cdb);
+                    }
+                }
+                else if (isBash && detail !is null && contains(detail, "cargo clippy"))
+                {
+                    import db : openDb, sqlite3_close;
+                    import immediate : deleteClippyReminder;
+                    auto cdb = openDb();
+                    if (cdb !is null) {
+                        deleteClippyReminder(cdb, cwd);
+                        sqlite3_close(cdb);
+                    }
+                }
+            }
+        }
+
+        auto tEnd = usecNow();
         __gshared ZBuf prof;
         prof.reset();
         prof.put("parse="); putInt(prof, tParse-t0);
         prof.put("us db="); putInt(prof, tDb-tParse);
         prof.put("us controls="); putInt(prof, tControls-tDb);
         prof.put("us deferred="); putInt(prof, tDeferred-tControls);
-        prof.put("us total="); putInt(prof, tDeferred-t0);
+        prof.put("us total="); putInt(prof, tEnd-t0);
         prof.put("us exit=none");
         emitProfile(prof);
     }

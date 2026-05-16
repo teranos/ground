@@ -122,6 +122,19 @@ bool containsCI(const(char)[] haystack, const(char)[] needle) {
     return false;
 }
 
+// Check if Cargo.toml exists in the working directory.
+bool isRustProject(const(char)[] cwd) {
+    if (cwd.length == 0) return false;
+    __gshared char[512] pathBuf = 0;
+    if (cwd.length + 11 >= pathBuf.length) return false;
+    pathBuf[0 .. cwd.length] = cwd[];
+    pathBuf[cwd.length .. cwd.length + 11] = "/Cargo.toml";
+    pathBuf[cwd.length + 11] = 0;
+    import core.sys.posix.sys.stat : stat_t, stat;
+    stat_t st;
+    return stat(&pathBuf[0], &st) == 0;
+}
+
 bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {
     import parse : extractNewString, extractToolName;
     auto toolName = extractToolName(input);

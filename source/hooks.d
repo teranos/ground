@@ -24,7 +24,7 @@ enum HookEvent {
                         //   payload: agent_id, agent_type, agent_transcript_path, last_assistant_message
                         //   TODO: read agent_transcript_path for quality checks on subagent output
                         //   TODO: verify what response fields are honored
-    Stop,               // trail controls, deferred messages, lazy-verify, CI nudge
+    Stop,               // deferred messages, lazy-verify, CI nudge
                         //   stop_hook_active:false = first stop, controls run.
                         //   stop_hook_active:true = re-stop after prior block, skip to avoid loop.
     StopFailure,        // TODO: fires when turn ends due to API error — retry logic, error logging

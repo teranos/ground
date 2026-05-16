@@ -392,7 +392,10 @@ Buf applyOmitLine(const(char)[] segment, const(char)[] needle) {
     size_t lineEnd = cast(size_t) idx + needle.length;
     while (lineEnd < segment.length && segment[lineEnd] != '\n')
         lineEnd++;
-    if (lineEnd < segment.length) lineEnd++; // include the \n
+    if (lineEnd < segment.length)
+        lineEnd++; // include the \n
+    else if (lineStart > 0 && segment[lineStart - 1] == '\n')
+        lineStart--; // last line with no trailing \n: strip preceding \n
 
     buf.put(segment[0 .. lineStart]);
     buf.put(segment[lineEnd .. $]);

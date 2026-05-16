@@ -140,6 +140,12 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     import main : usecNow;
     auto t0 = usecNow();
 
+    // Write claim file so the first asyncRewake watcher knows its session.
+    if (sessionId !is null) {
+        import watch : writeWatchClaim;
+        writeWatchClaim(sessionId);
+    }
+
     attestTypes();
 
     auto tTypes = usecNow();

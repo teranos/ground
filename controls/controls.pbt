@@ -16,7 +16,7 @@ scope {
       name: "no-co-authored-by"
       cmd: "git commit"
       omit_line: "Co-Authored-By:"
-      msg: "Do not add Co-Authored-By lines to commits."
+      msg: "Co-Authored-By line stripped from commit. Do not amend."
     }
 
     control {
