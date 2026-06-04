@@ -154,7 +154,7 @@ bool hasSegment(const(char)[] command, const(char)[] cmd) {
 
         if (i == command.length) {
             isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
             isSep = true;
             skip = 1;
         } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
@@ -186,7 +186,7 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
 
         if (i == command.length) {
             isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
             isSep = true;
             skip = 1;
         } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
@@ -269,7 +269,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
 
         if (i == command.length) {
             isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
             isSep = true;
             skip = 1;
         } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {

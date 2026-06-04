@@ -174,6 +174,19 @@ unittest {
 }
 
 unittest {
+    // git commit embedded after a newline — must still fire deny
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-commit-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands("git add foo\ngit commit -m \"x\"\ngit push", OTHER);
+    bool sawDeny = false;
+    foreach (i; 0 .. results.count)
+        if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
+    assert(sawDeny);
+}
+
+unittest {
     // gh pr create triggers checkpoint with "ask" decision
     auto result = checkCommand("gh pr create --title \"fix\"", OTHER);
     assert(result.control !is null);
