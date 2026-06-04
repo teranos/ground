@@ -187,6 +187,21 @@ unittest {
 }
 
 unittest {
+    // any substring `git commit` anywhere in the command must fire deny —
+    // includes inside quoted strings (bash -c "git commit ..."), inside
+    // env-prefix, anywhere. The user accepts false positives.
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-commit-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands(`bash -c "git commit -m x"`, OTHER);
+    bool sawDeny = false;
+    foreach (i; 0 .. results.count)
+        if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
+    assert(sawDeny);
+}
+
+unittest {
     // gh pr create triggers checkpoint with "ask" decision
     auto result = checkCommand("gh pr create --title \"fix\"", OTHER);
     assert(result.control !is null);

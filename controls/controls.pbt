@@ -68,7 +68,7 @@ scope {
 
     control {
       name: "commit-not-requested"
-      cmd: "git commit"
+      cmd: "*git commit*"
       check_handler: "commitNotRequested"
       msg: "The developer has not requested a commit. Wait for an explicit commit request."
     }
