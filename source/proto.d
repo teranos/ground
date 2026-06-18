@@ -35,7 +35,7 @@ struct ParsedControl {
     string[8] cmds;
     ubyte cmdCount;
     string cmd() const { return cmdCount > 0 ? cmds[0] : ""; }
-    string arg, omit, omitLine;
+    string arg, omit, omitLine, clamp;
     string[16] triggers;
     ubyte triggerCount;
     string filepath, msg, mcpArg, content;
@@ -211,6 +211,7 @@ ScopeSet buildScopes(
             c.arg = Arg(pc.arg);
             c.omit = Omit(pc.omit);
             c.omitLine = OmitLine(pc.omitLine);
+            c.clamp = Clamp(pc.clamp);
             c.filepath = FilePath(pc.filepath);
             if (pc.userpromptCount > 0) {
                 c.userprompt._buf = pc.userprompts;
@@ -687,6 +688,7 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
             case "arg":             c.arg = val; break;
             case "omit":            c.omit = val; break;
             case "omit_line":       c.omitLine = val; break;
+            case "clamp":           c.clamp = val; break;
             case "filepath":        c.filepath = val; break;
             case "userprompt":
                 if (val is null) {

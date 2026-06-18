@@ -374,6 +374,78 @@ Buf applyOmit(const(Control)* c, const(char)[] segment) {
     return buf;
 }
 
+// Floor-clamp a numeric flag value.
+//
+// Spec shape: "<prefix>N>=<min>" — e.g. "tail -N>=40". The `N` is a
+// placeholder marking where the integer lives in matched input; `>=`
+// names the relation; the trailing decimal is the floor.
+//
+// Behavior: find the first occurrence of `<prefix>` in `segment`. If
+// followed by a non-negative integer K, and K < min, replace K with
+// min. K >= min, no integer, or prefix absent → segment unchanged.
+//
+// Purpose: prevent suppression-of-suppression. Claude truncates cargo
+// test output via `| tail -8`, discarding failure detail. Raising the
+// floor preserves enough trailing context to keep panic messages
+// intact. CLAUDE.md: "never | tail -N or | head -N the live stream."
+Buf applyClamp(string spec, const(char)[] segment) {
+    Buf buf;
+
+    // Parse spec.
+    auto gtIdx = indexOf(spec, ">=");
+    if (gtIdx < 0) { buf.put(segment); return buf; }
+
+    auto left = spec[0 .. cast(size_t) gtIdx];
+    auto right = spec[cast(size_t) gtIdx + 2 .. $];
+    if (left.length == 0 || left[$ - 1] != 'N') { buf.put(segment); return buf; }
+    auto prefix = left[0 .. $ - 1];
+
+    // Parse min value (decimal, non-negative).
+    if (right.length == 0) { buf.put(segment); return buf; }
+    int minValue = 0;
+    foreach (c; right) {
+        if (c < '0' || c > '9') { buf.put(segment); return buf; }
+        minValue = minValue * 10 + (c - '0');
+    }
+
+    // Find prefix in segment.
+    auto idx = indexOf(segment, prefix);
+    if (idx < 0) { buf.put(segment); return buf; }
+
+    // Parse number after prefix.
+    size_t numStart = cast(size_t) idx + prefix.length;
+    size_t numEnd = numStart;
+    int n = 0;
+    while (numEnd < segment.length && segment[numEnd] >= '0' && segment[numEnd] <= '9') {
+        n = n * 10 + (segment[numEnd] - '0');
+        numEnd++;
+    }
+    if (numEnd == numStart) { buf.put(segment); return buf; }
+
+    if (n >= minValue) { buf.put(segment); return buf; }
+
+    // Replace [numStart..numEnd] with minValue's decimal form.
+    buf.put(segment[0 .. numStart]);
+
+    char[20] tbuf = 0;
+    int tlen = 0;
+    int v = minValue;
+    if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+    else {
+        while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+        // Reverse in place.
+        foreach (i; 0 .. tlen / 2) {
+            auto tmp = tbuf[i];
+            tbuf[i] = tbuf[tlen - 1 - i];
+            tbuf[tlen - 1 - i] = tmp;
+        }
+    }
+    buf.put(tbuf[0 .. tlen]);
+
+    buf.put(segment[numEnd .. $]);
+    return buf;
+}
+
 // Strips the entire line containing the needle.
 Buf applyOmitLine(const(char)[] segment, const(char)[] needle) {
     Buf buf;

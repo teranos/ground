@@ -1,7 +1,33 @@
 module matcher_test;
 
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
-                 hasSegment, applyArg, applyOmit, applyOmitLine, wildcardContains, containsExact;
+                 hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
+                 wildcardContains, containsExact;
+
+// --- clamp tests ---
+//
+// `clamp: "tail -N>=40"` rewrites `tail -K` (K<40) → `tail -40`. Leaves
+// K>=40 unchanged. Leaves unrelated segments untouched. The control's
+// purpose: suppression-of-suppression — Claude's habit of trimming
+// cargo test output via `| tail -8` discards the failure detail, which
+// CLAUDE.md explicitly forbids. Raising the floor preserves enough
+// trailing context to keep the panic message intact.
+
+// Below-floor: tail -8 → tail -40.
+static assert(applyClamp("tail -N>=40", `cargo test --lib 2>&1 | tail -8`).slice
+              == `cargo test --lib 2>&1 | tail -40`);
+// At-floor: tail -40 unchanged.
+static assert(applyClamp("tail -N>=40", `cargo test --lib 2>&1 | tail -40`).slice
+              == `cargo test --lib 2>&1 | tail -40`);
+// Above-floor: tail -100 unchanged.
+static assert(applyClamp("tail -N>=40", `cargo test --lib 2>&1 | tail -100`).slice
+              == `cargo test --lib 2>&1 | tail -100`);
+// No tail at all — passthrough.
+static assert(applyClamp("tail -N>=40", `cargo test --lib`).slice
+              == `cargo test --lib`);
+// Different floor: tail -5 with N>=10 → tail -10.
+static assert(applyClamp("tail -N>=10", `head -5 file | tail -5`).slice
+              == `head -5 file | tail -10`);
 
 // --- stripQuoted tests ---
 

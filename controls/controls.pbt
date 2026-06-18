@@ -12,6 +12,17 @@ scope {
       msg: "Git hooks must not be bypassed, ever."
     }
 
+    # `clamp: "<prefix>N>=<min>"` — find <prefix> in the matched
+    # segment, read the integer that follows, raise it to <min> if
+    # below. N is the placeholder marking where the integer lives;
+    # >= names the relation; <min> is the floor (decimal).
+    # Silent — no msg; the longer output is the signal.
+    control {
+      name: "tail-min-40"
+      cmd: "tail"
+      clamp: "tail -N>=40"
+    }
+
     control {
       name: "no-co-authored-by"
       cmd: "git commit"
