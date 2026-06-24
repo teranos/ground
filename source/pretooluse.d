@@ -396,12 +396,17 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.cmd.len > 0) continue; // command controls handled above
 
                 // Content match — check tool_input region (covers Edit new_string, Write content)
-                if (c.content.value.length > 0) {
+                if (c.content.len > 0) {
                     if (!toolInputExtracted) {
                         toolInput = extractToolInputRegion(input);
                         toolInputExtracted = true;
                     }
-                    if (toolInput is null || !contains(toolInput, c.content.value)) continue;
+                    if (toolInput is null) continue;
+                    bool anyMatch = false;
+                    foreach (v; c.content.values) {
+                        if (contains(toolInput, v)) { anyMatch = true; break; }
+                    }
+                    if (!anyMatch) continue;
                 } else {
                     // File-path / check_handler controls
                     if (c.filepath.value.length == 0 && c.sessionstart.check is null) continue;

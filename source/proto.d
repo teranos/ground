@@ -38,7 +38,9 @@ struct ParsedControl {
     string arg, omit, omitLine, clamp;
     string[16] triggers;
     ubyte triggerCount;
-    string filepath, msg, mcpArg, content;
+    string filepath, msg, mcpArg;
+    string[8] contents;
+    ubyte contentCount;
     string[8] userprompts;
     ubyte userpromptCount;
     bool bg;
@@ -219,7 +221,10 @@ ScopeSet buildScopes(
             }
             c.msg = Msg(pc.msg);
             c.mcpArg = McpArg(pc.mcpArg);
-            c.content = Content(pc.content);
+            if (pc.contentCount > 0) {
+                c.content._buf = pc.contents;
+                c.content.len = pc.contentCount;
+            }
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
 
@@ -707,7 +712,21 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
                 break;
             case "msg":             c.msg = val; break;
             case "mcp_arg":         c.mcpArg = val; break;
-            case "content":         c.content = val; break;
+            case "content":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.contentCount < 8);
+                        c.contents[c.contentCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.contents[0] = val; c.contentCount = 1;
+                }
+                break;
             case "bg":              c.bg = (val == "true"); break;
             case "tmo":             c.tmo = parseInt(val); break;
             case "check_handler":   c.checkHandler = val; break;

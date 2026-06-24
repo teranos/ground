@@ -811,7 +811,8 @@ scope {
 enum contentParsed = parsePbt(contentInput);
 static assert(contentParsed.scopeCount == 1);
 static assert(ctrl(contentParsed, 0, 0).name == "no-create-table");
-static assert(ctrl(contentParsed, 0, 0).content == "CREATE TABLE");
+static assert(ctrl(contentParsed, 0, 0).contentCount == 1);
+static assert(ctrl(contentParsed, 0, 0).contents[0] == "CREATE TABLE");
 static assert(ctrl(contentParsed, 0, 0).msg == "STOP. Tables only through migrations.");
 
 // buildScopes wires content into Control

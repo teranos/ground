@@ -109,7 +109,10 @@ struct McpArg {
 }
 
 struct Content {
-    string value;
+    string[8] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
+    string value() const { return len > 0 ? _buf[0] : ""; }
 }
 
 struct Bg {
