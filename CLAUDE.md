@@ -9,4 +9,4 @@ Read COUNTDOWN.md for project status.
 
 Read bench.fish for CTFE scaling limits.
 
-TDD: write a failing CTFE test before implementing. Show the test, confirm it fails, then make it pass.
+TEST DRIVEN DEVELOPMENT (TDD): write a failing test before implementing. Confirm it fails, then Green: Write code that makes the test pass.

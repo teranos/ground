@@ -78,10 +78,10 @@ scope {
     decision: "deny"
 
     control {
-      name: "commit-not-requested"
-      cmd: "*git commit*"
-      check_handler: "commitNotRequested"
-      msg: "The developer has not requested a commit. Wait for an explicit commit request."
+      name: "kill-not-requested"
+      cmd: ["kill", "pkill"]
+      check_handler: "killNotRequested"
+      msg: "The developer has not requested killing a process. Wait for an explicit kill request."
     }
 
     control {
@@ -153,6 +153,21 @@ scope {
     name: "no-create-table-in-code"
     content: "CREATE TABLE"
     msg: "STOP. CREATE TABLE in application code is NEVER acceptable. Tables are created ONLY through migrations. Rewrite your approach."
+  }
+}
+
+# commit-not-requested — universal except in /tsot-roam, where the
+# workflow is "edit, commit, push, CI verify" without per-step ask.
+scope {
+  path: "!/tsot-roam"
+  event: "PreToolUse"
+  decision: "deny"
+
+  control {
+    name: "commit-not-requested"
+    cmd: "*git commit*"
+    check_handler: "commitNotRequested"
+    msg: "The developer has not requested a commit. Wait for an explicit commit request."
   }
 }
 
@@ -267,13 +282,6 @@ scope {
 # PostToolUseDeferred — deferred checks
 scope {
   event: "PostToolUseDeferred"
-
-  control {
-    name: "ci-check-defer"
-    cmd: "git push"
-    delay_handler: "ciDelay"
-    deliver_handler: "ciDeliver"
-  }
 
   control {
     name: "review-nudge"
