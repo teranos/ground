@@ -96,6 +96,10 @@ struct FilePath {
     string value;
 }
 
+struct PushedPath {
+    string value;
+}
+
 struct Mode {
     string value;
 }
@@ -187,6 +191,7 @@ struct Control {
     Clamp clamp;
     Trigger trigger;
     FilePath filepath;
+    PushedPath pushedPath;
     UserPrompt userprompt;
     SessionStartTrigger sessionstart;
     Msg msg;

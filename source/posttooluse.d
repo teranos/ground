@@ -88,6 +88,12 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
             foreach (ref c; scope_.controls) {
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
                 if (c.msg.value.length == 0) continue;
+                if (c.pushedPath.value.length > 0) {
+                    import control_handlers : pushedFiles;
+                    import push : hasPathStartingWith;
+                    if (!hasPathStartingWith(pushedFiles(cwd), c.pushedPath.value))
+                        continue;
+                }
 
                 if (db !is null && attestationExists(db, "GroundedPostToolUse", c.name, sessionId))
                     continue;
@@ -186,6 +192,22 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         deleteClippyReminder(cdb, cwd);
                         sqlite3_close(cdb);
                     }
+                }
+            }
+        }
+
+        // CI status: git push → write immediate:ci-status with delay gate
+        {
+            bool isBash = modeMatchesToolName('x', toolName);
+            if (isBash && detail !is null && contains(detail, "git push"))
+            {
+                import db : openDb, sqlite3_close;
+                import immediate : writeCIStatus;
+                import control_handlers : ciDelay;
+                auto cdb = openDb();
+                if (cdb !is null) {
+                    writeCIStatus(cdb, cwd, ciDelay(cwd));
+                    sqlite3_close(cdb);
                 }
             }
         }

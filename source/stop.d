@@ -201,18 +201,23 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
-    // Unread file claim detection — scan assistant message for project files not Read this session
+    // Unread file claim detection — accumulate every project file referenced in
+    // the assistant message but never Read this session; surface them all at once.
     {
         import matcher : containsExact;
         import controls : projectFiles;
         if (lastMsg !is null && projectFiles.length > 0) {
-            foreach (ref f; projectFiles) {
-                if (!containsExact(lastMsg, f)) continue;
+            import db : fileAttestationExists, attestationExists, attestControlFire;
+            import unread : buildUnreadClaimMessage;
 
-                import db : fileAttestationExists, attestationExists, attestControlFire;
+            const(char)[][8] unread;
+            size_t unreadCount;
+
+            foreach (ref f; projectFiles) {
+                if (unreadCount >= unread.length) break;
+                if (!containsExact(lastMsg, f)) continue;
                 if (fileAttestationExists(db, f, sessionId)) continue;
 
-                // Build dedup key: "unread-file-claim:<filename>"
                 __gshared ZBuf dedupKey;
                 dedupKey.reset();
                 dedupKey.put("unread-file-claim:");
@@ -221,13 +226,18 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 if (attestationExists(db, "GroundedStop", dedupKey.slice(), sessionId))
                     continue;
 
-                __gshared ZBuf msg;
-                msg.reset();
-                msg.put("You referenced `");
-                msg.put(f);
-                msg.put("` but never Read it this session. Use the Read tool before making claims about file contents.");
+                unread[unreadCount++] = f;
+            }
 
-                attestControlFire(db, "GroundedStop", dedupKey.slice(), cwd, sessionId);
+            if (unreadCount > 0) {
+                foreach (i; 0 .. unreadCount) {
+                    __gshared ZBuf attestKey;
+                    attestKey.reset();
+                    attestKey.put("unread-file-claim:");
+                    attestKey.put(unread[i]);
+                    attestControlFire(db, "GroundedStop", attestKey.slice(), cwd, sessionId);
+                }
+                auto msg = buildUnreadClaimMessage(unread[0 .. unreadCount]);
                 sqlite3_close(db);
                 writeStopResponseAndNotify(msg.slice());
                 return 0;
@@ -414,9 +424,7 @@ unittest {
 }
 
 unittest {
-    // deliverDeferred finds ci-check-defer and calls deliverFn
-    // (deliverFn calls gh which won't work in test, so result is null = suppressed)
-    auto msg = deliverDeferred(DeferredMsg("ci-check-defer", "fallback"), "/tmp");
-    // deliverFn returns null (no git repo) → delivery suppressed
-    assert(msg is null);
+    // deliverDeferred with unknown control falls back to stored message (not null)
+    auto msg = deliverDeferred(DeferredMsg("removed-control", "fallback"), "/tmp");
+    assert(msg == "fallback");
 }
