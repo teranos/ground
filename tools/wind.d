@@ -5,11 +5,14 @@
 /// 3. Walks project directories, rewrites project blocks with files: [...].
 
 import std.file : dirEntries, read, SpanMode, mkdirRecurse, exists, write, isDir;
-import std.algorithm : sort, canFind;
+import std.algorithm : sort;
 import std.array : array;
-import std.path : baseName, relativePath;
+import std.path : baseName;
+import std.process : executeShell;
 import std.stdio : stderr;
-import std.string : indexOf;
+import std.string : indexOf, splitLines;
+
+import filelist : renderFileList;
 
 void main() {
     mkdirRecurse(".ctfe");
@@ -41,20 +44,21 @@ void main() {
             continue;
         }
 
-        string fileList;
-        size_t count;
-        foreach (entry; dirEntries(proj.path, SpanMode.depth)) {
-            if (entry.isDir) continue;
-            auto name = entry.name;
-            if (canFind(name, "/.") || canFind(name, "/node_modules/") ||
-                canFind(name, "/.dub/"))
-                continue;
-            if (isBinary(name)) continue;
-            auto rel = relativePath(name, proj.path);
-            if (count > 0) fileList ~= ",\n";
-            fileList ~= "    \"" ~ rel ~ "\"";
-            count++;
+        // git ls-files defers to .gitignore for what counts as a project file.
+        // Source of truth lives in each project's gitignore, not in a hardcoded
+        // exclusion list here.
+        auto gitResult = executeShell("cd " ~ proj.path ~ " && git ls-files");
+        if (gitResult.status != 0) {
+            stderr.writefln("wind: skip %s (git ls-files exited %d)",
+                proj.path, gitResult.status);
+            continue;
         }
+        string[] paths;
+        foreach (line; splitLines(gitResult.output)) {
+            if (line.length > 0) paths ~= line.idup;
+        }
+        auto fileList = renderFileList(paths);
+        auto count = paths.length;
 
         if (count > 0) {
             // Rewrite the project block: inject files before closing }

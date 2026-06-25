@@ -71,7 +71,7 @@ struct ParsedScope {
 
 struct ParsedProject {
     string path;
-    string[256] files;
+    string[1024] files;
     size_t fileCount;
 }
 
@@ -535,7 +535,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
     string projectPath;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
-    string[256] files;
+    string[1024] files;
     size_t fCount;
     // Env stored in separate lightweight pool (not in ParsedProject — too large)
     string[16] envKeys;
