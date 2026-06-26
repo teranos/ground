@@ -17,6 +17,7 @@ CheckFn resolveCheck(string name) {
     switch (name) {
         case "binaryShadowed": return &control_handlers.binaryShadowed;
         case "commitNotRequested": return &control_handlers.commitNotRequested;
+        case "killNotRequested": return &control_handlers.killNotRequested;
         case "strikethrough": return &control_handlers.strikethroughCheck;
         default: return null;
     }
@@ -31,7 +32,6 @@ DelayFn resolveDelay(string name) {
 
 DeliverFn resolveDeliver(string name) {
     switch (name) {
-        case "ciDeliver": return &control_handlers.ciDeliver;
         case "upstreamBriefingDeliver": return &control_handlers.upstreamBriefingDeliver;
         default: return null;
     }

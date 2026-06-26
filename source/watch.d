@@ -224,17 +224,17 @@ int handleWatch(int argc, const(char)** argv) {
                 auto imm = readImmediateMessage(db, cwd, sessionId);
                 if (imm.message is null) break;
 
-                // Late-binding: ci-status resolves live instead of using placeholder.
-                // Use the PUSH-time cwd + branch stored in attributes by writeCIStatus
-                // (the watcher may be in a different repo by now — session is the key).
-                // Falls back to watcher's cwd for rows written before this change.
+                // Late-binding: ci-status resolves live. Uses the repo + branch
+                // captured at push time (from the push's own stdout). No cwd anywhere.
                 if (imm.name == "ci-status") {
                     import deferred : checkCIStatus;
-                    import db : getBranch;
                     import matcher : contains;
-                    auto queryCwd = imm.cwd.length > 0 ? imm.cwd : cwd;
-                    auto queryBranch = imm.branch.length > 0 ? imm.branch : getBranch(cwd);
-                    auto ciResult = checkCIStatus(queryCwd, queryBranch);
+                    if (imm.repo.length == 0 || imm.branch.length == 0) {
+                        // Row predates the repo-keyed format — drop it.
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        continue;
+                    }
+                    auto ciResult = checkCIStatus(imm.repo, imm.branch);
                     if (contains(ciResult, "in_progress"))
                         break; // not terminal yet, try again next cycle
                     if (ciResult is null) {

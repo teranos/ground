@@ -33,11 +33,12 @@ struct ImmediateMsg {
     const(char)[] name;
     const(char)[] message;
     const(char)[] projectContext;
-    // Push-time cwd + branch — populated by readImmediateMessage when the
-    // row's attributes carry them (e.g. ci-status). Lets watch.d's
-    // late-binding query the RIGHT repo regardless of where the watcher is.
-    const(char)[] cwd;
+    // Push-time repo identity + branch + sha — populated by
+    // readImmediateMessage from row attributes (set by writeCIStatus).
+    // Lets watch.d's late-binding hit the exact CI run.
+    const(char)[] repo;
     const(char)[] branch;
+    const(char)[] sha;
 }
 
 // Read a pending immediate message matching this session OR (for
@@ -57,7 +58,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return ImmediateMsg(null, null, null, null, null, null);
+        return ImmediateMsg(null, null, null, null, null, null, null);
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
 
     __gshared char[128] idBuf = 0;
@@ -166,17 +167,19 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         if (idLen > idBuf.length) idLen = idBuf.length;
         foreach (i; 0 .. idLen) idBuf[i] = idText[i];
 
-        // Extract optional cwd + branch from attributes (set by writeCIStatus
-        // so watch.d's late-binding queries the push's repo, not the watcher's).
-        __gshared char[512] cwdBuf = 0;
+        // Extract optional repo + branch + sha from attributes (set by writeCIStatus
+        // so watch.d's late-binding hits the exact CI run regardless of cwd).
+        __gshared char[256] repoBuf = 0;
         __gshared char[128] branchBuf = 0;
-        size_t cwdLen = 0;
+        __gshared char[64] shaBuf = 0;
+        size_t repoLen = 0;
         size_t branchLen = 0;
-        auto cwdIdx = indexOf(attrs, `"cwd":"`);
-        if (cwdIdx >= 0) {
-            size_t cp = cast(size_t) cwdIdx + 7;
-            while (cp < attrLen && attrs[cp] != '"' && cwdLen < cwdBuf.length) {
-                cwdBuf[cwdLen++] = attrs[cp++];
+        size_t shaLen = 0;
+        auto repoIdx = indexOf(attrs, `"repo":"`);
+        if (repoIdx >= 0) {
+            size_t cp = cast(size_t) repoIdx + 8;
+            while (cp < attrLen && attrs[cp] != '"' && repoLen < repoBuf.length) {
+                repoBuf[repoLen++] = attrs[cp++];
             }
         }
         auto branchIdx = indexOf(attrs, `"branch":"`);
@@ -186,6 +189,13 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
                 branchBuf[branchLen++] = attrs[bp++];
             }
         }
+        auto shaIdx = indexOf(attrs, `"sha":"`);
+        if (shaIdx >= 0) {
+            size_t sp = cast(size_t) shaIdx + 7;
+            while (sp < attrLen && attrs[sp] != '"' && shaLen < shaBuf.length) {
+                shaBuf[shaLen++] = attrs[sp++];
+            }
+        }
 
         sqlite3_finalize(stmt);
         return ImmediateMsg(
@@ -193,13 +203,14 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             nameBuf[0 .. nLen],
             msgBuf[0 .. mLen],
             ctxBuf[0 .. pcLen],
-            cwdBuf[0 .. cwdLen],
+            repoBuf[0 .. repoLen],
             branchBuf[0 .. branchLen],
+            shaBuf[0 .. shaLen],
         );
     }
 
     sqlite3_finalize(stmt);
-    return ImmediateMsg(null, null, null, null, null, null);
+    return ImmediateMsg(null, null, null, null, null, null, null);
 }
 
 // Mark a specific immediate message as delivered for this session.
@@ -345,13 +356,15 @@ void deleteClippyReminder(sqlite3* db, const(char)[] sessionId) {
 }
 
 // Write a ci-status immediate message for THIS session.
-// Session-keyed: any push from this session, regardless of cwd or repo,
-// produces a row tagged with the session. The session's watcher delivers
-// it. Free movement between repos within one session works because cwd
-// is never the key.
+// Session-keyed: any push from this session produces a row tagged with the
+// session. The session's watcher delivers it. The row carries the push's
+// repo + branch + sha (parsed from the push's own stdout via parsePushOutput)
+// so the watcher can query the right CI run regardless of cwd.
 // Deterministic ID per session — repeated pushes overwrite (INSERT OR REPLACE).
 // Also clears delivered: receipts so new pushes re-deliver.
-void writeCIStatus(sqlite3* db, const(char)[] cwd, const(char)[] sessionId, int delaySec) {
+void writeCIStatus(sqlite3* db, const(char)[] sessionId,
+                   const(char)[] repo, const(char)[] branch, const(char)[] sha,
+                   int delaySec) {
     import db : formatTimestamp, versionString;
 
     if (sessionId.length == 0) return;
@@ -372,24 +385,23 @@ void writeCIStatus(sqlite3* db, const(char)[] cwd, const(char)[] sessionId, int 
     ctxBuf.put(sessionId);
     ctxBuf.put(`"]`);
 
-    // Capture push-time branch from cwd (watcher's cwd at delivery may
-    // be a different repo — session is the key now). Stored alongside cwd
-    // so watch.d's late-binding can query the RIGHT repo's CI.
-    import db : getBranch;
-    auto branch = getBranch(cwd);
-    if (branch is null) branch = "unknown";
-
-    // Build attributes with after gate + push-time cwd + branch
+    // Build attributes with after gate + repo + branch + sha
     __gshared ZBuf attrBuf;
     attrBuf.reset();
-    attrBuf.put(`{"detail":"Checking CI...","cwd":"`);
-    foreach (c; cwd) {
+    attrBuf.put(`{"detail":"Checking CI...","repo":"`);
+    foreach (c; repo) {
         if (c == '"') attrBuf.put(`\"`);
         else if (c == '\\') attrBuf.put(`\\`);
         else attrBuf.putChar(c);
     }
     attrBuf.put(`","branch":"`);
     foreach (c; branch) {
+        if (c == '"') attrBuf.put(`\"`);
+        else if (c == '\\') attrBuf.put(`\\`);
+        else attrBuf.putChar(c);
+    }
+    attrBuf.put(`","sha":"`);
+    foreach (c; sha) {
         if (c == '"') attrBuf.put(`\"`);
         else if (c == '\\') attrBuf.put(`\\`);
         else attrBuf.putChar(c);
@@ -689,10 +701,13 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci", 0);
-    auto result = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci");
+    writeCIStatus(testDb, "sess-ci", "acme/widget", "main", "abc1234", 0);
+    auto result = readImmediateMessage(testDb, "/tmp/anywhere", "sess-ci");
     assert(result.message !is null, "ci-status not readable after write");
     assert(result.name == "ci-status");
+    assert(result.repo == "acme/widget");
+    assert(result.branch == "main");
+    assert(result.sha == "abc1234");
 
     sqlite3_close(testDb);
 }
@@ -708,8 +723,8 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-dedup", 0);
-    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-dedup", 0);
+    writeCIStatus(testDb, "sess-ci-dedup", "acme/widget", "main", "abc1234", 0);
+    writeCIStatus(testDb, "sess-ci-dedup", "acme/widget", "main", "abc1234", 0);
 
     enum countSql = "SELECT COUNT(*) FROM attestations WHERE id LIKE 'immediate:ci-status:%'\0";
     sqlite3_stmt* stmt;
@@ -730,8 +745,8 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-gate", 9999);
-    auto result = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-gate");
+    writeCIStatus(testDb, "sess-ci-gate", "acme/widget", "main", "abc1234", 9999);
+    auto result = readImmediateMessage(testDb, "/tmp/anywhere", "sess-ci-gate");
     assert(result.message is null, "ci-status should not be readable before gate opens");
 
     sqlite3_close(testDb);

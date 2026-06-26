@@ -230,14 +230,6 @@ int ciDelay(const(char)[] cwd) {
 // --- Deliver handlers ---
 // const(char)[] function(cwd) — return message or null to suppress.
 
-const(char)[] ciDeliver(const(char)[] cwd) {
-    import deferred : checkCIStatus;
-    import db : getBranch;
-    auto branch = getBranch(cwd);
-    if (branch is null) return null;
-    return checkCIStatus(cwd, branch);
-}
-
 const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     import db : popen, pclose, ZBuf;
     import core.stdc.stdio : fread, FILE;

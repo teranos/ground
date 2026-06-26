@@ -453,14 +453,14 @@ int computeDelay(int avgDuration) {
     return avgDuration + buffer;
 }
 
-// Query live CI status for a branch. Returns a human-readable summary.
-// Runs gh run list at delivery time so the message reflects actual state.
-const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
+// Query live CI status for a repo + branch. Returns a human-readable summary.
+// Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
+const(char)[] checkCIStatus(const(char)[] repo, const(char)[] branch) {
     __gshared ZBuf ghCmd;
     ghCmd.reset();
-    ghCmd.put("cd ");
-    ghCmd.put(cwd);
-    ghCmd.put(" && gh run list --branch ");
+    ghCmd.put("gh -R ");
+    ghCmd.put(repo);
+    ghCmd.put(" run list --branch ");
     ghCmd.put(branch);
     ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))" end'`);
 

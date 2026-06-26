@@ -203,18 +203,28 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
             }
         }
 
-        // CI status: git push → write immediate:ci-status with delay gate
+        // CI status: git push → write session-keyed immediate:ci-status.
+        // Repo + branch + sha come from the push's own stdout (tool_response),
+        // not from cwd. Watcher uses these for late-binding gh queries.
         {
             bool isBash = modeMatchesToolName('x', toolName);
             if (isBash && detail !is null && isGitPushCommand(detail))
             {
-                import db : openDb, sqlite3_close;
-                import immediate : writeCIStatus;
-                import control_handlers : ciDelay;
-                auto cdb = openDb();
-                if (cdb !is null) {
-                    writeCIStatus(cdb, cwd, sessionId, ciDelay(cwd));
-                    sqlite3_close(cdb);
+                import parse : extractStdout;
+                import push : parsePushOutput, PushInfo;
+                auto stdout = extractStdout(input);
+                if (stdout !is null) {
+                    auto info = parsePushOutput(stdout);
+                    if (info.repo.length > 0 && info.branch.length > 0) {
+                        import db : openDb, sqlite3_close;
+                        import immediate : writeCIStatus;
+                        import control_handlers : ciDelay;
+                        auto cdb = openDb();
+                        if (cdb !is null) {
+                            writeCIStatus(cdb, sessionId, info.repo, info.branch, info.sha, ciDelay(cwd));
+                            sqlite3_close(cdb);
+                        }
+                    }
                 }
             }
         }
