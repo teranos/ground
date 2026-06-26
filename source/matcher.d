@@ -92,29 +92,32 @@ const(char)[] strip(const(char)[] s) {
 // Strip "git -C <path> " prefix, returning the normalized segment.
 // "git -C /some/path push origin" -> "git push origin"
 const(char)[] stripGitDashC(const(char)[] segment) {
-    // Must start with "git -C "
-    if (segment.length < 7) return segment;
-    if (segment[0 .. 7] != "git -C ") return segment;
-    // Skip past the path argument
-    size_t pos = 7;
-    // Handle quoted path
-    if (pos < segment.length && segment[pos] == '"') {
-        pos++;
-        while (pos < segment.length && segment[pos] != '"') pos++;
-        if (pos < segment.length) pos++; // skip closing quote
-    } else {
-        while (pos < segment.length && segment[pos] != ' ') pos++;
+    // Returns the subcommand portion after "git " and any number of
+    // `-C <arg>` or `-c <arg>` pairs. CTFE-safe (pure slicing — no
+    // buffer rebuild). For non-git segments, returns the segment as-is.
+    //   "git push origin main"           → "push origin main"
+    //   "git -C /path push origin main"  → "push origin main"
+    //   "git -c user.email=x push"       → "push"
+    //   "git -c x.y=z -C /path push"     → "push"
+    //   "go test ./..."                  → "go test ./..."
+    if (segment.length < 4 || segment[0 .. 4] != "git ") return segment;
+    size_t pos = 4;
+    while (pos + 3 <= segment.length && segment[pos] == '-' &&
+           (segment[pos + 1] == 'C' || segment[pos + 1] == 'c') &&
+           segment[pos + 2] == ' ') {
+        pos += 3;
+        // Skip the arg (quoted or unquoted)
+        if (pos < segment.length && segment[pos] == '"') {
+            pos++;
+            while (pos < segment.length && segment[pos] != '"') pos++;
+            if (pos < segment.length) pos++;
+        } else {
+            while (pos < segment.length && segment[pos] != ' ') pos++;
+        }
+        // Skip whitespace after arg
+        while (pos < segment.length && segment[pos] == ' ') pos++;
     }
-    // Skip space after path
-    while (pos < segment.length && segment[pos] == ' ') pos++;
-    if (pos >= segment.length) return segment;
-    // Reconstruct: "git " + remainder
-    __gshared char[8192] buf = 0;
-    foreach (j, c; "git ") buf[j] = c;
-    auto rest = segment[pos .. $];
-    if (4 + rest.length > buf.length) return segment;
-    foreach (j; 0 .. rest.length) buf[4 + j] = rest[j];
-    return buf[0 .. 4 + rest.length];
+    return segment[pos .. $];
 }
 
 // Returns true if segment matches any cmd in the Cmd array.
@@ -133,14 +136,27 @@ bool commandMatch(const(char)[] segment, const(char)[] cmd) {
     if (cmd.length == 0) return false;
     if (cmd[0] == '*')
         return wildcardContains(segment, cmd);
-    if (cmd.length > 0 && cmd[0] == '=') {
-        auto exact = cmd[1 .. $];
-        auto s = stripGitDashC(segment);
-        return s == exact;
+
+    bool exactMatch = (cmd[0] == '=');
+    if (exactMatch) cmd = cmd[1 .. $];
+
+    // If cmd starts with "git ", normalize segment by stripping -C/-c args
+    // and compare against the subcommand portion of cmd. Otherwise plain
+    // prefix-match.
+    const(char)[] s;
+    const(char)[] target;
+    if (cmd.length >= 4 && cmd[0 .. 4] == "git ") {
+        if (segment.length < 4 || segment[0 .. 4] != "git ") return false;
+        s = stripGitDashC(segment);
+        target = cmd[4 .. $];
+    } else {
+        s = segment;
+        target = cmd;
     }
-    auto s = stripGitDashC(segment);
-    if (s.length < cmd.length) return false;
-    return s[0 .. cmd.length] == cmd;
+
+    if (exactMatch) return s == target;
+    if (s.length < target.length) return false;
+    return s[0 .. target.length] == target;
 }
 
 // Returns true if any segment in a compound command matches cmd as a prefix.
@@ -154,7 +170,7 @@ bool hasSegment(const(char)[] command, const(char)[] cmd) {
 
         if (i == command.length) {
             isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
             isSep = true;
             skip = 1;
         } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
@@ -186,7 +202,7 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
 
         if (i == command.length) {
             isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
             isSep = true;
             skip = 1;
         } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
@@ -269,7 +285,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
 
         if (i == command.length) {
             isSep = true;
-        } else if (command[i] == '|' || command[i] == ';') {
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
             isSep = true;
             skip = 1;
         } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
@@ -374,6 +390,78 @@ Buf applyOmit(const(Control)* c, const(char)[] segment) {
     return buf;
 }
 
+// Floor-clamp a numeric flag value.
+//
+// Spec shape: "<prefix>N>=<min>" — e.g. "tail -N>=40". The `N` is a
+// placeholder marking where the integer lives in matched input; `>=`
+// names the relation; the trailing decimal is the floor.
+//
+// Behavior: find the first occurrence of `<prefix>` in `segment`. If
+// followed by a non-negative integer K, and K < min, replace K with
+// min. K >= min, no integer, or prefix absent → segment unchanged.
+//
+// Purpose: prevent suppression-of-suppression. Claude truncates cargo
+// test output via `| tail -8`, discarding failure detail. Raising the
+// floor preserves enough trailing context to keep panic messages
+// intact. CLAUDE.md: "never | tail -N or | head -N the live stream."
+Buf applyClamp(string spec, const(char)[] segment) {
+    Buf buf;
+
+    // Parse spec.
+    auto gtIdx = indexOf(spec, ">=");
+    if (gtIdx < 0) { buf.put(segment); return buf; }
+
+    auto left = spec[0 .. cast(size_t) gtIdx];
+    auto right = spec[cast(size_t) gtIdx + 2 .. $];
+    if (left.length == 0 || left[$ - 1] != 'N') { buf.put(segment); return buf; }
+    auto prefix = left[0 .. $ - 1];
+
+    // Parse min value (decimal, non-negative).
+    if (right.length == 0) { buf.put(segment); return buf; }
+    int minValue = 0;
+    foreach (c; right) {
+        if (c < '0' || c > '9') { buf.put(segment); return buf; }
+        minValue = minValue * 10 + (c - '0');
+    }
+
+    // Find prefix in segment.
+    auto idx = indexOf(segment, prefix);
+    if (idx < 0) { buf.put(segment); return buf; }
+
+    // Parse number after prefix.
+    size_t numStart = cast(size_t) idx + prefix.length;
+    size_t numEnd = numStart;
+    int n = 0;
+    while (numEnd < segment.length && segment[numEnd] >= '0' && segment[numEnd] <= '9') {
+        n = n * 10 + (segment[numEnd] - '0');
+        numEnd++;
+    }
+    if (numEnd == numStart) { buf.put(segment); return buf; }
+
+    if (n >= minValue) { buf.put(segment); return buf; }
+
+    // Replace [numStart..numEnd] with minValue's decimal form.
+    buf.put(segment[0 .. numStart]);
+
+    char[20] tbuf = 0;
+    int tlen = 0;
+    int v = minValue;
+    if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+    else {
+        while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+        // Reverse in place.
+        foreach (i; 0 .. tlen / 2) {
+            auto tmp = tbuf[i];
+            tbuf[i] = tbuf[tlen - 1 - i];
+            tbuf[tlen - 1 - i] = tmp;
+        }
+    }
+    buf.put(tbuf[0 .. tlen]);
+
+    buf.put(segment[numEnd .. $]);
+    return buf;
+}
+
 // Strips the entire line containing the needle.
 Buf applyOmitLine(const(char)[] segment, const(char)[] needle) {
     Buf buf;
@@ -392,7 +480,10 @@ Buf applyOmitLine(const(char)[] segment, const(char)[] needle) {
     size_t lineEnd = cast(size_t) idx + needle.length;
     while (lineEnd < segment.length && segment[lineEnd] != '\n')
         lineEnd++;
-    if (lineEnd < segment.length) lineEnd++; // include the \n
+    if (lineEnd < segment.length)
+        lineEnd++; // include the \n
+    else if (lineStart > 0 && segment[lineStart - 1] == '\n')
+        lineStart--; // last line with no trailing \n: strip preceding \n
 
     buf.put(segment[0 .. lineStart]);
     buf.put(segment[lineEnd .. $]);

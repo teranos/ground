@@ -453,14 +453,61 @@ int computeDelay(int avgDuration) {
     return avgDuration + buffer;
 }
 
-// Query live CI status for a branch. Returns a human-readable summary.
-// Runs gh run list at delivery time so the message reflects actual state.
-const(char)[] checkCIStatus(const(char)[] cwd, const(char)[] branch) {
+// p50 + p90 of the last 20 CI durations for repo+branch. Used by the
+// watcher's adaptive poll: stays quiet while elapsed < p50, polls actively
+// in the p50..p90 likely-done window, urgent beyond p90.
+struct CIPercentiles { long p50; long p90; }
+
+CIPercentiles getCIPercentiles(const(char)[] repo, const(char)[] branch) {
     __gshared ZBuf ghCmd;
     ghCmd.reset();
-    ghCmd.put("cd ");
-    ghCmd.put(cwd);
-    ghCmd.put(" && gh run list --branch ");
+    ghCmd.put("gh -R ");
+    ghCmd.put(repo);
+    ghCmd.put(" run list --branch ");
+    ghCmd.put(branch);
+    ghCmd.put(` --limit 20 --json startedAt,updatedAt --jq '[.[] | ((.updatedAt | fromdateiso8601) - (.startedAt | fromdateiso8601))] | sort | length as $n | if $n == 0 then "0 0" else "\(.[($n*5/10|floor)]) \(.[($n*9/10|floor)])" end'`);
+    ghCmd.putChar('\0');
+
+    auto pipe = popen(ghCmd.ptr(), "r");
+    if (pipe is null) return CIPercentiles(0, 0);
+
+    __gshared char[64] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+
+    if (n == 0) return CIPercentiles(0, 0);
+
+    // Parse "<p50> <p90>"
+    CIPercentiles result;
+    long val = 0;
+    bool inDigit = false;
+    bool gotFirst = false;
+    foreach (i; 0 .. n) {
+        char c = outBuf[i];
+        if (c >= '0' && c <= '9') {
+            val = val * 10 + (c - '0');
+            inDigit = true;
+        } else {
+            if (inDigit) {
+                if (!gotFirst) { result.p50 = val; gotFirst = true; }
+                else { result.p90 = val; return result; }
+                val = 0;
+                inDigit = false;
+            }
+        }
+    }
+    if (inDigit && gotFirst) result.p90 = val;
+    return result;
+}
+
+// Query live CI status for a repo + branch. Returns a human-readable summary.
+// Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
+const(char)[] checkCIStatus(const(char)[] repo, const(char)[] branch) {
+    __gshared ZBuf ghCmd;
+    ghCmd.reset();
+    ghCmd.put("gh -R ");
+    ghCmd.put(repo);
+    ghCmd.put(" run list --branch ");
     ghCmd.put(branch);
     ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))" end'`);
 
@@ -544,3 +591,5 @@ unittest {
 
     sqlite3_close(db);
 }
+
+// See immediate.d for immediate delivery (asyncRewake watcher).

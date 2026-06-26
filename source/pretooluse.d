@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, indexOf, contains, hasSegment, Buf, envSubst;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite, stderr, fprintf;
 import db : ZBuf;
@@ -158,7 +158,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.bg.value) hasBg = true;
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
-                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0;
+                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0;
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -185,6 +185,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         amended = applyOmitLine(m.segment, c.omitLine.value);
                     else if (c.omit.value.length > 0)
                         amended = applyOmit(c, m.segment);
+                    else if (c.clamp.value.length > 0)
+                        amended = applyClamp(c.clamp.value, m.segment);
                     else
                         amended = applyArg(c, m.segment);
 
@@ -394,12 +396,17 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.cmd.len > 0) continue; // command controls handled above
 
                 // Content match — check tool_input region (covers Edit new_string, Write content)
-                if (c.content.value.length > 0) {
+                if (c.content.len > 0) {
                     if (!toolInputExtracted) {
                         toolInput = extractToolInputRegion(input);
                         toolInputExtracted = true;
                     }
-                    if (toolInput is null || !contains(toolInput, c.content.value)) continue;
+                    if (toolInput is null) continue;
+                    bool anyMatch = false;
+                    foreach (v; c.content.values) {
+                        if (contains(toolInput, v)) { anyMatch = true; break; }
+                    }
+                    if (!anyMatch) continue;
                 } else {
                     // File-path / check_handler controls
                     if (c.filepath.value.length == 0 && c.sessionstart.check is null) continue;

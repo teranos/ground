@@ -35,10 +35,12 @@ struct ParsedControl {
     string[8] cmds;
     ubyte cmdCount;
     string cmd() const { return cmdCount > 0 ? cmds[0] : ""; }
-    string arg, omit, omitLine;
+    string arg, omit, omitLine, clamp;
     string[16] triggers;
     ubyte triggerCount;
-    string filepath, msg, mcpArg, content;
+    string filepath, msg, mcpArg, pushedPath;
+    string[8] contents;
+    ubyte contentCount;
     string[8] userprompts;
     ubyte userpromptCount;
     bool bg;
@@ -69,7 +71,7 @@ struct ParsedScope {
 
 struct ParsedProject {
     string path;
-    string[256] files;
+    string[1024] files;
     size_t fileCount;
 }
 
@@ -211,14 +213,19 @@ ScopeSet buildScopes(
             c.arg = Arg(pc.arg);
             c.omit = Omit(pc.omit);
             c.omitLine = OmitLine(pc.omitLine);
+            c.clamp = Clamp(pc.clamp);
             c.filepath = FilePath(pc.filepath);
+            c.pushedPath = PushedPath(pc.pushedPath);
             if (pc.userpromptCount > 0) {
                 c.userprompt._buf = pc.userprompts;
                 c.userprompt.len = pc.userpromptCount;
             }
             c.msg = Msg(pc.msg);
             c.mcpArg = McpArg(pc.mcpArg);
-            c.content = Content(pc.content);
+            if (pc.contentCount > 0) {
+                c.content._buf = pc.contents;
+                c.content.len = pc.contentCount;
+            }
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
 
@@ -529,7 +536,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
     string projectPath;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
-    string[256] files;
+    string[1024] files;
     size_t fCount;
     // Env stored in separate lightweight pool (not in ParsedProject — too large)
     string[16] envKeys;
@@ -687,6 +694,7 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
             case "arg":             c.arg = val; break;
             case "omit":            c.omit = val; break;
             case "omit_line":       c.omitLine = val; break;
+            case "clamp":           c.clamp = val; break;
             case "filepath":        c.filepath = val; break;
             case "userprompt":
                 if (val is null) {
@@ -705,10 +713,25 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
                 break;
             case "msg":             c.msg = val; break;
             case "mcp_arg":         c.mcpArg = val; break;
-            case "content":         c.content = val; break;
+            case "content":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.contentCount < 8);
+                        c.contents[c.contentCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.contents[0] = val; c.contentCount = 1;
+                }
+                break;
             case "bg":              c.bg = (val == "true"); break;
             case "tmo":             c.tmo = parseInt(val); break;
             case "check_handler":   c.checkHandler = val; break;
+            case "pushed_paths":    c.pushedPath = val; break;
             case "delay_handler":   c.delayHandler = val; break;
             case "deliver_handler": c.deliverHandler = val; break;
             case "defer_msg":       c.deferMsg = val; break;

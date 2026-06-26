@@ -201,6 +201,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import profile : handleProfile;
             return handleProfile(argc, argv);
         }
+        if (cmd == "watch") {
+            import watch : handleWatch;
+            return handleWatch(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
@@ -280,7 +284,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         return handleUserPromptSubmit(input, cwd, sessionId);
     }
 
-    // Stop — trail controls, deferred messages, lazy-verify
+    // Stop — deferred messages, lazy-verify
     if (event == HookEvent.Stop) {
         import stop : handleStop;
         auto stopRc = handleStop(input, cwd, sessionId);

@@ -12,11 +12,22 @@ scope {
       msg: "Git hooks must not be bypassed, ever."
     }
 
+    # `clamp: "<prefix>N>=<min>"` — find <prefix> in the matched
+    # segment, read the integer that follows, raise it to <min> if
+    # below. N is the placeholder marking where the integer lives;
+    # >= names the relation; <min> is the floor (decimal).
+    # Silent — no msg; the longer output is the signal.
+    control {
+      name: "tail-min-40"
+      cmd: "tail"
+      clamp: "tail -N>=40"
+    }
+
     control {
       name: "no-co-authored-by"
       cmd: "git commit"
       omit_line: "Co-Authored-By:"
-      msg: "Do not add Co-Authored-By lines to commits."
+      msg: "Co-Authored-By line stripped from commit. Do not amend."
     }
 
     control {
@@ -67,10 +78,10 @@ scope {
     decision: "deny"
 
     control {
-      name: "commit-not-requested"
-      cmd: "git commit"
-      check_handler: "commitNotRequested"
-      msg: "The developer has not requested a commit. Wait for an explicit commit request."
+      name: "kill-not-requested"
+      cmd: ["kill", "pkill"]
+      check_handler: "killNotRequested"
+      msg: "The developer has not requested killing a process. Wait for an explicit kill request."
     }
 
     control {
@@ -142,6 +153,21 @@ scope {
     name: "no-create-table-in-code"
     content: "CREATE TABLE"
     msg: "STOP. CREATE TABLE in application code is NEVER acceptable. Tables are created ONLY through migrations. Rewrite your approach."
+  }
+}
+
+# commit-not-requested — universal except in /tsot-roam, where the
+# workflow is "edit, commit, push, CI verify" without per-step ask.
+scope {
+  path: "!/tsot-roam"
+  event: "PreToolUse"
+  decision: "deny"
+
+  control {
+    name: "commit-not-requested"
+    cmd: "*git commit*"
+    check_handler: "commitNotRequested"
+    msg: "The developer has not requested a commit. Wait for an explicit commit request."
   }
 }
 
@@ -256,13 +282,6 @@ scope {
 # PostToolUseDeferred — deferred checks
 scope {
   event: "PostToolUseDeferred"
-
-  control {
-    name: "ci-check-defer"
-    cmd: "git push"
-    delay_handler: "ciDelay"
-    deliver_handler: "ciDeliver"
-  }
 
   control {
     name: "review-nudge"

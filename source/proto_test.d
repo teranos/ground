@@ -811,7 +811,8 @@ scope {
 enum contentParsed = parsePbt(contentInput);
 static assert(contentParsed.scopeCount == 1);
 static assert(ctrl(contentParsed, 0, 0).name == "no-create-table");
-static assert(ctrl(contentParsed, 0, 0).content == "CREATE TABLE");
+static assert(ctrl(contentParsed, 0, 0).contentCount == 1);
+static assert(ctrl(contentParsed, 0, 0).contents[0] == "CREATE TABLE");
 static assert(ctrl(contentParsed, 0, 0).msg == "STOP. Tables only through migrations.");
 
 // buildScopes wires content into Control
@@ -842,3 +843,11 @@ static assert(scopeCmdContentBuilt.len == 1);
 static assert(scopeCmdContentBuilt.items[0].cmdCount == 2);
 static assert(scopeCmdContentBuilt.items[0].controls[0].cmd.len == 0);
 static assert(scopeCmdContentBuilt.items[0].controls[0].content.value == "blocked");
+
+// --- Project file array capacity ---
+//
+// tsot-roam tracks 533 files via git ls-files. The static array in
+// ParsedProject must hold that with headroom for growth (ccg/cards/
+// is the active source).
+import proto : ParsedProject;
+static assert(ParsedProject.files.length >= 533);

@@ -1,7 +1,36 @@
 module posttooluse_test;
 
-import posttooluse : postToolUseMatch, modeMatches;
+import posttooluse : postToolUseMatch, modeMatches, isGitPushCommand;
 import hooks : Control, Cmd, cmd, Msg, FilePath, Mode;
+
+// --- isGitPushCommand: detection for the CI status writer ---
+// Closes the substring-match hole where `git -C <path> push` was silently
+// ignored. Verified on the ground db: ~20% of historical push commands
+// used the -C form and never fired writeCIStatus.
+
+// Plain forms — must detect
+static assert(isGitPushCommand("git push"));
+static assert(isGitPushCommand("git push origin main"));
+static assert(isGitPushCommand("git push --force-with-lease"));
+static assert(isGitPushCommand("git push origin v0.1.0"));
+
+// -C forms — the bug case
+static assert(isGitPushCommand("git -C /path push"));
+static assert(isGitPushCommand("git -C /Users/me/repo push"));
+static assert(isGitPushCommand("git -C /path push origin main"));
+static assert(isGitPushCommand(`git -C "/path with spaces" push`));
+
+// -c <config> forms
+static assert(isGitPushCommand("git -c user.email=x push"));
+
+// Compound commands containing push
+static assert(isGitPushCommand("git add . && git -C /path push"));
+static assert(isGitPushCommand("cd /tmp && git push"));
+
+// Negatives — must NOT detect
+static assert(!isGitPushCommand("git status"));
+static assert(!isGitPushCommand(`git commit -m "fix"`));
+static assert(!isGitPushCommand(`git commit -m "run git push later"`));
 
 // --- cmd matching ---
 

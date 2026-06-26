@@ -122,6 +122,62 @@ bool containsCI(const(char)[] haystack, const(char)[] needle) {
     return false;
 }
 
+// Check if Cargo.toml exists in the working directory.
+bool isRustProject(const(char)[] cwd) {
+    if (cwd.length == 0) return false;
+    __gshared char[512] pathBuf = 0;
+    if (cwd.length + 11 >= pathBuf.length) return false;
+    pathBuf[0 .. cwd.length] = cwd[];
+    pathBuf[cwd.length .. cwd.length + 11] = "/Cargo.toml";
+    pathBuf[cwd.length + 11] = 0;
+    import core.sys.posix.sys.stat : stat_t, stat;
+    stat_t st;
+    return stat(&pathBuf[0], &st) == 0;
+}
+
+bool killNotRequested(const(char)[] cwd, const(char)[] input) {
+    if (g_sessionId.length == 0) return false;
+
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
+                sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto db = openDb();
+    if (db is null) return true;
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    enum last3Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 3\0";
+
+    sqlite3_stmt* stmt;
+    bool userSaid = false;
+    if (sqlite3_prepare_v2(db, last3Sql.ptr, -1, &stmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        int msgIdx = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            auto text = sqlite3_column_text(stmt, 0);
+            if (text !is null) {
+                size_t tlen = 0;
+                while (text[tlen] != 0) tlen++;
+                auto m = text[0 .. tlen];
+                if (containsCI(m, "kill")) {
+                    userSaid = true;
+                    break;
+                }
+            }
+            msgIdx++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return !userSaid;
+}
+
 bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {
     import parse : extractNewString, extractToolName;
     auto toolName = extractToolName(input);
@@ -130,6 +186,35 @@ bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {
     if (newString is null) return false;
     return contains(newString, "~~");
 }
+
+// Cached file list from the last few commits in `cwd`.
+// Shared across all `pushed_paths:` matchers in one PostToolUse invocation.
+__gshared char[8192] g_pushedFilesBuf = 0;
+__gshared size_t g_pushedFilesLen;
+__gshared bool g_pushedFilesValid;
+
+const(char)[] pushedFiles(const(char)[] cwd) {
+    if (g_pushedFilesValid) return g_pushedFilesBuf[0 .. g_pushedFilesLen];
+
+    import db : popen, pclose;
+    import core.stdc.stdio : fread;
+    import zbuf : ZBuf;
+
+    __gshared ZBuf cmd;
+    cmd.reset();
+    cmd.put("cd \"");
+    cmd.put(cwd);
+    cmd.put("\" && git log -3 --name-only --pretty= 2>/dev/null");
+    cmd.putChar('\0');
+
+    auto pipe = popen(cmd.ptr(), "r");
+    g_pushedFilesValid = true;
+    if (pipe is null) { g_pushedFilesLen = 0; return g_pushedFilesBuf[0 .. 0]; }
+    g_pushedFilesLen = fread(&g_pushedFilesBuf[0], 1, g_pushedFilesBuf.length, pipe);
+    pclose(pipe);
+    return g_pushedFilesBuf[0 .. g_pushedFilesLen];
+}
+
 
 // --- Delay handlers ---
 // int function(cwd) — return delay in seconds.
@@ -144,14 +229,6 @@ int ciDelay(const(char)[] cwd) {
 
 // --- Deliver handlers ---
 // const(char)[] function(cwd) — return message or null to suppress.
-
-const(char)[] ciDeliver(const(char)[] cwd) {
-    import deferred : checkCIStatus;
-    import db : getBranch;
-    auto branch = getBranch(cwd);
-    if (branch is null) return null;
-    return checkCIStatus(cwd, branch);
-}
 
 const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     import db : popen, pclose, ZBuf;

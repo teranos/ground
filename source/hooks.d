@@ -24,7 +24,7 @@ enum HookEvent {
                         //   payload: agent_id, agent_type, agent_transcript_path, last_assistant_message
                         //   TODO: read agent_transcript_path for quality checks on subagent output
                         //   TODO: verify what response fields are honored
-    Stop,               // trail controls, deferred messages, lazy-verify, CI nudge
+    Stop,               // deferred messages, lazy-verify, CI nudge
                         //   stop_hook_active:false = first stop, controls run.
                         //   stop_hook_active:true = re-stop after prior block, skip to avoid loop.
     StopFailure,        // TODO: fires when turn ends due to API error — retry logic, error logging
@@ -79,6 +79,13 @@ struct OmitLine {
     string value;
 }
 
+// Floor-clamp a numeric flag value. Spec: "<prefix>N>=<min>" —
+// e.g. "tail -N>=40". When matched, raises a too-small N to <min>.
+// See matcher.applyClamp for semantics.
+struct Clamp {
+    string value;
+}
+
 struct Trigger {
     string[16] _buf;
     ubyte len;
@@ -86,6 +93,10 @@ struct Trigger {
 }
 
 struct FilePath {
+    string value;
+}
+
+struct PushedPath {
     string value;
 }
 
@@ -102,7 +113,10 @@ struct McpArg {
 }
 
 struct Content {
-    string value;
+    string[8] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
+    string value() const { return len > 0 ? _buf[0] : ""; }
 }
 
 struct Bg {
@@ -133,6 +147,7 @@ struct Defer {
 Cmd cmd(string s) { Cmd c; c._buf[0] = s; c.len = 1; return c; }
 Arg arg(string s) { return Arg(s); }
 Omit omit(string s) { return Omit(s); }
+Clamp clamp(string s) { return Clamp(s); }
 struct UserPrompt {
     string[8] _buf;
     ubyte len;
@@ -173,8 +188,10 @@ struct Control {
     Arg arg;
     Omit omit;
     OmitLine omitLine;
+    Clamp clamp;
     Trigger trigger;
     FilePath filepath;
+    PushedPath pushedPath;
     UserPrompt userprompt;
     SessionStartTrigger sessionstart;
     Msg msg;
@@ -192,6 +209,13 @@ Control control(string name, Cmd c, Arg a, Msg m) {
 
 Control control(string name, Cmd c, Omit o, Msg m) {
     Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.omit = o; ctrl.msg = m; return ctrl;
+}
+
+// Clamp controls: silent floor-raise of a numeric flag. No msg —
+// the rewrite is corrective, not advisory; the longer output speaks
+// for itself.
+Control control(string name, Cmd c, Clamp cl) {
+    Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.clamp = cl; return ctrl;
 }
 
 Control control(string name, Cmd c, Msg m) {

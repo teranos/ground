@@ -104,6 +104,13 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     g_cwd = cwd;
     g_sessionId = sessionId;
 
+    // Kill previous watcher for THIS session, write claim for the new one.
+    if (sessionId !is null) {
+        import watch : killSessionWatcher, writeWatchClaim;
+        killSessionWatcher(sessionId);
+        writeWatchClaim(sessionId);
+    }
+
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
     if (hookActive)
@@ -122,20 +129,6 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto tb0 = usecNow();
         branch = getBranch(cwd);
         branchUs = usecNow() - tb0;
-    }
-
-    import trail : checkTrailControls, TrailTiming;
-    TrailTiming trailTiming;
-    {
-        auto trailResult = checkTrailControls(branch, db);
-        trailTiming = trailResult.timing;
-        if (trailResult.control !is null) {
-            import db : attestControlFire;
-            attestControlFire(db, "GroundedStop", trailResult.control.name, cwd, sessionId);
-            sqlite3_close(db);
-            writeStopResponseAndNotify(trailResult.reason);
-            return 0;
-        }
     }
 
     auto t3 = usecNow();
@@ -208,18 +201,23 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
-    // Unread file claim detection — scan assistant message for project files not Read this session
+    // Unread file claim detection — accumulate every project file referenced in
+    // the assistant message but never Read this session; surface them all at once.
     {
         import matcher : containsExact;
         import controls : projectFiles;
         if (lastMsg !is null && projectFiles.length > 0) {
-            foreach (ref f; projectFiles) {
-                if (!containsExact(lastMsg, f)) continue;
+            import db : fileAttestationExists, attestationExists, attestControlFire;
+            import unread : buildUnreadClaimMessage;
 
-                import db : fileAttestationExists, attestationExists, attestControlFire;
+            const(char)[][8] unread;
+            size_t unreadCount;
+
+            foreach (ref f; projectFiles) {
+                if (unreadCount >= unread.length) break;
+                if (!containsExact(lastMsg, f)) continue;
                 if (fileAttestationExists(db, f, sessionId)) continue;
 
-                // Build dedup key: "unread-file-claim:<filename>"
                 __gshared ZBuf dedupKey;
                 dedupKey.reset();
                 dedupKey.put("unread-file-claim:");
@@ -228,13 +226,18 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 if (attestationExists(db, "GroundedStop", dedupKey.slice(), sessionId))
                     continue;
 
-                __gshared ZBuf msg;
-                msg.reset();
-                msg.put("You referenced `");
-                msg.put(f);
-                msg.put("` but never Read it this session. Use the Read tool before making claims about file contents.");
+                unread[unreadCount++] = f;
+            }
 
-                attestControlFire(db, "GroundedStop", dedupKey.slice(), cwd, sessionId);
+            if (unreadCount > 0) {
+                foreach (i; 0 .. unreadCount) {
+                    __gshared ZBuf attestKey;
+                    attestKey.reset();
+                    attestKey.put("unread-file-claim:");
+                    attestKey.put(unread[i]);
+                    attestControlFire(db, "GroundedStop", attestKey.slice(), cwd, sessionId);
+                }
+                auto msg = buildUnreadClaimMessage(unread[0 .. unreadCount]);
                 sqlite3_close(db);
                 writeStopResponseAndNotify(msg.slice());
                 return 0;
@@ -359,17 +362,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         putInt(timingMsg, (t1-t0)/1000);
                         timingMsg.put("ms db=");
                         putInt(timingMsg, (t2-t1)/1000);
-                        timingMsg.put("ms trail=");
-                        putInt(timingMsg, (t3-t2)/1000);
-                        timingMsg.put("ms(branch=");
+                        timingMsg.put("ms branch=");
                         putInt(timingMsg, branchUs/1000);
-                        timingMsg.put("ms rsQ=");
-                        putInt(timingMsg, trailTiming.rsQueryUs/1000);
-                        timingMsg.put("ms remQ=");
-                        putInt(timingMsg, trailTiming.reminderQueryUs/1000);
-                        timingMsg.put("ms clipQ=");
-                        putInt(timingMsg, trailTiming.clippyQueryUs/1000);
-                        timingMsg.put("ms) triggers=");
+                        timingMsg.put("ms triggers=");
                         putInt(timingMsg, (t4-t3)/1000);
                         timingMsg.put("ms deliver=");
                         putInt(timingMsg, (t5-t4)/1000);
@@ -402,12 +397,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         prof.reset();
         prof.put("parse="); putInt(prof, t1-t0);
         prof.put("us db="); putInt(prof, t2-t1);
-        prof.put("us trail="); putInt(prof, t3-t2);
-        prof.put("us(branch="); putInt(prof, branchUs);
-        prof.put("us rsQ="); putInt(prof, trailTiming.rsQueryUs);
-        prof.put("us remQ="); putInt(prof, trailTiming.reminderQueryUs);
-        prof.put("us clipQ="); putInt(prof, trailTiming.clippyQueryUs);
-        prof.put("us) triggers="); putInt(prof, t4-t3);
+        prof.put("us branch="); putInt(prof, branchUs);
+        prof.put("us triggers="); putInt(prof, t4-t3);
         prof.put("us deliver="); putInt(prof, t5-t4);
         prof.put("us deferred="); putInt(prof, t6-t5);
         prof.put("us(sessQ="); putInt(prof, tDeferSess-t5);
@@ -433,9 +424,7 @@ unittest {
 }
 
 unittest {
-    // deliverDeferred finds ci-check-defer and calls deliverFn
-    // (deliverFn calls gh which won't work in test, so result is null = suppressed)
-    auto msg = deliverDeferred(DeferredMsg("ci-check-defer", "fallback"), "/tmp");
-    // deliverFn returns null (no git repo) → delivery suppressed
-    assert(msg is null);
+    // deliverDeferred with unknown control falls back to stored message (not null)
+    auto msg = deliverDeferred(DeferredMsg("removed-control", "fallback"), "/tmp");
+    assert(msg == "fallback");
 }

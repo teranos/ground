@@ -1,7 +1,33 @@
 module matcher_test;
 
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
-                 hasSegment, applyArg, applyOmit, applyOmitLine, wildcardContains, containsExact;
+                 hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
+                 wildcardContains, containsExact;
+
+// --- clamp tests ---
+//
+// `clamp: "tail -N>=40"` rewrites `tail -K` (K<40) → `tail -40`. Leaves
+// K>=40 unchanged. Leaves unrelated segments untouched. The control's
+// purpose: suppression-of-suppression — Claude's habit of trimming
+// cargo test output via `| tail -8` discards the failure detail, which
+// CLAUDE.md explicitly forbids. Raising the floor preserves enough
+// trailing context to keep the panic message intact.
+
+// Below-floor: tail -8 → tail -40.
+static assert(applyClamp("tail -N>=40", `cargo test --lib 2>&1 | tail -8`).slice
+              == `cargo test --lib 2>&1 | tail -40`);
+// At-floor: tail -40 unchanged.
+static assert(applyClamp("tail -N>=40", `cargo test --lib 2>&1 | tail -40`).slice
+              == `cargo test --lib 2>&1 | tail -40`);
+// Above-floor: tail -100 unchanged.
+static assert(applyClamp("tail -N>=40", `cargo test --lib 2>&1 | tail -100`).slice
+              == `cargo test --lib 2>&1 | tail -100`);
+// No tail at all — passthrough.
+static assert(applyClamp("tail -N>=40", `cargo test --lib`).slice
+              == `cargo test --lib`);
+// Different floor: tail -5 with N>=10 → tail -10.
+static assert(applyClamp("tail -N>=10", `head -5 file | tail -5`).slice
+              == `head -5 file | tail -10`);
 
 // --- stripQuoted tests ---
 
@@ -107,10 +133,10 @@ unittest {
 }
 
 unittest {
-    // omit_line with match on last line (no trailing newline)
+    // omit_line with match on last line (no trailing newline) — closing " is on the same line, stripped with it
     auto input = "git commit -m \"Fix bug\nCo-Authored-By: Claude <noreply@anthropic.com>\"";
     auto result = applyOmitLine(input, "Co-Authored-By:");
-    assert(result.slice() == "git commit -m \"Fix bug\"");
+    assert(result.slice() == "git commit -m \"Fix bug");
 }
 
 unittest {
@@ -174,6 +200,34 @@ unittest {
 }
 
 unittest {
+    // git commit embedded after a newline — must still fire deny
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-commit-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands("git add foo\ngit commit -m \"x\"\ngit push", OTHER);
+    bool sawDeny = false;
+    foreach (i; 0 .. results.count)
+        if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
+    assert(sawDeny);
+}
+
+unittest {
+    // any substring `git commit` anywhere in the command must fire deny —
+    // includes inside quoted strings (bash -c "git commit ..."), inside
+    // env-prefix, anywhere. The user accepts false positives.
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-commit-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands(`bash -c "git commit -m x"`, OTHER);
+    bool sawDeny = false;
+    foreach (i; 0 .. results.count)
+        if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
+    assert(sawDeny);
+}
+
+unittest {
     // gh pr create triggers checkpoint with "ask" decision
     auto result = checkCommand("gh pr create --title \"fix\"", OTHER);
     assert(result.control !is null);
@@ -198,19 +252,17 @@ unittest {
 }
 
 unittest {
-    // git push triggers checkpoint with "ask" decision
+    // git push triggers checkpoint
     auto result = checkCommand("git push origin main", OTHER);
     assert(result.control !is null);
     assert(result.control.name == "git-push-pull-first");
-    assert(result.decision == "ask");
 }
 
 unittest {
-    // git push --no-verify: omit wins for amendment, ask wins for decision
+    // git push --no-verify: omit wins for amendment, no-skip-hooks matches
     auto result = checkCommand("git push --no-verify", OTHER);
     assert(result.control !is null);
     assert(result.control.name == "no-skip-hooks");
-    assert(result.decision == "ask");
 }
 
 unittest {

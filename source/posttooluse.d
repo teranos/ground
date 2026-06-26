@@ -45,6 +45,13 @@ bool modeMatches(const(char)[] mode, const(char)[] toolName) {
     return false;
 }
 
+// Does this Bash command contain a `git push` invocation? Uses hasSegment
+// instead of bare substring matching so `git -C <path> push`,
+// `git -c <cfg> push`, and other flag-prefixed forms are detected.
+bool isGitPushCommand(const(char)[] command) {
+    return hasSegment(command, "git push");
+}
+
 // Matches a PostToolUse control against a command and/or file path.
 // Returns true if the control should fire.
 bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] filePath,
@@ -88,6 +95,12 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
             foreach (ref c; scope_.controls) {
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
                 if (c.msg.value.length == 0) continue;
+                if (c.pushedPath.value.length > 0) {
+                    import control_handlers : pushedFiles;
+                    import push : hasPathStartingWith;
+                    if (!hasPathStartingWith(pushedFiles(cwd), c.pushedPath.value))
+                        continue;
+                }
 
                 if (db !is null && attestationExists(db, "GroundedPostToolUse", c.name, sessionId))
                     continue;
@@ -158,13 +171,72 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         }
 
         auto tDeferred = usecNow();
+
+        // Clippy-reminder: .rs edit → write immediate, cargo clippy → delete
+        {
+            import control_handlers : isRustProject;
+            if (isRustProject(cwd)) {
+                bool isWrite = modeMatchesToolName('w', toolName);
+                bool isBash = modeMatchesToolName('x', toolName);
+
+                if (isWrite && filePath !is null && filePath.length >= 3
+                    && filePath[filePath.length - 3 .. $] == ".rs")
+                {
+                    import db : openDb, sqlite3_close;
+                    import immediate : writeClippyReminder;
+                    auto cdb = openDb();
+                    if (cdb !is null) {
+                        writeClippyReminder(cdb, sessionId);
+                        sqlite3_close(cdb);
+                    }
+                }
+                else if (isBash && detail !is null && contains(detail, "cargo clippy"))
+                {
+                    import db : openDb, sqlite3_close;
+                    import immediate : deleteClippyReminder;
+                    auto cdb = openDb();
+                    if (cdb !is null) {
+                        deleteClippyReminder(cdb, sessionId);
+                        sqlite3_close(cdb);
+                    }
+                }
+            }
+        }
+
+        // CI status: git push → write session-keyed immediate:ci-status.
+        // Repo + branch + sha come from the push's own stdout (tool_response),
+        // not from cwd. Watcher uses these for late-binding gh queries.
+        {
+            bool isBash = modeMatchesToolName('x', toolName);
+            if (isBash && detail !is null && isGitPushCommand(detail))
+            {
+                import parse : extractStdout;
+                import push : parsePushOutput, PushInfo;
+                auto stdout = extractStdout(input);
+                if (stdout !is null) {
+                    auto info = parsePushOutput(stdout);
+                    if (info.repo.length > 0 && info.branch.length > 0) {
+                        import db : openDb, sqlite3_close;
+                        import immediate : writeCIStatus;
+                        import control_handlers : ciDelay;
+                        auto cdb = openDb();
+                        if (cdb !is null) {
+                            writeCIStatus(cdb, sessionId, info.repo, info.branch, info.sha, ciDelay(cwd));
+                            sqlite3_close(cdb);
+                        }
+                    }
+                }
+            }
+        }
+
+        auto tEnd = usecNow();
         __gshared ZBuf prof;
         prof.reset();
         prof.put("parse="); putInt(prof, tParse-t0);
         prof.put("us db="); putInt(prof, tDb-tParse);
         prof.put("us controls="); putInt(prof, tControls-tDb);
         prof.put("us deferred="); putInt(prof, tDeferred-tControls);
-        prof.put("us total="); putInt(prof, tDeferred-t0);
+        prof.put("us total="); putInt(prof, tEnd-t0);
         prof.put("us exit=none");
         emitProfile(prof);
     }
