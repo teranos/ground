@@ -39,6 +39,11 @@ struct ImmediateMsg {
     const(char)[] repo;
     const(char)[] branch;
     const(char)[] sha;
+    // Push timestamp (unix) + historical CI duration percentiles for adaptive
+    // polling. 0 when unavailable (no history, legacy rows).
+    long pushTime;
+    long p50;
+    long p90;
 }
 
 // Read a pending immediate message matching this session OR (for
@@ -58,7 +63,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return ImmediateMsg(null, null, null, null, null, null, null);
+        return ImmediateMsg(null, null, null, null, null, null, null, 0, 0, 0);
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
 
     __gshared char[128] idBuf = 0;
@@ -197,6 +202,35 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             }
         }
 
+        // Numeric extras for adaptive polling (push_time, p50, p90).
+        long pushTime, p50, p90;
+        {
+            auto ptIdx = indexOf(attrs, `"push_time":`);
+            if (ptIdx >= 0) {
+                size_t p = cast(size_t) ptIdx + 12;
+                while (p < attrLen && attrs[p] >= '0' && attrs[p] <= '9') {
+                    pushTime = pushTime * 10 + (attrs[p] - '0');
+                    p++;
+                }
+            }
+            auto p50Idx = indexOf(attrs, `"p50":`);
+            if (p50Idx >= 0) {
+                size_t p = cast(size_t) p50Idx + 6;
+                while (p < attrLen && attrs[p] >= '0' && attrs[p] <= '9') {
+                    p50 = p50 * 10 + (attrs[p] - '0');
+                    p++;
+                }
+            }
+            auto p90Idx = indexOf(attrs, `"p90":`);
+            if (p90Idx >= 0) {
+                size_t p = cast(size_t) p90Idx + 6;
+                while (p < attrLen && attrs[p] >= '0' && attrs[p] <= '9') {
+                    p90 = p90 * 10 + (attrs[p] - '0');
+                    p++;
+                }
+            }
+        }
+
         sqlite3_finalize(stmt);
         return ImmediateMsg(
             idBuf[0 .. idLen],
@@ -206,11 +240,14 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             repoBuf[0 .. repoLen],
             branchBuf[0 .. branchLen],
             shaBuf[0 .. shaLen],
+            pushTime,
+            p50,
+            p90,
         );
     }
 
     sqlite3_finalize(stmt);
-    return ImmediateMsg(null, null, null, null, null, null, null);
+    return ImmediateMsg(null, null, null, null, null, null, null, 0, 0, 0);
 }
 
 // Mark a specific immediate message as delivered for this session.
@@ -406,17 +443,29 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
         else if (c == '\\') attrBuf.put(`\\`);
         else attrBuf.putChar(c);
     }
-    attrBuf.put(`","after":`);
-    auto afterUnix = cast(long) time(null) + delaySec;
-    char[20] tbuf = 0;
-    int tlen = 0;
-    long v = afterUnix;
-    if (v == 0) { tbuf[0] = '0'; tlen = 1; }
-    else {
-        while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
-        foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+    // Adaptive-poll inputs: push timestamp + historical p50/p90 of CI duration.
+    // Fetched ONCE at write time so the watcher doesn't need to call gh again.
+    import deferred : getCIPercentiles;
+    auto now = cast(long) time(null);
+    auto pct = repo.length > 0 && branch.length > 0
+        ? getCIPercentiles(repo, branch)
+        : typeof(getCIPercentiles("", "")).init;
+
+    void putLong(ref ZBuf buf, long v) {
+        char[20] tbuf = 0;
+        int tlen = 0;
+        if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+        else {
+            while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+            foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+        }
+        buf.put(tbuf[0 .. tlen]);
     }
-    attrBuf.put(tbuf[0 .. tlen]);
+
+    attrBuf.put(`","push_time":`); putLong(attrBuf, now);
+    attrBuf.put(`,"p50":`);        putLong(attrBuf, pct.p50);
+    attrBuf.put(`,"p90":`);        putLong(attrBuf, pct.p90);
+    attrBuf.put(`,"after":`);      putLong(attrBuf, now + delaySec);
     attrBuf.put(`}`);
 
     auto ts = formatTimestamp();

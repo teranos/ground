@@ -24,6 +24,68 @@ module watch;
 //   If more messages arrive during the wait, the timer resets. Delivery
 //   happens only after a full 5s with no new messages. This batches
 //   burst events (e.g. QNTX restart with 7 plugins) into one notification.
+//
+// Two keying models, both flow through this watcher:
+//
+//   1. SESSION-KEYED (ground's own writers: writeCIStatus, writeClippyReminder).
+//      Row contexts: ["session:<sid>"]. Row carries everything the watcher
+//      needs to resolve at delivery time — for ci-status that's repo + branch
+//      + sha parsed from the push's own stdout (see push.parsePushOutput).
+//      readImmediateMessage matches by session. cwd plays no role.
+//
+//   2. PROJECT-KEYED (external writers like QNTX). Row contexts:
+//      ["project:<path>"]. The watcher delivers when its cwd ends with the
+//      project path. Cross-session delivery to anyone in the project is
+//      intentional for lifecycle events.
+//
+// Late-binding for ci-status:
+//   The placeholder "Checking CI..." is replaced live at delivery time by
+//   checkCIStatus(repo, branch) which calls `gh -R <repo> --branch <branch>`.
+//   in_progress: skip, retry next 2s cycle. failure: urgent (bypass debounce).
+//   success: normal (5s debounce). No CI workflow at all: silently mark
+//   delivered so the row doesn't loop forever.
+//
+// --- Migration from legacy deferred → immediate (sequential checklist) ---
+//
+// LANDED on this branch:
+//   [x] Immediate delivery pipeline + asyncRewake watcher (b0422af)
+//   [x] Per-session, per-message dedup via delivered:<msgId> attestations
+//   [x] CI status writer: session-keyed (40a1e16); cwd killed (5f94ca7);
+//       repo + branch + sha sourced from git push's own stdout
+//   [x] Clippy reminder writer + deleter: session-keyed (40a1e16)
+//   [x] checkCIStatus uses `gh -R <repo>` (5f94ca7) — no cwd dependency
+//   [x] ImmediateMsg carries repo + branch + sha for late-binding
+//   [x] Legacy ciDeliver handler removed (no .pbt referenced it)
+//
+// STILL OWED (move legacy deferred → immediate):
+//   [ ] PostToolUseDeferred writers (the `gh pr review` nudge today; future
+//       similar) → write to immediate with after-gate instead of polling
+//       deferred queue at Stop. Shrinks stop.d's deferred-section.
+//   [ ] Session-scoped deferred (stop.d:271-284) → session-keyed immediate
+//       removes the need for stop.d to read the deferred queue.
+//   [ ] Project-scoped deferred (stop.d:286-301, main/master-only) → either
+//       (a) project-keyed immediate (path stays in row contexts, watcher
+//       does cwd-suffix match like QNTX rows), or (b) drop the main/master
+//       gate as part of the move.
+//   [ ] Once the above land: delete deferred.d's read paths (deferred-session
+//       and deferred-project) and the stop.d sections that consume them.
+//   [ ] writeClippyReminder still cwd-aware in spirit (it doesn't run if
+//       isRustProject(cwd) is false). Decide: session-key the trigger too
+//       (any .rs edit in this session, no project gate), or keep the gate.
+//
+// POSSIBLY DROP:
+//   [ ] readImmediateMessage's project-suffix fallback path. If/when QNTX
+//       writes session-aware messages, the only reason for the project
+//       fallback disappears. Until then, keep it.
+//
+// LATER POLISH:
+//   [x] Adaptive poll interval. writeCIStatus fetches p50/p90 of the last 20
+//       CI durations per repo+branch via gh, stores them with push_time in
+//       the row. watch.d picks sleep based on elapsed-vs-percentile bracket
+//       (see source/adaptive.d, CTFE-tested).
+//   [x] Backoff during long-running CI: same mechanism.
+//   [ ] Race window in claimSession: new watcher reads claim then dies
+//       before writePid → session is un-watched until next Stop.
 
 import db : sqlite3, sqlite3_close, openDb, ZBuf;
 import immediate : readImmediateMessage, markImmediateDelivered;
@@ -214,11 +276,16 @@ int handleWatch(int argc, const(char)** argv) {
     __gshared char[4096] batchBuf = 0;
     size_t batchLen = 0;
 
+    int nextSleep = 2;
+
     while (true) {
         auto db = openDb();
         if (db !is null) {
             bool foundNew = false;
             bool urgent = false;
+
+            // Reset to default each loop; adaptive ci-status may raise it.
+            nextSleep = 2;
 
             while (true) {
                 auto imm = readImmediateMessage(db, cwd, sessionId);
@@ -229,14 +296,21 @@ int handleWatch(int argc, const(char)** argv) {
                 if (imm.name == "ci-status") {
                     import deferred : checkCIStatus;
                     import matcher : contains;
+                    import adaptive : pickAdaptiveSleep;
+                    import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.branch.length == 0) {
                         // Row predates the repo-keyed format — drop it.
                         markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
                         continue;
                     }
                     auto ciResult = checkCIStatus(imm.repo, imm.branch);
-                    if (contains(ciResult, "in_progress"))
+                    if (contains(ciResult, "in_progress")) {
+                        // Adaptive backoff: stay quiet during the unlikely-done
+                        // window, poll actively in the likely-done window.
+                        auto elapsed = cast(long) time(null) - imm.pushTime;
+                        nextSleep = pickAdaptiveSleep(elapsed, imm.p50, imm.p90);
                         break; // not terminal yet, try again next cycle
+                    }
                     if (ciResult is null) {
                         markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
                         continue; // no CI runs after gate opened — no workflow exists
@@ -270,6 +344,6 @@ int handleWatch(int argc, const(char)** argv) {
                 return 2;
             }
         }
-        sleep(2);
+        sleep(nextSleep);
     }
 }
