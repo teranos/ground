@@ -33,14 +33,20 @@ struct ImmediateMsg {
     const(char)[] name;
     const(char)[] message;
     const(char)[] projectContext;
+    // Push-time cwd + branch — populated by readImmediateMessage when the
+    // row's attributes carry them (e.g. ci-status). Lets watch.d's
+    // late-binding query the RIGHT repo regardless of where the watcher is.
+    const(char)[] cwd;
+    const(char)[] branch;
 }
 
-// Read a pending immediate message matching this cwd.
+// Read a pending immediate message matching this session OR (for
+// external writers like QNTX that don't know sessions) this cwd's project.
 ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId) {
     auto now = cast(long) time(null);
 
     // Per-message, per-session delivery: NOT EXISTS checks for delivered:<msgId> tagged with THIS session.
-    enum sql = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND a.contexts LIKE '%project:%' AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
+    enum sql = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
 
     // Build session LIKE pattern: %session:<id>%
     __gshared ZBuf sessPattern;
@@ -51,7 +57,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return ImmediateMsg(null, null, null, null);
+        return ImmediateMsg(null, null, null, null, null, null);
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
 
     __gshared char[128] idBuf = 0;
@@ -66,22 +72,39 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         auto ctxText = sqlite3_column_text(stmt, 3);
         if (idText is null || predText is null || attrText is null || ctxText is null) continue;
 
-        // Extract project path from contexts
         size_t ctxLen = 0;
         while (ctxText[ctxLen] != 0) ctxLen++;
         auto ctxs = (cast(const(char)*) ctxText)[0 .. ctxLen];
 
-        auto projIdx = indexOf(ctxs, "project:");
-        if (projIdx < 0) continue;
-        size_t projStart = cast(size_t) projIdx + 8;
-        size_t projEnd = projStart;
-        while (projEnd < ctxLen && ctxs[projEnd] != '"') projEnd++;
-        if (projEnd == projStart) continue;
-        auto projPath = ctxs[projStart .. projEnd];
+        // Session-gated rows: written from THIS session, always deliver here.
+        // Search for `session:<this_sid>` literally in the contexts JSON.
+        bool sessionMatch = false;
+        {
+            __gshared char[160] needle = 0;
+            size_t nLen = 0;
+            foreach (c; "session:") { if (nLen < needle.length) needle[nLen++] = c; }
+            foreach (c; sessionId) { if (nLen < needle.length) needle[nLen++] = c; }
+            if (nLen > 0 && ctxLen >= nLen) {
+                auto sidx = indexOf(ctxs, needle[0 .. nLen]);
+                sessionMatch = sidx >= 0;
+            }
+        }
 
-        // Check if cwd ends with the project path
-        if (cwd.length < projPath.length) continue;
-        if (cwd[cwd.length - projPath.length .. $] != projPath) continue;
+        // Project-gated rows: external writers (e.g. QNTX). cwd must end with project path.
+        ptrdiff_t projIdx = -1;
+        size_t projStart = 0;
+        size_t projEnd = 0;
+        if (!sessionMatch) {
+            projIdx = indexOf(ctxs, "project:");
+            if (projIdx < 0) continue;
+            projStart = cast(size_t) projIdx + 8;
+            projEnd = projStart;
+            while (projEnd < ctxLen && ctxs[projEnd] != '"') projEnd++;
+            if (projEnd == projStart) continue;
+            auto projPath = ctxs[projStart .. projEnd];
+            if (cwd.length < projPath.length) continue;
+            if (cwd[cwd.length - projPath.length .. $] != projPath) continue;
+        }
 
         // Extract name from predicates: ["immediate:lifecycle"] -> lifecycle
         size_t predLen = 0;
@@ -127,9 +150,15 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         foreach (i; 0 .. nLen) nameBuf[i] = name[i];
         foreach (i; 0 .. mLen) msgBuf[i] = attrs[mPos + i];
 
-        size_t pcLen = projEnd - (cast(size_t) projIdx);
-        if (pcLen > ctxBuf.length) pcLen = ctxBuf.length;
-        foreach (i; 0 .. pcLen) ctxBuf[i] = ctxs[cast(size_t) projIdx + i];
+        // Project context for delivery receipt — only set when project-matched.
+        // Session-matched rows leave it empty; the session itself is recorded
+        // in the receipt by markImmediateDelivered.
+        size_t pcLen = 0;
+        if (!sessionMatch && projIdx >= 0) {
+            pcLen = projEnd - cast(size_t) projIdx;
+            if (pcLen > ctxBuf.length) pcLen = ctxBuf.length;
+            foreach (i; 0 .. pcLen) ctxBuf[i] = ctxs[cast(size_t) projIdx + i];
+        }
 
         // Copy message ID into buffer
         size_t idLen = 0;
@@ -137,12 +166,40 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         if (idLen > idBuf.length) idLen = idBuf.length;
         foreach (i; 0 .. idLen) idBuf[i] = idText[i];
 
+        // Extract optional cwd + branch from attributes (set by writeCIStatus
+        // so watch.d's late-binding queries the push's repo, not the watcher's).
+        __gshared char[512] cwdBuf = 0;
+        __gshared char[128] branchBuf = 0;
+        size_t cwdLen = 0;
+        size_t branchLen = 0;
+        auto cwdIdx = indexOf(attrs, `"cwd":"`);
+        if (cwdIdx >= 0) {
+            size_t cp = cast(size_t) cwdIdx + 7;
+            while (cp < attrLen && attrs[cp] != '"' && cwdLen < cwdBuf.length) {
+                cwdBuf[cwdLen++] = attrs[cp++];
+            }
+        }
+        auto branchIdx = indexOf(attrs, `"branch":"`);
+        if (branchIdx >= 0) {
+            size_t bp = cast(size_t) branchIdx + 10;
+            while (bp < attrLen && attrs[bp] != '"' && branchLen < branchBuf.length) {
+                branchBuf[branchLen++] = attrs[bp++];
+            }
+        }
+
         sqlite3_finalize(stmt);
-        return ImmediateMsg(idBuf[0 .. idLen], nameBuf[0 .. nLen], msgBuf[0 .. mLen], ctxBuf[0 .. pcLen]);
+        return ImmediateMsg(
+            idBuf[0 .. idLen],
+            nameBuf[0 .. nLen],
+            msgBuf[0 .. mLen],
+            ctxBuf[0 .. pcLen],
+            cwdBuf[0 .. cwdLen],
+            branchBuf[0 .. branchLen],
+        );
     }
 
     sqlite3_finalize(stmt);
-    return ImmediateMsg(null, null, null, null);
+    return ImmediateMsg(null, null, null, null, null, null);
 }
 
 // Mark a specific immediate message as delivered for this session.
@@ -203,20 +260,21 @@ void markImmediateDelivered(sqlite3* db, const(char)[] msgId, const(char)[] proj
     sqlite3_finalize(stmt);
 }
 
-// Write a clippy-reminder immediate message for the given project.
-// Uses deterministic ID so repeated writes are idempotent (INSERT OR REPLACE).
-// Also clears any delivered: receipts so re-delivery happens after new edits.
-void writeClippyReminder(sqlite3* db, const(char)[] cwd) {
-    import db : cwdTail, formatTimestamp, versionString;
+// Write a clippy-reminder immediate message for THIS session.
+// Session-keyed: any .rs edit in this session, regardless of repo, writes
+// the row tagged with the session. Free movement between repos works.
+// Deterministic ID per session — repeated writes overwrite (INSERT OR REPLACE).
+// Also clears delivered: receipts so the user re-sees the reminder after new edits.
+void writeClippyReminder(sqlite3* db, const(char)[] sessionId) {
+    import db : formatTimestamp, versionString;
 
-    auto tail = cwdTail(cwd);
-    if (tail == "unknown") return;
+    if (sessionId.length == 0) return;
 
-    // Build deterministic ID: "immediate:clippy-reminder:<cwdTail>"
+    // Build deterministic ID: "immediate:clippy-reminder:<sessionId>"
     __gshared ZBuf idBuf;
     idBuf.reset();
     idBuf.put("immediate:clippy-reminder:");
-    idBuf.put(tail);
+    idBuf.put(sessionId);
 
     __gshared ZBuf predBuf;
     predBuf.reset();
@@ -224,8 +282,8 @@ void writeClippyReminder(sqlite3* db, const(char)[] cwd) {
 
     __gshared ZBuf ctxBuf;
     ctxBuf.reset();
-    ctxBuf.put(`["project:`);
-    ctxBuf.put(tail);
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
     ctxBuf.put(`"]`);
 
     enum detail = `Rust files edited since last cargo clippy. Run cargo clippy before pushing.`;
@@ -268,17 +326,14 @@ void writeClippyReminder(sqlite3* db, const(char)[] cwd) {
     sqlite3_finalize(delStmt);
 }
 
-// Delete a clippy-reminder immediate message (called when cargo clippy runs).
-void deleteClippyReminder(sqlite3* db, const(char)[] cwd) {
-    import db : cwdTail;
-
-    auto tail = cwdTail(cwd);
-    if (tail == "unknown") return;
+// Delete this session's clippy-reminder (called when cargo clippy runs).
+void deleteClippyReminder(sqlite3* db, const(char)[] sessionId) {
+    if (sessionId.length == 0) return;
 
     __gshared ZBuf idBuf;
     idBuf.reset();
     idBuf.put("immediate:clippy-reminder:");
-    idBuf.put(tail);
+    idBuf.put(sessionId);
 
     enum sql = "DELETE FROM attestations WHERE id = ?1\0";
     sqlite3_stmt* stmt;
@@ -287,6 +342,106 @@ void deleteClippyReminder(sqlite3* db, const(char)[] cwd) {
     sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+}
+
+// Write a ci-status immediate message for THIS session.
+// Session-keyed: any push from this session, regardless of cwd or repo,
+// produces a row tagged with the session. The session's watcher delivers
+// it. Free movement between repos within one session works because cwd
+// is never the key.
+// Deterministic ID per session — repeated pushes overwrite (INSERT OR REPLACE).
+// Also clears delivered: receipts so new pushes re-deliver.
+void writeCIStatus(sqlite3* db, const(char)[] cwd, const(char)[] sessionId, int delaySec) {
+    import db : formatTimestamp, versionString;
+
+    if (sessionId.length == 0) return;
+
+    // Build deterministic ID: "immediate:ci-status:<sessionId>"
+    __gshared ZBuf idBuf;
+    idBuf.reset();
+    idBuf.put("immediate:ci-status:");
+    idBuf.put(sessionId);
+
+    __gshared ZBuf predBuf;
+    predBuf.reset();
+    predBuf.put(`["immediate:ci-status"]`);
+
+    __gshared ZBuf ctxBuf;
+    ctxBuf.reset();
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
+    ctxBuf.put(`"]`);
+
+    // Capture push-time branch from cwd (watcher's cwd at delivery may
+    // be a different repo — session is the key now). Stored alongside cwd
+    // so watch.d's late-binding can query the RIGHT repo's CI.
+    import db : getBranch;
+    auto branch = getBranch(cwd);
+    if (branch is null) branch = "unknown";
+
+    // Build attributes with after gate + push-time cwd + branch
+    __gshared ZBuf attrBuf;
+    attrBuf.reset();
+    attrBuf.put(`{"detail":"Checking CI...","cwd":"`);
+    foreach (c; cwd) {
+        if (c == '"') attrBuf.put(`\"`);
+        else if (c == '\\') attrBuf.put(`\\`);
+        else attrBuf.putChar(c);
+    }
+    attrBuf.put(`","branch":"`);
+    foreach (c; branch) {
+        if (c == '"') attrBuf.put(`\"`);
+        else if (c == '\\') attrBuf.put(`\\`);
+        else attrBuf.putChar(c);
+    }
+    attrBuf.put(`","after":`);
+    auto afterUnix = cast(long) time(null) + delaySec;
+    char[20] tbuf = 0;
+    int tlen = 0;
+    long v = afterUnix;
+    if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+    else {
+        while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+    }
+    attrBuf.put(tbuf[0 .. tlen]);
+    attrBuf.put(`}`);
+
+    auto ts = formatTimestamp();
+
+    __gshared ZBuf srcBuf;
+    srcBuf.reset();
+    srcBuf.put("ground ");
+    srcBuf.put(versionString());
+
+    enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return;
+    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, `["ci"]`.ptr, 6, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, predBuf.ptr(), cast(int) predBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    // Clear delivered: receipts so all sessions re-deliver
+    __gshared ZBuf delPred;
+    delPred.reset();
+    delPred.put("delivered:");
+    delPred.put(idBuf.slice());
+
+    enum delSql = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') = ?1\0";
+    sqlite3_stmt* delStmt;
+    if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) != SQLITE_OK)
+        return;
+    sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
+    sqlite3_step(delStmt);
+    sqlite3_finalize(delStmt);
 }
 
 // --- Tests ---
@@ -443,7 +598,7 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
+    writeClippyReminder(testDb, "sess-clippy");
     auto result = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-clippy");
     assert(result.message !is null, "clippy reminder not readable after write");
     assert(result.name == "clippy-reminder");
@@ -462,8 +617,8 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
-    writeClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
+    writeClippyReminder(testDb, "sess-dedup");
+    writeClippyReminder(testDb, "sess-dedup");
 
     enum countSql = "SELECT COUNT(*) FROM attestations WHERE id LIKE 'immediate:clippy-reminder:%'\0";
     sqlite3_stmt* stmt;
@@ -484,11 +639,11 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
+    writeClippyReminder(testDb, "sess-del");
     auto r1 = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-del");
     assert(r1.message !is null, "should exist before delete");
 
-    deleteClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
+    deleteClippyReminder(testDb, "sess-del");
     auto r2 = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-del");
     assert(r2.message is null, "should be gone after delete");
 
@@ -505,7 +660,7 @@ unittest {
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
     // Write, deliver, delete, re-write
-    writeClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
+    writeClippyReminder(testDb, "sess-rw");
     auto r1 = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-rw");
     assert(r1.message !is null);
     markImmediateDelivered(testDb, r1.msgId, r1.projectContext, "sess-rw");
@@ -515,12 +670,69 @@ unittest {
     assert(r2.message is null, "should not see after delivery");
 
     // Delete and re-write — clears delivery receipts
-    deleteClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
-    writeClippyReminder(testDb, "/Users/test/SBVH/teranos/QNTX");
+    deleteClippyReminder(testDb, "sess-rw");
+    writeClippyReminder(testDb, "sess-rw");
 
     // Same session should see it again (receipts cleared by writeClippyReminder)
     auto r3 = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-rw");
     assert(r3.message !is null, "should be readable again after delete+write");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // writeCIStatus roundtrip: write with delaySec=0, readable by readImmediateMessage
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci", 0);
+    auto result = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci");
+    assert(result.message !is null, "ci-status not readable after write");
+    assert(result.name == "ci-status");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // writeCIStatus dedup: two writes produce one row
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close,
+                sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64,
+                sqlite3_finalize, sqlite3_stmt, SQLITE_ROW;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-dedup", 0);
+    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-dedup", 0);
+
+    enum countSql = "SELECT COUNT(*) FROM attestations WHERE id LIKE 'immediate:ci-status:%'\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(testDb, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 1, "expected exactly 1 row after two writes");
+    sqlite3_finalize(stmt);
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // writeCIStatus after gate: write with delaySec=9999, NOT readable (gate not open)
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    writeCIStatus(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-gate", 9999);
+    auto result = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/ground", "sess-ci-gate");
+    assert(result.message is null, "ci-status should not be readable before gate opens");
 
     sqlite3_close(testDb);
 }

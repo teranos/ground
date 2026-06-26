@@ -45,6 +45,13 @@ bool modeMatches(const(char)[] mode, const(char)[] toolName) {
     return false;
 }
 
+// Does this Bash command contain a `git push` invocation? Uses hasSegment
+// instead of bare substring matching so `git -C <path> push`,
+// `git -c <cfg> push`, and other flag-prefixed forms are detected.
+bool isGitPushCommand(const(char)[] command) {
+    return hasSegment(command, "git push");
+}
+
 // Matches a PostToolUse control against a command and/or file path.
 // Returns true if the control should fire.
 bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] filePath,
@@ -179,7 +186,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     import immediate : writeClippyReminder;
                     auto cdb = openDb();
                     if (cdb !is null) {
-                        writeClippyReminder(cdb, cwd);
+                        writeClippyReminder(cdb, sessionId);
                         sqlite3_close(cdb);
                     }
                 }
@@ -189,7 +196,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     import immediate : deleteClippyReminder;
                     auto cdb = openDb();
                     if (cdb !is null) {
-                        deleteClippyReminder(cdb, cwd);
+                        deleteClippyReminder(cdb, sessionId);
                         sqlite3_close(cdb);
                     }
                 }
@@ -199,14 +206,14 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         // CI status: git push → write immediate:ci-status with delay gate
         {
             bool isBash = modeMatchesToolName('x', toolName);
-            if (isBash && detail !is null && contains(detail, "git push"))
+            if (isBash && detail !is null && isGitPushCommand(detail))
             {
                 import db : openDb, sqlite3_close;
                 import immediate : writeCIStatus;
                 import control_handlers : ciDelay;
                 auto cdb = openDb();
                 if (cdb !is null) {
-                    writeCIStatus(cdb, cwd, ciDelay(cwd));
+                    writeCIStatus(cdb, cwd, sessionId, ciDelay(cwd));
                     sqlite3_close(cdb);
                 }
             }

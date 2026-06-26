@@ -218,10 +218,34 @@ int handleWatch(int argc, const(char)** argv) {
         auto db = openDb();
         if (db !is null) {
             bool foundNew = false;
+            bool urgent = false;
 
             while (true) {
                 auto imm = readImmediateMessage(db, cwd, sessionId);
                 if (imm.message is null) break;
+
+                // Late-binding: ci-status resolves live instead of using placeholder.
+                // Use the PUSH-time cwd + branch stored in attributes by writeCIStatus
+                // (the watcher may be in a different repo by now — session is the key).
+                // Falls back to watcher's cwd for rows written before this change.
+                if (imm.name == "ci-status") {
+                    import deferred : checkCIStatus;
+                    import db : getBranch;
+                    import matcher : contains;
+                    auto queryCwd = imm.cwd.length > 0 ? imm.cwd : cwd;
+                    auto queryBranch = imm.branch.length > 0 ? imm.branch : getBranch(cwd);
+                    auto ciResult = checkCIStatus(queryCwd, queryBranch);
+                    if (contains(ciResult, "in_progress"))
+                        break; // not terminal yet, try again next cycle
+                    if (ciResult is null) {
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        continue; // no CI runs after gate opened — no workflow exists
+                    }
+                    imm.message = ciResult;
+                    if (contains(ciResult, "failure"))
+                        urgent = true;
+                }
+
                 markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
                 foundNew = true;
 
@@ -233,7 +257,7 @@ int handleWatch(int argc, const(char)** argv) {
 
             sqlite3_close(db);
 
-            if (foundNew) {
+            if (foundNew && !urgent) {
                 // Debounce: new messages arrived, wait 5s for more before delivering.
                 sleep(5);
                 continue;

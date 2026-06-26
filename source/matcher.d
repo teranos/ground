@@ -92,29 +92,32 @@ const(char)[] strip(const(char)[] s) {
 // Strip "git -C <path> " prefix, returning the normalized segment.
 // "git -C /some/path push origin" -> "git push origin"
 const(char)[] stripGitDashC(const(char)[] segment) {
-    // Must start with "git -C "
-    if (segment.length < 7) return segment;
-    if (segment[0 .. 7] != "git -C ") return segment;
-    // Skip past the path argument
-    size_t pos = 7;
-    // Handle quoted path
-    if (pos < segment.length && segment[pos] == '"') {
-        pos++;
-        while (pos < segment.length && segment[pos] != '"') pos++;
-        if (pos < segment.length) pos++; // skip closing quote
-    } else {
-        while (pos < segment.length && segment[pos] != ' ') pos++;
+    // Returns the subcommand portion after "git " and any number of
+    // `-C <arg>` or `-c <arg>` pairs. CTFE-safe (pure slicing — no
+    // buffer rebuild). For non-git segments, returns the segment as-is.
+    //   "git push origin main"           → "push origin main"
+    //   "git -C /path push origin main"  → "push origin main"
+    //   "git -c user.email=x push"       → "push"
+    //   "git -c x.y=z -C /path push"     → "push"
+    //   "go test ./..."                  → "go test ./..."
+    if (segment.length < 4 || segment[0 .. 4] != "git ") return segment;
+    size_t pos = 4;
+    while (pos + 3 <= segment.length && segment[pos] == '-' &&
+           (segment[pos + 1] == 'C' || segment[pos + 1] == 'c') &&
+           segment[pos + 2] == ' ') {
+        pos += 3;
+        // Skip the arg (quoted or unquoted)
+        if (pos < segment.length && segment[pos] == '"') {
+            pos++;
+            while (pos < segment.length && segment[pos] != '"') pos++;
+            if (pos < segment.length) pos++;
+        } else {
+            while (pos < segment.length && segment[pos] != ' ') pos++;
+        }
+        // Skip whitespace after arg
+        while (pos < segment.length && segment[pos] == ' ') pos++;
     }
-    // Skip space after path
-    while (pos < segment.length && segment[pos] == ' ') pos++;
-    if (pos >= segment.length) return segment;
-    // Reconstruct: "git " + remainder
-    __gshared char[8192] buf = 0;
-    foreach (j, c; "git ") buf[j] = c;
-    auto rest = segment[pos .. $];
-    if (4 + rest.length > buf.length) return segment;
-    foreach (j; 0 .. rest.length) buf[4 + j] = rest[j];
-    return buf[0 .. 4 + rest.length];
+    return segment[pos .. $];
 }
 
 // Returns true if segment matches any cmd in the Cmd array.
@@ -133,14 +136,27 @@ bool commandMatch(const(char)[] segment, const(char)[] cmd) {
     if (cmd.length == 0) return false;
     if (cmd[0] == '*')
         return wildcardContains(segment, cmd);
-    if (cmd.length > 0 && cmd[0] == '=') {
-        auto exact = cmd[1 .. $];
-        auto s = stripGitDashC(segment);
-        return s == exact;
+
+    bool exactMatch = (cmd[0] == '=');
+    if (exactMatch) cmd = cmd[1 .. $];
+
+    // If cmd starts with "git ", normalize segment by stripping -C/-c args
+    // and compare against the subcommand portion of cmd. Otherwise plain
+    // prefix-match.
+    const(char)[] s;
+    const(char)[] target;
+    if (cmd.length >= 4 && cmd[0 .. 4] == "git ") {
+        if (segment.length < 4 || segment[0 .. 4] != "git ") return false;
+        s = stripGitDashC(segment);
+        target = cmd[4 .. $];
+    } else {
+        s = segment;
+        target = cmd;
     }
-    auto s = stripGitDashC(segment);
-    if (s.length < cmd.length) return false;
-    return s[0 .. cmd.length] == cmd;
+
+    if (exactMatch) return s == target;
+    if (s.length < target.length) return false;
+    return s[0 .. target.length] == target;
 }
 
 // Returns true if any segment in a compound command matches cmd as a prefix.
