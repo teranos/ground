@@ -33,7 +33,7 @@
               echo "${version}" > .version
               date -u +%Y-%m-%dT%H:%M:%SZ > .builddate
               mkdir -p tools
-              ${pkgs.ldc}/bin/ldc2 -of=tools/wind tools/wind.d
+              ${pkgs.ldc}/bin/ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d
               ${pkgs.dub}/bin/dub build --build=release
             '';
 
