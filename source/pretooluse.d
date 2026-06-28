@@ -128,7 +128,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         tBinary = usecNow();
 
-        // Bash — check controls
+        // Bash — check controls. checkAllCommands tracks effective
+        // cwd across `cd X &&` chains (see matcher.d::extractLeadingCd).
         auto results = checkAllCommands(command, cwd);
         tMatch = usecNow();
 

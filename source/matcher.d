@@ -91,6 +91,43 @@ const(char)[] strip(const(char)[] s) {
 
 // Strip "git -C <path> " prefix, returning the normalized segment.
 // "git -C /some/path push origin" -> "git push origin"
+// Extract the path from a leading `cd <path> && ...` in a chained
+// bash command. Returns the target dir, or "" if the command doesn't
+// start with `cd`. Used so scope-path filters match against the
+// command's effective working dir, not the parent shell's cwd
+// (otherwise `cd /tsot-roam && git commit` from a sibling dir slips
+// past a `path: "!/tsot-roam"` exclusion). Handles quoted targets
+// containing spaces.
+const(char)[] extractLeadingCd(const(char)[] command) {
+    if (command.length < 3 || command[0 .. 3] != "cd ") return "";
+    size_t pos = 3;
+    // Skip any extra spaces after `cd`
+    while (pos < command.length && command[pos] == ' ') pos++;
+    if (pos >= command.length) return "";
+    size_t start;
+    size_t end;
+    if (command[pos] == '"') {
+        pos++;
+        start = pos;
+        while (pos < command.length && command[pos] != '"') pos++;
+        end = pos;
+        if (pos < command.length) pos++; // consume closing quote
+    } else {
+        start = pos;
+        while (pos < command.length && command[pos] != ' ') pos++;
+        end = pos;
+    }
+    // Whatever follows must be either end-of-command or `&& ...`.
+    // Anything else (e.g. `cd /x cmd` with no `&&`) is malformed for
+    // our purposes; treat as no-cd-prefix to stay conservative.
+    while (pos < command.length && command[pos] == ' ') pos++;
+    if (pos < command.length) {
+        if (pos + 1 >= command.length || command[pos] != '&' || command[pos + 1] != '&')
+            return "";
+    }
+    return command[start .. end];
+}
+
 const(char)[] stripGitDashC(const(char)[] segment) {
     // Returns the subcommand portion after "git " and any number of
     // `-C <arg>` or `-c <arg>` pairs. CTFE-safe (pure slicing — no
@@ -278,6 +315,11 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
     MatchSet result;
     size_t start = 0;
     size_t i = 0;
+    // Effective cwd tracks `cd <path>` segments so subsequent segments
+    // in a chain like `pwd && cd /tsot-roam && git commit` evaluate
+    // against the cd target, not the parent shell's cwd. See
+    // extractLeadingCd doc.
+    const(char)[] effCwd = cwd;
 
     while (i <= command.length) {
         bool isSep = false;
@@ -296,13 +338,24 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
         if (isSep) {
             auto segment = strip(command[start .. i]);
             if (segment.length > 0) {
+                // If the segment is `cd <path>`, it's a cwd-change
+                // step in the chain — update effCwd for subsequent
+                // segments and emit no control matches for this one.
+                auto cdTarget = extractLeadingCd(segment);
+                if (cdTarget.length > 0) {
+                    effCwd = cdTarget;
+                    start = i + skip;
+                    i += (skip > 0 ? skip : 1);
+                    continue;
+                }
+
                 const(Control)* amendment = null;
                 const(Control)* fallback = null;
                 const(Control)* denyCtrl = null;
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
-                    if (!scopeMatches(sc, cwd))
+                    if (!scopeMatches(sc, effCwd))
                         continue;
                     foreach (ref c; sc.controls) {
                         if (!cmdMatchesAny(segment, c.cmd))

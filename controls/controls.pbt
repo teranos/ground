@@ -103,9 +103,10 @@ scope {
     }
   }
 
-  # Checkpoints — require manual approval
+  # Checkpoints — require manual approval (excluded in /tsot-roam)
   scope {
     decision: "ask"
+    path: "!/tsot-roam"
 
     control {
       name: "git-commit"
@@ -156,7 +157,7 @@ scope {
   }
 }
 
-# commit-not-requested — universal except in /tsot-roam, where the
+# commit-not-requested — universal except in tsot-roam, where the
 # workflow is "edit, commit, push, CI verify" without per-step ask.
 scope {
   path: "!/tsot-roam"

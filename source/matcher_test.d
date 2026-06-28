@@ -2,7 +2,7 @@ module matcher_test;
 
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
-                 wildcardContains, containsExact;
+                 wildcardContains, containsExact, extractLeadingCd;
 
 // --- clamp tests ---
 //
@@ -439,4 +439,62 @@ unittest {
     assert(!wildcardContains("PR is up: https://github.com/foo", "=GitHub"));
     // Without =, case-insensitive as before
     assert(wildcardContains("PR is up: https://github.com/foo", "GitHub"));
+}
+
+// --- extractLeadingCd tests ---
+//
+// Bug: scope path filter (`path: "!/tsot-roam"`) only matches the agent's
+// raw cwd. When the agent's persistent cwd is a sibling repo but the
+// command is `cd /tsot-roam && git commit`, the filter sees the parent
+// shell's cwd, not the cd target — exclusion silently fails.
+//
+// Fix: parse a leading `cd <path> && ...` to know the command's effective
+// working dir. The scope filter then matches against the effective cwd.
+
+unittest {
+    // Plain `cd <abs> && rest` → returns the absolute path.
+    assert(extractLeadingCd("cd /Users/x/teranos/tsot-roam && git commit -m hi")
+        == "/Users/x/teranos/tsot-roam");
+}
+
+unittest {
+    // Relative cd target.
+    assert(extractLeadingCd("cd ../tsot-roam && git push") == "../tsot-roam");
+}
+
+unittest {
+    // No leading cd → empty (caller falls back to raw cwd).
+    assert(extractLeadingCd("git commit -m x") == "");
+}
+
+unittest {
+    // Quoted cd target with spaces.
+    assert(extractLeadingCd(`cd "/tmp/with space" && git status`)
+        == "/tmp/with space");
+}
+
+unittest {
+    // Just `cd <path>` with no `&&` (rare; whole command is a cd).
+    assert(extractLeadingCd("cd /some/place") == "/some/place");
+}
+
+unittest {
+    // Tabs / multiple spaces around && tolerated.
+    assert(extractLeadingCd("cd /foo  &&  git status") == "/foo");
+}
+
+// --- effective cwd tracking in checkAllCommands ---
+//
+// Real-world scenario: agent's persistent shell cwd is /ground, but
+// the chained command is `pwd && cd /tsot-roam && git commit`. A scope
+// with `path: "!/tsot-roam"` must exclude the gate based on the cd
+// target inside the chain, not the parent shell's /ground.
+
+unittest {
+    // Walk segments; the `cd` segment alone should be detectable as a
+    // cd-target via extractLeadingCd (since the segment passed in has
+    // already been split by `&&`).
+    assert(extractLeadingCd("cd /tsot-roam") == "/tsot-roam");
+    assert(extractLeadingCd("pwd") == "");
+    assert(extractLeadingCd("git commit -m x") == "");
 }
