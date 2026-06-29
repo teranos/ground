@@ -101,6 +101,12 @@ scope {
       cmd: "=git add --all"
       msg: "Stage files by name. Do not use git add --all — it bypasses binary file detection and may include unintended files."
     }
+
+    control {
+      name: "no-terraform-use-opentofu"
+      cmd: "terraform"
+      msg: "Use opentofu (tofu) instead of terraform."
+    }
   }
 
   # Checkpoints — require manual approval (excluded in /tsot-roam)
@@ -315,9 +321,15 @@ scope {
   }
 }
 
-# UserPromptSubmit — empty universal set
+# UserPromptSubmit — universal
 scope {
   event: "UserPromptSubmit"
+
+  control {
+    name: "terraform-mention-opentofu"
+    userprompt: "terraform"
+    msg: "We use opentofu (tofu), not terraform."
+  }
 }
 
 # UserPromptSubmit — ground-excluded
