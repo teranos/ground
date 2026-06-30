@@ -163,6 +163,28 @@ scope {
   }
 }
 
+# gh pr merge — branches die on merge; --repo silently breaks the
+# local-side cleanup so it's blocked when paired with merge.
+scope {
+  event: "PreToolUse"
+  cmd: "gh pr merge"
+
+  control {
+    name: "gh-pr-merge-always-delete-branch"
+    arg: "--delete-branch"
+    msg: "--delete-branch added; branches die on merge."
+  }
+
+  scope {
+    decision: "deny"
+    control {
+      name: "no-gh-pr-merge-with-repo"
+      content: "--repo"
+      msg: "--repo on gh pr merge causes gh to skip its local-side cleanup: --delete-branch deletes the remote but leaves the local branch alive (if your working dir isnt the same as the repo). cd into the clone and drop --repo."
+    }
+  }
+}
+
 # commit-not-requested — universal except in tsot-roam, where the
 # workflow is "edit, commit, push, CI verify" without per-step ask.
 scope {

@@ -498,3 +498,27 @@ unittest {
     assert(extractLeadingCd("pwd") == "");
     assert(extractLeadingCd("git commit -m x") == "");
 }
+
+// --- applyArg refinement: do not duplicate when arg already present ---
+//
+// Forced-flag controls (e.g. gh-pr-merge-always-delete-branch) inject
+// a flag the user is expected to use every time. If the user already
+// included the flag — or another control already injected it — the
+// segment should be returned unchanged, not have the same flag added
+// a second time.
+
+unittest {
+    import hooks : Control, cmd, arg;
+
+    Control c;
+    c.cmd = cmd("gh pr merge");
+    c.arg = arg("--delete-branch");
+
+    // Already present anywhere in the segment — return unchanged.
+    auto unchanged = applyArg(&c, "gh pr merge 12 --delete-branch");
+    assert(unchanged.slice() == "gh pr merge 12 --delete-branch");
+
+    // Absent — insert right after the matched cmd (regression).
+    auto added = applyArg(&c, "gh pr merge 12 --merge");
+    assert(added.slice() == "gh pr merge --delete-branch 12 --merge");
+}

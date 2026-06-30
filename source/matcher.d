@@ -400,11 +400,19 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
 }
 
 // Builds the amended command in a static buffer.
-// Inserts control.arg.value right after the matched cmd substring.
+// Inserts control.arg.value right after the matched cmd substring,
+// unless arg.value is already present in the segment — then return
+// segment unchanged. Avoids duplicate flags when the user (or another
+// control) has already supplied the value.
 Buf applyArg(const(Control)* c, const(char)[] segment) {
     Buf buf;
     auto idx = indexOf(segment, c.cmd.value);
     if (idx < 0) {
+        buf.put(segment);
+        return buf;
+    }
+
+    if (contains(segment, c.arg.value)) {
         buf.put(segment);
         return buf;
     }
