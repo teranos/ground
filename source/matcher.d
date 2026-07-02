@@ -364,6 +364,15 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                             continue;
                         if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, null))
                             continue;
+                        // Strop controls always fire — they don't compete with amendment/fallback.
+                        // Append directly to result; skip the single-per-segment competition.
+                        if (c.stropIdx > 0) {
+                            if (result.count < result.matches.length) {
+                                result.matches[result.count] = Match(&c, segment, sc.decision);
+                                result.count++;
+                            }
+                            continue;
+                        }
                         if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
                             amendment = &c;
                         if (fallback is null)

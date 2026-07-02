@@ -7,7 +7,7 @@ Stdin JSON parsing, control matching, arg amendment, pipe splitting, unit tests.
 Drop the D runtime. No GC, no `std.json`, no exceptions. Hand-rolled JSON parsing. 8.7KB binary, ~17ms latency.
 
 ### Eight — omit + additionalContext ✓
-Strip unwanted flags from commands. `omit("--no-verify")` removes the flag, lets the command through. `additionalContext` teaches Claude why commands were amended.
+Strip unwanted flags from commands. `omit("--no-verify")` removes the flag, lets the command through. `additionalContext` teaches Claude why commands were amended. Later joined by clamp, omitLine, and strop as the value-control family — strop being the first pure validator (denies on shape mismatch instead of rewriting).
 
 ### Seven — make install + versioning ✓
 Makefile with `build`, `test`, `install`. Version baked in from `git describe` at compile time. TTY detection prints version when run interactively.

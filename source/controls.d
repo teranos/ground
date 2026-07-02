@@ -78,3 +78,13 @@ import proto : ParsedQntxNode, ParsedAttestation;
 static immutable qntxNodes = allParsed.qntxNodes[0 .. allParsed.qntxNodeCount];
 static immutable attestations = allParsed.attestations[0 .. allParsed.attestationCount];
 
+// Global strop pool. Control.stropIdx is a 1-based index into this array.
+// Only strop-using controls consume a slot — non-strop controls carry just
+// an 8-byte size_t on Control instead of an embedded Strop.
+import strop : Strop;
+static immutable Strop[allParsed.stropPoolLen + 1] globalStropPool = () {
+    Strop[allParsed.stropPoolLen + 1] pool;
+    foreach (i; 0 .. allParsed.stropPoolLen) pool[i] = allParsed.stropPool[i];
+    return pool;
+}();
+

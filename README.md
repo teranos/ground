@@ -86,12 +86,15 @@ Installs to `~/.local/bin/ground`. Override with `PREFIX=/usr/local make install
 
 ## How it works
 
-Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) across all events. Every event is attested with its full payload. Two actions for command controls:
+Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) across all events. Every event is attested with its full payload. Actions for command controls:
 
 - **arg** — insert missing arguments after the matched command
 - **omit** — strip unwanted flags from the command
+- **omitLine** — drop a whole command segment
+- **clamp** — raise a numeric flag value to a floor
+- **strop** — validate the shape of an extracted flag value, deny on mismatch
 
-Amendments are silent — the command runs with the corrected arguments and Claude receives a message explaining why. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
+Rewrites (arg/omit/omitLine/clamp) are silent — the command runs corrected and Claude receives a message explaining why. Strop denies with a message computed from the extracted value. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
 
 Controls are defined in `controls/*.pbt` and compiled into the binary. The binary is the config.
 
