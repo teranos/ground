@@ -1,4 +1,5 @@
 Read source/hooks.d for control types, scope struct, and trigger builders.
+Read source/strop.d for value-shape validation on extracted flag values.
 Read source/controls.d for CTFE wiring — how pbt becomes static immutable scope arrays.
 Read source/control_handlers.d for check, delay, and deliver handler implementations.
 Read source/deferred.d for deferred delivery — session-scoped and project-scoped messages delivered at Stop.

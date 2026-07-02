@@ -1,6 +1,8 @@
 module pretooluse;
 
 import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, indexOf, contains, hasSegment, Buf, envSubst;
+import strop : stropDispatch;
+import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite, stderr, fprintf;
 import db : ZBuf;
@@ -150,6 +152,24 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             foreach (idx; 0 .. results.count) {
                 auto m = results.matches[idx];
                 auto c = m.control;
+
+                // Strop controls: extract flag, apply matchStrop, deny on mismatch.
+                // Strop supersedes all other control fields (arg/omit/msg).
+                if (c.stropIdx > 0) {
+                    // Copy command to a plain string for stropDispatch (takes string, not const(char)[]).
+                    __gshared char[4096] cmdBuf;
+                    size_t cmdLen = command.length > cmdBuf.length ? cmdBuf.length : command.length;
+                    foreach (i; 0 .. cmdLen) cmdBuf[i] = command[i];
+                    string cmdStr = cast(string) cmdBuf[0 .. cmdLen];
+                    auto sd = stropDispatch(globalStropPool[c.stropIdx - 1], cmdStr);
+                    if (sd.deny) {
+                        finalDecision = "deny";
+                        hasDeny = true;
+                        if (allMessages.len > 0) allMessages.put(" | ");
+                        allMessages.put(sd.msg);
+                    }
+                    continue;
+                }
 
                 // Decision: deny > ask > allow
                 if (m.decision == "deny") { finalDecision = "deny"; hasDeny = true; }

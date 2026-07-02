@@ -1,6 +1,7 @@
 module proto;
 
 import hooks;
+import strop : parseStropBlock, Strop, MAX_STROP_POOL;
 
 // TODO: pbt variable/template support — define a message once, reference it in multiple controls.
 //       Like HCL locals: local { sbvh_ctx = "..." } then msg: local.sbvh_ctx
@@ -49,6 +50,7 @@ struct ParsedControl {
     string deferMsg;
     int deferSec;
     int interval;
+    size_t stropIdx; // 0 = no strop; else 1-based index into ParseResult.stropPool.
 }
 
 struct ParsedScope {
@@ -108,6 +110,8 @@ struct ParseResult {
     size_t qntxNodeCount;
     ParsedAttestation[128] attestations;
     size_t attestationCount;
+    Strop[MAX_STROP_POOL] stropPool;
+    size_t stropPoolLen;
 }
 
 // --- Flat file list extraction (CTFE) ---
@@ -209,6 +213,12 @@ ScopeSet buildScopes(
             if (pc.cmdCount > 0) {
                 c.cmd._buf = pc.cmds;
                 c.cmd.len = pc.cmdCount;
+            } else if (pc.stropIdx > 0 && ps.cmdCount > 0) {
+                // Strop control inherits enclosing scope's cmd so checkAllCommands
+                // routes it to Bash dispatch. Only for strop; other controls keep
+                // their own cmd semantics.
+                c.cmd._buf = ps.cmds;
+                c.cmd.len = ps.cmdCount;
             }
             c.arg = Arg(pc.arg);
             c.omit = Omit(pc.omit);
@@ -247,6 +257,7 @@ ScopeSet buildScopes(
             }
 
             c.interval = pc.interval;
+            c.stropIdx = pc.stropIdx;
 
             if (pc.delayHandler.length > 0 || pc.deliverHandler.length > 0) {
                 c.defer.delayFn = pc.delayHandler.length > 0
@@ -358,7 +369,7 @@ ParseResult parsePbt(string input) {
             sc.paths[0] = "/"; sc.pathCount = 1;
             sc.controlStart = result.ctrlPoolLen;
             assert(result.ctrlPoolLen < result.ctrlPool.length);
-            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos);
+            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos, result);
             result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
             sc.event = result.ctrlPool[result.ctrlPoolLen].event; // inherit event
             result.ctrlPoolLen++;
@@ -436,7 +447,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             expect(input, pos, '{');
             assert(result.ctrlPoolLen < result.ctrlPool.length);
-            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos);
+            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos, result);
             result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
             result.ctrlPoolLen++;
         } else if (wm.base == "permission") {
@@ -585,7 +596,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             sc.paths[0] = "/"; sc.pathCount = 1;
             sc.controlStart = result.ctrlPoolLen;
             assert(result.ctrlPoolLen < result.ctrlPool.length);
-            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos);
+            result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos, result);
             result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
             sc.event = result.ctrlPool[result.ctrlPoolLen].event;
             result.ctrlPoolLen++;
@@ -658,7 +669,7 @@ void parseEnvBlock(ref string input, ref size_t pos,
     assert(0, "Unterminated env block");
 }
 
-ParsedControl parseControl(ref string input, ref size_t pos) {
+public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseResult result) {
     ParsedControl c;
     while (pos < input.length) {
         skipWS(input, pos);
@@ -668,6 +679,17 @@ ParsedControl parseControl(ref string input, ref size_t pos) {
 
         auto key = readWord(input, pos);
         skipWS(input, pos);
+
+        if (key == "strop") {
+            expect(input, pos, '{');
+            Strop s = parseStropBlock(input, pos);
+            assert(result.stropPoolLen < result.stropPool.length, "Strop pool overflow — bump MAX_STROP_POOL");
+            result.stropPool[result.stropPoolLen] = s;
+            c.stropIdx = result.stropPoolLen + 1;
+            result.stropPoolLen++;
+            continue;
+        }
+
         expect(input, pos, ':');
         skipWS(input, pos);
         auto val = readValue(input, pos);
