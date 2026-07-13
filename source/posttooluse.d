@@ -173,6 +173,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         auto tDeferred = usecNow();
 
         // Clippy-reminder: .rs edit → write immediate, cargo clippy → delete
+        bool clippyFired = false;
         {
             import control_handlers : isRustProject;
             if (isRustProject(cwd)) {
@@ -188,6 +189,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (cdb !is null) {
                         writeClippyReminder(cdb, sessionId);
                         sqlite3_close(cdb);
+                        clippyFired = true;
                     }
                 }
                 else if (isBash && detail !is null && contains(detail, "cargo clippy"))
@@ -198,14 +200,18 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (cdb !is null) {
                         deleteClippyReminder(cdb, sessionId);
                         sqlite3_close(cdb);
+                        clippyFired = true;
                     }
                 }
             }
         }
 
+        auto tClippy = usecNow();
+
         // CI status: git push → write session-keyed immediate:ci-status.
         // Repo + branch + sha come from the push's own stdout (tool_response),
         // not from cwd. Watcher uses these for late-binding gh queries.
+        bool ciFired = false;
         {
             bool isBash = modeMatchesToolName('x', toolName);
             if (isBash && detail !is null && isGitPushCommand(detail))
@@ -223,6 +229,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         if (cdb !is null) {
                             writeCIStatus(cdb, sessionId, info.repo, info.branch, info.sha, ciDelay(cwd));
                             sqlite3_close(cdb);
+                            ciFired = true;
                         }
                     }
                 }
@@ -236,7 +243,11 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         prof.put("us db="); putInt(prof, tDb-tParse);
         prof.put("us controls="); putInt(prof, tControls-tDb);
         prof.put("us deferred="); putInt(prof, tDeferred-tControls);
-        prof.put("us total="); putInt(prof, tEnd-t0);
+        prof.put("us clippy="); putInt(prof, tClippy-tDeferred);
+        prof.put(clippyFired ? "us+" : "us-");
+        prof.put(" ci="); putInt(prof, tEnd-tClippy);
+        prof.put(ciFired ? "us+" : "us-");
+        prof.put(" total="); putInt(prof, tEnd-t0);
         prof.put("us exit=none");
         emitProfile(prof);
     }
