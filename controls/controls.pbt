@@ -109,16 +109,10 @@ scope {
     }
   }
 
-  # Checkpoints — require manual approval (excluded in /tsot-roam)
+  # Checkpoints — require manual approval.
+  # git-commit is gated separately in controls/local so its path-exclusion list stays private.
   scope {
     decision: "ask"
-    path: "!/tsot-roam"
-
-    control {
-      name: "git-commit"
-      cmd: "git commit"
-      msg: "Commit requires manual approval"
-    }
 
     control {
       name: "git-tag-semver"
@@ -185,20 +179,7 @@ scope {
   }
 }
 
-# commit-not-requested — universal except in tsot-roam, where the
-# workflow is "edit, commit, push, CI verify" without per-step ask.
-scope {
-  path: "!/tsot-roam"
-  event: "PreToolUse"
-  decision: "deny"
-
-  control {
-    name: "commit-not-requested"
-    cmd: "*git commit*"
-    check_handler: "commitNotRequested"
-    msg: "The developer has not requested a commit. Wait for an explicit commit request."
-  }
-}
+# commit-not-requested — lives in controls/local so path exclusions stay private.
 
 # Universal file-path controls
 scope {
