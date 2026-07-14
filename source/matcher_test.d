@@ -257,12 +257,14 @@ static if (__traits(compiles, { import qntx; })) {
     }
 }
 
-unittest {
-    // git commit --no-verify: omit stripped AND checkpoint upgrades to "ask"
-    auto result = checkCommand("git commit --no-verify -m \"hello\"", OTHER);
-    assert(result.control !is null);
-    assert(result.control.name == "no-skip-hooks");
-    assert(result.decision == "ask");
+static if (hasControl!"git-commit") {
+    unittest {
+        // git commit --no-verify: omit stripped AND checkpoint upgrades to "ask"
+        auto result = checkCommand("git commit --no-verify -m \"hello\"", OTHER);
+        assert(result.control !is null);
+        assert(result.control.name == "no-skip-hooks");
+        assert(result.decision == "ask");
+    }
 }
 
 unittest {
