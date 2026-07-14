@@ -44,6 +44,7 @@ static assert(stripQuoted(`sed 's/a/b/' "my file.txt"`).slice == `sed 's/a/b/' `
 
 enum QNTX = "/Users/dev/QNTX";
 enum OTHER = "/Users/dev/other-project";
+enum TSOTROAM = "/Users/dev/tsot-roam";
 
 static if (__traits(compiles, { import qntx; })) {
     unittest {
@@ -521,4 +522,54 @@ unittest {
     // Absent — insert right after the matched cmd (regression).
     auto added = applyArg(&c, "gh pr merge 12 --merge");
     assert(added.slice() == "gh pr merge --delete-branch 12 --merge");
+}
+
+unittest {
+    // git merge in tsot-roam without user approval — denied by mergeNotRequested handler
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-merge-check";
+    scope(exit) g_sessionId = null;
+
+    auto result = checkCommand("git merge feature", TSOTROAM);
+    assert(result.control !is null);
+    assert(result.control.name == "merge-not-requested");
+    assert(result.decision == "deny");
+}
+
+unittest {
+    // git merge: deny surfaces via checkAllCommands
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-merge-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands("git merge feature", TSOTROAM);
+    assert(results.count == 1);
+    assert(results.matches[0].control.name == "merge-not-requested");
+    assert(results.matches[0].decision == "deny");
+}
+
+unittest {
+    // git merge embedded after a newline — must still fire deny
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-merge-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands("git status\ngit merge feature\necho done", TSOTROAM);
+    bool sawDeny = false;
+    foreach (i; 0 .. results.count)
+        if (results.matches[i].control.name == "merge-not-requested") sawDeny = true;
+    assert(sawDeny);
+}
+
+unittest {
+    // any substring `git merge` inside a bash -c must fire deny
+    import control_handlers : g_sessionId;
+    g_sessionId = "test-merge-check";
+    scope(exit) g_sessionId = null;
+
+    auto results = checkAllCommands(`bash -c "git merge feature"`, TSOTROAM);
+    bool sawDeny = false;
+    foreach (i; 0 .. results.count)
+        if (results.matches[i].control.name == "merge-not-requested") sawDeny = true;
+    assert(sawDeny);
 }

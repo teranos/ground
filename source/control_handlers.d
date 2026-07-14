@@ -78,6 +78,68 @@ bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
     return !userSaid;
 }
 
+// Same approval-in-window shape as killNotRequested (no reset marker
+// — merge is rare enough that a per-merge reset would surprise more
+// than it protects). Fires deny unless one of the last 3 user
+// messages contains a strong approval, or the immediately previous
+// message is a bare weak approval.
+bool mergeNotRequested(const(char)[] cwd, const(char)[] input) {
+    if (g_sessionId.length == 0) return false;
+
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
+                sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto db = openDb();
+    if (db is null) return true;
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    enum last5Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 5\0";
+
+    sqlite3_stmt* stmt;
+    bool userSaid = false;
+    if (sqlite3_prepare_v2(db, last5Sql.ptr, -1, &stmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        int msgIdx = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            auto text = sqlite3_column_text(stmt, 0);
+            if (text !is null) {
+                size_t tlen = 0;
+                while (text[tlen] != 0) tlen++;
+                auto m = text[0 .. tlen];
+                if (isMergeApproval(m) || (msgIdx == 0 && isImmediateMergeApproval(m))) {
+                    userSaid = true;
+                    break;
+                }
+            }
+            msgIdx++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return !userSaid;
+}
+
+// Strong approval — anywhere in the 5-msg window.
+bool isMergeApproval(const(char)[] msg) {
+    if (contains(msg, "merge")) return true;
+    if (containsCI(msg, "verified")) return true;
+    auto trimmed = trimWS(msg);
+    return trimmed == "ok" || trimmed == "sure";
+}
+
+// Weak approval — must be the immediate previous message.
+bool isImmediateMergeApproval(const(char)[] msg) {
+    auto trimmed = trimWS(msg);
+    return trimmed == "yes" || trimmed == "y" || trimmed == "do it";
+}
+
 // Strong approval — works anywhere in the 3-message window.
 // Contains "commit" or "verified" (case-insensitive), or bare "ok"/"sure".
 bool isCommitApproval(const(char)[] msg) {

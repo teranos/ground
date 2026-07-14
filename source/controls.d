@@ -17,6 +17,7 @@ CheckFn resolveCheck(string name) {
     switch (name) {
         case "binaryShadowed": return &control_handlers.binaryShadowed;
         case "commitNotRequested": return &control_handlers.commitNotRequested;
+        case "mergeNotRequested": return &control_handlers.mergeNotRequested;
         case "killNotRequested": return &control_handlers.killNotRequested;
         case "strikethrough": return &control_handlers.strikethroughCheck;
         default: return null;
