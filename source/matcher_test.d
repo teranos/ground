@@ -3,6 +3,17 @@ module matcher_test;
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
                  wildcardContains, containsExact, extractLeadingCd;
+import controls : allScopes;
+
+// CTFE predicate — is a named control present in the built scopes?
+// Used to guard tests that reference controls declared only in
+// controls/local (which is not part of the public checkout).
+private bool hasControl(string name)() {
+    foreach (ref sc; allScopes)
+        foreach (ref c; sc.controls)
+            if (c.name == name) return true;
+    return false;
+}
 
 // --- clamp tests ---
 //
@@ -175,57 +186,59 @@ unittest {
     assert(result.control.name == "no-skip-hooks");
 }
 
-unittest {
-    // git commit without user requesting it — denied by commitNotRequested handler
-    // Set dummy session so handler queries db (no matching data → deny)
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-commit-check";
-    scope(exit) g_sessionId = null;
+static if (hasControl!"commit-not-requested") {
+    unittest {
+        // git commit without user requesting it — denied by commitNotRequested handler
+        // Set dummy session so handler queries db (no matching data → deny)
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-commit-check";
+        scope(exit) g_sessionId = null;
 
-    auto result = checkCommand("git commit -m \"hello\"", OTHER);
-    assert(result.control !is null);
-    assert(result.control.name == "commit-not-requested");
-    assert(result.decision == "deny");
-}
+        auto result = checkCommand("git commit -m \"hello\"", OTHER);
+        assert(result.control !is null);
+        assert(result.control.name == "commit-not-requested");
+        assert(result.decision == "deny");
+    }
 
-unittest {
-    // git commit: deny wins over ask (commit-not-requested deny > git-commit ask)
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-commit-check";
-    scope(exit) g_sessionId = null;
+    unittest {
+        // git commit: deny wins over ask (commit-not-requested deny > git-commit ask)
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-commit-check";
+        scope(exit) g_sessionId = null;
 
-    auto results = checkAllCommands("git commit -m \"hello\"", OTHER);
-    assert(results.count == 1); // single segment = single match
-    assert(results.matches[0].control.name == "commit-not-requested");
-    assert(results.matches[0].decision == "deny");
-}
+        auto results = checkAllCommands("git commit -m \"hello\"", OTHER);
+        assert(results.count == 1); // single segment = single match
+        assert(results.matches[0].control.name == "commit-not-requested");
+        assert(results.matches[0].decision == "deny");
+    }
 
-unittest {
-    // git commit embedded after a newline — must still fire deny
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-commit-check";
-    scope(exit) g_sessionId = null;
+    unittest {
+        // git commit embedded after a newline — must still fire deny
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-commit-check";
+        scope(exit) g_sessionId = null;
 
-    auto results = checkAllCommands("git add foo\ngit commit -m \"x\"\ngit push", OTHER);
-    bool sawDeny = false;
-    foreach (i; 0 .. results.count)
-        if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
-    assert(sawDeny);
-}
+        auto results = checkAllCommands("git add foo\ngit commit -m \"x\"\ngit push", OTHER);
+        bool sawDeny = false;
+        foreach (i; 0 .. results.count)
+            if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
+        assert(sawDeny);
+    }
 
-unittest {
-    // any substring `git commit` anywhere in the command must fire deny —
-    // includes inside quoted strings (bash -c "git commit ..."), inside
-    // env-prefix, anywhere. The user accepts false positives.
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-commit-check";
-    scope(exit) g_sessionId = null;
+    unittest {
+        // any substring `git commit` anywhere in the command must fire deny —
+        // includes inside quoted strings (bash -c "git commit ..."), inside
+        // env-prefix, anywhere. The user accepts false positives.
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-commit-check";
+        scope(exit) g_sessionId = null;
 
-    auto results = checkAllCommands(`bash -c "git commit -m x"`, OTHER);
-    bool sawDeny = false;
-    foreach (i; 0 .. results.count)
-        if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
-    assert(sawDeny);
+        auto results = checkAllCommands(`bash -c "git commit -m x"`, OTHER);
+        bool sawDeny = false;
+        foreach (i; 0 .. results.count)
+            if (results.matches[i].control.name == "commit-not-requested") sawDeny = true;
+        assert(sawDeny);
+    }
 }
 
 unittest {
@@ -524,52 +537,54 @@ unittest {
     assert(added.slice() == "gh pr merge --delete-branch 12 --merge");
 }
 
-unittest {
-    // git merge in tsot-roam without user approval — denied by mergeNotRequested handler
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-merge-check";
-    scope(exit) g_sessionId = null;
+static if (hasControl!"merge-not-requested") {
+    unittest {
+        // git merge in tsot-roam without user approval — denied by mergeNotRequested handler
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-merge-check";
+        scope(exit) g_sessionId = null;
 
-    auto result = checkCommand("git merge feature", TSOTROAM);
-    assert(result.control !is null);
-    assert(result.control.name == "merge-not-requested");
-    assert(result.decision == "deny");
-}
+        auto result = checkCommand("git merge feature", TSOTROAM);
+        assert(result.control !is null);
+        assert(result.control.name == "merge-not-requested");
+        assert(result.decision == "deny");
+    }
 
-unittest {
-    // git merge: deny surfaces via checkAllCommands
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-merge-check";
-    scope(exit) g_sessionId = null;
+    unittest {
+        // git merge: deny surfaces via checkAllCommands
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-merge-check";
+        scope(exit) g_sessionId = null;
 
-    auto results = checkAllCommands("git merge feature", TSOTROAM);
-    assert(results.count == 1);
-    assert(results.matches[0].control.name == "merge-not-requested");
-    assert(results.matches[0].decision == "deny");
-}
+        auto results = checkAllCommands("git merge feature", TSOTROAM);
+        assert(results.count == 1);
+        assert(results.matches[0].control.name == "merge-not-requested");
+        assert(results.matches[0].decision == "deny");
+    }
 
-unittest {
-    // git merge embedded after a newline — must still fire deny
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-merge-check";
-    scope(exit) g_sessionId = null;
+    unittest {
+        // git merge embedded after a newline — must still fire deny
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-merge-check";
+        scope(exit) g_sessionId = null;
 
-    auto results = checkAllCommands("git status\ngit merge feature\necho done", TSOTROAM);
-    bool sawDeny = false;
-    foreach (i; 0 .. results.count)
-        if (results.matches[i].control.name == "merge-not-requested") sawDeny = true;
-    assert(sawDeny);
-}
+        auto results = checkAllCommands("git status\ngit merge feature\necho done", TSOTROAM);
+        bool sawDeny = false;
+        foreach (i; 0 .. results.count)
+            if (results.matches[i].control.name == "merge-not-requested") sawDeny = true;
+        assert(sawDeny);
+    }
 
-unittest {
-    // any substring `git merge` inside a bash -c must fire deny
-    import control_handlers : g_sessionId;
-    g_sessionId = "test-merge-check";
-    scope(exit) g_sessionId = null;
+    unittest {
+        // any substring `git merge` inside a bash -c must fire deny
+        import control_handlers : g_sessionId;
+        g_sessionId = "test-merge-check";
+        scope(exit) g_sessionId = null;
 
-    auto results = checkAllCommands(`bash -c "git merge feature"`, TSOTROAM);
-    bool sawDeny = false;
-    foreach (i; 0 .. results.count)
-        if (results.matches[i].control.name == "merge-not-requested") sawDeny = true;
-    assert(sawDeny);
+        auto results = checkAllCommands(`bash -c "git merge feature"`, TSOTROAM);
+        bool sawDeny = false;
+        foreach (i; 0 .. results.count)
+            if (results.matches[i].control.name == "merge-not-requested") sawDeny = true;
+        assert(sawDeny);
+    }
 }
