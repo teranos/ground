@@ -39,7 +39,7 @@ struct ParsedControl {
     string arg, omit, omitLine, clamp;
     string[16] triggers;
     ubyte triggerCount;
-    string filepath, msg, mcpArg, pushedPath;
+    string filepath, msg, mcpArg, pushedPath, exec;
     string[8] contents;
     ubyte contentCount;
     string[8] userprompts;
@@ -790,6 +790,7 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
             case "bg":              c.bg = (val == "true"); break;
             case "tmo":             c.tmo = parseInt(val); break;
             case "check_handler":   c.checkHandler = val; break;
+            case "exec":            c.exec = val; break;
             case "pushed_paths":    c.pushedPath = val; break;
             case "delay_handler":   c.delayHandler = val; break;
             case "deliver_handler": c.deliverHandler = val; break;
