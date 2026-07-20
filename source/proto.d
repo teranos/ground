@@ -53,6 +53,9 @@ struct ParsedControl {
     string[8] paramKeys;
     string[8] paramValues;
     ubyte paramCount;
+    string[8] envKeys;
+    string[8] envValues;
+    ubyte envCount;
     size_t stropIdx; // 0 = no strop; else 1-based index into ParseResult.stropPool.
 }
 
@@ -257,6 +260,12 @@ ScopeSet buildScopes(
                 c.paramKeys = pc.paramKeys;
                 c.paramValues = pc.paramValues;
                 c.paramCount = pc.paramCount;
+            }
+
+            if (pc.envCount > 0) {
+                c.envKeys = pc.envKeys;
+                c.envValues = pc.envValues;
+                c.envCount = pc.envCount;
             }
 
             c.exec = pc.exec;
@@ -702,6 +711,28 @@ void parseHandlerParamsBlock(ref string input, ref size_t pos,
     assert(0, "Unterminated handler_params block");
 }
 
+void parseControlEnvBlock(ref string input, ref size_t pos,
+    ref string[8] keys, ref string[8] values, ref ubyte count)
+{
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+        assert(count < 8, "control env: too many pairs (max 8)");
+        keys[count] = key;
+        values[count] = val;
+        count++;
+    }
+    assert(0, "Unterminated control env block");
+}
+
 public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseResult result) {
     ParsedControl c;
     while (pos < input.length) {
@@ -726,6 +757,12 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
         if (key == "handler_params") {
             expect(input, pos, '{');
             parseHandlerParamsBlock(input, pos, c.paramKeys, c.paramValues, c.paramCount);
+            continue;
+        }
+
+        if (key == "env") {
+            expect(input, pos, '{');
+            parseControlEnvBlock(input, pos, c.envKeys, c.envValues, c.envCount);
             continue;
         }
 
