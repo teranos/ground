@@ -264,8 +264,14 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                             continue;
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
                             continue;
-                        if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, null))
-                            continue;
+                        if (c.sessionstart.check !is null) {
+                            import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
+                            g_paramKeys = c.paramKeys;
+                            g_paramValues = c.paramValues;
+                            g_paramCount = c.paramCount;
+                            if (!c.sessionstart.check(cwd, null))
+                                continue;
+                        }
 
                         // First amendment control (has arg or omit)
                         if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
@@ -362,8 +368,14 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                             continue;
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
                             continue;
-                        if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, null))
-                            continue;
+                        if (c.sessionstart.check !is null) {
+                            import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
+                            g_paramKeys = c.paramKeys;
+                            g_paramValues = c.paramValues;
+                            g_paramCount = c.paramCount;
+                            if (!c.sessionstart.check(cwd, null))
+                                continue;
+                        }
                         // Strop controls always fire — they don't compete with amendment/fallback.
                         // Append directly to result; skip the single-per-segment competition.
                         if (c.stropIdx > 0) {

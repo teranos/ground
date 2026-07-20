@@ -20,6 +20,8 @@ CheckFn resolveCheck(string name) {
         case "mergeNotRequested": return &control_handlers.mergeNotRequested;
         case "killNotRequested": return &control_handlers.killNotRequested;
         case "strikethrough": return &control_handlers.strikethroughCheck;
+        case "unanalyzableBash": return &control_handlers.unanalyzableBash;
+        case "deepAndChain": return &control_handlers.deepAndChain;
         default: return null;
     }
 }

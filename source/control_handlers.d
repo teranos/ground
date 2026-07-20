@@ -5,6 +5,39 @@ import matcher : contains;
 // Set by PreToolUse handler before calling checkAllCommands.
 __gshared const(char)[] g_sessionId;
 
+// Set by PreToolUse handler before calling checkAllCommands. Matcher.d's
+// per-segment check_handler invocation passes `input=null`, so Bash-path
+// handlers that need the full tool_input JSON read it from here instead.
+__gshared const(char)[] g_input;
+
+// Set by matcher.d / pretooluse.d before dispatching a check_handler.
+// Reflects the `handler_params { … }` block of the control whose handler
+// is about to run. Handlers read named params via `lookupParam(name)`.
+__gshared string[8] g_paramKeys;
+__gshared string[8] g_paramValues;
+__gshared ubyte g_paramCount;
+
+// Look up a handler_params value by name. Returns null if the key is not
+// present. Handlers must handle null (no param set) themselves — usually by
+// returning false so the control doesn't fire.
+const(char)[] lookupParam(const(char)[] name) {
+    foreach (i; 0 .. g_paramCount) {
+        if (g_paramKeys[i] == name) return g_paramValues[i];
+    }
+    return null;
+}
+
+// Tiny int parser for handler_params values. Returns 0 on non-numeric or
+// negative input — handlers should treat 0 as "unset".
+int parseParamInt(const(char)[] s) {
+    int n = 0;
+    foreach (ch; s) {
+        if (ch < '0' || ch > '9') return 0;
+        n = n * 10 + (ch - '0');
+    }
+    return n;
+}
+
 // --- Check handlers ---
 // bool function(cwd, input) — return true to fire the control.
 
@@ -247,6 +280,57 @@ bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {
     auto newString = extractNewString(input);
     if (newString is null) return false;
     return contains(newString, "~~");
+}
+
+// Shell constructs Claude Code's Bash allowlist cannot statically decompose.
+// Presence of any → the interactive "Contains shell syntax (string) that cannot
+// be statically analyzed" halt fires and breaks auto-approve. Pre-reject at
+// PreToolUse so the halt is never constructed.
+bool containsUnanalyzableShell(const(char)[] command) {
+    static immutable string[] markers = [
+        "$(", "while ", "until ", "for ", "if [", "case ", "<<",
+    ];
+    foreach (m; markers)
+        if (contains(command, m)) return true;
+    return false;
+}
+
+// Top-level "&&" separator count. Pbt controls threshold this to enforce
+// "one primitive per Bash call" — long chains hide the real command.
+int countAndChains(const(char)[] command) {
+    int count = 0;
+    for (size_t i = 0; i + 1 < command.length; i++) {
+        if (command[i] == '&' && command[i + 1] == '&') {
+            count++;
+            i++;
+        }
+    }
+    return count;
+}
+
+bool unanalyzableBash(const(char)[] cwd, const(char)[] input) {
+    import parse : extractToolName, extractCommand;
+    auto src = input.length > 0 ? input : g_input;
+    if (extractToolName(src) != "Bash") return false;
+    auto command = extractCommand(src);
+    if (command is null) return false;
+    return containsUnanalyzableShell(command);
+}
+
+// Chain depth threshold comes from handler_params { depth: "N" } in the pbt
+// control. If `depth` is unset or non-numeric, the handler does not fire —
+// no hidden defaults. The chain-depth policy lives in the pbt, not here.
+bool deepAndChain(const(char)[] cwd, const(char)[] input) {
+    import parse : extractToolName, extractCommand;
+    auto src = input.length > 0 ? input : g_input;
+    if (extractToolName(src) != "Bash") return false;
+    auto command = extractCommand(src);
+    if (command is null) return false;
+
+    int depth = parseParamInt(lookupParam("depth"));
+    if (depth <= 0) return false;
+
+    return countAndChains(command) >= depth;
 }
 
 // Cached file list from the last few commits in `cwd`.

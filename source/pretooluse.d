@@ -99,8 +99,9 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     if (command !is null) {
         // Make sessionId available to check handlers (e.g. commitNotRequested)
-        import control_handlers : g_sessionId;
+        import control_handlers : g_sessionId, g_input;
         g_sessionId = sessionId;
+        g_input = input;
 
         // Hard deny: binary files in git add
         {
@@ -432,7 +433,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     // File-path / check_handler controls
                     if (c.filepath.value.length == 0 && c.sessionstart.check is null) continue;
                     if (c.filepath.value.length > 0 && (filePath is null || !contains(filePath, c.filepath.value))) continue;
-                    if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, input)) continue;
+                    if (c.sessionstart.check !is null) {
+                        import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
+                        g_paramKeys = c.paramKeys;
+                        g_paramValues = c.paramValues;
+                        g_paramCount = c.paramCount;
+                        if (!c.sessionstart.check(cwd, input)) continue;
+                    }
                 }
 
                 if (db !is null && attestationExists(db, "GroundedPreToolUse", c.name, sessionId))

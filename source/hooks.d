@@ -200,6 +200,9 @@ struct Control {
     Bg bg;
     Tmo tmo;
     Defer defer;
+    string[8] paramKeys;
+    string[8] paramValues;
+    ubyte paramCount;
     size_t stropIdx; // 0 = no strop; else 1-based index into controls.globalStropPool.
     int interval; // minimum seconds between fires (0 = no limit)
 }

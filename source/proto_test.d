@@ -851,3 +851,80 @@ static assert(scopeCmdContentBuilt.items[0].controls[0].content.value == "blocke
 // is the active source).
 import proto : ParsedProject;
 static assert(ParsedProject.files.length >= 533);
+
+// --- handler_params block ---
+// Counterpart to check_handler. Nested block of up to 8 key/value pairs.
+// Handler reads named params via lookupParam(name). Omitted or empty → handler
+// receives no params and falls back to its own behavior (return false / no fire).
+
+enum handlerParamsInput = `
+scope {
+  event: "PreToolUse"
+  control {
+    name: "no-deep-and-chain"
+    cmd: "*"
+    check_handler: "deepAndChain"
+    handler_params {
+      depth: "4"
+    }
+    msg: "Deep && chain."
+  }
+}
+`;
+enum handlerParamsParsed = parsePbt(handlerParamsInput);
+static assert(handlerParamsParsed.scopeCount == 1);
+static assert(ctrl(handlerParamsParsed, 0, 0).name == "no-deep-and-chain");
+static assert(ctrl(handlerParamsParsed, 0, 0).checkHandler == "deepAndChain");
+static assert(ctrl(handlerParamsParsed, 0, 0).paramCount == 1);
+static assert(ctrl(handlerParamsParsed, 0, 0).paramKeys[0] == "depth");
+static assert(ctrl(handlerParamsParsed, 0, 0).paramValues[0] == "4");
+
+// Multiple pairs — up to 8.
+enum handlerParamsMultiInput = `
+scope {
+  event: "PreToolUse"
+  control {
+    name: "multi"
+    check_handler: "someHandler"
+    handler_params {
+      depth: "4"
+      mode: "strict"
+      max_files: "100"
+    }
+    msg: "x"
+  }
+}
+`;
+enum handlerParamsMultiParsed = parsePbt(handlerParamsMultiInput);
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramCount == 3);
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramKeys[0] == "depth");
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramValues[0] == "4");
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramKeys[1] == "mode");
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramValues[1] == "strict");
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramKeys[2] == "max_files");
+static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramValues[2] == "100");
+
+// No block → paramCount == 0.
+enum handlerParamsAbsentInput = `
+scope {
+  event: "PreToolUse"
+  control {
+    name: "no-params"
+    check_handler: "someHandler"
+    msg: "x"
+  }
+}
+`;
+enum handlerParamsAbsentParsed = parsePbt(handlerParamsAbsentInput);
+static assert(ctrl(handlerParamsAbsentParsed, 0, 0).paramCount == 0);
+
+// buildScopes wires the pairs through to the runtime Control.
+// A stub resolveCheck is required because the test pbt references a
+// check_handler name; without it, buildScopes asserts on the null resolution.
+import hooks : CheckFn;
+bool stubCheck(const(char)[] cwd, const(char)[] input) { return false; }
+CheckFn stubResolveCheck(string) { return &stubCheck; }
+enum handlerParamsBuilt = buildScopes!(stubResolveCheck)(handlerParamsParsed, "PreToolUse");
+static assert(handlerParamsBuilt.items[0].controls[0].paramCount == 1);
+static assert(handlerParamsBuilt.items[0].controls[0].paramKeys[0] == "depth");
+static assert(handlerParamsBuilt.items[0].controls[0].paramValues[0] == "4");

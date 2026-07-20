@@ -50,6 +50,9 @@ struct ParsedControl {
     string deferMsg;
     int deferSec;
     int interval;
+    string[8] paramKeys;
+    string[8] paramValues;
+    ubyte paramCount;
     size_t stropIdx; // 0 = no strop; else 1-based index into ParseResult.stropPool.
 }
 
@@ -248,6 +251,12 @@ ScopeSet buildScopes(
                 auto fn = resolveCheck(pc.checkHandler);
                 assert(fn !is null);
                 c.sessionstart = SessionStartTrigger(fn, null);
+            }
+
+            if (pc.paramCount > 0) {
+                c.paramKeys = pc.paramKeys;
+                c.paramValues = pc.paramValues;
+                c.paramCount = pc.paramCount;
             }
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
@@ -669,6 +678,28 @@ void parseEnvBlock(ref string input, ref size_t pos,
     assert(0, "Unterminated env block");
 }
 
+void parseHandlerParamsBlock(ref string input, ref size_t pos,
+    ref string[8] keys, ref string[8] values, ref ubyte count)
+{
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+        assert(count < 8, "handler_params: too many pairs (max 8)");
+        keys[count] = key;
+        values[count] = val;
+        count++;
+    }
+    assert(0, "Unterminated handler_params block");
+}
+
 public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseResult result) {
     ParsedControl c;
     while (pos < input.length) {
@@ -687,6 +718,12 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
             result.stropPool[result.stropPoolLen] = s;
             c.stropIdx = result.stropPoolLen + 1;
             result.stropPoolLen++;
+            continue;
+        }
+
+        if (key == "handler_params") {
+            expect(input, pos, '{');
+            parseHandlerParamsBlock(input, pos, c.paramKeys, c.paramValues, c.paramCount);
             continue;
         }
 
