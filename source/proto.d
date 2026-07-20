@@ -259,6 +259,8 @@ ScopeSet buildScopes(
                 c.paramCount = pc.paramCount;
             }
 
+            c.exec = pc.exec;
+
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
                 auto dfn = resolveDeliver(pc.deliverHandler);
                 assert(dfn !is null);

@@ -203,6 +203,7 @@ struct Control {
     string[8] paramKeys;
     string[8] paramValues;
     ubyte paramCount;
+    string exec;
     size_t stropIdx; // 0 = no strop; else 1-based index into controls.globalStropPool.
     int interval; // minimum seconds between fires (0 = no limit)
 }

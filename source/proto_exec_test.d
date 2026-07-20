@@ -1,6 +1,6 @@
 module proto_exec_test;
 
-import proto : parsePbt;
+import proto : parsePbt, buildScopes;
 import proto_test : ctrl;
 
 // > "I have a hook system. I could run code always after you do a push
@@ -41,3 +41,7 @@ scope {
 enum execParsed = parsePbt(execInput);
 static assert(ctrl(execParsed, 0, 0).name == "q-web-deploy-on-push");
 static assert(ctrl(execParsed, 0, 0).exec == "/tmp/deploy-q-web.fish");
+
+// buildScopes wires exec through to the runtime Control struct.
+enum execBuilt = buildScopes(execParsed, "PostToolUse");
+static assert(execBuilt.items[0].controls[0].exec == "/tmp/deploy-q-web.fish");
