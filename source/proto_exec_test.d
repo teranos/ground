@@ -15,7 +15,9 @@ import proto_test : ctrl;
 // > "Yeah, just don't be fucking stupid about what you put in the exec
 // > scripts."
 //
-// The control this was designed for:
+// The control this was designed for (inline form — script content lives
+// in the pbt, not at a filesystem path. See "or is it a security thing?"
+// design decision.):
 //
 //   scope {
 //     path: "/QNTX"
@@ -23,28 +25,33 @@ import proto_test : ctrl;
 //     cmd: "git push"
 //     control {
 //       name: "q-web-deploy-on-push"
-//       exec: "<path-to-deploy-q-web.fish>"
+//       exec: `
+//         #!/usr/bin/env fish
+//         # deploy body
+//       `
 //     }
 //   }
 
-enum execInput = `
+enum execInput = "
 scope {
-  path: "/QNTX"
-  event: "PostToolUse"
-  cmd: "git push"
+  path: \"/QNTX\"
+  event: \"PostToolUse\"
+  cmd: \"git push\"
   control {
-    name: "q-web-deploy-on-push"
-    exec: "/tmp/deploy-q-web.fish"
+    name: \"q-web-deploy-on-push\"
+    exec: `#!/usr/bin/env fish
+echo deploying
+`
   }
 }
-`;
+";
 enum execParsed = parsePbt(execInput);
 static assert(ctrl(execParsed, 0, 0).name == "q-web-deploy-on-push");
-static assert(ctrl(execParsed, 0, 0).exec == "/tmp/deploy-q-web.fish");
+static assert(ctrl(execParsed, 0, 0).exec == "#!/usr/bin/env fish\necho deploying\n");
 
 // buildScopes wires exec through to the runtime Control struct.
 enum execBuilt = buildScopes(execParsed, "PostToolUse");
-static assert(execBuilt.items[0].controls[0].exec == "/tmp/deploy-q-web.fish");
+static assert(execBuilt.items[0].controls[0].exec == "#!/usr/bin/env fish\necho deploying\n");
 
 // Control-level env { } block — the pbt-declarative way to configure the
 // exec child. Same block shape as `project { env { … } }`, but attached to

@@ -83,6 +83,33 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
 
     auto tParse = usecNow();
 
+    // Exec dispatch — fire and forget. Any matched PostToolUse control
+    // with exec: set spawns a detached child. Runs before the msg pass so
+    // the msg pass's return-on-first-match doesn't skip exec fires.
+    {
+        import controls : postToolUseScopes;
+        import exec : dispatchExec;
+        foreach (ref sc; postToolUseScopes) {
+            if (!scopeMatches(sc, cwd)) continue;
+            foreach (ref c; sc.controls) {
+                if (c.exec.length == 0) continue;
+                if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
+                if (c.pushedPath.value.length > 0) {
+                    import control_handlers : pushedFiles;
+                    import push : hasPathStartingWith;
+                    if (!hasPathStartingWith(pushedFiles(cwd), c.pushedPath.value))
+                        continue;
+                }
+                dispatchExec(
+                    c.exec,
+                    c.envKeys[0 .. c.envCount],
+                    c.envValues[0 .. c.envCount],
+                    cast(string) sessionId, cwd, input,
+                );
+            }
+        }
+    }
+
     // Check PostToolUse controls (msg-only fire once per session)
     {
         import controls : postToolUseScopes;
