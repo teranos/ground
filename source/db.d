@@ -536,6 +536,48 @@ void attestControlFire(sqlite3* db, const(char)[] predicate, const(char)[] contr
     if (ownDb) sqlite3_close(db);
 }
 
+// Exec-fire attestation keyed on (control, session, tool_use_id). Dedup at
+// tool-call granularity — each Claude Code tool call has a unique
+// tool_use_id, so repeated PostToolUse invocations for the same tool call
+// see the fire and skip. Distinct tool calls each fire once.
+void attestExecFire(sqlite3* db, const(char)[] controlName, const(char)[] cwd,
+                    const(char)[] sessionId, const(char)[] toolUseId) {
+    __gshared ZBuf efAttrs;
+    efAttrs.reset();
+    efAttrs.put(`{"control":"`);
+    efAttrs.put(controlName);
+    efAttrs.put(`","tool_use_id":"`);
+    efAttrs.put(toolUseId);
+    efAttrs.put(`"}`);
+
+    bool ownDb = db is null;
+    if (ownDb) {
+        db = openDb();
+        if (db is null) return;
+    }
+    attestEvent(db, "GroundedExec", cwd, sessionId, efAttrs.slice());
+    if (ownDb) sqlite3_close(db);
+}
+
+bool execFireExists(sqlite3* db, const(char)[] controlName,
+                    const(char)[] sessionId, const(char)[] toolUseId) {
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(sessionId);
+
+    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'GroundedExec' AND json_extract(attributes, '$.control') = ?1 AND json_extract(attributes, '$.tool_use_id') = ?2 AND json_extract(contexts, '$[0]') = ?3 LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return false;
+    sqlite3_bind_text(stmt, 1, controlName.ptr, cast(int) controlName.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, toolUseId.ptr, cast(int) toolUseId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 // --- Type attestation ---
 // Attests a type definition so QNTX knows what to do with the data.
 // ID encodes version — re-attested when ground updates. INSERT OR IGNORE prevents duplicates.

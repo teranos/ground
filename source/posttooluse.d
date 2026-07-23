@@ -83,14 +83,32 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
 
     auto tParse = usecNow();
 
-    // Exec dispatch — fire and forget. Any matched PostToolUse control
-    // with exec: set spawns a detached child. Runs before the msg pass so
-    // the msg pass's return-on-first-match doesn't skip exec fires.
+    // Exec dispatch — two safety checks alongside the control-cmd match:
+    //
+    //   Scope-cmd: scope-level cmd is not propagated to Control.cmd for
+    //   non-strop controls (proto.d:219-228), so postToolUseMatch alone
+    //   would let a control with no cmd of its own fire on every tool
+    //   call in the scope. Enforce sc.cmds explicitly here.
+    //
+    //   tool_use_id dedup: GroundedExec attestation with tool_use_id in
+    //   attributes. Any repeated PostToolUse invocation for the same
+    //   tool call finds the attestation and skips.
+    import parse : extractToolUseId;
+    auto toolUseId = extractToolUseId(input);
     {
         import controls : postToolUseScopes;
         import exec : dispatchExec;
+        import db : openDb, execFireExists, attestExecFire, sqlite3_close;
+        auto edb = openDb();
         foreach (ref sc; postToolUseScopes) {
             if (!scopeMatches(sc, cwd)) continue;
+            if (sc.cmdCount > 0) {
+                bool scopeCmdMatched = false;
+                foreach (i; 0 .. sc.cmdCount) {
+                    if (hasSegment(detail, sc.cmds[i])) { scopeCmdMatched = true; break; }
+                }
+                if (!scopeCmdMatched) continue;
+            }
             foreach (ref c; sc.controls) {
                 if (c.exec.length == 0) continue;
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
@@ -100,6 +118,11 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (!hasPathStartingWith(pushedFiles(cwd), c.pushedPath.value))
                         continue;
                 }
+                if (edb !is null && toolUseId.length > 0
+                    && execFireExists(edb, c.name, sessionId, toolUseId))
+                    continue;
+                if (edb !is null && toolUseId.length > 0)
+                    attestExecFire(edb, c.name, cwd, sessionId, toolUseId);
                 dispatchExec(
                     c.exec,
                     c.name,
@@ -109,6 +132,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 );
             }
         }
+        if (edb !is null) sqlite3_close(edb);
     }
 
     // Check PostToolUse controls (msg-only fire once per session)
