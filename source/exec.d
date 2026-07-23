@@ -7,8 +7,12 @@ extern (C) {
     void _exit(int status);
     int mkstemp(char* templ);
     long write(int fd, const(void)* buf, size_t count);
+    long read(int fd, void* buf, size_t count);
     int close(int fd);
     int chmod(const(char)* path, uint mode);
+    int pipe(int* pipefd);
+    int dup2(int oldfd, int newfd);
+    int waitpid(int pid, int* wstatus, int options);
 }
 
 // Merged env for the exec child. 24 = 8 (control) + 16 (project) — the
@@ -113,6 +117,7 @@ ChildEnv prepareChildEnv(
 // longest-path-wins match, matching envSubst's own resolution rule.
 void dispatchExec(
     string execScript,
+    string controlName,
     const(string)[] controlKeys, const(string)[] controlValues,
     string sessionId, const(char)[] cwd, const(char)[] toolInput,
 ) {
@@ -164,24 +169,70 @@ void dispatchExec(
     // executable — no world-writable exposure.
     if (chmod(&tmpPath[0], octal!700) != 0) return;
 
-    auto pid = fork();
-    if (pid != 0) return;
+    // One pipe for stdout capture. Parent forks a wrapper (returns
+    // immediately). Wrapper forks the grandchild that becomes the script,
+    // reads the pipe, waits, writes the completion attestation.
+    int[2] outPipe;
+    if (pipe(&outPipe[0]) != 0) return;
 
-    // Child.
-    foreach (i; 0 .. env.count) {
-        char[256]  kbuf = 0;
-        char[8192] vbuf = 0;
-        auto k = env.keys[i];
-        auto v = env.values[i];
-        if (k.length >= kbuf.length || v.length >= vbuf.length) continue;
-        foreach (j, ch; k) kbuf[j] = ch;
-        foreach (j, ch; v) vbuf[j] = ch;
-        setenv(&kbuf[0], &vbuf[0], 1);
+    auto wrapperPid = fork();
+    if (wrapperPid != 0) {
+        close(outPipe[0]);
+        close(outPipe[1]);
+        return;
     }
 
-    const(char)*[2] argv = [cast(const(char)*) &tmpPath[0], null];
-    execv(&tmpPath[0], argv.ptr);
-    _exit(127); // execv only returns on error
+    auto scriptPid = fork();
+    if (scriptPid == 0) {
+        // Grandchild.
+        dup2(outPipe[1], 1);
+        close(outPipe[0]);
+        close(outPipe[1]);
+
+        foreach (i; 0 .. env.count) {
+            char[256]  kbuf = 0;
+            char[8192] vbuf = 0;
+            auto k = env.keys[i];
+            auto v = env.values[i];
+            if (k.length >= kbuf.length || v.length >= vbuf.length) continue;
+            foreach (j, ch; k) kbuf[j] = ch;
+            foreach (j, ch; v) vbuf[j] = ch;
+            setenv(&kbuf[0], &vbuf[0], 1);
+        }
+
+        const(char)*[2] argv = [cast(const(char)*) &tmpPath[0], null];
+        execv(&tmpPath[0], argv.ptr);
+        _exit(127);
+    }
+
+    // Wrapper.
+    close(outPipe[1]);
+
+    char[4096] captureBuf = 0;
+    size_t captureLen = 0;
+    while (captureLen < captureBuf.length) {
+        auto n = read(outPipe[0], &captureBuf[captureLen], captureBuf.length - captureLen);
+        if (n <= 0) break;
+        captureLen += cast(size_t) n;
+    }
+    close(outPipe[0]);
+
+    int status;
+    waitpid(scriptPid, &status, 0);
+    int exitCode = (status >> 8) & 0xFF;
+
+    {
+        import immediate : writeExecComplete;
+        import db : openDb, sqlite3_close;
+        auto db = openDb();
+        if (db !is null) {
+            writeExecComplete(db, sessionId, controlName, exitCode,
+                              captureBuf[0 .. captureLen]);
+            sqlite3_close(db);
+        }
+    }
+
+    _exit(0);
 }
 
 // Helper for octal literals (D's 0o syntax is deprecated).

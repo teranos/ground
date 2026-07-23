@@ -154,7 +154,25 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         size_t nLen = nameEnd - nameStart;
         if (nLen > nameBuf.length) nLen = nameBuf.length;
         foreach (i; 0 .. nLen) nameBuf[i] = name[i];
-        foreach (i; 0 .. mLen) msgBuf[i] = attrs[mPos + i];
+
+        // Unescape JSON string escapes while copying — the JSON stored in
+        // attributes has \n / \t / \" as literal two-char sequences; watch
+        // delivers via fwrite which needs actual bytes, not escape text.
+        size_t outLen = 0;
+        size_t j = 0;
+        while (j < mLen && outLen < msgBuf.length) {
+            if (j + 1 < mLen && attrs[mPos + j] == '\\') {
+                char nx = attrs[mPos + j + 1];
+                if (nx == 'n')  { msgBuf[outLen++] = '\n'; j += 2; continue; }
+                if (nx == 't')  { msgBuf[outLen++] = '\t'; j += 2; continue; }
+                if (nx == 'r')  { msgBuf[outLen++] = '\r'; j += 2; continue; }
+                if (nx == '"')  { msgBuf[outLen++] = '"';  j += 2; continue; }
+                if (nx == '\\') { msgBuf[outLen++] = '\\'; j += 2; continue; }
+            }
+            msgBuf[outLen++] = attrs[mPos + j];
+            j++;
+        }
+        mLen = outLen;
 
         // Project context for delivery receipt — only set when project-matched.
         // Session-matched rows leave it empty; the session itself is recorded
@@ -503,6 +521,102 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
     sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
     sqlite3_step(delStmt);
     sqlite3_finalize(delStmt);
+}
+
+// Write an immediate:exec-complete message for THIS session.
+// Session-keyed; ID uses time(null) so each fire gets its own row rather
+// than overwriting the previous one. Detail carries the control name,
+// exit code, and captured stdout.
+void writeExecComplete(sqlite3* db,
+                       const(char)[] sessionId,
+                       const(char)[] controlName,
+                       int exitCode,
+                       const(char)[] capturedStdout) {
+    import db : formatTimestamp, versionString;
+
+    if (sessionId.length == 0) return;
+
+    auto now = cast(long) time(null);
+
+    void putLong(ref ZBuf buf, long v) {
+        char[20] tbuf = 0;
+        int tlen = 0;
+        bool neg = v < 0;
+        if (neg) v = -v;
+        if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+        else {
+            while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+            foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+        }
+        if (neg) buf.put("-");
+        buf.put(tbuf[0 .. tlen]);
+    }
+
+    __gshared ZBuf idBuf;
+    idBuf.reset();
+    idBuf.put("immediate:exec-complete:");
+    idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(controlName);
+    idBuf.put(":");
+    putLong(idBuf, now);
+
+    __gshared ZBuf predBuf;
+    predBuf.reset();
+    predBuf.put(`["immediate:exec-complete"]`);
+
+    __gshared ZBuf ctxBuf;
+    ctxBuf.reset();
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
+    ctxBuf.put(`"]`);
+
+    void putEscaped(ref ZBuf buf, const(char)[] s) {
+        foreach (c; s) {
+            if (c == '"') buf.put(`\"`);
+            else if (c == '\\') buf.put(`\\`);
+            else if (c == '\n') buf.put(`\n`);
+            else if (c == '\r') buf.put(`\r`);
+            else if (c == '\t') buf.put(`\t`);
+            else if (c < 0x20) continue;
+            else buf.putChar(c);
+        }
+    }
+
+    __gshared ZBuf attrBuf;
+    attrBuf.reset();
+    attrBuf.put(`{"detail":"exec `);
+    putEscaped(attrBuf, controlName);
+    attrBuf.put(` finished (exit `);
+    putLong(attrBuf, cast(long) exitCode);
+    attrBuf.put(`)`);
+    if (capturedStdout.length > 0) {
+        attrBuf.put(`\n`);
+        putEscaped(attrBuf, capturedStdout);
+    }
+    attrBuf.put(`","after":0}`);
+
+    auto ts = formatTimestamp();
+
+    __gshared ZBuf srcBuf;
+    srcBuf.reset();
+    srcBuf.put("ground ");
+    srcBuf.put(versionString());
+
+    enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return;
+    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, `["exec"]`.ptr, 8, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, predBuf.ptr(), cast(int) predBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 // --- Tests ---

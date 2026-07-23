@@ -102,6 +102,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 }
                 dispatchExec(
                     c.exec,
+                    c.name,
                     c.envKeys[0 .. c.envCount],
                     c.envValues[0 .. c.envCount],
                     cast(string) sessionId, cwd, input,
