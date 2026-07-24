@@ -11,3 +11,13 @@ Read COUNTDOWN.md for project status.
 Read bench.fish for CTFE scaling limits.
 
 TEST DRIVEN DEVELOPMENT (TDD): write a failing test before implementing. Confirm it fails, then Green: Write code that makes the test pass.
+
+## ERROR AXIOM
+
+An **ERROR** is a first-class primitive. A typed value that crosses
+every layer of the system unchanged. an `Error` is the entity
+any layer emits when something goes wrong.
+
+*The ERROR is a sacred first-class citizen, never collapsed, dropped,
+swallowed or suppressed; they land in front of the user, contextually,
+at the exact point of interaction.*

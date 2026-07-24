@@ -10,6 +10,7 @@ struct sqlite3;
 struct sqlite3_stmt;
 
 enum SQLITE_OK = 0;
+enum SQLITE_BUSY = 5;
 enum SQLITE_ROW = 100;
 enum SQLITE_DONE = 101;
 enum SQLITE_TRANSIENT = cast(void function(void*)) -1;
@@ -77,6 +78,12 @@ sqlite3* openStandaloneDb() {
     // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
     // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
+
+    // 5s busy timeout — SQLite handles retries internally on lock
+    // contention rather than immediately returning SQLITE_BUSY. Necessary
+    // for exec wrappers to reliably persist their result rows when the
+    // main ground hook + watch + other wrappers are all writing.
+    sqlite3_exec(db, "PRAGMA busy_timeout = 5000\0".ptr, null, null, null);
 
     // Create table if needed
     enum schema = "CREATE TABLE IF NOT EXISTS attestations ("
@@ -534,6 +541,48 @@ void attestControlFire(sqlite3* db, const(char)[] predicate, const(char)[] contr
     }
     attestEvent(db, predicate, cwd, sessionId, cfAttrs.slice());
     if (ownDb) sqlite3_close(db);
+}
+
+// Exec-fire attestation keyed on (control, session, tool_use_id). Dedup at
+// tool-call granularity — each Claude Code tool call has a unique
+// tool_use_id, so repeated PostToolUse invocations for the same tool call
+// see the fire and skip. Distinct tool calls each fire once.
+void attestExecFire(sqlite3* db, const(char)[] controlName, const(char)[] cwd,
+                    const(char)[] sessionId, const(char)[] toolUseId) {
+    __gshared ZBuf efAttrs;
+    efAttrs.reset();
+    efAttrs.put(`{"control":"`);
+    efAttrs.put(controlName);
+    efAttrs.put(`","tool_use_id":"`);
+    efAttrs.put(toolUseId);
+    efAttrs.put(`"}`);
+
+    bool ownDb = db is null;
+    if (ownDb) {
+        db = openDb();
+        if (db is null) return;
+    }
+    attestEvent(db, "GroundedExec", cwd, sessionId, efAttrs.slice());
+    if (ownDb) sqlite3_close(db);
+}
+
+bool execFireExists(sqlite3* db, const(char)[] controlName,
+                    const(char)[] sessionId, const(char)[] toolUseId) {
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(sessionId);
+
+    enum sql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'GroundedExec' AND json_extract(attributes, '$.control') = ?1 AND json_extract(attributes, '$.tool_use_id') = ?2 AND json_extract(contexts, '$[0]') = ?3 LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return false;
+    sqlite3_bind_text(stmt, 1, controlName.ptr, cast(int) controlName.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, toolUseId.ptr, cast(int) toolUseId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
 }
 
 // --- Type attestation ---
