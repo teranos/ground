@@ -123,9 +123,26 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     continue;
                 if (edb !is null && toolUseId.length > 0)
                     attestExecFire(edb, c.name, cwd, sessionId, toolUseId);
+                // Read timeout_sec from control's handler_params, if any.
+                // Zero means "use dispatchExec's default (DEFAULT_TIMEOUT_SEC)".
+                int timeoutSec = 0;
+                foreach (i; 0 .. c.paramCount) {
+                    if (c.paramKeys[i] == "timeout_sec") {
+                        // parse int
+                        int n = 0;
+                        foreach (ch; c.paramValues[i]) {
+                            if (ch < '0' || ch > '9') { n = 0; break; }
+                            n = n * 10 + (ch - '0');
+                        }
+                        timeoutSec = n;
+                        break;
+                    }
+                }
                 dispatchExec(
                     c.exec,
                     c.name,
+                    cast(string) toolUseId,
+                    timeoutSec,
                     c.envKeys[0 .. c.envCount],
                     c.envValues[0 .. c.envCount],
                     cast(string) sessionId, cwd, input,

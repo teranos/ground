@@ -28,6 +28,8 @@ import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 ZBuf, jsonArray1, formatTimestamp, versionString, attestEvent;
 import core.stdc.time : time;
 
+extern (C) uint usleep(uint);
+
 struct ImmediateMsg {
     const(char)[] msgId;
     const(char)[] name;
@@ -523,18 +525,26 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
     sqlite3_finalize(delStmt);
 }
 
-// Write an immediate:exec-complete message for THIS session.
-// Session-keyed; ID uses time(null) so each fire gets its own row rather
-// than overwriting the previous one. Detail carries the control name,
-// exit code, and captured stdout.
-void writeExecComplete(sqlite3* db,
-                       const(char)[] sessionId,
-                       const(char)[] controlName,
-                       int exitCode,
-                       const(char)[] capturedStdout) {
-    import db : formatTimestamp, versionString;
+// Write an immediate:exec-result message for THIS session — the single
+// writer for every exec outcome (happy, non-zero exit, start-failed,
+// timed-out). Preserves BOTH stdout and stderr in the delivered detail
+// so no captured content is dropped.
+//
+// Returns true if the row was persisted (INSERT OR REPLACE completed),
+// false otherwise. Retries on SQLITE_BUSY up to 10 times with 50ms
+// spacing (so contention with the ground main hook or other wrappers
+// doesn't silently drop rows). Caller inspects the return and — if
+// false — must escalate to a fallback delivery channel. Per the
+// axiom, silent failure at this layer is forbidden.
+bool writeExecResult(sqlite3* db,
+                     const(char)[] sessionId,
+                     const(char)[] controlName,
+                     const(char)[] result,
+                     const(char)[] stdoutData,
+                     const(char)[] stderrData) {
+    import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
 
-    if (sessionId.length == 0) return;
+    if (sessionId.length == 0) return false;
 
     auto now = cast(long) time(null);
 
@@ -552,25 +562,6 @@ void writeExecComplete(sqlite3* db,
         buf.put(tbuf[0 .. tlen]);
     }
 
-    __gshared ZBuf idBuf;
-    idBuf.reset();
-    idBuf.put("immediate:exec-complete:");
-    idBuf.put(sessionId);
-    idBuf.put(":");
-    idBuf.put(controlName);
-    idBuf.put(":");
-    putLong(idBuf, now);
-
-    __gshared ZBuf predBuf;
-    predBuf.reset();
-    predBuf.put(`["immediate:exec-complete"]`);
-
-    __gshared ZBuf ctxBuf;
-    ctxBuf.reset();
-    ctxBuf.put(`["session:`);
-    ctxBuf.put(sessionId);
-    ctxBuf.put(`"]`);
-
     void putEscaped(ref ZBuf buf, const(char)[] s) {
         foreach (c; s) {
             if (c == '"') buf.put(`\"`);
@@ -583,16 +574,39 @@ void writeExecComplete(sqlite3* db,
         }
     }
 
+    __gshared ZBuf idBuf;
+    idBuf.reset();
+    idBuf.put("immediate:exec-result:");
+    idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(controlName);
+    idBuf.put(":");
+    putLong(idBuf, now);
+
+    __gshared ZBuf predBuf;
+    predBuf.reset();
+    predBuf.put(`["immediate:exec-result"]`);
+
+    __gshared ZBuf ctxBuf;
+    ctxBuf.reset();
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
+    ctxBuf.put(`"]`);
+
     __gshared ZBuf attrBuf;
     attrBuf.reset();
     attrBuf.put(`{"detail":"exec `);
     putEscaped(attrBuf, controlName);
-    attrBuf.put(` finished (exit `);
-    putLong(attrBuf, cast(long) exitCode);
-    attrBuf.put(`)`);
-    if (capturedStdout.length > 0) {
-        attrBuf.put(`\n`);
-        putEscaped(attrBuf, capturedStdout);
+    attrBuf.put(`: `);
+    putEscaped(attrBuf, result);
+    // Preserve BOTH streams. Label so the reader can tell them apart.
+    if (stdoutData.length > 0) {
+        attrBuf.put(`\nstdout:\n`);
+        putEscaped(attrBuf, stdoutData);
+    }
+    if (stderrData.length > 0) {
+        attrBuf.put(`\nstderr:\n`);
+        putEscaped(attrBuf, stderrData);
     }
     attrBuf.put(`","after":0}`);
 
@@ -604,19 +618,39 @@ void writeExecComplete(sqlite3* db,
     srcBuf.put(versionString());
 
     enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return;
-    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, `["exec"]`.ptr, 8, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, predBuf.ptr(), cast(int) predBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+
+    enum RETRY_LIMIT = 10;
+    enum RETRY_SLEEP_US = 50_000; // 50ms
+
+    foreach (attempt; 0 .. RETRY_LIMIT) {
+        sqlite3_stmt* stmt;
+        auto prep = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+        if (prep == SQLITE_BUSY) {
+            usleep(RETRY_SLEEP_US);
+            continue;
+        }
+        if (prep != SQLITE_OK) return false;
+
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, `["exec"]`.ptr, 8, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, predBuf.ptr(), cast(int) predBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+
+        auto step = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (step == SQLITE_DONE) return true;
+        if (step == SQLITE_BUSY) {
+            usleep(RETRY_SLEEP_US);
+            continue;
+        }
+        return false; // non-busy step error — caller escalates
+    }
+    return false; // retries exhausted — caller escalates
 }
 
 // --- Tests ---

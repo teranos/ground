@@ -10,6 +10,7 @@ struct sqlite3;
 struct sqlite3_stmt;
 
 enum SQLITE_OK = 0;
+enum SQLITE_BUSY = 5;
 enum SQLITE_ROW = 100;
 enum SQLITE_DONE = 101;
 enum SQLITE_TRANSIENT = cast(void function(void*)) -1;
@@ -77,6 +78,12 @@ sqlite3* openStandaloneDb() {
     // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
     // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
+
+    // 5s busy timeout — SQLite handles retries internally on lock
+    // contention rather than immediately returning SQLITE_BUSY. Necessary
+    // for exec wrappers to reliably persist their result rows when the
+    // main ground hook + watch + other wrappers are all writing.
+    sqlite3_exec(db, "PRAGMA busy_timeout = 5000\0".ptr, null, null, null);
 
     // Create table if needed
     enum schema = "CREATE TABLE IF NOT EXISTS attestations ("
