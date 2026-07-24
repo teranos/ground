@@ -81,8 +81,13 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // startTs+timeoutSec+GRACE_SEC emits exec.wrapper.vanished via
     // deliverError and unlinks the marker.
     {
-        import errors : scanVanishedWrappers;
+        import errors : scanVanishedWrappers, writeImmediateBacklogStderr;
         scanVanishedWrappers(cast(string) sessionId);
+        // Delivery-pipeline health: watch daemon dead + rows pending →
+        // stderr + breadcrumb. Point-of-interaction surfacing happens at
+        // Stop (see handleStop's exit) since that's where writeStopResponse
+        // can prepend the warning to a Stop reason.
+        writeImmediateBacklogStderr(cast(string) sessionId);
     }
 
     auto command = extractCommand(input);

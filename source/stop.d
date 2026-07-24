@@ -111,12 +111,23 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         writeWatchClaim(sessionId);
     }
 
-    // ERROR AXIOM: catch wrapper processes that died before delivering.
-    // Stop is a reliable scan point since it fires at end of every session
-    // turn — even if PostToolUse missed the wrapper-vanished case earlier.
+    // ERROR AXIOM: catch wrapper processes that died before delivering,
+    // and check the delivery pipeline itself is alive. Stop runs both since
+    // it's the natural end-of-turn sync point.
     if (sessionId !is null) {
-        import errors : scanVanishedWrappers;
+        import errors : scanVanishedWrappers, immediateBacklogMessage;
         scanVanishedWrappers(cast(string) sessionId);
+        // If the watch daemon is dead and rows are pending, block Stop
+        // with the backlog message. Point of interaction: user sees the
+        // failure at end-of-turn instead of silently missing exec output.
+        // The killSessionWatcher/writeWatchClaim above still ran, and the
+        // asyncRewake config still spawns a new watch — blocking Stop
+        // doesn't prevent recovery on the next turn.
+        auto backlog = immediateBacklogMessage(cast(string) sessionId);
+        if (backlog.length > 0) {
+            writeStopResponseAndNotify(backlog);
+            return 0;
+        }
     }
 
     auto hookActive = extractBool(input, `"stop_hook_active"`);

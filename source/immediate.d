@@ -653,6 +653,34 @@ bool writeExecResult(sqlite3* db,
     return false; // retries exhausted — caller escalates
 }
 
+// Count immediate:* rows for THIS session that have no matching
+// delivered:<msgId> receipt. Used by errors.checkImmediateBacklog to
+// detect a broken delivery pipeline (watch dead but rows accumulating).
+//
+// Returns 0 on any prepare/step failure — we don't want to false-alarm
+// on transient sqlite trouble; the wrapper's own retries handle that.
+long countPendingImmediateForSession(sqlite3* db, const(char)[] sessionId) {
+    if (sessionId.length == 0) return 0;
+
+    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') >= 'immediate:' AND json_extract(a.predicates,'$[0]') < 'immediate;' AND a.contexts LIKE ?1 AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1)\0";
+
+    __gshared ZBuf pattern;
+    pattern.reset();
+    pattern.put(`%session:`);
+    pattern.put(sessionId);
+    pattern.put(`%`);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, pattern.ptr(), cast(int) pattern.len, SQLITE_TRANSIENT);
+
+    long n = 0;
+    import db : sqlite3_column_int64, SQLITE_ROW;
+    if (sqlite3_step(stmt) == SQLITE_ROW) n = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return n;
+}
+
 // --- Tests ---
 
 unittest {

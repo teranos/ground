@@ -485,6 +485,91 @@ void scanVanishedWrappers(string sessionId) {
     pclose(pipe);
 }
 
+// --- Watch health / delivery-pipeline check ---
+//
+// Under the ERROR AXIOM: if the watch daemon dies mid-cycle or fails to
+// spawn, rows written by dispatchExec's wrapper sit in the db forever and
+// no one sees them. That's a silent violation.
+//
+// The check combines two signals to avoid false positives:
+//   - isWatchAlive: pid file exists and its pid is still running
+//   - countPendingImmediateForSession: undelivered immediate:* rows for
+//     this session
+//
+// Watch dead + no pending: normal state between Stops (watch exits 2 after
+// delivering). Pending + watch alive: normal wait for next 2s poll. Only
+// BOTH together indicate a broken pipeline.
+//
+// Callers: at Stop, use immediateBacklogMessage to prepend the warning to
+// the Stop response so it surfaces at point of interaction. At PostToolUse,
+// use writeImmediateBacklogStderr as best-effort visibility (stderr from
+// PostToolUse shows in Claude Code's transcript-mode view).
+
+// Returns the number of pending immediate:* messages for this session
+// when the watch daemon is dead, or 0 otherwise (either watch alive OR
+// nothing pending).
+long detectImmediateBacklog(string sessionId) {
+    import db : openDb, sqlite3_close;
+    import immediate : countPendingImmediateForSession;
+    import watch : isWatchAlive;
+
+    if (sessionId.length == 0) return 0;
+    if (isWatchAlive(sessionId)) return 0;
+
+    auto db = openDb();
+    if (db is null) return 0;
+    auto n = countPendingImmediateForSession(db, sessionId);
+    sqlite3_close(db);
+    return n > 0 ? n : 0;
+}
+
+// Format the backlog warning into a fixed __gshared buffer. Slice is stable
+// until the next call. Empty result means "no backlog, nothing to report."
+const(char)[] immediateBacklogMessage(string sessionId) {
+    auto n = detectImmediateBacklog(sessionId);
+    if (n <= 0) return null;
+
+    __gshared char[256] buf = 0;
+    size_t pos = 0;
+    void put(const(char)[] s) { foreach (c; s) if (pos < buf.length - 1) buf[pos++] = c; }
+    void putI(long v) {
+        if (v == 0) { put("0"); return; }
+        char[24] nb = 0; int nl = 0;
+        while (v > 0 && nl < 23) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. nl) if (pos < buf.length - 1) buf[pos++] = nb[i];
+    }
+    put("ground error: ");
+    putI(n);
+    put(" undelivered exec message(s) — watch daemon is not running for this session");
+    return buf[0 .. pos];
+}
+
+// Best-effort stderr emission for PostToolUse — shows in Claude Code's
+// transcript-mode view. Also writes a breadcrumb line so the record is
+// durable even if stderr goes unseen.
+void writeImmediateBacklogStderr(string sessionId) {
+    auto msg = immediateBacklogMessage(sessionId);
+    if (msg.length == 0) return;
+
+    // stderr
+    char[300] line = 0;
+    size_t lp = 0;
+    foreach (c; msg) { if (lp < line.length - 1) line[lp++] = c; }
+    if (lp < line.length - 1) line[lp++] = '\n';
+    cast(void) write(STDERR_FD, &line[0], lp);
+
+    // breadcrumb — reuse the errors/<sid>.log so history persists
+    GroundError err;
+    err.origin      = "watch.dead";
+    err.message     = cast(string) msg;
+    err.sessionId   = sessionId;
+    err.controlName = "";
+    err.toolUseId   = "";
+    import core.stdc.time : time;
+    err.timestamp   = cast(long) time(null);
+    cast(void) writeBreadcrumb(err);
+}
+
 // octal! helper mirrored from exec.d — small and self-contained.
 private template octal(uint n) {
     static if (n < 10)
