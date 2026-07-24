@@ -76,6 +76,15 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     import main : usecNow;
     auto t0 = usecNow();
 
+    // ERROR AXIOM: catch wrapper processes that died before delivering.
+    // Scans this session's inflight markers; any older than
+    // startTs+timeoutSec+GRACE_SEC emits exec.wrapper.vanished via
+    // deliverError and unlinks the marker.
+    {
+        import errors : scanVanishedWrappers;
+        scanVanishedWrappers(cast(string) sessionId);
+    }
+
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);

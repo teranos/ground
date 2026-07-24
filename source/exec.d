@@ -268,16 +268,30 @@ void dispatchExec(
     if (wrapperPid != 0) {
         close(outPipe[0]); close(outPipe[1]);
         close(errPipe[0]); close(errPipe[1]);
+        // Parent-side inflight marker. If the wrapper dies before its own
+        // terminal emitError clears this marker, scanVanishedWrappers picks
+        // it up on the next hook cycle and emits exec.wrapper.vanished.
+        import errors : writeInflightMarker;
+        import core.stdc.time : time;
+        writeInflightMarker(sessionId, controlName, toolUseId,
+                            wrapperPid, cast(long) time(null), timeoutSec, cwd);
         return;
     }
 
     // --- Wrapper (child of ground) ---
+
+    // In the wrapper, getpid() returns the same value as `wrapperPid` did
+    // in the parent — that's the key the parent-side marker was written
+    // with. clearInflightMarker uses it to unlink on every terminal path.
+    int myPid = getpid();
 
     auto scriptPid = fork();
     if (scriptPid < 0) {
         auto e = errno();
         close(outPipe[0]); close(outPipe[1]);
         close(errPipe[0]); close(errPipe[1]);
+        import errors : clearInflightMarker;
+        clearInflightMarker(sessionId, myPid);
         emitError("exec.fork.script", "fork() failed for script",
                   e, -1, sessionId, controlName, toolUseId, "", "");
         _exit(0);
@@ -385,6 +399,11 @@ void dispatchExec(
     // silently.
     string stdoutData = cast(string) outBuf[0 .. outLen];
     string stderrData = cast(string) errBuf[0 .. errLen];
+    // Clear the inflight marker BEFORE the terminal emit. If deliverError
+    // itself hangs (shouldn't), the marker being gone means the next
+    // hook's scanVanishedWrappers won't false-positive.
+    import errors : clearInflightMarker;
+    clearInflightMarker(sessionId, myPid);
     if (timedOut) {
         emitError("exec.timeout", "grandchild exceeded configured timeout",
                   0, exitCode, sessionId, controlName, toolUseId,

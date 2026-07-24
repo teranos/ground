@@ -111,6 +111,14 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         writeWatchClaim(sessionId);
     }
 
+    // ERROR AXIOM: catch wrapper processes that died before delivering.
+    // Stop is a reliable scan point since it fires at end of every session
+    // turn — even if PostToolUse missed the wrapper-vanished case earlier.
+    if (sessionId !is null) {
+        import errors : scanVanishedWrappers;
+        scanVanishedWrappers(cast(string) sessionId);
+    }
+
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
     if (hookActive)
