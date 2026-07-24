@@ -1,5 +1,7 @@
 module exec;
 
+import core.stdc.errno : errno;
+
 extern (C) {
     int fork();
     int execv(const(char)* path, const(char*)* argv);
@@ -13,7 +15,6 @@ extern (C) {
     int pipe(int* pipefd);
     int dup2(int oldfd, int newfd);
     int waitpid(int pid, int* wstatus, int options);
-    int* __error(); // macOS thread-local errno
     int kill(int pid, int sig);
     int getpid();
 
@@ -35,8 +36,6 @@ enum WNOHANG = 1;
 // Default script timeout in seconds when handler_params doesn't specify.
 // Long enough for realistic deploy scripts; short enough to catch hangs.
 enum DEFAULT_TIMEOUT_SEC = 300;
-
-private int errno() { return *__error(); }
 
 // Under the ERROR AXIOM: every failure path constructs a GroundError and
 // calls deliverError. This helper packages the boilerplate. When called,
