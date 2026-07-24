@@ -1,10 +1,19 @@
 Read source/hooks.d for control types, scope struct, and trigger builders.
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
 Read source/strop.d for value-shape validation on extracted flag values.
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
 Read source/controls.d for CTFE wiring — how pbt becomes static immutable scope arrays.
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
 Read source/control_handlers.d for check, delay, and deliver handler implementations.
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
 Read source/deferred.d for deferred delivery — session-scoped and project-scoped messages delivered at Stop.
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
 Read source/immediate.d for immediate delivery — attestation format for external writers (QNTX, etc).
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
 Read source/watch.d for the asyncRewake watcher — how immediate messages reach running sessions.
+  - ERROR AXIOM Not Conformant yet. Remove this line when done
+Read source/exec.d for exec dispatch — fork+pipe+wrapper, stdout/stderr capture, timeout.
+Read source/errors.d for the GroundError primitive and deliverError fallback chain (db → breadcrumb → stderr).
 Read README.md for project overview.
 Read COUNTDOWN.md for project status.
 
