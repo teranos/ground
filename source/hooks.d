@@ -2,6 +2,9 @@ module hooks;
 
 enum HookEvent {
     SessionStart,       // scoped controls via sessionstart(), optional check functions, arch context
+    MessageDisplay,     // TODO (CC .152): fires as assistant text is displayed; hook can transform or
+                        //   hide it. use case: redact secrets from assistant output, warn on risky
+                        //   commands about to be shown, format ground errors distinctively
     UserPromptSubmit,   // scoped keyword controls via userprompt(), case-insensitive matching
     PreToolUse,         // command amendment, file-path controls, scoped decisions
                         // TODO: updatedInput for non-Bash tools (file_path, pattern, offset, etc.)

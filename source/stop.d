@@ -123,6 +123,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         // The killSessionWatcher/writeWatchClaim above still ran, and the
         // asyncRewake config still spawns a new watch — blocking Stop
         // doesn't prevent recovery on the next turn.
+        //
+        // TODO (CC .163): swap block-with-reason for hookSpecificOutput.
+        //   additionalContext. Same visibility, doesn't hijack the turn or
+        //   surface as "hook error" in the transcript. Ship after bumping
+        //   the minimum Claude Code version to .163.
         auto backlog = immediateBacklogMessage(cast(string) sessionId);
         if (backlog.length > 0) {
             writeStopResponseAndNotify(backlog);

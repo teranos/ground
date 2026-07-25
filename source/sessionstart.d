@@ -136,6 +136,11 @@ void attestTypes() {
 // TODO: extract and attest `model` field — track which model worked on what
 // TODO: extract `agent_type` field — adjust controls for agent vs interactive sessions
 // TODO: use `source` field — "startup", "resume", "clear", "compact" — fire different controls per source
+// TODO (CC .152): set hookSpecificOutput.sessionTitle so terminal chrome shows
+//   e.g. "teranos/ground [main]" instead of the default. cwdTail + branch already
+//   available here — one extra JSON emit on startup/resume.
+// TODO (CC .152): reloadSkills: true on SessionStart when a control has just
+//   installed skills into the skills dir — makes them usable in the same session.
 int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
     auto t0 = usecNow();
