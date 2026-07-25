@@ -1,5 +1,7 @@
 module proto_test;
 
+// TODO: split by feature area — see proto_exec_test.d for the pattern (one focused file per pbt feature).
+
 import proto : parsePbt, buildScopes, ParseResult;
 import hooks : CheckFn, DelayFn, DeliverFn;
 
@@ -928,3 +930,4 @@ enum handlerParamsBuilt = buildScopes!(stubResolveCheck)(handlerParamsParsed, "P
 static assert(handlerParamsBuilt.items[0].controls[0].paramCount == 1);
 static assert(handlerParamsBuilt.items[0].controls[0].paramKeys[0] == "depth");
 static assert(handlerParamsBuilt.items[0].controls[0].paramValues[0] == "4");
+
