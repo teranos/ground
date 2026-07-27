@@ -158,7 +158,29 @@ struct UserPrompt {
     string value() const { return len > 0 ? _buf[0] : ""; }
 }
 
-alias CheckFn = bool function(const(char)[] cwd, const(char)[] input);
+// What a check decided, and what it actually saw.
+//
+// A bare bool could only report THAT a control fired, never what the code
+// observed — so a handler that could not evaluate its condition had to
+// collapse "I could not determine" into "the condition is true", and the
+// user then read the pbt-authored msg as the reason. That msg asserts a
+// cause the handler never measured.
+//
+// `observed` is the escape hatch the ERROR AXIOM's truthfulness clause
+// requires: non-null means the authored msg would misstate this firing, and
+// this text — what the code actually measured — is delivered instead.
+// Handlers that genuinely evaluated their condition leave it null and the
+// authored msg stands.
+struct CheckResult {
+    bool fired;         // the control should act
+    string observed;    // null = authored msg is accurate; else use this text
+}
+
+// Convenience for the common cases, so handlers read as verdicts.
+CheckResult fires()     { return CheckResult(true,  null); }
+CheckResult passes()    { return CheckResult(false, null); }
+
+alias CheckFn = CheckResult function(const(char)[] cwd, const(char)[] input);
 
 struct SessionStartTrigger {
     CheckFn check;     // null = always fire

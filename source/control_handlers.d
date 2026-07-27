@@ -1,6 +1,20 @@
 module control_handlers;
 
 import matcher : contains;
+import hooks : CheckResult, fires, passes;
+
+// Verdict for the approval-gated handlers (commit / merge / kill).
+//
+// Fail-closed on an unreachable db is the policy and stays the policy: not
+// being able to check is not permission. What changes is the story told
+// afterwards. Denying because sqlite would not open is a different fact from
+// denying because the user never approved, and only the second is what the
+// authored pbt message claims. When the check could not run, the handler
+// hands back what it actually observed and that text is delivered instead.
+CheckResult approvalVerdict(bool dbReachable, bool userApproved, string unreachable) {
+    if (!dbReachable) return CheckResult(true, unreachable);
+    return CheckResult(!userApproved, null);
+}
 
 // Set by PreToolUse handler before calling checkAllCommands.
 __gshared const(char)[] g_sessionId;
@@ -39,18 +53,42 @@ int parseParamInt(const(char)[] s) {
 }
 
 // --- Check handlers ---
-// bool function(cwd, input) — return true to fire the control.
+// CheckResult function(cwd, input) — see hooks.CheckResult.
 
 extern (C) int access(const(char)* path, int mode);
 
-bool binaryShadowed(const(char)[] cwd, const(char)[] input) {
-    enum F_OK = 0;
-    return access("/usr/local/bin/ground\0".ptr, F_OK) == 0;
+unittest {
+    // Unreachable db: fail closed, but the Error must say what was measured.
+    // The authored pbt message claims the user withheld approval; the code
+    // never looked, so that claim is not its to make.
+    auto r = approvalVerdict(false, false, "db down");
+    assert(r.fired, "unreachable db must still deny");
+    assert(r.observed == "db down", "must report what it actually observed");
 }
 
-bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
+unittest {
+    // Reachable, no approval found: the authored message is accurate, so the
+    // handler overrides nothing.
+    auto r = approvalVerdict(true, false, "db down");
+    assert(r.fired);
+    assert(r.observed is null, "authored msg stands when the check really ran");
+}
+
+unittest {
+    // Approval found: don't fire.
+    auto r = approvalVerdict(true, true, "db down");
+    assert(!r.fired);
+    assert(r.observed is null);
+}
+
+CheckResult binaryShadowed(const(char)[] cwd, const(char)[] input) {
+    enum F_OK = 0;
+    return access("/usr/local/bin/ground\0".ptr, F_OK) == 0 ? fires() : passes();
+}
+
+CheckResult commitNotRequested(const(char)[] cwd, const(char)[] input) {
     // No session — can't check, don't block
-    if (g_sessionId.length == 0) return false;
+    if (g_sessionId.length == 0) return passes();
 
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
                 sqlite3_step, sqlite3_column_int64, sqlite3_finalize, sqlite3_close,
@@ -58,7 +96,9 @@ bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
     import zbuf : ZBuf;
 
     auto db = openDb();
-    if (db is null) return true; // can't check, deny
+    if (db is null)
+        return approvalVerdict(false, false,
+            "commit denied: ground could not open its database, so it could not check whether you approved a commit. Denying rather than asserting you did not.");
 
     __gshared ZBuf ctx;
     ctx.reset();
@@ -105,10 +145,32 @@ bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
         sqlite3_finalize(userStmt);
     }
 
+    // Standing approval. Deliberately ignores lastCommitRowid: the whole point
+    // is that a bare "commit" is not spent by the first commit it authorises.
+    // Only the single newest prompt counts — the moment the user says anything
+    // else, the standing approval is over and the window rules apply again.
+    if (!userSaid) {
+        enum newestSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 1\0";
+        sqlite3_stmt* newestStmt;
+        if (sqlite3_prepare_v2(db, newestSql.ptr, -1, &newestStmt, null) == SQLITE_OK) {
+            sqlite3_bind_text(newestStmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+            if (sqlite3_step(newestStmt) == SQLITE_ROW) {
+                auto text = sqlite3_column_text(newestStmt, 0);
+                if (text !is null) {
+                    size_t tlen = 0;
+                    while (text[tlen] != 0) tlen++;
+                    if (isStandingCommitApproval(text[0 .. tlen]))
+                        userSaid = true;
+                }
+            }
+            sqlite3_finalize(newestStmt);
+        }
+    }
+
     sqlite3_close(db);
 
     // Fire (deny) if user did NOT approve a commit
-    return !userSaid;
+    return approvalVerdict(true, userSaid, null);
 }
 
 // Same approval-in-window shape as killNotRequested (no reset marker
@@ -116,8 +178,8 @@ bool commitNotRequested(const(char)[] cwd, const(char)[] input) {
 // than it protects). Fires deny unless one of the last 3 user
 // messages contains a strong approval, or the immediately previous
 // message is a bare weak approval.
-bool mergeNotRequested(const(char)[] cwd, const(char)[] input) {
-    if (g_sessionId.length == 0) return false;
+CheckResult mergeNotRequested(const(char)[] cwd, const(char)[] input) {
+    if (g_sessionId.length == 0) return passes();
 
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
@@ -125,7 +187,9 @@ bool mergeNotRequested(const(char)[] cwd, const(char)[] input) {
     import zbuf : ZBuf;
 
     auto db = openDb();
-    if (db is null) return true;
+    if (db is null)
+        return approvalVerdict(false, false,
+            "merge denied: ground could not open its database, so it could not check whether you approved a merge. Denying rather than asserting you did not.");
 
     __gshared ZBuf ctx;
     ctx.reset();
@@ -133,6 +197,7 @@ bool mergeNotRequested(const(char)[] cwd, const(char)[] input) {
     ctx.put(g_sessionId);
 
     enum last5Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 5\0";
+
 
     sqlite3_stmt* stmt;
     bool userSaid = false;
@@ -156,7 +221,7 @@ bool mergeNotRequested(const(char)[] cwd, const(char)[] input) {
     }
 
     sqlite3_close(db);
-    return !userSaid;
+    return approvalVerdict(true, userSaid, null);
 }
 
 // Strong approval — anywhere in the 5-msg window.
@@ -173,9 +238,89 @@ bool isImmediateMergeApproval(const(char)[] msg) {
     return trimmed == "yes" || trimmed == "y" || trimmed == "do it";
 }
 
+unittest {
+    // "commits" already matched — "commit" is a substring of it. The gate that
+    // blocked "Do logical commits" was the rowid window, not the vocabulary.
+    assert(isCommitApproval("Do logical commits"));
+    assert(isCommitApproval("commit this"));
+
+    // The single-t spellings do not contain "commit" and never matched.
+    assert(isCommitApproval("comit"), "comit is approval");
+    assert(isCommitApproval("do the comits"), "comits is approval");
+
+    // Still not approval — the word has to actually be asked for.
+    assert(!isCommitApproval("what would you put in as a message"));
+
+    // Substring matching is deliberate and this is its cost: "committee"
+    // contains "commit", so it reads as approval. Recorded, not fixed —
+    // narrowing it would break "commits"/"comits", which is the point.
+    assert(isCommitApproval("committee meeting notes"));
+}
+
+// Is this message nothing but a request to commit?
+//
+// The per-commit window made "do logical commits" unsatisfiable: the approval
+// is recorded before the first commit, every later commit looks only at
+// prompts newer than the last commit marker, and so a plural instruction
+// authorised exactly one. Re-asking N times to satisfy an instruction that
+// already said N is friction with no safety in it.
+//
+// A message that carries only the approval word is standing: the user asked,
+// and has said nothing since, so it holds until they say something else. A
+// message with real content in it stays one-shot and scoped to what it asked
+// for — "commit the db fix only" must not authorise the rest.
+bool isStandingCommitApproval(const(char)[] msg) {
+    auto t = trimWS(msg);
+    if (t.length == 0) return false;
+
+    // Drop a trailing politeness so "comit please" still reads as bare.
+    if (t.length > 7) {
+        auto tail = t[$ - 7 .. $];
+        if (containsCI(tail, "please")) t = trimWS(t[0 .. $ - 7]);
+    }
+
+    // Every remaining word must be an approval word or a filler like "do"/
+    // "logical" — anything else is content, and content means scope.
+    size_t start = 0;
+    bool sawApproval = false;
+    while (start <= t.length) {
+        size_t end = start;
+        while (end < t.length && t[end] != ' ' && t[end] != '\t') end++;
+        if (end > start) {
+            auto w = t[start .. end];
+            if (containsCI(w, "comit")) sawApproval = true;         // comit(s)
+            else if (containsCI(w, "commit")) sawApproval = true;   // commit(s)
+            else if (containsCI(w, "do")) {}                        // "do logical commits"
+            else if (containsCI(w, "logical")) {}
+            else return false;                                      // real content
+        }
+        if (end >= t.length) break;
+        start = end + 1;
+    }
+    return sawApproval;
+}
+
+unittest {
+    // A bare approval is a STANDING one. The user asked to commit and has said
+    // nothing since, so it covers the whole batch instead of being spent by the
+    // first commit — which is what made a plural instruction unsatisfiable.
+    assert(isStandingCommitApproval("commit"));
+    assert(isStandingCommitApproval("comit please"));
+    assert(isStandingCommitApproval("  commits  "));
+    assert(isStandingCommitApproval("Do logical commits"));
+
+    // A message carrying real content is a one-shot, scoped to what it asked
+    // for. Standing approval is only inferred when there is nothing else in it.
+    assert(!isStandingCommitApproval("commit the db fix only"));
+    assert(!isStandingCommitApproval("if you would commit, what would you put"));
+    assert(!isStandingCommitApproval("what is uncomitted?"));
+}
+
 // Strong approval — works anywhere in the 3-message window.
-// Contains "commit" or "verified" (case-insensitive), or bare "ok"/"sure".
+// Contains "commit"/"comit" (either spelling, and their plurals by substring)
+// or "verified" (case-insensitive), or bare "ok"/"sure".
 bool isCommitApproval(const(char)[] msg) {
+    if (contains(msg, "comit")) return true;   // comit, comits
     if (contains(msg, "commit")) return true;
     if (containsCI(msg, "verified")) return true;
 
@@ -230,8 +375,8 @@ bool isRustProject(const(char)[] cwd) {
     return stat(&pathBuf[0], &st) == 0;
 }
 
-bool killNotRequested(const(char)[] cwd, const(char)[] input) {
-    if (g_sessionId.length == 0) return false;
+CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
+    if (g_sessionId.length == 0) return passes();
 
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
@@ -239,7 +384,9 @@ bool killNotRequested(const(char)[] cwd, const(char)[] input) {
     import zbuf : ZBuf;
 
     auto db = openDb();
-    if (db is null) return true;
+    if (db is null)
+        return approvalVerdict(false, false,
+            "denied: ground could not open its database, so it could not check whether you requested this. Denying rather than asserting you did not.");
 
     __gshared ZBuf ctx;
     ctx.reset();
@@ -270,16 +417,16 @@ bool killNotRequested(const(char)[] cwd, const(char)[] input) {
     }
 
     sqlite3_close(db);
-    return !userSaid;
+    return approvalVerdict(true, userSaid, null);
 }
 
-bool strikethroughCheck(const(char)[] cwd, const(char)[] input) {
+CheckResult strikethroughCheck(const(char)[] cwd, const(char)[] input) {
     import parse : extractNewString, extractToolName;
     auto toolName = extractToolName(input);
-    if (toolName != "Edit") return false;
+    if (toolName != "Edit") return passes();
     auto newString = extractNewString(input);
-    if (newString is null) return false;
-    return contains(newString, "~~");
+    if (newString is null) return passes();
+    return contains(newString, "~~") ? fires() : passes();
 }
 
 // Shell constructs Claude Code's Bash allowlist cannot statically decompose.
@@ -308,29 +455,29 @@ int countAndChains(const(char)[] command) {
     return count;
 }
 
-bool unanalyzableBash(const(char)[] cwd, const(char)[] input) {
+CheckResult unanalyzableBash(const(char)[] cwd, const(char)[] input) {
     import parse : extractToolName, extractCommand;
     auto src = input.length > 0 ? input : g_input;
-    if (extractToolName(src) != "Bash") return false;
+    if (extractToolName(src) != "Bash") return passes();
     auto command = extractCommand(src);
-    if (command is null) return false;
-    return containsUnanalyzableShell(command);
+    if (command is null) return passes();
+    return containsUnanalyzableShell(command) ? fires() : passes();
 }
 
 // Chain depth threshold comes from handler_params { depth: "N" } in the pbt
 // control. If `depth` is unset or non-numeric, the handler does not fire —
 // no hidden defaults. The chain-depth policy lives in the pbt, not here.
-bool deepAndChain(const(char)[] cwd, const(char)[] input) {
+CheckResult deepAndChain(const(char)[] cwd, const(char)[] input) {
     import parse : extractToolName, extractCommand;
     auto src = input.length > 0 ? input : g_input;
-    if (extractToolName(src) != "Bash") return false;
+    if (extractToolName(src) != "Bash") return passes();
     auto command = extractCommand(src);
-    if (command is null) return false;
+    if (command is null) return passes();
 
     int depth = parseParamInt(lookupParam("depth"));
-    if (depth <= 0) return false;
+    if (depth <= 0) return passes();
 
-    return countAndChains(command) >= depth;
+    return countAndChains(command) >= depth ? fires() : passes();
 }
 
 // Cached file list from the last few commits in `cwd`.
@@ -355,9 +502,35 @@ const(char)[] pushedFiles(const(char)[] cwd) {
 
     auto pipe = popen(cmd.ptr(), "r");
     g_pushedFilesValid = true;
-    if (pipe is null) { g_pushedFilesLen = 0; return g_pushedFilesBuf[0 .. 0]; }
+
+    // A failure here is invisible downstream: `pushed_paths:` matchers read an
+    // empty list as "this commit touched nothing", so every control gated on
+    // it quietly does not fire. The user sees no controls and no reason. Raise
+    // it on the axiom's own channel instead of returning a silent empty.
+    void reportUnreadable(string why) {
+        import errors : GroundError, deliverError;
+        import core.stdc.time : time;
+        GroundError err;
+        err.origin      = "control_handlers.pushedFiles";
+        err.message     = why;
+        err.exitCode    = -1;
+        err.sessionId   = cast(string) g_sessionId;
+        err.controlName = "pushed_paths";
+        err.timestamp   = cast(long) time(null);
+        cast(void) deliverError(err);
+    }
+
+    if (pipe is null) {
+        g_pushedFilesLen = 0;
+        reportUnreadable("could not run git log to read the pushed file list — pushed_paths controls did not evaluate");
+        return g_pushedFilesBuf[0 .. 0];
+    }
     g_pushedFilesLen = fread(&g_pushedFilesBuf[0], 1, g_pushedFilesBuf.length, pipe);
-    pclose(pipe);
+    if (pclose(pipe) != 0) {
+        g_pushedFilesLen = 0;
+        reportUnreadable("git log exited non-zero while reading the pushed file list — pushed_paths controls did not evaluate");
+        return g_pushedFilesBuf[0 .. 0];
+    }
     return g_pushedFilesBuf[0 .. g_pushedFilesLen];
 }
 
@@ -376,6 +549,80 @@ int ciDelay(const(char)[] cwd) {
 // --- Deliver handlers ---
 // const(char)[] function(cwd) — return message or null to suppress.
 
+// Result of resolving a git remote URL to an owner/repo pair.
+//
+// The distinction the old code could not express: `repo is null` with
+// `problem is null` means there is legitimately nothing to say (no upstream
+// configured) and silence is correct. `problem` non-null means we were asked
+// for a briefing and could not produce one, which the user is owed.
+struct UpstreamParse {
+    const(char)[] repo;
+    string problem;
+}
+
+// Pure — the shelling out stays in upstreamBriefingDeliver.
+UpstreamParse parseUpstreamUrl(const(char)[] url) {
+    // Trim trailing newline / whitespace from git's output.
+    while (url.length > 0 && (url[$ - 1] == '\n' || url[$ - 1] == '\r' || url[$ - 1] == ' '))
+        url = url[0 .. $ - 1];
+
+    if (url.length == 0)
+        return UpstreamParse(null, null); // no upstream remote — nothing to brief
+
+    int lastGh = -1;
+    foreach (i; 0 .. url.length) {
+        if (i + 10 <= url.length && url[i .. i + 10] == "github.com")
+            lastGh = cast(int) i;
+    }
+    if (lastGh < 0)
+        return UpstreamParse(null, "upstream briefing unavailable: the upstream remote is not a github.com URL, and ground can only query GitHub");
+
+    auto rest = url[lastGh + 10 .. $];
+    if (rest.length > 0 && (rest[0] == '/' || rest[0] == ':'))
+        rest = rest[1 .. $];
+    if (rest.length > 4 && rest[$ - 4 .. $] == ".git")
+        rest = rest[0 .. $ - 4];
+
+    if (rest.length == 0)
+        return UpstreamParse(null, "upstream briefing unavailable: the upstream remote URL has no owner/repo path");
+
+    __gshared char[128] repoBuf = 0;
+    size_t n = rest.length > repoBuf.length ? repoBuf.length : rest.length;
+    foreach (i; 0 .. n) repoBuf[i] = rest[i];
+    return UpstreamParse(repoBuf[0 .. n], null);
+}
+
+unittest {
+    // No upstream remote is not a failure. There is legitimately nothing to
+    // brief on, so silence is correct and no Error is owed.
+    auto r = parseUpstreamUrl("");
+    assert(r.repo is null);
+    assert(r.problem is null, "absence of an upstream is not an error");
+}
+
+unittest {
+    // ssh remote
+    auto r = parseUpstreamUrl("git@github.com:teranos/QNTX.git");
+    assert(r.repo == "teranos/QNTX");
+    assert(r.problem is null);
+}
+
+unittest {
+    // https remote, no .git suffix
+    auto r = parseUpstreamUrl("https://github.com/teranos/QNTX");
+    assert(r.repo == "teranos/QNTX");
+    assert(r.problem is null);
+}
+
+unittest {
+    // An upstream exists but we cannot address it. Returning silence here is
+    // the swallow: the control was asked for a briefing and the user learns
+    // neither the briefing nor why there isn't one.
+    auto r = parseUpstreamUrl("git@gitlab.com:foo/bar.git");
+    assert(r.repo is null);
+    assert(r.problem !is null, "an unusable upstream must be reported");
+}
+
 const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     import db : popen, pclose, ZBuf;
     import core.stdc.stdio : fread, FILE;
@@ -389,36 +636,17 @@ const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     repoCmd.putChar('\0');
 
     auto repoPipe = popen(repoCmd.ptr(), "r");
-    if (repoPipe is null) return null;
+    if (repoPipe is null)
+        return "upstream briefing unavailable: could not run git to read the upstream remote";
 
     __gshared char[256] repoBuf = 0;
     auto rn = fread(&repoBuf[0], 1, repoBuf.length - 1, repoPipe);
     pclose(repoPipe);
-    if (rn == 0) return null;
-    if (repoBuf[rn - 1] == '\n') rn--;
-    if (rn == 0) return null;
 
-    __gshared char[128] ownerRepo = 0;
-    size_t orLen = 0;
-    {
-        auto url = repoBuf[0 .. rn];
-        int lastGh = -1;
-        foreach (i; 0 .. url.length) {
-            if (i + 10 <= url.length && url[i .. i + 10] == "github.com")
-                lastGh = cast(int) i;
-        }
-        if (lastGh < 0) return null;
-        auto rest = url[lastGh + 10 .. $];
-        if (rest.length > 0 && (rest[0] == '/' || rest[0] == ':'))
-            rest = rest[1 .. $];
-        if (rest.length > 4 && rest[$ - 4 .. $] == ".git")
-            rest = rest[0 .. $ - 4];
-        foreach (c; rest) {
-            if (orLen < ownerRepo.length) ownerRepo[orLen++] = c;
-        }
-    }
-    if (orLen == 0) return null;
-    auto repo = ownerRepo[0 .. orLen];
+    auto parsed = parseUpstreamUrl(repoBuf[0 .. rn]);
+    if (parsed.problem !is null) return parsed.problem;
+    if (parsed.repo is null) return null; // no upstream configured — nothing to brief
+    auto repo = parsed.repo;
 
     __gshared ZBuf ghCmd;
     ghCmd.reset();
@@ -437,12 +665,18 @@ const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     ghCmd.putChar('\0');
 
     auto pipe = popen(ghCmd.ptr(), "r");
-    if (pipe is null) return null;
+    if (pipe is null)
+        return "upstream briefing unavailable: could not run gh";
 
     __gshared char[3072] outBuf = 0;
     auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
-    if (n == 0) return null;
+    auto ghStatus = pclose(pipe);
+    // Same trap as checkCIStatus had: empty output alone cannot tell "nothing
+    // to report" from "gh failed". The exit status can, so keep it.
+    if (ghStatus != 0)
+        return "upstream briefing unavailable: gh exited non-zero (auth or network?)";
+    if (n == 0)
+        return "upstream briefing unavailable: gh returned nothing";
 
     __gshared ZBuf result;
     result.reset();

@@ -189,7 +189,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
                     if (!alreadyFired) {
                         if (allMessages.len > 0) allMessages.put(" | ");
-                        allMessages.put(envSubst(c.msg.value, cwd));
+                        // m.observed is set when the control's check could not
+                        // evaluate its condition — deliver what it measured
+                        // rather than the authored msg's asserted cause.
+                        allMessages.put(m.observed !is null ? m.observed : envSubst(c.msg.value, cwd));
                         if (db !is null) {
                             __gshared ZBuf groundedAttrs;
                             groundedAttrs.reset();
@@ -417,6 +420,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             foreach (ref c; sc.controls) {
                 if (c.cmd.len > 0) continue; // command controls handled above
 
+                // Set when a check could not evaluate its condition; replaces the
+                // authored msg so the user reads what was measured, not a guess.
+                const(char)[] checkObserved = null;
+
                 // Content match — check tool_input region (covers Edit new_string, Write content)
                 if (c.content.len > 0) {
                     if (!toolInputExtracted) {
@@ -438,7 +445,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         g_paramKeys = c.paramKeys;
                         g_paramValues = c.paramValues;
                         g_paramCount = c.paramCount;
-                        if (!c.sessionstart.check(cwd, input)) continue;
+                        auto verdict = c.sessionstart.check(cwd, input);
+                        if (!verdict.fired) continue;
+                        // Truthfulness clause: the handler could not evaluate its
+                        // condition, so the authored msg would assert a cause it
+                        // never measured. Deliver the observation instead.
+                        checkObserved = verdict.observed;
                     }
                 }
 
@@ -446,7 +458,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     continue;
 
                 if (fileMsgBuf.len > 0) fileMsgBuf.put(" ");
-                fileMsgBuf.put(envSubst(c.msg.value, cwd));
+                fileMsgBuf.put(checkObserved !is null ? checkObserved : envSubst(c.msg.value, cwd));
 
                 if (sc.decision == "ask") fileDecision = "ask";
                 else if (sc.decision == "deny") fileDecision = "deny";

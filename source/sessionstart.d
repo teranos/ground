@@ -223,8 +223,12 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             if (!scopeMatches(sc, cwd))
                 continue;
             foreach (ref c; sc.controls) {
-                if (c.sessionstart.check !is null && !c.sessionstart.check(cwd, null))
-                    continue;
+                const(char)[] checkObserved = null;
+                if (c.sessionstart.check !is null) {
+                    auto verdict = c.sessionstart.check(cwd, null);
+                    if (!verdict.fired) continue;
+                    checkObserved = verdict.observed;
+                }
 
                 // Interval check — skip if fired too recently
                 if (c.interval > 0) {
@@ -256,7 +260,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                     ctx.put(delivered);
                 } else {
                     if (any) ctx.put(" | ");
-                    ctx.put(envSubst(c.msg.value, cwd));
+                    ctx.put(checkObserved !is null ? checkObserved : envSubst(c.msg.value, cwd));
                 }
                 any = true;
 

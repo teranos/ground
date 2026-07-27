@@ -923,8 +923,8 @@ static assert(ctrl(handlerParamsAbsentParsed, 0, 0).paramCount == 0);
 // buildScopes wires the pairs through to the runtime Control.
 // A stub resolveCheck is required because the test pbt references a
 // check_handler name; without it, buildScopes asserts on the null resolution.
-import hooks : CheckFn;
-bool stubCheck(const(char)[] cwd, const(char)[] input) { return false; }
+import hooks : CheckFn, CheckResult, passes;
+CheckResult stubCheck(const(char)[] cwd, const(char)[] input) { return passes(); }
 CheckFn stubResolveCheck(string) { return &stubCheck; }
 enum handlerParamsBuilt = buildScopes!(stubResolveCheck)(handlerParamsParsed, "PreToolUse");
 static assert(handlerParamsBuilt.items[0].controls[0].paramCount == 1);

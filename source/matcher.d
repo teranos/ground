@@ -7,6 +7,10 @@ struct Match {
     const(Control)* control;
     const(char)[] segment;
     const(char)[] decision;
+    // Non-null when the control's check could not evaluate its condition.
+    // Callers must deliver this instead of control.msg — the authored text
+    // asserts a cause the handler never measured (ERROR AXIOM, truthfulness).
+    const(char)[] observed;
 }
 
 struct Buf {
@@ -254,6 +258,11 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                 const(Control)* amendment = null;
                 const(Control)* fallback = null;
                 const(Control)* denyCtrl = null;
+                // Each candidate carries its own check observation, so whichever
+                // one finally wins delivers what ITS check measured.
+                const(char)[] amendObserved = null;
+                const(char)[] fallbackObserved = null;
+                const(char)[] denyObserved = null;
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
@@ -264,27 +273,34 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                             continue;
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
                             continue;
+                        const(char)[] observed = null;
                         if (c.sessionstart.check !is null) {
                             import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
                             g_paramKeys = c.paramKeys;
                             g_paramValues = c.paramValues;
                             g_paramCount = c.paramCount;
-                            if (!c.sessionstart.check(cwd, null))
+                            auto verdict = c.sessionstart.check(cwd, null);
+                            if (!verdict.fired)
                                 continue;
+                            observed = verdict.observed;
                         }
 
                         // First amendment control (has arg or omit)
-                        if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
+                        if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0)) {
                             amendment = &c;
+                            amendObserved = observed;
+                        }
 
                         // First match of any kind
-                        if (fallback is null)
+                        if (fallback is null) {
                             fallback = &c;
+                            fallbackObserved = observed;
+                        }
 
                         // deny > ask > allow
                         if (sc.decision == "deny") {
                             decision = "deny";
-                            if (denyCtrl is null) denyCtrl = &c;
+                            if (denyCtrl is null) { denyCtrl = &c; denyObserved = observed; }
                         }
                         else if (sc.decision == "ask" && decision != "deny")
                             decision = "ask";
@@ -296,8 +312,10 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                 // Deny control takes priority
                 auto matched = denyCtrl !is null ? denyCtrl :
                     amendment !is null ? amendment : fallback;
+                auto matchedObserved = denyCtrl !is null ? denyObserved :
+                    amendment !is null ? amendObserved : fallbackObserved;
                 if (matched !is null)
-                    return Match(matched, segment, decision);
+                    return Match(matched, segment, decision, matchedObserved);
             }
             start = i + skip;
             if (skip > 0) {
@@ -368,19 +386,22 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                             continue;
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
                             continue;
+                        const(char)[] observed = null;
                         if (c.sessionstart.check !is null) {
                             import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
                             g_paramKeys = c.paramKeys;
                             g_paramValues = c.paramValues;
                             g_paramCount = c.paramCount;
-                            if (!c.sessionstart.check(cwd, null))
+                            auto verdict = c.sessionstart.check(cwd, null);
+                            if (!verdict.fired)
                                 continue;
+                            observed = verdict.observed;
                         }
                         // Strop controls always fire — they don't compete with amendment/fallback.
                         // Append directly to result; skip the single-per-segment competition.
                         if (c.stropIdx > 0) {
                             if (result.count < result.matches.length) {
-                                result.matches[result.count] = Match(&c, segment, sc.decision);
+                                result.matches[result.count] = Match(&c, segment, sc.decision, observed);
                                 result.count++;
                             }
                             continue;
