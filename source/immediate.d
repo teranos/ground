@@ -525,6 +525,144 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
     sqlite3_finalize(delStmt);
 }
 
+// Announce that a control's script was launched, written by the parent the
+// instant the wrapper is forked — before the script can succeed, fail, hang
+// or vanish.
+//
+// The exec path had exactly one emission point and it was at the end
+// (exec.d, wrapper terminal). So the signal and the thing it described
+// shared a fate: any break between dispatch and terminal produced total
+// silence, and silence is indistinguishable from the control never having
+// fired at all. The user is left doing archaeology — or opening a browser —
+// to answer "did anything happen?"
+//
+// This row is that answer, and it does not depend on the run surviving.
+// With it, a missing result becomes informative instead of ambiguous.
+// after:0 — no gate, it is delivered on the watcher's next pass.
+bool writeExecStarted(sqlite3* db,
+                      const(char)[] sessionId,
+                      const(char)[] controlName,
+                      int wrapperPid) {
+    import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
+
+    if (sessionId.length == 0) return false;
+
+    __gshared ZBuf idBuf;
+    idBuf.reset();
+    idBuf.put("immediate:exec-started:");
+    idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(controlName);
+    idBuf.put(":");
+    {
+        // Each dispatch is its own event — the pid keys it so a second run of
+        // the same control in the same session cannot overwrite the first.
+        char[16] nb = 0;
+        int nl = 0;
+        int v = wrapperPid < 0 ? 0 : wrapperPid;
+        if (v == 0) { nb[0] = '0'; nl = 1; }
+        else { while (v > 0 && nl < 15) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; } }
+        foreach_reverse (i; 0 .. nl) idBuf.putChar(nb[i]);
+    }
+
+    __gshared ZBuf attrBuf;
+    attrBuf.reset();
+    attrBuf.put(`{"detail":"exec `);
+    foreach (c; controlName) {
+        if (c == '"' || c == '\\') continue;
+        attrBuf.putChar(c);
+    }
+    attrBuf.put(`: started","after":0}`);
+
+    __gshared ZBuf ctxBuf;
+    ctxBuf.reset();
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
+    ctxBuf.put(`"]`);
+
+    __gshared ZBuf srcBuf;
+    srcBuf.reset();
+    srcBuf.put("ground ");
+    srcBuf.put(versionString());
+
+    auto ts = formatTimestamp();
+
+    enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+    enum RETRY_LIMIT = 10;
+    enum RETRY_SLEEP_US = 50_000;
+
+    foreach (attempt; 0 .. RETRY_LIMIT) {
+        sqlite3_stmt* stmt;
+        auto prep = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+        if (prep == SQLITE_BUSY) { usleep(RETRY_SLEEP_US); continue; }
+        if (prep != SQLITE_OK) return false;
+
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, `["exec"]`.ptr, 8, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, `["immediate:exec-started"]`.ptr, 26, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+
+        auto step = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (step == SQLITE_DONE) return true;
+        if (step == SQLITE_BUSY) { usleep(RETRY_SLEEP_US); continue; }
+        return false;
+    }
+    return false;
+}
+
+unittest {
+    // Dispatch must announce itself. Until this row exists the user cannot
+    // tell "the control never fired" from "it fired and the result was lost"
+    // — both are silence. This is the floor: ground acted, therefore you know.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    assert(writeExecStarted(testDb, "sess-start", "q-web-deploy-on-push", 1),
+           "dispatch announcement must persist");
+
+    // Deliverable immediately — no gate. The point is that it arrives now.
+    auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-start");
+    assert(msg.message !is null, "started row must be deliverable at once");
+    assert(msg.name == "exec-started");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // Two dispatches of the same control in one session are two events and
+    // must both be visible — collapsing them would reintroduce the silence.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close,
+                sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64,
+                sqlite3_finalize, sqlite3_stmt, SQLITE_ROW;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    assert(writeExecStarted(testDb, "sess-twice", "ctl", 111));
+    assert(writeExecStarted(testDb, "sess-twice", "ctl", 222));
+
+    enum countSql = "SELECT COUNT(*) FROM attestations WHERE json_extract(predicates,'$[0]') = 'immediate:exec-started'\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(testDb, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 2, "each dispatch is its own event");
+    sqlite3_finalize(stmt);
+
+    sqlite3_close(testDb);
+}
+
 // Write an immediate:exec-result message for THIS session — the single
 // writer for every exec outcome (happy, non-zero exit, start-failed,
 // timed-out). Preserves BOTH stdout and stderr in the delivered detail
@@ -653,6 +791,43 @@ bool writeExecResult(sqlite3* db,
     return false; // retries exhausted — caller escalates
 }
 
+// Count exec results for THIS session that nobody has picked up within the
+// grace window. This is the honest form of "is delivery broken": it observes
+// the work itself instead of probing a pid file that Stop invalidated 21
+// lines earlier. True whichever way the reader went missing — died, never
+// spawned, lost its claim to another session's watcher, or exited by design
+// after its last batch.
+//
+// Grace is the watcher's worst-case gap between a row landing and being read:
+// the adaptive poll tops out at 30s (adaptive.d) plus the 5s debounce
+// (watch.d). 60s clears that with room, so anything older means nobody is
+// reading — not that we asked too early.
+//
+// Scoped to exec-result deliberately. The watcher parks an in_progress
+// ci-status row for the entire CI duration by design, so age carries no
+// signal about pipeline health for that row type.
+long countStaleExecForSession(sqlite3* db, const(char)[] sessionId) {
+    if (sessionId.length == 0) return 0;
+
+    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') = 'immediate:exec-result' AND a.contexts LIKE ?1 AND a.timestamp < strftime('%Y-%m-%dT%H:%M:%SZ','now','-60 seconds') AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1)\0";
+
+    __gshared ZBuf pattern;
+    pattern.reset();
+    pattern.put(`%session:`);
+    pattern.put(sessionId);
+    pattern.put(`%`);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, pattern.ptr(), cast(int) pattern.len, SQLITE_TRANSIENT);
+
+    long n = 0;
+    import db : sqlite3_column_int64, SQLITE_ROW;
+    if (sqlite3_step(stmt) == SQLITE_ROW) n = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return n;
+}
+
 // Count immediate:* rows for THIS session that have no matching
 // delivered:<msgId> receipt. Used by errors.checkImmediateBacklog to
 // detect a broken delivery pipeline (watch dead but rows accumulating).
@@ -662,7 +837,12 @@ bool writeExecResult(sqlite3* db,
 long countPendingImmediateForSession(sqlite3* db, const(char)[] sessionId) {
     if (sessionId.length == 0) return 0;
 
-    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') >= 'immediate:' AND json_extract(a.predicates,'$[0]') < 'immediate;' AND a.contexts LIKE ?1 AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1)\0";
+    // The `after` clause mirrors readImmediateMessage's gate (`if (now <
+    // afterVal) continue;`). Without it the counter reports rows the reader
+    // is deliberately holding, and Stop declares a healthy pipeline dead for
+    // the whole push→CI-gate window. Rows with no `after` yield NULL here and
+    // are excluded — same verdict the reader reaches by skipping them.
+    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') >= 'immediate:' AND json_extract(a.predicates,'$[0]') < 'immediate;' AND a.contexts LIKE ?1 AND json_extract(a.attributes,'$.after') <= CAST(strftime('%s','now') AS INTEGER) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1)\0";
 
     __gshared ZBuf pattern;
     pattern.reset();
@@ -973,6 +1153,126 @@ unittest {
     writeCIStatus(testDb, "sess-ci-gate", "acme/widget", "main", "abc1234", 9999);
     auto result = readImmediateMessage(testDb, "/tmp/anywhere", "sess-ci-gate");
     assert(result.message is null, "ci-status should not be readable before gate opens");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // The backlog counter must agree with the reader about the `after` gate.
+    // A row the reader is deliberately holding is not a backlog. Counting it
+    // makes Stop report a dead delivery pipeline for a healthy one — the
+    // watcher is alive and correctly waiting for the gate to open.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    writeCIStatus(testDb, "sess-gate-count", "acme/widget", "main", "abc1234", 9999);
+
+    // Reader holds it — the premise, established by the test above.
+    assert(readImmediateMessage(testDb, "/tmp/anywhere", "sess-gate-count").message is null);
+
+    // Counter must reach the same verdict.
+    assert(countPendingImmediateForSession(testDb, "sess-gate-count") == 0,
+           "gated row must not be counted as backlog");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // A just-written exec result is NOT a backlog. The watcher has not had
+    // its poll cycle yet. Firing here is the false alarm that made Stop
+    // declare a live pipeline dead.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    assert(writeExecResult(testDb, "sess-fresh", "ctl", "exit 1", "", "boom"));
+    assert(countStaleExecForSession(testDb, "sess-fresh") == 0,
+           "a fresh exec result is not stale");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // An exec result nobody has picked up well past the watcher's worst-case
+    // poll gap IS a broken pipeline. This is the condition the check exists
+    // for, and it is true regardless of any pid file.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    enum oldRow = "INSERT INTO attestations VALUES ('immediate:exec-result:sess-stale:ctl:1','[\"exec\"]','[\"immediate:exec-result\"]','[\"session:sess-stale\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"exec ctl: exit 1\",\"after\":0}')\0";
+    sqlite3_exec(testDb, oldRow.ptr, null, null, null);
+
+    assert(countStaleExecForSession(testDb, "sess-stale") == 1,
+           "an undelivered exec result past the grace window is a real backlog");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // Delivered receipt clears it, however old the row is.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    enum oldRow = "INSERT INTO attestations VALUES ('immediate:exec-result:sess-done:ctl:1','[\"exec\"]','[\"immediate:exec-result\"]','[\"session:sess-done\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"exec ctl: exit 1\",\"after\":0}')\0";
+    sqlite3_exec(testDb, oldRow.ptr, null, null, null);
+    enum receipt = "INSERT INTO attestations VALUES ('r1','[\"x\"]','[\"delivered:immediate:exec-result:sess-done:ctl:1\"]','[\"session:sess-done\"]','[\"ground\"]','2020-01-01T00:01:00Z','ground','{}')\0";
+    sqlite3_exec(testDb, receipt.ptr, null, null, null);
+
+    assert(countStaleExecForSession(testDb, "sess-done") == 0,
+           "delivered exec result is not a backlog");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // ci-status is deliberately out of scope. The watcher parks an in_progress
+    // run for the whole CI duration by design (watch.d: `break` on in_progress),
+    // so age says nothing about pipeline health for that row type.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    enum ciRow = "INSERT INTO attestations VALUES ('immediate:ci-status:sess-ci','[\"x\"]','[\"immediate:ci-status\"]','[\"session:sess-ci\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"Checking CI...\",\"after\":0}')\0";
+    sqlite3_exec(testDb, ciRow.ptr, null, null, null);
+
+    assert(countStaleExecForSession(testDb, "sess-ci") == 0,
+           "a long-parked ci-status row is not a pipeline failure");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // Complement: once the gate is open the row IS a real backlog. Guards
+    // against "fixing" the counter by making it always return 0.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    writeCIStatus(testDb, "sess-gate-open", "acme/widget", "main", "abc1234", 0);
+
+    assert(countPendingImmediateForSession(testDb, "sess-gate-open") == 1,
+           "open-gate row must still be counted as backlog");
 
     sqlite3_close(testDb);
 }

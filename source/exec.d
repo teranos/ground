@@ -275,6 +275,25 @@ void dispatchExec(
         import core.stdc.time : time;
         writeInflightMarker(sessionId, controlName, toolUseId,
                             wrapperPid, cast(long) time(null), timeoutSec, cwd);
+
+        // Announce the dispatch NOW, from the parent, while we still know it
+        // happened. The wrapper's terminal emit is the only other report, and
+        // it cannot describe a run that dies before reaching it — leaving the
+        // user unable to tell a control that never fired from one whose result
+        // was lost. Both look like nothing happened. This row is the floor:
+        // ground acted, therefore the user knows.
+        //
+        // The marker above serves a different purpose: it is machinery for
+        // scanVanishedWrappers, read by ground, never by the user.
+        {
+            import db : openDb, sqlite3_close;
+            import immediate : writeExecStarted;
+            auto sdb = openDb();
+            if (sdb !is null) {
+                writeExecStarted(sdb, sessionId, controlName, wrapperPid);
+                sqlite3_close(sdb);
+            }
+        }
         return;
     }
 

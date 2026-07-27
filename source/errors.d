@@ -491,34 +491,37 @@ void scanVanishedWrappers(string sessionId) {
 // spawn, rows written by dispatchExec's wrapper sit in the db forever and
 // no one sees them. That's a silent violation.
 //
-// The check combines two signals to avoid false positives:
-//   - isWatchAlive: pid file exists and its pid is still running
-//   - countPendingImmediateForSession: undelivered immediate:* rows for
-//     this session
+// The signal is the work itself: an exec result still undelivered past the
+// watcher's worst-case poll gap. Nothing else is asked and nothing is
+// inferred — no pid, no liveness probe, no rendezvous file.
 //
-// Watch dead + no pending: normal state between Stops (watch exits 2 after
-// delivering). Pending + watch alive: normal wait for next 2s poll. Only
-// BOTH together indicate a broken pipeline.
+// This replaced a pid-liveness check that was wrong in both directions. It
+// read watch-<sid>.pid, which stop.d had already invalidated by SIGTERMing
+// that very pid twenty-one lines earlier, and which no code path ever
+// unlinks. So it reported a dead pipeline for a healthy one on every Stop
+// that followed a push, and it would equally have reported a live pipeline
+// for a watcher that had lost its claim to another session.
+//
+// An Error must be true, not merely delivered. A false Error spends the
+// user's attention and teaches them to discount the channel, which costs
+// the axiom exactly what a swallowed Error would.
 //
 // Callers: at Stop, use immediateBacklogMessage to prepend the warning to
 // the Stop response so it surfaces at point of interaction. At PostToolUse,
 // use writeImmediateBacklogStderr as best-effort visibility (stderr from
 // PostToolUse shows in Claude Code's transcript-mode view).
 
-// Returns the number of pending immediate:* messages for this session
-// when the watch daemon is dead, or 0 otherwise (either watch alive OR
-// nothing pending).
+// Returns the number of exec results this session has left undelivered past
+// the grace window, or 0 when delivery is keeping up.
 long detectImmediateBacklog(string sessionId) {
     import db : openDb, sqlite3_close;
-    import immediate : countPendingImmediateForSession;
-    import watch : isWatchAlive;
+    import immediate : countStaleExecForSession;
 
     if (sessionId.length == 0) return 0;
-    if (isWatchAlive(sessionId)) return 0;
 
     auto db = openDb();
     if (db is null) return 0;
-    auto n = countPendingImmediateForSession(db, sessionId);
+    auto n = countStaleExecForSession(db, sessionId);
     sqlite3_close(db);
     return n > 0 ? n : 0;
 }
@@ -538,9 +541,11 @@ const(char)[] immediateBacklogMessage(string sessionId) {
         while (v > 0 && nl < 23) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; }
         foreach_reverse (i; 0 .. nl) if (pos < buf.length - 1) buf[pos++] = nb[i];
     }
+    // State what was measured, not a guess at the cause. "watch daemon is not
+    // running" was an inference from a pid file; this is the observation.
     put("ground error: ");
     putI(n);
-    put(" undelivered exec message(s) — watch daemon is not running for this session");
+    put(" exec result(s) undelivered for over 60s — nothing is draining the queue");
     return buf[0 .. pos];
 }
 
