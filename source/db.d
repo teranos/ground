@@ -11,9 +11,99 @@ struct sqlite3_stmt;
 
 enum SQLITE_OK = 0;
 enum SQLITE_BUSY = 5;
+enum SQLITE_CORRUPT = 11;   // malformed disk image — the store is damaged
+enum SQLITE_NOTADB = 26;    // not a database file at all
 enum SQLITE_ROW = 100;
 enum SQLITE_DONE = 101;
 enum SQLITE_TRANSIENT = cast(void function(void*)) -1;
+
+// A damaged store is a blocker for everything ground does, and it cannot be
+// reported through the store. Every read loop written as
+// `while (sqlite3_step(stmt) == SQLITE_ROW)` exits after zero iterations on
+// SQLITE_CORRUPT — byte-identical to a query that matched nothing. So every
+// counter reads 0, every reader reads null, and a destroyed database presents
+// as a calm, idle, working system. Ground must refuse to run instead.
+bool isCorruptionCode(int code) {
+    return code == SQLITE_CORRUPT || code == SQLITE_NOTADB;
+}
+
+// Verdict for this process. Each hook is a fresh process that opens the store
+// itself, so whoever asks finds out — no sentinel to poll, no state to carry
+// between invocations. The failure branch already runs; it just used to say
+// nothing.
+private __gshared int g_dbFailCode;
+
+void resetDbFailure() { g_dbFailCode = 0; }
+void noteDbFailure(int code) { g_dbFailCode = code; }
+bool dbUnusable() { return isCorruptionCode(g_dbFailCode); }
+
+// The report. Goes out on the hook's own stderr, never through the store —
+// the store is the thing that is broken. Names the file and carries the
+// recovery command, because a blocker the user has to go research is a
+// blocker twice.
+const(char)[] dbFailureMessage() {
+    if (!dbUnusable()) return null;
+
+    __gshared ZBuf buf;
+    buf.reset();
+    buf.put("ground error: the attestation database is damaged (sqlite code ");
+    {
+        char[8] nb = 0;
+        int nl = 0;
+        int v = g_dbFailCode;
+        if (v == 0) { nb[0] = '0'; nl = 1; }
+        else { while (v > 0 && nl < 7) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; } }
+        foreach_reverse (i; 0 .. nl) buf.putChar(nb[i]);
+    }
+    buf.put("). ground has stopped: every control, attestation and message ");
+    buf.put("depends on this store, and a damaged one reads as empty rather ");
+    buf.put("than broken — so continuing would report all-clear while losing ");
+    buf.put("everything. File: ~/.local/share/ground/ground.db — recover with: ");
+    buf.put("sqlite3 ~/.local/share/ground/ground.db .recover > /tmp/g.sql ");
+    buf.put("(do not VACUUM, it can destroy what is still readable)");
+    return buf.slice();
+}
+
+unittest {
+    assert(isCorruptionCode(SQLITE_CORRUPT), "malformed image is corruption");
+    assert(isCorruptionCode(SQLITE_NOTADB), "not-a-database is corruption");
+    assert(!isCorruptionCode(SQLITE_OK));
+    assert(!isCorruptionCode(SQLITE_BUSY), "lock contention is transient, not damage");
+    assert(!isCorruptionCode(SQLITE_ROW));
+    assert(!isCorruptionCode(SQLITE_DONE));
+}
+
+unittest {
+    // Nothing observed yet — ground runs normally. Absence of a verdict must
+    // not read as a failure, or every healthy session would halt.
+    resetDbFailure();
+    assert(!dbUnusable());
+    assert(dbFailureMessage() is null);
+}
+
+unittest {
+    // Once corruption is observed the verdict is loud, names the file, and
+    // carries the recovery command — the message has to be actionable without
+    // the user going and looking anything up.
+    resetDbFailure();
+    noteDbFailure(SQLITE_CORRUPT);
+    assert(dbUnusable(), "ground must refuse to run on a damaged store");
+
+    auto msg = dbFailureMessage();
+    assert(msg !is null);
+    import matcher : contains;
+    assert(contains(msg, "ground.db"), "must name the file");
+    assert(contains(msg, ".recover"), "must carry the recovery path");
+    resetDbFailure();
+}
+
+unittest {
+    // Lock contention is not damage and must not halt ground.
+    resetDbFailure();
+    noteDbFailure(SQLITE_BUSY);
+    assert(!dbUnusable(), "transient busy must not stop the world");
+    resetDbFailure();
+}
 
 extern (C) {
     int sqlite3_open(const(char)* filename, sqlite3** ppDb);
@@ -27,6 +117,7 @@ extern (C) {
     long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
     int sqlite3_changes(sqlite3* db);
+    int sqlite3_errcode(sqlite3* db);
 }
 
 extern (C) {
@@ -71,7 +162,10 @@ sqlite3* openStandaloneDb() {
 
     sqlite3* db;
     if (sqlite3_open(pathBuf.ptr(), &db) != SQLITE_OK) {
-        if (db !is null) sqlite3_close(db);
+        if (db !is null) {
+            noteDbFailure(sqlite3_errcode(db));
+            sqlite3_close(db);
+        }
         return null;
     }
 
@@ -92,7 +186,11 @@ sqlite3* openStandaloneDb() {
         ~ "source TEXT NOT NULL DEFAULT 'cli', attributes JSON, "
         ~ "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
 
+    // The schema exec is the first real read of the B-tree, so damage lands
+    // here. Ask sqlite what went wrong before discarding the handle — this
+    // branch already ran on every corrupt open, it just returned in silence.
     if (sqlite3_exec(db, schema.ptr, null, null, null) != SQLITE_OK) {
+        noteDbFailure(sqlite3_errcode(db));
         sqlite3_close(db);
         return null;
     }
@@ -514,7 +612,13 @@ void attestEvent(
     sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 8, payload.ptr, cast(int) payload.length, SQLITE_TRANSIENT);
 
-    sqlite3_step(stmt);
+    // Every hook of every session lands here, which makes this the one write
+    // that touches the damaged trees on every invocation — the schema tree
+    // openDb reads can be intact while the table and its indexes are not, so
+    // a corrupt store opens cleanly and only fails once real data moves.
+    // Discarding this return is what let that stay invisible.
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+        noteDbFailure(sqlite3_errcode(db));
     sqlite3_finalize(stmt);
 
     // Fire-and-forget UDP to loom

@@ -256,11 +256,44 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
 
     // Attest every event — even ones we don't handle yet
     {
-        import db : openDb, attestEvent, sqlite3_close;
+        import db : openDb, attestEvent, sqlite3_close, dbUnusable, dbFailureMessage;
         auto db = openDb();
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);
             sqlite3_close(db);
+        }
+        // Checked after the write, not only on a null handle: a damaged store
+        // opens cleanly when its schema tree survived, and announces itself
+        // only when real data moves through the broken ones.
+        if (dbUnusable()) {
+            // A damaged store is a blocker for everything downstream: controls,
+            // attestations, deferred and immediate delivery all read from it,
+            // and every one of them reads damage as emptiness. Carrying on
+            // would let ground report an all-clear it cannot have verified.
+            // So ground does nothing further this invocation — no controls, no
+            // delivery — and says why.
+            //
+            // REPORT ON EVERY HOOK, DENY ON NONE. Returning 2 here denied
+            // PreToolUse and UserPromptSubmit, which does not stop ground — it
+            // stops the USER, taking away the tool calls and prompts needed to
+            // repair the very thing being complained about. It bricked every
+            // session at once and made the fix reachable only from outside
+            // Claude Code. Refusing to operate and refusing to let someone
+            // work are different things.
+            //
+            // Stop is the one place a block earns its keep: end of turn,
+            // denies nothing, and puts the verdict where it cannot be scrolled
+            // past. stop_hook_active MUST gate it — Claude Code sets that flag
+            // once a Stop hook has already blocked this turn, and re-blocking
+            // means the turn can never close.
+            auto msg = dbFailureMessage();
+            fwrite(msg.ptr, 1, msg.length, stderr);
+            fputs("\n", stderr);
+
+            import parse : extractBool;
+            if (eventName == "Stop" && !extractBool(input, `"stop_hook_active"`))
+                return 2;
+            return 0;
         }
     }
 
