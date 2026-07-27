@@ -30,3 +30,12 @@ any layer emits when something goes wrong.
 *The ERROR is a sacred first-class citizen, never collapsed, dropped,
 swallowed or suppressed; they land in front of the user, contextually,
 at the exact point of interaction.*
+
+*An ERROR must be true, not merely delivered. It states what the emitting
+code measured, never a cause inferred from a proxy. A false ERROR spends
+the user's attention and teaches them to discount the channel — it costs
+the axiom exactly what a swallowed one does.*
+
+Conformance is therefore two audits, not one: that nothing is swallowed,
+and that every claim an ERROR makes is answerable from what its own code
+observed.
