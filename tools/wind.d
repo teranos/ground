@@ -7,7 +7,7 @@
 import std.file : dirEntries, read, SpanMode, mkdirRecurse, exists, write, isDir;
 import std.algorithm : sort;
 import std.array : array;
-import std.path : baseName;
+import std.path : baseName, absolutePath, buildNormalizedPath;
 import std.process : executeShell;
 import std.stdio : stderr;
 import std.string : indexOf, splitLines;
@@ -20,16 +20,38 @@ void main() {
     // --- Phase 1: concatenate pbt → sand ---
     string sand;
 
+    // Every controls dir already folded into sand, normalised+absolute. Ground
+    // is itself a declared project, so without this phase 1b re-reads the two
+    // dirs phase 1 just consumed and every control lands in sand twice.
+    bool[string] seenDirs;
+
     foreach (dir; ["controls", "controls/local"]) {
         if (!exists(dir)) continue;
-        auto entries = dirEntries(dir, "*.pbt", SpanMode.shallow)
-            .array
-            .sort!((a, b) => a.name < b.name);
-        foreach (entry; entries) {
-            auto content = cast(string) read(entry.name);
-            sand ~= content;
-            if (sand.length > 0 && sand[$ - 1] != '\n')
-                sand ~= '\n';
+        seenDirs[buildNormalizedPath(absolutePath(dir))] = true;
+        sand ~= readPbtDir(dir);
+    }
+
+    // --- Phase 1b: pull each declared project's own controls into sand ---
+    //
+    // A project { path: "..." } block declares a repo ground knows about, and
+    // that repo owns its controls: the pbt describing how to react to work in
+    // it lives with the code it governs rather than in ground's tree. Same
+    // layout as ground's own — <project>/controls/*.pbt and
+    // <project>/controls/local/*.pbt.
+    //
+    // ONE LEVEL ONLY. Controls pulled from a project are not rescanned for
+    // further project blocks, so a declared repo cannot drag a third repo's
+    // controls in behind you.
+    foreach (ref proj; extractProjectPaths(sand)) {
+        foreach (sub; ["/controls", "/controls/local"]) {
+            auto dir = buildNormalizedPath(absolutePath(proj.path ~ sub));
+            if (dir in seenDirs) continue;
+            if (!exists(dir) || !isDir(dir)) continue;
+            seenDirs[dir] = true;
+            auto pulled = readPbtDir(dir);
+            if (pulled.length == 0) continue;
+            sand ~= pulled;
+            stderr.writefln("wind: + %s", dir);
         }
     }
 
@@ -80,6 +102,23 @@ void main() {
 struct ProjectInfo {
     string path;
     bool envOnly;
+}
+
+/// Concatenate every *.pbt directly in `dir`, filename-sorted so sand is
+/// byte-stable across runs. Shallow on purpose — a controls dir is a flat set
+/// of pbt files, and recursing would make what compiles in depend on how
+/// someone happened to nest their folders.
+string readPbtDir(string dir) {
+    string out_;
+    auto entries = dirEntries(dir, "*.pbt", SpanMode.shallow)
+        .array
+        .sort!((a, b) => a.name < b.name);
+    foreach (entry; entries) {
+        out_ ~= cast(string) read(entry.name);
+        if (out_.length > 0 && out_[$ - 1] != '\n')
+            out_ ~= '\n';
+    }
+    return out_;
 }
 
 /// Find the closing } of the project block that contains the given path.
