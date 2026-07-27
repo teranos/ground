@@ -243,39 +243,11 @@ const(char)[] claimSession(const(char)[] cwd) {
     return null;
 }
 
-// Is the watch daemon alive for this session?
-// True if the pid file exists AND kill(pid, 0) reports the process is alive.
-// A missing pid file returns true so a session that hasn't spawned a watcher
-// yet doesn't false-alarm. Errors during read return true for the same reason.
-// Callers combine with countPendingImmediateForSession to distinguish the
-// benign case (no work anyway) from the real bug (work waiting, no reader).
-bool isWatchAlive(const(char)[] sessionId) {
-    if (sessionId.length == 0) return true;
-
-    __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-", sessionId, ".pid");
-    if (pLen == 0) return true;
-
-    auto rf = fopen(&pathBuf[0], "r");
-    if (rf is null) return true;
-
-    char[16] pidBuf = 0;
-    auto n = fread(&pidBuf[0], 1, 15, rf);
-    fclose(rf);
-
-    int pid = 0;
-    foreach (i; 0 .. n) {
-        if (pidBuf[i] >= '0' && pidBuf[i] <= '9')
-            pid = pid * 10 + (pidBuf[i] - '0');
-        else break;
-    }
-    if (pid <= 0) return true;
-
-    // Signal 0 does nothing but performs the pid-lookup + permission check.
-    // Return 0 = alive. Return -1 with ESRCH = dead. Same-user process so
-    // EPERM won't occur.
-    return kill(pid, 0) == 0;
-}
+// Pipeline health is NOT asked here. A watcher's pid says nothing useful
+// about whether messages are being delivered: stop.d SIGTERMs the pid before
+// it would be read, watch exits 2 by design after every batch, nothing ever
+// unlinks watch-*.pid, and a watcher can hold another session's claim. The
+// honest signal is undelivered work — see immediate.countStaleExecForSession.
 
 // Write our PID to the session-keyed PID file.
 void writePid(const(char)[] sessionId) {
@@ -337,20 +309,25 @@ int handleWatch(int argc, const(char)** argv) {
                         markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
                         continue;
                     }
-                    auto ciResult = checkCIStatus(imm.repo, imm.branch);
-                    if (contains(ciResult, "in_progress")) {
+                    import deferred : CIQuery;
+                    auto ci = checkCIStatus(imm.repo, imm.branch);
+                    if (ci.kind == CIQuery.InProgress) {
                         // Adaptive backoff: stay quiet during the unlikely-done
                         // window, poll actively in the likely-done window.
                         auto elapsed = cast(long) time(null) - imm.pushTime;
                         nextSleep = pickAdaptiveSleep(elapsed, imm.p50, imm.p90);
                         break; // not terminal yet, try again next cycle
                     }
-                    if (ciResult is null) {
+                    if (ci.kind == CIQuery.NoWorkflow) {
+                        // gh answered and there is genuinely no run to report.
                         markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
-                        continue; // no CI runs after gate opened — no workflow exists
+                        continue;
                     }
-                    imm.message = ciResult;
-                    if (contains(ciResult, "failure"))
+                    // Unavailable falls through and is DELIVERED, not dropped.
+                    // "I could not find out" is the honest answer to "what
+                    // happened to my CI" — silently discarding the row is not.
+                    imm.message = ci.text;
+                    if (contains(ci.text, "failure"))
                         urgent = true;
                 }
 

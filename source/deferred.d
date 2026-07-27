@@ -500,9 +500,83 @@ CIPercentiles getCIPercentiles(const(char)[] repo, const(char)[] branch) {
     return result;
 }
 
+// What a CI query actually established. Previously all four outcomes came
+// back as a single `null`, and watch.d read that null as "no CI workflow
+// exists" — so a gh auth failure or network drop silently marked the row
+// delivered and the user never learned their push's CI result.
+enum CIQuery {
+    Terminal,     // conclusive status — deliver it
+    InProgress,   // a run exists and has not finished — park, retry
+    NoWorkflow,   // gh succeeded and listed nothing — no run to report
+    Unavailable,  // gh could not be run, or failed — say so, never guess
+}
+
+struct CIStatus {
+    CIQuery kind;
+    const(char)[] text; // the status line, or what went wrong
+}
+
+// Interpret gh's exit status and stdout. Pure — the shelling out lives in
+// checkCIStatus, the judgement lives here where it can be tested.
+CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
+    if (exitStatus != 0)
+        return CIStatus(CIQuery.Unavailable, "CI status unknown: gh exited non-zero");
+
+    auto n = output.length;
+    if (n > 0 && output[n - 1] == '\n') n--;
+    if (n == 0) return CIStatus(CIQuery.NoWorkflow, null);
+
+    auto line = output[0 .. n];
+
+    import matcher : contains;
+    if (contains(line, "in_progress"))
+        return CIStatus(CIQuery.InProgress, null);
+
+    __gshared char[520] resultBuf = 0;
+    enum prefix = "CI: ";
+    foreach (i, c; prefix) resultBuf[i] = c;
+    foreach (i; 0 .. n) resultBuf[prefix.length + i] = line[i];
+    return CIStatus(CIQuery.Terminal, resultBuf[0 .. prefix.length + n]);
+}
+
+unittest {
+    // gh failed. Empty output looks identical to "this repo has no CI", but
+    // it is not the same fact and must not be reported as one — dropping the
+    // row here loses the user's CI result silently.
+    auto r = interpretCIOutput(256, "");
+    assert(r.kind == CIQuery.Unavailable);
+    assert(r.text.length > 0, "must say what happened, not just fail");
+}
+
+unittest {
+    // gh succeeded and listed nothing: the repo genuinely has no matching run.
+    auto r = interpretCIOutput(0, "");
+    assert(r.kind == CIQuery.NoWorkflow);
+}
+
+unittest {
+    // Run exists but hasn't finished — park it, don't deliver.
+    auto r = interpretCIOutput(0, "in_progress Branch Latest (push)\n");
+    assert(r.kind == CIQuery.InProgress);
+}
+
+unittest {
+    // Conclusive result — deliver, trailing newline trimmed.
+    auto r = interpretCIOutput(0, "success TypeScript (pull_request)\n");
+    assert(r.kind == CIQuery.Terminal);
+    assert(r.text == "CI: success TypeScript (pull_request)");
+}
+
+unittest {
+    // A failure is terminal too — the watcher escalates it as urgent.
+    auto r = interpretCIOutput(0, "failure Rust (push)\n");
+    assert(r.kind == CIQuery.Terminal);
+    assert(r.text == "CI: failure Rust (push)");
+}
+
 // Query live CI status for a repo + branch. Returns a human-readable summary.
 // Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
-const(char)[] checkCIStatus(const(char)[] repo, const(char)[] branch) {
+CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
     __gshared ZBuf ghCmd;
     ghCmd.reset();
     ghCmd.put("gh -R ");
@@ -512,23 +586,17 @@ const(char)[] checkCIStatus(const(char)[] repo, const(char)[] branch) {
     ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))" end'`);
 
     auto pipe = popen(ghCmd.ptr(), "r");
-    if (pipe is null) return null;
+    if (pipe is null)
+        return CIStatus(CIQuery.Unavailable, "CI status unknown: could not run gh");
 
     __gshared char[512] outBuf = 0;
     auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
+    // pclose carries gh's exit status. Discarding it was what made a gh
+    // failure indistinguishable from "this repo has no CI" — both arrive
+    // here as zero bytes.
+    auto status = pclose(pipe);
 
-    if (n == 0) return null;
-    // Trim trailing newline
-    if (n > 0 && outBuf[n - 1] == '\n') n--;
-    if (n == 0) return null;
-
-    // Prepend "CI: " label
-    __gshared char[520] resultBuf = 0;
-    enum prefix = "CI: ";
-    foreach (i, c; prefix) resultBuf[i] = c;
-    foreach (i; 0 .. n) resultBuf[prefix.length + i] = outBuf[i];
-    return resultBuf[0 .. prefix.length + n];
+    return interpretCIOutput(status, outBuf[0 .. n]);
 }
 
 // --- Defer write/read cycle tests ---
