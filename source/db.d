@@ -135,6 +135,7 @@ public import zbuf : ZBuf;
 extern (C) {
     const(char)* getenv(const(char)* name);
     int mkdir(const(char)* path, uint mode);
+    int getpid();
 }
 
 // Open ground's own db at ~/.local/share/ground/ground.db
@@ -179,7 +180,20 @@ sqlite3* openStandaloneDb() {
     // main ground hook + watch + other wrappers are all writing.
     sqlite3_exec(db, "PRAGMA busy_timeout = 5000\0".ptr, null, null, null);
 
-    // Create table if needed
+    if (!applySchema(db)) {
+        sqlite3_close(db);
+        return null;
+    }
+
+    return db;
+}
+
+// The schema, in one place, applied to whatever handle is given. openDb calls
+// it for the real store; tests call it for an in-memory one. Nothing else may
+// write a CREATE TABLE: a second copy of the schema drifts from this one
+// silently, and a test asserting against a schema the product does not have is
+// worse than no test.
+bool applySchema(sqlite3* db) {
     enum schema = "CREATE TABLE IF NOT EXISTS attestations ("
         ~ "id TEXT PRIMARY KEY, subjects JSON NOT NULL, predicates JSON NOT NULL, "
         ~ "contexts JSON NOT NULL, actors JSON NOT NULL, timestamp DATETIME NOT NULL, "
@@ -191,8 +205,7 @@ sqlite3* openStandaloneDb() {
     // branch already ran on every corrupt open, it just returned in silence.
     if (sqlite3_exec(db, schema.ptr, null, null, null) != SQLITE_OK) {
         noteDbFailure(sqlite3_errcode(db));
-        sqlite3_close(db);
-        return null;
+        return false;
     }
 
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
@@ -210,7 +223,7 @@ sqlite3* openStandaloneDb() {
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
     sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
 
-    return db;
+    return true;
 }
 
 // Create directory and parents. Walks the path creating each level.
@@ -524,8 +537,23 @@ void attestEvent(
     const(char)[] sessionId,
     const(char)[] payload
 ) {
+    attestEventAt(db, eventName, cwd, sessionId, payload, formatTimestamp(), getpid());
+}
+
+// Same, with the two values that differ between concurrent hooks supplied
+// rather than read from the environment: the second they landed in, and which
+// process they were. Both are needed to reproduce the collision in a test, and
+// neither can be observed from inside a single test process.
+void attestEventAt(
+    sqlite3* db,
+    const(char)[] eventName,
+    const(char)[] cwd,
+    const(char)[] sessionId,
+    const(char)[] payload,
+    const(char)[] ts,
+    int pid
+) {
     auto branch = getBranch(cwd);
-    auto ts = formatTimestamp();
 
     __gshared ZBuf subjects;
     __gshared ZBuf predicates;
@@ -585,11 +613,22 @@ void attestEvent(
     source.put("ground ");
     source.put(versionString());
 
+    // The pid is what makes two hooks in the same second two facts rather than
+    // one. Every hook is its own ground process, so the pid identifies the
+    // invocation exactly, and a single process re-attesting the same event
+    // still collapses to one row, which is the deduplication INSERT OR IGNORE
+    // was there to provide.
+    //
+    // Timestamp resolution is one second and the timestamp column is compared
+    // as text elsewhere, so widening it was not an option. The discriminator
+    // belongs in the id, which nothing reads by format.
     idBuf.reset();
     idBuf.put("ground:payload:");
     idBuf.put(eventName);
     idBuf.put(":");
     idBuf.put(ts);
+    idBuf.put(":");
+    idBuf.putUint(pid);
 
     // Validate payload is valid JSON — truncated payloads (>64KB) break json_extract indexes
     if (payload.length > 0 && !jsonValid(db, payload)) {
@@ -624,6 +663,51 @@ void attestEvent(
     // Fire-and-forget UDP to loom
     import loom : sendToLoom;
     sendToLoom(subjects, predicates, contexts, payload);
+}
+
+unittest {
+    // Claude Code runs tool calls in parallel, so several hooks of the same type
+    // stamping one second is the normal case, not an edge.
+    //
+    // Measured 2026-07-28 against the live store: four parallel Bash calls
+    // produced three rows. probe-charlie shared a second with another probe and
+    // was discarded, PreToolUse and PostToolUse both. The id was
+    // ground:payload:<Event>:<ts> and the insert is INSERT OR IGNORE, so the
+    // second event could not land.
+    //
+    // The cost is not a missing row. Controls answer questions like "was this
+    // file Read this session" from these rows, and a control reading a record
+    // with holes in it states a false answer as a measured fact. One defect,
+    // both halves of the ERROR AXIOM: the swallowed write, and the false ERROR
+    // built on the silence it left.
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db), "test runs against the product schema, not a copy of it");
+
+    enum sameSecond = "2026-07-28T09:49:50Z";
+    attestEventAt(db, "PreToolUse", "/tmp", "sess-parallel", `{"probe":"alpha"}`, sameSecond, 4111);
+    attestEventAt(db, "PreToolUse", "/tmp", "sess-parallel", `{"probe":"charlie"}`, sameSecond, 4112);
+    assert(attestationRowCount(db) == 2,
+           "both hook events must be stored; one was silently dropped");
+
+    // The deduplication INSERT OR IGNORE provides has to survive the fix. One
+    // process re-attesting the same event is a repeat, not a new fact.
+    attestEventAt(db, "PreToolUse", "/tmp", "sess-parallel", `{"probe":"alpha"}`, sameSecond, 4111);
+    assert(attestationRowCount(db) == 2,
+           "a repeat from the same process must not create a second row");
+
+    sqlite3_close(db);
+}
+
+version (unittest)
+private long attestationRowCount(sqlite3* db) {
+    enum countSql = "SELECT COUNT(*) FROM attestations\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    auto rows = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rows;
 }
 
 // --- Control fire attestation ---

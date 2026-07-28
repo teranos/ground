@@ -17,6 +17,14 @@ struct ZBuf {
         data[len] = '\0';
     }
 
+    void putUint(ulong v) {
+        if (v == 0) { putChar('0'); return; }
+        char[20] digits = 0;
+        int n = 0;
+        while (v > 0 && n < digits.length) { digits[n++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. n) putChar(digits[i]);
+    }
+
     void reset() {
         len = 0;
         data[0] = '\0';
