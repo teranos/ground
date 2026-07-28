@@ -96,11 +96,24 @@ Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hook
 
 Rewrites (arg/omit/omitLine/clamp) are silent — the command runs corrected and Claude receives a message explaining why. Strop denies with a message computed from the extracted value. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
 
-Controls are defined in `controls/*.pbt` and compiled into the binary. The binary is the config.
+Controls are defined in `controls/*.pbt` and compiled into the binary. The binary is the config. A repo declared with `project { path: "..." }` contributes its own `controls/*.pbt` the same way — the pbt governing a repo lives beside the code it governs.
+
+Ground stops rather than degrades. Its attestation store is a hard dependency: a damaged SQLite database returns zero rows to every read, which is indistinguishable from a database that is merely empty, so continuing would report an all-clear it cannot have verified. On detecting corruption ground reports on every hook and denies none of them — it refuses to operate, never to let you work, since blocking your own tool calls would take away what you need to repair it.
 
 ## Why D
 
-D with `-betterC`, compiled with LDC. 244KB binary, ~12ms median latency. Controls are evaluated at compile time and baked in. Linked against libsqlite3 for attestation storage.
+D with `-betterC`, compiled with LDC. 4.9MB binary. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage.
+
+Latency is per event, not a single figure. Run `ground profile` to see it for your own install; the numbers below are one machine over 30 days.
+
+```
+event               samples   avg   med   p95   p99   max
+PostToolUse            1494    85ms    50ms    90ms  1600ms  5304ms
+Stop                    500    69ms    61ms   107ms   202ms   627ms
+PreToolUse             1584     5ms     4ms    11ms    36ms   288ms
+```
+
+`PreToolUse` gates every command and is the one that has to be invisible. `PostToolUse` carries the tool result, so it grows with payload size. `ground profile <event>` breaks a single event down by project and by phase. The budgets ground holds itself to, and reports against when it breaches them, are in `source/stop.d`.
 
 ## [Countdown](COUNTDOWN.md)
    
