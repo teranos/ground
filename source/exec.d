@@ -353,6 +353,29 @@ void dispatchExec(
     auto startTs = cast(long) time(null);
     bool timedOut = false;
 
+    // TODO(live): mirror the tail buffer to <sid>__<pid>.out beside the
+    // inflight marker, on every read below, so a status line can render a
+    // running script's output as it happens.
+    //
+    // Today a run has two observable moments and nothing between them:
+    // immediate:exec-started at fork, and the terminal Error at exit. For
+    // anything longer than a second that leaves the operator unable to
+    // distinguish working from hung without waiting for the answer they
+    // were waiting on anyway.
+    //
+    // Cost is already paid: the poll below wakes once per second regardless,
+    // and tailAppend keeps the last 4096 bytes, so mirroring is one write
+    // of an existing buffer per wake. Same lifetime as the marker — whoever
+    // unlinks the .mark unlinks the .out, or a stale run leaves a file that
+    // reads as live.
+    //
+    // Ceiling is upstream of this loop and cannot be raised here: the
+    // grandchild's stdout is a pipe, so libc block-buffers it. A script that
+    // does not flush is invisible until it exits no matter what we mirror.
+    //
+    // Under the axiom a failed mirror write is an Error, but it must not
+    // preempt the terminal emit — the result of the run outranks the
+    // liveness of watching it.
     while (outOpen || errOpen) {
         auto elapsed = cast(long) time(null) - startTs;
         if (elapsed >= timeoutSec) {
