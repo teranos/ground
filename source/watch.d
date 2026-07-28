@@ -40,10 +40,21 @@ module watch;
 //
 // Late-binding for ci-status:
 //   The placeholder "Checking CI..." is replaced live at delivery time by
-//   checkCIStatus(repo, branch) which calls `gh -R <repo> --branch <branch>`.
-//   in_progress: skip, retry next 2s cycle. failure: urgent (bypass debounce).
-//   success: normal (5s debounce). No CI workflow at all: silently mark
-//   delivered so the row doesn't loop forever.
+//   checkCIStatus(repo, branch) which calls `gh -R <repo> --branch <branch>`
+//   and returns a CIQuery (see deferred.d), not a string. Four outcomes:
+//     InProgress  — not terminal, retry next cycle at the adaptive interval
+//     Terminal    — deliver it; "failure" is urgent and bypasses the debounce,
+//                   anything else takes the normal 5s debounce
+//     NoWorkflow  — gh answered and there is genuinely no run; mark delivered
+//                   so the row doesn't loop forever
+//     Unavailable — gh could not be run or exited non-zero; DELIVERED, not
+//                   dropped. "I could not find out" is the honest answer to
+//                   "what happened to my CI"
+//
+//   These were once a single null, and the null was read as NoWorkflow — so an
+//   expired token or a dropped connection silently discarded the user's CI
+//   result. Empty output cannot tell "nothing to report" from "the query
+//   failed"; gh's exit status can, and pclose carries it.
 //
 // --- Migration from legacy deferred → immediate (sequential checklist) ---
 //
@@ -86,6 +97,24 @@ module watch;
 //   [x] Backoff during long-running CI: same mechanism.
 //   [ ] Race window in claimSession: new watcher reads claim then dies
 //       before writePid → session is un-watched until next Stop.
+//   [ ] claimSession's glob is not session-scoped. It lists watch-claim-*.id
+//       across ALL sessions and takes the first it can rename, so a watcher
+//       spawned for session A can claim session B — A is left unwatched with
+//       a stale pid file, and B's pid file names a watcher running in A's cwd.
+//       A watcher holding a dead session's claim can never be reached again,
+//       because killSessionWatcher is only ever called by that session's own
+//       Stop. Measured 2026-07-27: ten live `ground watch` processes, six
+//       orphaned at ppid 1, oldest 20 days. Nothing unlinks watch-*.pid, so
+//       130+ pid files had accumulated since May.
+//
+//       Root cause is one discarded argument: asyncRewake spawns
+//       `ground watch $PWD` from static settings.json, so the session id the
+//       spawner holds never reaches the spawned process. The claim file, the
+//       global glob, the rename-as-mutex and the pid file are all scaffolding
+//       to rebuild it. main.d dispatches `watch` before readStdin, so nobody
+//       has tested whether the hook JSON (which carries session_id) is even
+//       delivered to an asyncRewake command — if it is, all of this deletes
+//       itself.
 
 import db : sqlite3, sqlite3_close, openDb, ZBuf;
 import immediate : readImmediateMessage, markImmediateDelivered;
