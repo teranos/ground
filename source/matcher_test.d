@@ -590,3 +590,37 @@ static if (hasControl!"merge-not-requested") {
         assert(sawDeny);
     }
 }
+
+// --- content as a narrowing condition on a cmd control ---
+//
+// A control carrying both `cmd` and `content` declares two conditions. The
+// cmd selects it; the content must hold before it fires. Firing on the cmd
+// alone delivers a msg asserting a condition nothing evaluated — the msg
+// names a cause ("do not chain") that no code measured.
+//
+// Content matches the WHOLE command, not the segment. Segments are split on
+// `&&` and `|` (see checkAllCommands), so a segment can never contain them;
+// testing content per-segment would make this control unfireable.
+
+private bool fired(string name)(const(char)[] command, const(char)[] cwd) {
+    auto r = checkAllCommands(command, cwd);
+    foreach (i; 0 .. r.count)
+        if (r.matches[i].control.name == name) return true;
+    return false;
+}
+
+static if (hasControl!"no-chain-after-tofu-plan") {
+    unittest {
+        // No `&&`, no `|`. The declared condition does not hold, so the
+        // control must not fire. This is the live bug: it fires on the cmd.
+        assert(!fired!"no-chain-after-tofu-plan"("tofu plan -out=planfile", OTHER));
+        assert(!fired!"no-chain-after-tofu-plan"("tofu plan", OTHER));
+    }
+
+    unittest {
+        // Chain present — condition holds, control fires. Guards against
+        // "fix" by testing content against the segment instead of the command.
+        assert(fired!"no-chain-after-tofu-plan"("tofu plan && tofu apply", OTHER));
+        assert(fired!"no-chain-after-tofu-plan"("tofu plan | tee out", OTHER));
+    }
+}

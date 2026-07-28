@@ -168,6 +168,20 @@ bool cmdMatchesAny(const(char)[] segment, const Cmd cmd) {
     return false;
 }
 
+// A control's `content` is a second condition on a control its `cmd` already
+// selected: any one entry present is enough. Without this, `cmd` does double
+// duty — selecting AND deciding — and the control fires with its declared
+// condition unevaluated, delivering a msg that asserts what nothing measured.
+//
+// Matched against the WHOLE command, never the segment. checkAllCommands
+// splits segments on `&&` and `|`, so a segment cannot contain a chain
+// operator; testing per-segment would make `content: ["&&", "|"]` unfireable.
+bool contentMatchesAny(const(char)[] command, const Content content) {
+    foreach (ref v; content.values)
+        if (contains(command, v)) return true;
+    return false;
+}
+
 // Matches cmd as a command prefix — not a substring anywhere in the segment.
 // "go test" matches "go test ./..." but not "git commit -m 'go test'"
 // Also handles "git -C <path>" by normalizing before matching.
@@ -272,6 +286,8 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                         if (!cmdMatchesAny(segment, c.cmd))
                             continue;
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
+                            continue;
+                        if (c.content.len > 0 && !contentMatchesAny(command, c.content))
                             continue;
                         const(char)[] observed = null;
                         if (c.sessionstart.check !is null) {
@@ -385,6 +401,8 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                         if (!cmdMatchesAny(segment, c.cmd))
                             continue;
                         if (c.omit.value.length > 0 && !contains(segment, c.omit.value))
+                            continue;
+                        if (c.content.len > 0 && !contentMatchesAny(command, c.content))
                             continue;
                         const(char)[] observed = null;
                         if (c.sessionstart.check !is null) {
