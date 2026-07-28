@@ -19,9 +19,35 @@ module strop;
 
 import lexer : skipWS, skipLine, expect, readWord, readValue;
 
+// Kept small deliberately: MatchResult is returned by value from a recursive
+// matcher that runs at CTFE, so every byte here is multiplied by the depth of
+// every compile-time match. 8 slots pushed the release build into SIGKILL.
+enum MAX_VIOLATIONS = 4;
+
 struct MatchResult {
     bool ok;
     size_t consumed;
+    // Where this attempt stopped. Individual matchers set it to the exact
+    // offending offset — matchLine points at the column that broke the bound,
+    // not at the start of the line — so a caret lands where the problem is.
+    size_t furthest;
+    // Every line-level violation found, not just the first. A repeat body is
+    // one line, so a failed body can be recorded and skipped past its newline,
+    // and the walk continues. Lines fail independently: an 83-character line
+    // says nothing about the next line, so there is no reason to stop.
+    size_t[MAX_VIOLATIONS] viol;
+    ubyte violCount;
+}
+
+private void pushViol(ref MatchResult r, size_t pos) {
+    foreach (i; 0 .. r.violCount)
+        if (r.viol[i] == pos) return;         // same spot, already recorded
+    if (r.violCount < MAX_VIOLATIONS)
+        r.viol[r.violCount++] = pos;
+}
+
+private void mergeViol(ref MatchResult dst, const ref MatchResult src) {
+    foreach (i; 0 .. src.violCount) pushViol(dst, src.viol[i]);
 }
 
 enum PartKind {
@@ -162,14 +188,19 @@ MatchResult matchLine(size_t max, string input, size_t pos) {
     size_t end = pos;
     while (end < input.length && input[end] != '\n') end++;
 
-    if (end - lineStart > max) return MatchResult(false, 0);
-    return MatchResult(true, end - pos);
+    // Point at the first column past the bound, not at the line start — that
+    // is where the line actually went wrong.
+    if (end - lineStart > max) return MatchResult(false, 0, lineStart + max);
+    return MatchResult(true, end - pos, end);
 }
 
 MatchResult matchSequence(const Part[] parts, string input, size_t pos,
                           const(WordList)[] pool = null) {
     size_t cursor = pos;
     size_t idx = 0;
+    // Violations accumulate here and ride out on whichever result is returned,
+    // so a walk that recovered past bad lines still reports every one of them.
+    MatchResult out_;
     while (idx < parts.length) {
         auto p = parts[idx];
 
@@ -183,13 +214,34 @@ MatchResult matchSequence(const Part[] parts, string input, size_t pos,
             size_t count = 0;
             while (count < p.max) {
                 auto rep = matchSequence(body, input, cursor, pool);
-                // Zero-width matches would spin forever; a body that consumes
-                // nothing has nothing left to give.
-                if (!rep.ok || rep.consumed == 0) break;
-                cursor += rep.consumed;
-                count++;
+                if (rep.ok && rep.consumed > 0) {
+                    mergeViol(out_, rep);
+                    cursor += rep.consumed;
+                    count++;
+                    continue;
+                }
+
+                // The body failed. Two very different reasons, and they are
+                // told apart by whether anything was consumed before the
+                // failure: a notahead guard fires at offset zero and means
+                // "this block is over", which is a legitimate stop. A part
+                // failing partway in means this LINE is bad — record it, skip
+                // past its newline, and keep walking so the rest still gets
+                // checked.
+                if (rep.furthest > cursor) {
+                    size_t nl = cursor;
+                    while (nl < input.length && input[nl] != '\n') nl++;
+                    if (nl < input.length) {
+                        pushViol(out_, rep.furthest);
+                        mergeViol(out_, rep);
+                        cursor = nl + 1;
+                        count++;
+                        continue;
+                    }
+                }
+                break;
             }
-            if (count < p.min) return MatchResult(false, 0);
+            if (count < p.min) return MatchResult(false, 0, cursor);
             idx = bodyEnd;
             continue;
         }
@@ -198,7 +250,7 @@ MatchResult matchSequence(const Part[] parts, string input, size_t pos,
             auto bodyEnd = idx + 1 + p.bodyLen;
             if (bodyEnd > parts.length) return MatchResult(false, 0);
             auto guard = matchSequence(parts[idx + 1 .. bodyEnd], input, cursor, pool);
-            if (guard.ok) return MatchResult(false, 0);
+            if (guard.ok) return MatchResult(false, 0, cursor);
             idx = bodyEnd;   // consumes nothing — it is a boundary test
             continue;
         }
@@ -241,11 +293,21 @@ MatchResult matchSequence(const Part[] parts, string input, size_t pos,
                 r = matchOneof(wl.words[0 .. wl.count], input, cursor);
                 break;
         }
-        if (!r.ok) return MatchResult(false, 0);
+        if (!r.ok) {
+            // Structural failure outside any repeat — nothing after this can be
+            // interpreted, so stop rather than cascade.
+            out_.ok = false;
+            out_.consumed = 0;
+            out_.furthest = r.furthest > cursor ? r.furthest : cursor;
+            return out_;
+        }
         cursor += r.consumed;
         idx++;
     }
-    return MatchResult(true, cursor - pos);
+    out_.ok = out_.violCount == 0;
+    out_.consumed = cursor - pos;
+    out_.furthest = cursor;
+    return out_;
 }
 
 unittest {
@@ -342,12 +404,18 @@ unittest {
 }
 
 MatchResult matchStrop(const Strop s, string input) {
+    MatchResult best;
     foreach (i; 0 .. s.sequenceCount) {
         auto r = matchSequence(s.sequences[i].items, input, 0,
                                s.wordPool[0 .. s.wordPoolLen]);
         if (r.ok) return r;
+        // Sequences are alternatives; the one that got furthest is the one the
+        // author most likely meant, so its violations are the ones to report.
+        if (r.furthest >= best.furthest) best = r;
     }
-    return MatchResult(false, 0);
+    best.ok = false;
+    best.consumed = 0;
+    return best;
 }
 
 // --- Builders (CTFE-safe) ---
@@ -513,6 +581,27 @@ unittest {
         ~ "\n"
         ~ "second: another\n";
     assert(matchStrop(s, full).ok, "opening block plus two subthings");
+}
+
+unittest {
+    // Every bad line, not just the first. Lines fail independently, so a walk
+    // that hits one records it, skips past its newline, and keeps checking.
+    string src = `flag: "-m"
+      sequence [ repeat(0..9)[ notahead[ newline() ] line(max: 5) newline() ] end() ]
+    }`;
+    size_t pos = 0;
+    auto s = parseStropBlock(src, pos);
+
+    auto two = matchStrop(s, "ok\ntoolongline\nok\nalsotoolong\n");
+    assert(!two.ok);
+    assert(two.violCount == 2, "both bad lines reported, not just the first");
+    // Carets land past the bound, not at the line start.
+    assert(two.viol[0] == 8, "line 2 col 6");
+    assert(two.viol[1] == 23, "line 4 col 6");
+
+    auto clean = matchStrop(s, "ok\nfine\n");
+    assert(clean.ok);
+    assert(clean.violCount == 0);
 }
 
 unittest {
@@ -753,6 +842,16 @@ struct StropDispatchResult {
     }
 }
 
+private void appendNum(ref StropDispatchResult r, size_t n) {
+    if (n == 0) { appendMsg(r, "0"); return; }
+    char[20] buf;
+    size_t i = 0;
+    while (n > 0 && i < buf.length) { buf[i++] = cast(char)('0' + n % 10); n /= 10; }
+    foreach_reverse (j; 0 .. i) {
+        if (r.msgLen < r.msgBuf.length) r.msgBuf[r.msgLen++] = buf[j];
+    }
+}
+
 private void appendMsg(ref StropDispatchResult r, string s) {
     foreach (c; s) {
         if (r.msgLen >= r.msgBuf.length) break;
@@ -807,11 +906,44 @@ StropDispatchResult stropDispatch(const Strop s, string command) {
     auto r = matchStrop(s, ex.value);
     if (!r.ok) {
         res.deny = true;
+
+        // Point at where it stopped. Echoing the whole value said nothing the
+        // author did not already have; the offset is the only new information
+        // the matcher holds, and it was being discarded.
         appendMsg(res, "value for ");
         appendMsg(res, s.flag);
-        appendMsg(res, " does not match the required shape: `");
-        appendMsg(res, ex.value);
-        appendMsg(res, "`");
+        appendMsg(res, " is not the required shape:");
+
+        // Every recorded violation, plus the point the walk finally stopped.
+        size_t[MAX_VIOLATIONS + 1] spots;
+        size_t spotCount = 0;
+        foreach (i; 0 .. r.violCount) spots[spotCount++] = r.viol[i];
+        bool haveFinal = false;
+        foreach (i; 0 .. spotCount) if (spots[i] == r.furthest) haveFinal = true;
+        if (!haveFinal && spotCount < spots.length) spots[spotCount++] = r.furthest;
+
+        foreach (si; 0 .. spotCount) {
+            auto at = spots[si];
+            if (at > ex.value.length) at = ex.value.length;
+
+            size_t lineNo = 1;
+            size_t lineStart = 0;
+            foreach (i; 0 .. at) {
+                if (ex.value[i] == '\n') { lineNo++; lineStart = i + 1; }
+            }
+            size_t lineEnd = lineStart;
+            while (lineEnd < ex.value.length && ex.value[lineEnd] != '\n') lineEnd++;
+
+            appendMsg(res, "\nline ");
+            appendNum(res, lineNo);
+            appendMsg(res, " col ");
+            appendNum(res, at - lineStart + 1);
+            appendMsg(res, ": ");
+            appendMsg(res, ex.value[lineStart .. lineEnd]);
+            appendMsg(res, "\n");
+            foreach (_; 0 .. at - lineStart) appendMsg(res, " ");
+            appendMsg(res, "^");
+        }
         return res;
     }
     return res; // deny=false, msg empty
