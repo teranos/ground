@@ -65,12 +65,31 @@ static assert(matchSequence(sliceCode, "3O: text", 0).ok == false);
 static assert(matchSequence(sliceCode, "3O: text", 0).consumed == 0);
 
 // Test 15: sequence with Oneof — [oneof([DEP,DOCFIX,FIX,TIDY]), literal(": ")] matches "DEP: foo".
-enum wordCode = [oneof(["DEP", "DOCFIX", "FIX", "TIDY"]), literal(": ")];
-static assert(matchSequence(wordCode, "DEP: foo", 0).ok == true);
-static assert(matchSequence(wordCode, "DEP: foo", 0).consumed == 5);
+// oneof words live in the owning Strop's pool now, so the part needs an owner
+// and matching needs that pool passed through.
+enum wordOwner = () {
+    Strop o;
+    Part p = oneof(["DEP", "DOCFIX", "FIX", "TIDY"], o);
+    o.sequences[0] = sequence([p, literal(": ")]);
+    o.sequenceCount = 1;
+    return o;
+}();
+static assert(matchStrop(wordOwner, "DEP: foo").ok == true);
+static assert(matchStrop(wordOwner, "DEP: foo").consumed == 5);
 
 // Test 16: strop with sliceCode + wordCode accepts "O3: text" (slice branch).
-enum commitStrop = strop([sequence(sliceCode), sequence(wordCode)]);
+// Built whole rather than from loose sequences: a oneof part indexes its
+// owner's pool, so a sequence lifted out of one Strop into another loses its
+// words.
+enum commitStrop = () {
+    Strop o;
+    o.flag = "-m";
+    o.sequences[0] = sequence(sliceCode);
+    Part w = oneof(["DEP", "DOCFIX", "FIX", "TIDY"], o);
+    o.sequences[1] = sequence([w, literal(": ")]);
+    o.sequenceCount = 2;
+    return o;
+}();
 static assert(matchStrop(commitStrop, "O3: text").ok == true);
 
 // Test 17: same strop accepts "DEP: foo" (word branch).
@@ -95,7 +114,7 @@ static assert(extractFlag(`git commit -m 'hello'`, "-m").value == "hello");
 static assert(extractFlag(`git commit`, "-m").ok == false);
 
 // Test 23: strop builder yields two sequences.
-static assert(strop([sequence(sliceCode), sequence(wordCode)]).sequenceCount == 2);
+static assert(commitStrop.sequenceCount == 2);
 
 // Test 24: Strop carries a flag identifier.
 enum stropWithFlag = () { Strop s; s.flag = "-m"; return s; }();
@@ -156,11 +175,15 @@ enum parsed30 = () {
     return parseStropBlock(s, pos);
 }();
 static assert(parsed30.sequences[0].parts[0].kind == PartKind.Oneof);
-static assert(parsed30.sequences[0].parts[0].wordCount == 4);
-static assert(parsed30.sequences[0].parts[0].words[0] == "DEP");
-static assert(parsed30.sequences[0].parts[0].words[1] == "DOCFIX");
-static assert(parsed30.sequences[0].parts[0].words[2] == "FIX");
-static assert(parsed30.sequences[0].parts[0].words[3] == "TIDY");
+// Words moved out of Part and into the Strop's pool; the part carries a
+// 1-based index into it.
+static assert(parsed30.sequences[0].parts[0].wordsIdx == 1);
+static assert(parsed30.wordPoolLen == 1);
+static assert(parsed30.wordPool[0].count == 4);
+static assert(parsed30.wordPool[0].words[0] == "DEP");
+static assert(parsed30.wordPool[0].words[1] == "DOCFIX");
+static assert(parsed30.wordPool[0].words[2] == "FIX");
+static assert(parsed30.wordPool[0].words[3] == "TIDY");
 
 // Test 31: multi-sequence strop.
 enum parsed31 = () {
@@ -193,25 +216,11 @@ static assert(parsed32.stropIdx == 1);
 static assert(parsed32.stropFlag == "-m");
 
 // Test 33: stropDispatch allows well-formed input.
-enum stropOk = () {
-    Strop s;
-    s.flag = "-m";
-    s.sequences[0] = sequence(sliceCode);
-    s.sequences[1] = sequence(wordCode);
-    s.sequenceCount = 2;
-    return stropDispatch(s, `git commit -m "O3: fix"`);
-}();
+enum stropOk = stropDispatch(commitStrop, `git commit -m "O3: fix"`);
 static assert(stropOk.deny == false);
 
 // Test 34: stropDispatch denies mismatched input.
-enum stropDeny = () {
-    Strop s;
-    s.flag = "-m";
-    s.sequences[0] = sequence(sliceCode);
-    s.sequences[1] = sequence(wordCode);
-    s.sequenceCount = 2;
-    return stropDispatch(s, `git commit -m "hello world"`);
-}();
+enum stropDeny = stropDispatch(commitStrop, `git commit -m "hello world"`);
 static assert(stropDeny.deny == true);
 static assert(stropDeny.msg.length > 0);
 

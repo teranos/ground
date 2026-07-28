@@ -4,10 +4,21 @@
     "targetType": "executable",
     "targetName": "ground",
     "sourcePaths": ["source"],
+    "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC"],
     "libs": ["sqlite3"],
     "lflags": ["-L/usr/local/opt/sqlite/lib"],
     "extraDependencyFiles": [".ctfe/sand"],
-    "preBuildCommands": ["git describe --tags --always > .version || true", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"]
+    "preBuildCommands": ["git describe --tags --always > .version || true", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
+
+    "configurations": [
+        {
+            "name": "application"
+        },
+        {
+            "name": "production",
+            "excludedSourceFiles": ["source/*_test.d"]
+        }
+    ]
 }
