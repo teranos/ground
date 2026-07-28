@@ -22,7 +22,6 @@ tools/wind
 # Generated
 .version
 .builddate
-.buildmem
 ground.db
 .ctfe/*
 !.ctfe/.gitkeep

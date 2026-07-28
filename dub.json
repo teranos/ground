@@ -6,7 +6,7 @@
     "sourcePaths": ["source"],
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
-    "dflags": ["-betterC"],
+    "dflags": ["-betterC", "--lowmem"],
     "libs": ["sqlite3"],
     "lflags": ["-L/usr/local/opt/sqlite/lib"],
     "extraDependencyFiles": [".ctfe/sand"],
