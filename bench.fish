@@ -47,8 +47,15 @@ for N in $COUNTS
     set SIZE (wc -c <$PBT | string trim)
     echo "  pbt size: $SIZE bytes"
 
+    # --config=production so this measures what ground ships. The default
+    # configuration compiles source/*_test.d, whose static asserts are CTFE
+    # work the release binary does not do, and including them made every number
+    # in the table above larger than the thing it claimed to measure.
+    #
+    # time -l reports peak resident size, which is the axis this benchmark never
+    # had and the one that decides where the wall actually is. -v on Linux.
     set START (date +%s)
-    if dub build --build=release 2>&1 | tail -1
+    if /usr/bin/time -l dub build --build=release --config=production 2>&1 | grep -E "maximum resident|Error"
         set END (date +%s)
         echo "  build time: "(math $END - $START)"s"
     else
