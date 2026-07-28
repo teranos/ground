@@ -34,7 +34,11 @@
               date -u +%Y-%m-%dT%H:%M:%SZ > .builddate
               mkdir -p tools
               ${pkgs.ldc}/bin/ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d
-              ${pkgs.dub}/bin/dub build --build=release
+              # --config=production must match the Makefile. Without it the
+              # shipped binary is built from a source set that includes
+              # source/*_test.d, whose static asserts are CTFE work the release
+              # binary has no reason to do.
+              ${pkgs.dub}/bin/dub build --build=release --config=production
             '';
 
             installPhase = ''
