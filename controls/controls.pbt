@@ -157,6 +157,28 @@ scope {
   }
 }
 
+# git merge — always squashes. A merge lands on the target as one commit.
+scope {
+  event: "PreToolUse"
+  cmd: "git merge"
+
+  control {
+    name: "git-merge-always-squash"
+    arg: "--squash"
+    msg: "--squash added; a merge lands as one commit."
+  }
+}
+
+scope {
+  event: "PostToolUse"
+  cmd: "git merge"
+
+  control {
+    name: "merged-branch-is-done"
+    msg: "for this user, it's convention to delete merged branches locally and remotely. When a branch is merged, its considered DONE, not something to return to. Fixes happen SEPARATELY as their own commit or on their own branch. Branch is merged means its DONE."
+  }
+}
+
 # gh pr merge — branches die on merge; --repo silently breaks the
 # local-side cleanup so it's blocked when paired with merge.
 scope {
