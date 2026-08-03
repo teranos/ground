@@ -3,6 +3,44 @@ module attest;
 import core.stdc.stdio : stderr, fputs, fwrite, fprintf;
 import db : ZBuf;
 
+// Bearer token for remote QNTX nodes. Env wins so a run can override without
+// touching disk; otherwise $HOME/.qntx/ground-token. Never a tracked file —
+// a token in git is a token on GitHub.
+//
+// Ground has its own credential rather than borrowing another tool's: these
+// attestations carry actors ["ground"], and an actor that cannot be told
+// apart from another actor is not an actor.
+private const(char)[] qntxToken() {
+    import errors : getenv, open, read, close, O_RDONLY;
+    import http : trimToken;
+
+    auto env = getenv("GROUND_QNTX_TOKEN\0".ptr);
+    if (env !is null) {
+        size_t n = 0;
+        while (env[n] != 0) n++;
+        auto t = trimToken(env[0 .. n]);
+        if (t.length > 0) return t;
+    }
+
+    auto home = getenv("HOME\0".ptr);
+    if (home is null) return null;
+    size_t hLen = 0;
+    while (home[hLen] != 0) hLen++;
+
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
+    pathBuf.put(home[0 .. hLen]);
+    pathBuf.put("/.qntx/ground-token");
+
+    auto fd = open(pathBuf.ptr(), O_RDONLY, 0);
+    if (fd < 0) return null;
+    __gshared char[512] tokBuf = 0;
+    auto n = read(fd, &tokBuf[0], tokBuf.length);
+    close(fd);
+    if (n <= 0) return null;
+    return trimToken(tokBuf[0 .. cast(size_t) n]);
+}
+
 int handleAttest() {
     import controls : qntxNodes, attestations;
 
@@ -17,6 +55,8 @@ int handleAttest() {
 
     int posted = 0;
     int failed = 0;
+
+    auto token = qntxToken();
 
     foreach (ref node; qntxNodes) {
         foreach (ref a; attestations) {
@@ -40,8 +80,13 @@ int handleAttest() {
             url.put(node.url);
             url.put("/api/attestations");
 
-            import http : httpPost;
-            auto code = httpPost(url.slice(), body_.slice(), 400);
+            // http:// goes over the in-process socket; anything else needs
+            // DNS and TLS, which is curl's job.
+            import http : httpPost, curlPost, needsCurl;
+            auto remote = needsCurl(node.url);
+            auto code = remote
+                ? curlPost(url.slice(), body_.slice(), token)
+                : httpPost(url.slice(), body_.slice(), 400);
 
             // Report
             fputs("  ", stderr);
@@ -52,8 +97,16 @@ int handleAttest() {
             if (code >= 200 && code < 300) {
                 fprintf(stderr, "%d ok\n".ptr, code);
                 posted++;
+            } else if (code == 401 || code == 403) {
+                // Naming the cause here is the difference between a fix and a
+                // hunt: the endpoint answered, it just would not take us.
+                fputs(token.length > 0
+                    ? "401/403 — token rejected\n"
+                    : "401/403 — no token (set GROUND_QNTX_TOKEN or ~/.qntx/ground-token)\n",
+                    stderr);
+                failed++;
             } else if (code == 0) {
-                fputs("unreachable\n", stderr);
+                fputs(remote ? "unreachable (curl)\n" : "unreachable\n", stderr);
                 failed++;
             } else {
                 fprintf(stderr, "%d failed\n".ptr, code);
