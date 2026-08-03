@@ -499,6 +499,25 @@ unittest {
     assert(extractLeadingCd("cd /foo  &&  git status") == "/foo");
 }
 
+unittest {
+    // `;` separates too, and only `&&` was recognised. An agent told by a
+    // PreToolUse hook not to chain with && writes `cd X; git push` instead,
+    // and the scope filter then matched the parent shell's cwd — so a
+    // path-scoped control silently never fired for the repo it named.
+    // Nothing errored; the deploy simply did not happen.
+    assert(extractLeadingCd("cd /Users/x/teranos/QNTX; git push origin main")
+        == "/Users/x/teranos/QNTX");
+    assert(extractLeadingCd("cd /foo ;  git status") == "/foo");
+    assert(extractLeadingCd(`cd "/tmp/with space"; git status`) == "/tmp/with space");
+}
+
+unittest {
+    // Still conservative: a malformed cd with no separator is not a cd
+    // prefix. Guards against reading `cd /x git status` as a scope change.
+    assert(extractLeadingCd("cd /x git status") == "");
+    assert(extractLeadingCd("cd /x | git status") == "");
+}
+
 // --- effective cwd tracking in checkAllCommands ---
 //
 // Real-world scenario: agent's persistent shell cwd is /ground, but

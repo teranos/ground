@@ -118,16 +118,24 @@ const(char)[] extractLeadingCd(const(char)[] command) {
         if (pos < command.length) pos++; // consume closing quote
     } else {
         start = pos;
-        while (pos < command.length && command[pos] != ' ') pos++;
+        // `;` needs no space before it, so it ends the path as surely as one
+        // does — otherwise `cd /x; cmd` yields the target "/x;".
+        while (pos < command.length && command[pos] != ' ' && command[pos] != ';') pos++;
         end = pos;
     }
-    // Whatever follows must be either end-of-command or `&& ...`.
-    // Anything else (e.g. `cd /x cmd` with no `&&`) is malformed for
+    // Whatever follows must be end-of-command, `&& ...`, or `; ...`.
+    // Anything else (e.g. `cd /x cmd` with no separator) is malformed for
     // our purposes; treat as no-cd-prefix to stay conservative.
+    //
+    // `;` counts because it is what an agent writes when something forbids
+    // `&&` chaining. Recognising only `&&` meant those commands scoped to
+    // the parent shell's cwd, so a path-scoped control never fired for the
+    // repo it named — no error, just a deploy that did not happen.
     while (pos < command.length && command[pos] == ' ') pos++;
     if (pos < command.length) {
-        if (pos + 1 >= command.length || command[pos] != '&' || command[pos + 1] != '&')
-            return "";
+        bool andAnd = command[pos] == '&' && pos + 1 < command.length && command[pos + 1] == '&';
+        bool semi = command[pos] == ';';
+        if (!andAnd && !semi) return "";
     }
     return command[start .. end];
 }
