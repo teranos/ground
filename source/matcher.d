@@ -102,6 +102,51 @@ const(char)[] strip(const(char)[] s) {
 // (otherwise `cd /tsot-roam && git commit` from a sibling dir slips
 // past a `path: "!/tsot-roam"` exclusion). Handles quoted targets
 // containing spaces.
+// Longest run of consecutive comment lines in a block of text. Callers pass
+// the unescaped field value, so a line break is a newline byte; treating a
+// literal backslash-n as one too would read `"a\nb"` in a test fixture as
+// two lines. A comment line begins, after leading blanks, with `#` or `//`.
+// Blank lines and code end a run.
+int maxCommentRun(const(char)[] text) {
+    int best = 0;
+    int run = 0;
+    size_t i = 0;
+
+    while (i <= text.length) {
+        size_t lineStart = i;
+        size_t lineEnd = i;
+        size_t next = i;
+
+        while (lineEnd < text.length) {
+            if (text[lineEnd] == '\n') { next = lineEnd + 1; break; }
+            lineEnd++;
+        }
+        if (lineEnd >= text.length) next = text.length + 1;
+
+        auto line = text[lineStart .. lineEnd];
+        size_t p = 0;
+        while (p < line.length && (line[p] == ' ' || line[p] == '\t')) p++;
+
+        bool isComment = false;
+        if (p < line.length) {
+            if (line[p] == '#') isComment = true;
+            else if (line[p] == '/' && p + 1 < line.length && line[p + 1] == '/')
+                isComment = true;
+        }
+
+        if (isComment) {
+            run++;
+            if (run > best) best = run;
+        } else {
+            run = 0;
+        }
+
+        i = next;
+    }
+
+    return best;
+}
+
 const(char)[] extractLeadingCd(const(char)[] command) {
     if (command.length < 3 || command[0 .. 3] != "cd ") return "";
     size_t pos = 3;

@@ -137,6 +137,16 @@ const(char)[] extractNewString(const(char)[] json) {
     return extractJsonString(json, `"new_string"`, &buf[0], buf.length);
 }
 
+// The text an edit would add — Edit's new_string, or Write's content.
+// Unescaped, so a caller counting lines sees newlines rather than the
+// two-character \n the raw tool_input carries.
+const(char)[] extractWrittenText(const(char)[] json) {
+    __gshared char[32768] buf = 0;
+    auto s = extractJsonString(json, `"new_string"`, &buf[0], buf.length);
+    if (s !is null) return s;
+    return extractJsonString(json, `"content"`, &buf[0], buf.length);
+}
+
 const(char)[] extractUrl(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"url"`, &buf[0], buf.length);

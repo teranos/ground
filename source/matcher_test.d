@@ -2,7 +2,8 @@ module matcher_test;
 
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
-                 wildcardContains, containsExact, extractLeadingCd;
+                 wildcardContains, containsExact, extractLeadingCd,
+                 maxCommentRun;
 import controls : allScopes;
 
 // CTFE predicate — is a named control present in the built scopes?
@@ -497,6 +498,70 @@ unittest {
 unittest {
     // Tabs / multiple spaces around && tolerated.
     assert(extractLeadingCd("cd /foo  &&  git status") == "/foo");
+}
+
+// --- maxCommentRun tests ---
+//
+// Reviewability. A block that lands whole can only be accepted or rejected
+// whole; there is no line left to disagree with. Counting the run is how a
+// wall of prose becomes something a reviewer can answer one claim at a time.
+
+unittest {
+    // The control exists in the compiled scope set and carries its threshold.
+    // Without this the counting below can pass while nothing ever consults it.
+    static assert(hasControl!("no-comment-blocks"),
+        "no-comment-blocks did not compile into allScopes");
+
+    bool found = false;
+    foreach (ref sc; allScopes)
+        foreach (ref c; sc.controls)
+            if (c.name == "no-comment-blocks") {
+                assert(c.commentRun == 4, "threshold did not survive the parse");
+                found = true;
+            }
+    assert(found);
+}
+
+unittest {
+    // Nothing to count.
+    assert(maxCommentRun("") == 0);
+    assert(maxCommentRun("resource \"x\" \"y\" {") == 0);
+}
+
+unittest {
+    // A run is consecutive comment lines, and the longest one wins.
+    assert(maxCommentRun("# one") == 1);
+    assert(maxCommentRun("# one\n# two\n# three") == 3);
+    assert(maxCommentRun("# a\ncode\n# b\n# c\n# d\n# e") == 4);
+}
+
+unittest {
+    // Code between comments ends the run — two blocks of three is not six.
+    assert(maxCommentRun("# a\n# b\n# c\nx = 1\n# d\n# e\n# f") == 3);
+}
+
+unittest {
+    // // counts as well as #, since this has to hold in D, Go and TS too.
+    assert(maxCommentRun("// a\n// b\n// c\n// d") == 4);
+    assert(maxCommentRun("  // indented\n  // still a comment") == 2);
+}
+
+unittest {
+    // A literal backslash-n is not a line break. A test fixture holding
+    // JSON payloads is one line of source, not four comments — this fired
+    // on exactly that and blocked a file it had no business blocking.
+    assert(maxCommentRun(`# one\n# two\n# three\n# four`) == 1);
+}
+
+unittest {
+    // A blank line does not continue a run — it ends it. Two paragraphs of
+    // three are two separate thoughts, and neither is the thing being caught.
+    assert(maxCommentRun("# a\n# b\n# c\n\n# d\n# e") == 3);
+}
+
+unittest {
+    // A hash that is not at the start of a line is not a comment.
+    assert(maxCommentRun("color = \"#9b59b6\"\nsize = \"#fff\"") == 0);
 }
 
 unittest {

@@ -50,6 +50,7 @@ struct ParsedControl {
     string deferMsg;
     int deferSec;
     int interval;
+    int commentRun;
     string[8] paramKeys;
     string[8] paramValues;
     ubyte paramCount;
@@ -277,6 +278,7 @@ ScopeSet buildScopes(
             }
 
             c.interval = pc.interval;
+            c.commentRun = pc.commentRun;
             c.stropIdx = pc.stropIdx;
 
             if (pc.delayHandler.length > 0 || pc.deliverHandler.length > 0) {
@@ -836,6 +838,7 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
             case "defer_msg":       c.deferMsg = val; break;
             case "defer_sec":       c.deferSec = parseInt(val); break;
             case "interval":        c.interval = parseInt(val); break;
+            case "comment_run":     c.commentRun = parseInt(val); break;
             case "stop":
             case "posttool":
                 if (val is null) {

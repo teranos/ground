@@ -234,6 +234,7 @@ struct Control {
     string exec;
     size_t stropIdx; // 0 = no strop; else 1-based index into controls.globalStropPool.
     int interval; // minimum seconds between fires (0 = no limit)
+    int commentRun; // fire at this many consecutive comment lines (0 = off)
 }
 
 Control control(string name, Cmd c, Arg a, Msg m) {

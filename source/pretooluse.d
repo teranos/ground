@@ -424,8 +424,36 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 // authored msg so the user reads what was measured, not a guess.
                 const(char)[] checkObserved = null;
 
+                // Comment-run match — same tool_input region as content, but
+                // counting consecutive comment lines rather than looking for
+                // a substring. Reports the count it measured, so the message
+                // states the observation instead of asserting a cause.
+                if (c.commentRun > 0) {
+                    // The field value, not the tool_input region — in the raw
+                    // region the first comment line is glued to `"content":"`
+                    // and never reads as one, so a run of four counts as three.
+                    import parse : extractWrittenText;
+                    import matcher : maxCommentRun;
+                    auto written = extractWrittenText(input);
+                    if (written is null) continue;
+                    auto run = maxCommentRun(written);
+                    if (run < c.commentRun) continue;
+
+                    char[8] digits = 0;
+                    int dLen = 0;
+                    int v = run;
+                    while (v > 0 && dLen < 8) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; }
+
+                    __gshared Buf runBuf;
+                    runBuf = Buf.init;
+                    runBuf.put(envSubst(c.msg.value, cwd));
+                    runBuf.put(" — measured ");
+                    foreach_reverse (d; 0 .. dLen) runBuf.put(digits[d .. d + 1]);
+                    runBuf.put(" consecutive comment lines.");
+                    checkObserved = runBuf.slice();
+                }
                 // Content match — check tool_input region (covers Edit new_string, Write content)
-                if (c.content.len > 0) {
+                else if (c.content.len > 0) {
                     if (!toolInputExtracted) {
                         toolInput = extractToolInputRegion(input);
                         toolInputExtracted = true;
@@ -454,7 +482,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     }
                 }
 
-                if (db !is null && attestationExists(db, "GroundedPreToolUse", c.name, sessionId))
+                // Fire once per session, so advice does not nag. A denial is
+                // not advice: dedup here means the second attempt succeeds,
+                // and a gate that opens after one refusal is not a gate.
+                if (sc.decision != "deny"
+                    && db !is null
+                    && attestationExists(db, "GroundedPreToolUse", c.name, sessionId))
                     continue;
 
                 if (fileMsgBuf.len > 0) fileMsgBuf.put(" ");
