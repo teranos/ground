@@ -111,6 +111,7 @@ int maxCommentRun(const(char)[] text) {
     int best = 0;
     int run = 0;
     size_t i = 0;
+    bool inBlock = false;
 
     while (i <= text.length) {
         size_t lineStart = i;
@@ -127,17 +128,31 @@ int maxCommentRun(const(char)[] text) {
         size_t p = 0;
         while (p < line.length && (line[p] == ' ' || line[p] == '\t')) p++;
 
+        // Scaffolding carries no claim: `/**`, `*/` and a bare `*` are
+        // neutral — they neither count nor end a run.
+        auto rest = line[p .. $];
+        bool opens = rest.length >= 2 && rest[0] == '/' && rest[1] == '*';
+        bool closes = rest == "*/" || rest == "**/";
+        bool scaffold = opens || closes || rest == "*";
+
+        if (opens) inBlock = true;
+
         bool isComment = false;
-        if (p < line.length) {
+        if (!scaffold && p < line.length) {
             if (line[p] == '#') isComment = true;
             else if (line[p] == '/' && p + 1 < line.length && line[p + 1] == '/')
                 isComment = true;
+            // A leading `*` is comment content only inside an open block.
+            // Outside one it is a markdown bullet.
+            else if (line[p] == '*' && inBlock) isComment = true;
         }
+
+        if (closes) inBlock = false;
 
         if (isComment) {
             run++;
             if (run > best) best = run;
-        } else {
+        } else if (!scaffold) {
             run = 0;
         }
 

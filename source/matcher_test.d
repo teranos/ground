@@ -565,6 +565,46 @@ unittest {
 }
 
 unittest {
+    // A block comment's content counts; its scaffolding does not. `/**`,
+    // a bare `*` and `*/` carry no claim, so counting them would make the
+    // shape of the syntax decide the verdict instead of what was written.
+    enum header =
+        "/**\n" ~
+        " * Text selection during a morph.\n" ~
+        " *\n" ~
+        " * Personas:\n" ~
+        " * - Tim: pressing a tray dot selects nothing\n" ~
+        " */";
+    assert(maxCommentRun(header) == 3);
+}
+
+unittest {
+    // Four lines of content inside a block is still four lines of content.
+    enum block =
+        "/**\n" ~
+        " * one\n" ~
+        " * two\n" ~
+        " * three\n" ~
+        " * four\n" ~
+        " */";
+    assert(maxCommentRun(block) == 4);
+}
+
+unittest {
+    // Scaffolding alone says nothing.
+    assert(maxCommentRun("/**\n *\n */") == 0);
+    assert(maxCommentRun("x = 1\n */\ny = 2") == 0);
+}
+
+unittest {
+    // A markdown bullet list is not a comment block. Without a `/*` above
+    // them these are items, and blocking a four-item list in a README
+    // would be the control firing on the shape of a character.
+    enum bullets = "* one\n* two\n* three\n* four\n* five";
+    assert(maxCommentRun(bullets) == 0);
+}
+
+unittest {
     // `;` separates too, and only `&&` was recognised. An agent told by a
     // PreToolUse hook not to chain with && writes `cd X; git push` instead,
     // and the scope filter then matched the parent shell's cwd — so a
