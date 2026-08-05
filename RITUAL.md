@@ -87,7 +87,7 @@ command running right now. No glyph carries any of this.
 | ✓ | 14 | Params into the command's environment | `rite.d` | — | assignments in the script text, not a hidden environment |
 | ✓ | 15 | `${var}` from project env | `envSubst` | "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?" | existed; wired in. An unresolved `${key}` leaves the rite unready rather than running with a hole |
 | ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message" | |
-| | 17 | Position — which ritual, which rite | runtime | "see where we are INSIDE of the ritual" | needs storage |
+| ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | per-rite, not a cursor: the status line needs both pendings. `ritual_position`, keyed on project |
 | | 18 | `goto` moves position | runtime | "i think i want goto, not else, goto seems more honest for what it is" | |
 | | 19 | Hold and re-run on a caught code | runtime | "so catch means hold, until true" | |
 | | 20 | Halt with code + output on screen | runtime | "leave on the screen the non 0 non 1 was and its message" | |
@@ -108,7 +108,7 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 30 | `pass:` | the code that advances, default 0; a code cannot be both pass and catch |
 | x | 31 | `$AUTH` | hallucinated. I put `$AUTH` in the example and then filed its absence as a gap in the spec. Ground already resolves the token in `attest.d:13` — env, then `~/.qntx/ground-token` — and `buildCurlConfig` keeps it out of argv. No pbt change was ever needed. Removed from the rites |
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
-| | 43 | Terminal state | "it ends when it ends". Two endings: the last rite passes, or a rite halts. Item 16 classifies a rite, item 17 tracks position — neither has a value for the ritual being over |
+| ✓ | 43 | Terminal state | "it ends when it ends". Two endings: the last rite passes, or a rite halts. Item 16 classifies a rite, item 17 tracks position — neither has a value for the ritual being over |
 | | 44 | Colour for a ritual that ended | the five colours cover a ritual in progress. Done is all green and no brackets; aborted has none |
 
 Known defects in the example:

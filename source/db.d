@@ -212,6 +212,14 @@ bool applySchema(sqlite3* db) {
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
     sqlite3_exec(db, sessionProjectSchema.ptr, null, null, null);
 
+    // Keyed on project alone: one ritual live per project. Two would both
+    // want the single Stop message a turn allows.
+    enum ritualPositionSchema = "CREATE TABLE IF NOT EXISTS ritual_position ("
+        ~ "project TEXT PRIMARY KEY, ritual TEXT NOT NULL, current INTEGER NOT NULL, "
+        ~ "states TEXT NOT NULL, state TEXT NOT NULL, "
+        ~ "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+    sqlite3_exec(db, ritualPositionSchema.ptr, null, null, null);
+
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";
