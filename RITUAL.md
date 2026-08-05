@@ -63,10 +63,10 @@ project {
 | ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | mine |
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | mine |
 | ✓ | 12 | Referenced group exists | CTFE assert | — | mine |
-| | 13 | Run under `set -euo pipefail` | runtime | "wouldnt the pipefail need to be present essentially everywhere?" | |
-| | 14 | Params into the command's environment | runtime | — | mine; `exec.d` has a `GROUND_` env floor |
-| | 15 | `${var}` from project env | `envSubst` | "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?" | already exists |
-| | 16 | Classify exit: pass / caught / halt | runtime | "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message" | |
+| ✓ | 13 | Run under `set -euo pipefail` | `rite.d` | "wouldnt the pipefail need to be present essentially everywhere?" | each flag has a test proving the false pass it closes |
+| ✓ | 14 | Params into the command's environment | `rite.d` | — | assignments in the script text, not a hidden environment |
+| ✓ | 15 | `${var}` from project env | `envSubst` | "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?" | existed; wired in. An unresolved `${key}` leaves the rite unready rather than running with a hole |
+| ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message" | |
 | | 17 | Position — which ritual, which rite | runtime | "see where we are INSIDE of the ritual" | needs storage |
 | | 18 | `goto` moves position | runtime | "i think i want goto, not else, goto seems more honest for what it is" | |
 | | 19 | Hold and re-run on a caught code | runtime | "so catch means hold, until true" | |
@@ -74,8 +74,8 @@ project {
 | | 21 | Stop hook runs the current rite | integration | — | mine |
 | | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one, i case more clarification helps, i think it really helps to shape the course of development" | |
 | | 23 | Attest each rite's outcome | integration | — | mine |
-| | 24 | Start a ritual | command | "Start a ritual" | |
-| | 25 | Stop a ritual | command | "Stop it" | |
+| | 24 | Start a ritual by naming it | command | "i want to specify a ritual" | `ground ritual boxsurvival`; naming it is starting it |
+| | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" | the exception, not the exit |
 | | 26 | List rituals for this path | command | "ask about rituals for where we are now (path in project)" | |
 | | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual in total" | |
 | | 28 | Read position from ground db | collet | — | mine; prompted by "And i need you to get familliar with a project called collet" |
@@ -88,6 +88,7 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 30 | `pass:` | the code that advances, default 0; a code cannot be both pass and catch |
 | x | 31 | `$AUTH` | hallucinated. I put `$AUTH` in the example and then filed its absence as a gap in the spec. Ground already resolves the token in `attest.d:13` — env, then `~/.qntx/ground-token` — and `buildCurlConfig` keeps it out of argv. No pbt change was ever needed. Removed from the rites |
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
+| | 43 | Terminal state | "it ends when it ends". Two endings: the last rite passes, or a rite halts. Item 16 classifies a rite, item 17 tracks position — neither has a value for the ritual being over |
 
 Known defects in the example:
 
