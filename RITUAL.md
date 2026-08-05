@@ -49,6 +49,26 @@ project {
 }
 ```
 
+The status line, rendered by collet:
+
+```
+watcher > exists > [kill] > gone > rebuild > answers > new
+```
+
+Brackets say where, colour says what.
+
+| colour | state |
+|---|---|
+| green | passed |
+| blinking red | halted |
+| blinking blue | currently running |
+| darker gray | pending, never ran |
+| lighter gray | pending, ran before |
+
+A held rite is the bracketed one in lighter gray: the position is there, the
+command is not running, it ran before. The same rite blinking blue is the
+command running right now. No glyph carries any of this.
+
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
 | ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists out of rites" | |
@@ -79,7 +99,7 @@ project {
 | | 26 | List rituals for this path | command | "ask about rituals for where we are now (path in project)" | |
 | | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual in total" | |
 | | 28 | Read position from ground db | collet | — | mine; prompted by "And i need you to get familliar with a project called collet" |
-| | 29 | Render a ritual segment | collet | "see where we are INSIDE of the ritual" / "still be able to chat and interact WHILE IN the ritual if i want to" / "see what has happened and what will happen after" | exhaustive enum, compile error for an unrendered state |
+| | 29 | Render a ritual segment | collet | "watcher > exists > [kill] > gone > rebuild > answers > new" / "[kill] is now active because we can see the [ and ]" / "i hate the hourglass emoji" | the spec above; exhaustive enum, compile error for an unrendered state |
 
 Not in the example above, and therefore not implementable from it:
 
@@ -89,6 +109,7 @@ Not in the example above, and therefore not implementable from it:
 | x | 31 | `$AUTH` | hallucinated. I put `$AUTH` in the example and then filed its absence as a gap in the spec. Ground already resolves the token in `attest.d:13` — env, then `~/.qntx/ground-token` — and `buildCurlConfig` keeps it out of argv. No pbt change was ever needed. Removed from the rites |
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
 | | 43 | Terminal state | "it ends when it ends". Two endings: the last rite passes, or a rite halts. Item 16 classifies a rite, item 17 tracks position — neither has a value for the ritual being over |
+| | 44 | Colour for a ritual that ended | the five colours cover a ritual in progress. Done is all green and no brackets; aborted has none |
 
 Known defects in the example:
 
