@@ -18,16 +18,16 @@ rites live {
 }
 
 rites boxdeath {
-  watcher  { cmd: `curl -sf -X POST ${api}/api/watchers -H "$AUTH" -H 'Content-Type: application/json' -d "{\"id\":\"probe-$(git rev-parse --short HEAD)\",\"name\":\"box survival probe\",\"predicates\":[\"probe:boxdeath\"],\"action_type\":\"plugin_execute\",\"action_data\":\"{}\",\"max_fires_per_second\":1,\"enabled\":true}"` }
-  exists   { cmd: `curl -sf ${api}/api/watchers/probe-$(git rev-parse --short HEAD) -H "$AUTH"`  catch: 22 }
+  watcher  { cmd: `curl -sf -X POST ${api}/api/watchers -H 'Content-Type: application/json' -d "{\"id\":\"probe-$(git rev-parse --short HEAD)\",\"name\":\"box survival probe\",\"predicates\":[\"probe:boxdeath\"],\"action_type\":\"plugin_execute\",\"action_data\":\"{}\",\"max_fires_per_second\":1,\"enabled\":true}"` }
+  exists   { cmd: `curl -sf ${api}/api/watchers/probe-$(git rev-parse --short HEAD)`  catch: 22 }
   kill     { cmd: `aws lightsail delete-instance --instance-name ${instance}` }
   gone     { cmd: `make plan | grep "aws_lightsail_instance.api will be created"` }
   rebuild  { cmd: `make apply` }
-  answers  { cmd: `curl -sf ${api}/api/plugins -H "$AUTH"`  catch: [7, 22] }
+  answers  { cmd: `curl -sf ${api}/api/plugins`  catch: [7, 22] }
   new      { cmd: `crowbar "uptime -s" | grep -qv "$BEFORE"` }
 
   survived {
-    cmd:   `curl -sf ${api}/api/watchers/probe-$(git rev-parse --short HEAD) -H "$AUTH"`
+    cmd:   `curl -sf ${api}/api/watchers/probe-$(git rev-parse --short HEAD)`
     catch: 22
     goto:  parity
   }
@@ -51,7 +51,7 @@ project {
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
-| ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists our of rites" | |
+| ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists out of rites" | |
 | ✓ | 2 | `params: [a, b]` list field | `proto.d` | "obviously i would want rites to be able to accept a parameter" | |
 | ✓ | 3 | Rite block: `<name> { cmd: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci untill it passes..." | each step became a rite |
 | ✓ | 4 | `catch:` as int or int list | `proto.d` | "its decided it will be called catch" / "catch: 22" | list form is mine — `answers` needed 7 and 22 |
@@ -86,7 +86,7 @@ Not in the example above, and therefore not implementable from it:
 | | nr | thing | notes |
 |---|---|---|---|
 | ✓ | 30 | `pass:` | the code that advances, default 0; a code cannot be both pass and catch |
-| | 31 | `$AUTH` | referenced, nothing defines it |
+| x | 31 | `$AUTH` | hallucinated. I put `$AUTH` in the example and then filed its absence as a gap in the spec. Ground already resolves the token in `attest.d:13` — env, then `~/.qntx/ground-token` — and `buildCurlConfig` keeps it out of argv. No pbt change was ever needed. Removed from the rites |
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
 
 Known defects in the example:
