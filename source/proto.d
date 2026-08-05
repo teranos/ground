@@ -107,6 +107,7 @@ struct ParsedRite {
     string name;
     string cmd;
     string msg;
+    int pass;
     int[8] catches;
     size_t catchCount;
     string goto_;
@@ -175,6 +176,20 @@ string validateRituals(PR)(const PR r) {
                     if (m == i && n == j) continue;
                     if (r.rites[m].rites[n].name == name)
                         return "duplicate rite name: " ~ name;
+                }
+            }
+        }
+    }
+
+    // A code that both advances and holds makes the rite mean two things.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            foreach (c; 0 .. r.rites[i].rites[j].catchCount) {
+                if (r.rites[i].rites[j].catches[c] == r.rites[i].rites[j].pass) {
+                    auto n = r.rites[i].rites[j].pass == 0 ? "0" :
+                             r.rites[i].rites[j].pass == 1 ? "1" : "that code";
+                    return "rite " ~ r.rites[i].rites[j].name
+                        ~ ": " ~ n ~ " is both pass and catch";
                 }
             }
         }
@@ -1244,6 +1259,7 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
             case "cmd":  r.cmd = val; break;
             case "msg":  r.msg = val; break;
             case "goto": r.goto_ = val; break;
+            case "pass": r.pass = parseInt(val); break;
             default: assert(0, "Unknown rite field");
         }
     }

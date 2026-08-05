@@ -66,6 +66,29 @@ static assert(catchParsed.rites[0].rites[3].catchCount == 1);
 static assert(catchParsed.rites[0].rites[3].catches[0] == 1);
 static assert(catchParsed.rites[0].rites[3].goto_ == "");
 
+// "i meant, from 0 to 1, the gate is from 0 to 1"
+// Shell negation flattens non-zero to 0, so a broken command reads as a
+// pass. Declared instead of inverted.
+enum passInput = `
+rites gone {
+  scratch { cmd: "test -f /var/lib/qntx/qntx-operational.db"  pass: 1  catch: 0 }
+  plain   { cmd: "true" }
+}
+`;
+enum passParsed = parsePbt(passInput);
+static assert(passParsed.rites[0].rites[0].pass == 1);
+static assert(passParsed.rites[0].rites[0].catches[0] == 0);
+static assert(passParsed.rites[0].rites[1].pass == 0);
+static assert(passParsed.rites[0].rites[1].catches[0] == 1);
+
+// A code cannot both advance and hold.
+enum overlapInput = `
+rites bad {
+  both { cmd: "true"  pass: 1  catch: [1, 7] }
+}
+`;
+static assert(validateRituals(parsePbt(overlapInput)) == "rite both: 1 is both pass and catch");
+
 // "why cant the ritual block be literally inside project for this purpose?"
 // "a ritual is LIVE its active RIGHT NOW, a rite isnt."
 // "how do i set the row param from the ritual"

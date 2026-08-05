@@ -85,7 +85,7 @@ Not in the example above, and therefore not implementable from it:
 
 | | nr | thing | notes |
 |---|---|---|---|
-| | 30 | `pass:` | designed, appears in no rite in the file |
+| ✓ | 30 | `pass:` | the code that advances, default 0; a code cannot be both pass and catch |
 | | 31 | `$AUTH` | referenced, nothing defines it |
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
 
