@@ -76,6 +76,14 @@ import proto : extractProjectFiles;
 private static immutable _projFiles = extractProjectFiles(allParsed);
 static immutable projectFiles = _projFiles.files[0 .. _projFiles.len];
 
+// Rites and rituals — built at CTFE from rites/ritual blocks.
+// The validation runs here so a malformed ritual fails the build.
+import proto : ParsedRites, ParsedRitual, validateRituals;
+static immutable allRites = allParsed.rites[0 .. allParsed.ritesCount];
+static immutable allRituals = allParsed.rituals[0 .. allParsed.ritualCount];
+private static immutable _ritualCheck = validateRituals(allParsed);
+static assert(_ritualCheck == "", _ritualCheck);
+
 // QNTX nodes and attestations — built at CTFE from qntx/attestation blocks
 import proto : ParsedQntxNode, ParsedAttestation;
 static immutable qntxNodes = allParsed.qntxNodes[0 .. allParsed.qntxNodeCount];

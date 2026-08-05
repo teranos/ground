@@ -51,18 +51,18 @@ project {
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
-| | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists our of rites" | |
-| | 2 | `params: [a, b]` list field | `proto.d` | "obviously i would want rites to be able to accept a parameter" | |
-| | 3 | Rite block: `<name> { cmd: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci untill it passes..." | each step became a rite |
-| | 4 | `catch:` as int or int list | `proto.d` | "its decided it will be called catch" / "catch: 22" | list form is mine — `answers` needed 7 and 22 |
-| | 5 | `ritual <name> { }` nested in `project` | `proto.d` | "why cant the ritual block be literally inside project for this purpose?" | |
-| | 6 | Ritual body: bare name = reference | `proto.d` | — | mine, from a compaction pass |
-| | 7 | Ritual body: `name { k: v }` = reference with values | `proto.d` | "how do i set the row param from the ritual" | |
-| | 8 | CTFE structs + arrays | `proto.d`, `controls.d` | — | mine, mechanical |
-| | 9 | Rite names unique across groups | CTFE assert | "ok" | proposed by me, approved |
-| | 10 | `goto` names a rite that exists | CTFE assert | — | mine |
-| | 11 | Every declared `param` supplied | CTFE assert | — | mine |
-| | 12 | Referenced group exists | CTFE assert | — | mine |
+| ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists our of rites" | |
+| ✓ | 2 | `params: [a, b]` list field | `proto.d` | "obviously i would want rites to be able to accept a parameter" | |
+| ✓ | 3 | Rite block: `<name> { cmd: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci untill it passes..." | each step became a rite |
+| ✓ | 4 | `catch:` as int or int list | `proto.d` | "its decided it will be called catch" / "catch: 22" | list form is mine — `answers` needed 7 and 22 |
+| ✓ | 5 | `ritual <name> { }` nested in `project` | `proto.d` | "why cant the ritual block be literally inside project for this purpose?" | |
+| ✓ | 6 | Ritual body: bare name = reference | `proto.d` | — | mine, from a compaction pass |
+| ✓ | 7 | Ritual body: `name { k: v }` = reference with values | `proto.d` | "how do i set the row param from the ritual" | |
+| ✓ | 8 | CTFE structs + arrays | `proto.d`, `controls.d` | — | mine, mechanical |
+| ✓ | 9 | Rite names unique across groups | CTFE assert | "ok" | proposed by me, approved |
+| ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | mine |
+| ✓ | 11 | Every declared `param` supplied | CTFE assert | — | mine |
+| ✓ | 12 | Referenced group exists | CTFE assert | — | mine |
 | | 13 | Run under `set -euo pipefail` | runtime | "wouldnt the pipefail need to be present essentially everywhere?" | |
 | | 14 | Params into the command's environment | runtime | — | mine; `exec.d` has a `GROUND_` env floor |
 | | 15 | `${var}` from project env | `envSubst` | "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?" | already exists |
