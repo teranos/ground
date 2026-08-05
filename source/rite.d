@@ -51,19 +51,35 @@ bool hasUnresolved(const(char)[] cmd) {
     return false;
 }
 
-// What one run of a rite produced. The code is the verdict's input; the
-// output is what goes on screen when the verdict is Halt.
+// Why a rite never reached a process. Not an exit code — nothing exited.
+enum RunFailure { None, Mkstemp, Write, Chmod, Popen, Pclose }
+
+// What one run of a rite produced. `ran` is the gate: a code is only the
+// verdict's input when a process actually produced it.
 struct RiteRun {
+    bool ran;
     int code;
+    RunFailure failure;
     char[4096] out_ = 0;
     size_t outLen;
     const(char)[] output() const return { return out_[0 .. outLen]; }
 }
 
+// pclose hands back a wait status. -1 means it could not wait at all, and
+// shifting that yields 255 — a code no process returned.
+struct Waited { bool valid; int code; }
+
+Waited fromPclose(int status) {
+    if (status < 0) return Waited(false, 0);
+    return Waited(true, (status >> 8) & 0xFF);
+}
+
 RiteScript buildRiteScript(const(char)[] cmd,
                            const(char[])[] keys, const(char[])[] values) {
     RiteScript s;
-    s.put("set -euo pipefail\n");
+    // pipefail is not POSIX. /bin/sh is dash on Debian, which rejects the
+    // whole `set` line, so the rite fails before its command runs.
+    s.put("#!/usr/bin/env bash\nset -euo pipefail\n");
     foreach (i; 0 .. keys.length) {
         if (keys[i].length == 0) continue;
         s.put(keys[i]);
@@ -98,38 +114,54 @@ extern (C) {
     long write(int fd, const(void)* buf, size_t count);
     int close(int fd);
     int unlink(const(char)* path);
+    int chmod(const(char)* path, uint mode);
 }
 
 // Run the script and keep the exit code. cwd is inherited: a ritual only
 // fires where scopeMatches already put us, so the rite runs in the project
 // it names by construction, not by a cd nobody can see.
-RiteRun runRite(const(char)[] script) {
+RiteRun runRite(const(char)[] script, string riteName = "", string sessionId = "") {
     import core.stdc.stdio : FILE, fread;
+    import core.stdc.errno : errno;
     import db : popen, pclose;
+    import exec : emitError;
 
     RiteRun r;
-    r.code = -1;
+
+    RiteRun fail(RunFailure f, string origin, string message) {
+        r.failure = f;
+        emitError(origin, message, errno(), 0, sessionId, riteName, "", "", "");
+        return r;
+    }
 
     char[64] path = 0;
     enum templ = "/tmp/ground-rite-XXXXXX";
     foreach (i, c; templ) path[i] = c;
     int fd = mkstemp(&path[0]);
-    if (fd < 0) return r;
+    if (fd < 0)
+        return fail(RunFailure.Mkstemp, "rite.mkstemp", "could not create the rite script");
     if (write(fd, script.ptr, script.length) != cast(long) script.length) {
         close(fd);
         unlink(&path[0]);
-        return r;
+        return fail(RunFailure.Write, "rite.write", "wrote fewer bytes than the rite script");
     }
     close(fd);
+    if (chmod(&path[0], 0x1C0) != 0) {
+        unlink(&path[0]);
+        return fail(RunFailure.Chmod, "rite.chmod", "could not make the rite script executable");
+    }
 
+    // Executed directly so the script's own shebang picks the interpreter.
     char[128] cmd = 0;
     size_t n;
-    foreach (c; "/bin/sh ") cmd[n++] = c;
     foreach (c; path) { if (c == 0) break; cmd[n++] = c; }
     foreach (c; " 2>&1") cmd[n++] = c;
 
     auto pipe = popen(&cmd[0], "r");
-    if (pipe is null) { unlink(&path[0]); return r; }
+    if (pipe is null) {
+        unlink(&path[0]);
+        return fail(RunFailure.Popen, "rite.popen", "could not start the rite script");
+    }
 
     // Keep the tail. A rite that halts is read by a person, and the last
     // lines are where the reason is.
@@ -140,9 +172,12 @@ RiteRun runRite(const(char)[] script) {
         tailAppend(&r.out_[0], r.outLen, r.out_.length, chunk[0 .. got]);
     }
 
-    auto status = pclose(pipe);
+    auto waited = fromPclose(pclose(pipe));
     unlink(&path[0]);
-    r.code = (status >> 8) & 0xFF;
+    if (!waited.valid)
+        return fail(RunFailure.Pclose, "rite.pclose", "could not collect the rite's exit status");
+    r.ran = true;
+    r.code = waited.code;
     return r;
 }
 

@@ -8,36 +8,36 @@ import rite : buildRiteScript, RiteScript;
 // Every rite runs under the same three flags. They are not hygiene — each
 // one closes a way a rite can report a pass it did not earn.
 enum bare = buildRiteScript("make parity", [], []);
-static assert(bare.text() == "set -euo pipefail\nmake parity\n");
+static assert(bare.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity\n");
 
 // -o pipefail: `make parity | grep row` without it returns grep's status, so
 // a crashed make reads as "the row is not YES YES" — a finding, not a fault.
 // With it, make's code propagates and the rite halts on it instead.
 enum piped = buildRiteScript(`make parity | grep "$row"`, [], []);
-static assert(piped.text() == "set -euo pipefail\nmake parity | grep \"$row\"\n");
+static assert(piped.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity | grep \"$row\"\n");
 
 // "how do i set the row param from the ritual"
 // A param is an assignment above the command, in the script the operator can
 // read, not an environment the operator has to be told about.
 enum withParam = buildRiteScript(`grep "$row"`, ["row"], ["watchers"]);
 static assert(withParam.text() ==
-    "set -euo pipefail\nrow='watchers'\ngrep \"$row\"\n");
+    "#!/usr/bin/env bash\nset -euo pipefail\nrow='watchers'\ngrep \"$row\"\n");
 
 // Order is declaration order, so the script reads the way the pbt reads.
 enum twoParams = buildRiteScript("echo", ["row", "pr"], ["watchers", "833"]);
 static assert(twoParams.text() ==
-    "set -euo pipefail\nrow='watchers'\npr='833'\necho\n");
+    "#!/usr/bin/env bash\nset -euo pipefail\nrow='watchers'\npr='833'\necho\n");
 
 // -u: an unsupplied param is an unset variable, and the script dies on it.
 // Without -u it expands to empty, and `grep ""` matches every line — the
 // false pass CTFE item 11 refuses at build time and this refuses at run time.
 enum unsupplied = buildRiteScript(`grep "$row"`, [], []);
-static assert(unsupplied.text() == "set -euo pipefail\ngrep \"$row\"\n");
+static assert(unsupplied.text() == "#!/usr/bin/env bash\nset -euo pipefail\ngrep \"$row\"\n");
 
 // A single quote in a value would close the quoting and hand the rest of the
 // value to the shell as code.
 enum quoted = buildRiteScript("echo", ["msg"], ["it's"]);
-static assert(quoted.text() == "set -euo pipefail\nmsg='it'\\''s'\necho\n");
+static assert(quoted.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmsg='it'\\''s'\necho\n");
 
 // --- What envSubst leaves behind ---
 // "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?"
@@ -74,7 +74,7 @@ unittest {
     enum r = parsePbt(src).rites[0].rites[0];
     auto p = prepareRite(r, "/no/project/matches/this");
     assert(p.ready);
-    assert(p.script.text() == "set -euo pipefail\nmake parity\n");
+    assert(p.script.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity\n");
 }
 
 // --- The flags against a real shell ---
