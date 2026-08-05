@@ -2,6 +2,7 @@ module hooks;
 
 enum HookEvent {
     SessionStart,       // scoped controls via sessionstart(), optional check functions, arch context
+                        // TODO: watchPaths (arms FileChanged), initialUserMessage, sessionTitle, reloadSkills
     MessageDisplay,     // TODO (CC .152): fires as assistant text is displayed; hook can transform or
                         //   hide it. use case: redact secrets from assistant output, warn on risky
                         //   commands about to be shown, format ground errors distinctively
@@ -9,24 +10,23 @@ enum HookEvent {
     PreToolUse,         // command amendment, file-path controls, scoped decisions
                         // TODO: updatedInput for non-Bash tools (file_path, pattern, offset, etc.)
     PermissionRequest,  // TODO: auto-allow/deny permission dialogs
-    PermissionDenied,   // TODO: fires when auto mode classifier denies a tool call
+    PermissionDenied,   // TODO: fires when auto mode classifier denies a tool call; retry:true lets the model retry
     PostToolUse,        // attested, response captured, CI nudge on git push, review nudge
                         //   cmd and filepath matching for advisory context
                         // TODO: tool-name filtering — restrict controls to specific tools (e.g. Edit only, not Read)
                         // TODO: decision:block with reason — corrective feedback after tool runs
                         // TODO: exit 2 — stderr fed back to Claude as feedback
-                        // TODO: suppressOutput:true — hide stdout from verbose mode
+                        // TODO: suppressOutput:true hides stdout; updatedToolOutput rewrites the result
     PostToolUseFailure, // trigger-matched hints on failure (e.g. wrong directory)
     Notification,       // TODO: cross-session awareness — session A completes a 4+ min task, idle_prompt
                         //   fires; combine with session B's next Notification to surface the result
     SubagentStart,      // TODO: agent-type scoped controls — inject context or adjust decisions per type
                         //   payload: agent_type, agent_id, session_id, cwd
                         //   time-scoped modes could auto-approve agent spawning during event windows
-    SubagentStop,       // attested (full payload incl. last_assistant_message, agent_transcript_path)
-                        //   stop_hook_active:false — Claude Code may ignore responses
-                        //   payload: agent_id, agent_type, agent_transcript_path, last_assistant_message
+    SubagentStop,       // attested only — no handler. CAN BLOCK: exit 2 prevents the subagent stopping.
+                        //   payload: agent_id, agent_type, last_assistant_message
+                        //   honors decision:"block", reason, additionalContext, continue, stopReason
                         //   TODO: read agent_transcript_path for quality checks on subagent output
-                        //   TODO: verify what response fields are honored
     Stop,               // deferred messages, lazy-verify, CI nudge
                         //   stop_hook_active:false = first stop, controls run.
                         //   stop_hook_active:true = re-stop after prior block, skip to avoid loop.

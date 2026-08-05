@@ -97,3 +97,14 @@ Known defects in the example:
 | | 34 | `built` | reads `/opt/qntx/BUILD_SHA`, which does not exist |
 | | 35 | `catch: 22` on `survived` | curl returns 22 for both 4xx and 5xx; a broken server reads as a finding |
 | | 36 | `survived` measures the API | a 404 says the API did not return it, not that it is absent from the bucket |
+
+Claude Code hook events, in the context of this feature:
+
+| | nr | thing | quotes | notes |
+|---|---|---|---|---|
+| | 37 | `SubagentStart` | "they arent REUIRED, but you COULD if you wanted to run an agent like that, equiped with ritual" | starting an agent with a ritual |
+| | 38 | `SubagentStop` | same | stopping an agent with a ritual |
+| | 39 | `TaskCreated` | "TaskCreated, is like a rite of a rites block right?" | |
+| | 40 | `TaskCompleted` | "TaskCompleted, is when te success condition makes it so the rite has been passed right?" | |
+| | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | fires when the turn ends on an API error. Payload adds `error_type` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`) and `error_message`. Cannot block, exit code ignored, output ignored |
+| | 42 | `Notification` | "Notification is one that is on my wish list actually" | fires when Claude Code sends a notification. Payload adds `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`) and `message`. Cannot block. Honors `systemMessage`, `terminalSequence` |
