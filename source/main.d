@@ -205,6 +205,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import watch : handleWatch;
             return handleWatch(argc, argv);
         }
+        if (cmd == "ritual") {
+            import ritual : handleRitual;
+            return handleRitual(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;

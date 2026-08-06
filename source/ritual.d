@@ -2,6 +2,8 @@ module ritual;
 
 import rite : Verdict;
 
+extern (C) char* getcwd(char* buf, size_t size);
+
 // The two pendings are distinct because a rite waiting for the first time
 // and one waiting again are not the same fact.
 enum RiteState {
@@ -99,6 +101,81 @@ Restored restore(const(char)[] name, size_t current,
         if (!known) return Restored(false);
     }
     return Restored(true, p);
+}
+
+// Told as each other, these send you looking in the wrong place.
+enum ResolveFail { None, NoSuchRitual, WrongProject }
+
+struct Resolved { ResolveFail fail; size_t index; }
+
+Resolved resolveRitual(PR)(const PR r, const(char)[] name, const(char)[] cwd) {
+    import matcher : contains;
+    bool sawName = false;
+    foreach (i; 0 .. r.ritualCount) {
+        if (r.rituals[i].name != name) continue;
+        sawName = true;
+        if (contains(cwd, r.rituals[i].projectPath)) return Resolved(ResolveFail.None, i);
+    }
+    return Resolved(sawName ? ResolveFail.WrongProject : ResolveFail.NoSuchRitual, 0);
+}
+
+// A ritual names groups; the position walks rites. The flat list is the order
+// they run in and the index `goto` needs.
+struct FlatRite {
+    string group;
+    string name;
+    string cmd;
+    string msg;
+    int pass;
+    int[8] catches;
+    size_t catchCount;
+    string goto_;
+    string[8] keys;
+    string[8] values;
+    size_t valueCount;
+}
+
+struct Flattened {
+    FlatRite[MAX_RITES] rites;
+    size_t count;
+}
+
+Flattened flatten(PR)(const PR r, size_t ritualIdx) {
+    Flattened f;
+    if (ritualIdx >= r.ritualCount) return f;
+    auto rit = r.rituals[ritualIdx];
+
+    foreach (ri; 0 .. rit.refCount) {
+        auto refr = rit.refs[ri];
+        foreach (gi; 0 .. r.ritesCount) {
+            if (r.rites[gi].name != refr.name) continue;
+            auto grp = r.rites[gi];
+            foreach (i; 0 .. grp.riteCount) {
+                if (f.count >= MAX_RITES) return f;
+                auto src = grp.rites[i];
+                FlatRite fr;
+                fr.group = grp.name;
+                fr.name = src.name;
+                fr.cmd = src.cmd;
+                fr.msg = src.msg;
+                fr.pass = src.pass;
+                fr.catches = src.catches;
+                fr.catchCount = src.catchCount;
+                fr.goto_ = src.goto_;
+                fr.keys = refr.keys;
+                fr.values = refr.values;
+                fr.valueCount = refr.valueCount;
+                f.rites[f.count++] = fr;
+            }
+        }
+    }
+    return f;
+}
+
+long indexOfRite(const Flattened f, const(char)[] name) {
+    foreach (i; 0 .. f.count)
+        if (f.rites[i].name == name) return cast(long) i;
+    return -1;
 }
 
 private immutable string[4] STATE_WORD = ["live", "done", "halted", "aborted"];
@@ -212,4 +289,81 @@ Position jump(Position p, size_t target) {
     p.current = target;
     if (p.state == RitualState.Done) p.state = RitualState.Live;
     return p;
+}
+
+// The line the operator reads back, and the one collet renders: brackets say
+// where, the names say what is behind and ahead.
+void printLine(const Position p, const Flattened f) {
+    import core.stdc.stdio : stdout, fputs, fwrite;
+    foreach (i; 0 .. f.count) {
+        if (i > 0) fputs(" > ", stdout);
+        bool cur = (i == p.current && p.state == RitualState.Live);
+        if (cur) fputs("[", stdout);
+        fwrite(f.rites[i].name.ptr, 1, f.rites[i].name.length, stdout);
+        if (cur) fputs("]", stdout);
+    }
+    fputs("\n", stdout);
+}
+
+// ground ritual <name>. Naming it is starting it, and starting it is the only
+// thing that makes any rite reachable.
+int handleRitual(int argc, const(char)** argv) {
+    import core.stdc.stdio : stdout, stderr, fputs, fwrite;
+    import controls : allParsed;
+    import db : openDb, sqlite3_close;
+    import main : argLen;
+
+    if (argc < 3) {
+        fputs("usage: ground ritual <name>\n", stderr);
+        return 1;
+    }
+    auto name = argv[2][0 .. argLen(argv[2])];
+
+    char[1024] cwdBuf = 0;
+    if (getcwd(&cwdBuf[0], cwdBuf.length) is null) {
+        fputs("ground ritual: cannot read the working directory\n", stderr);
+        return 1;
+    }
+    size_t cwdLen = 0;
+    while (cwdBuf[cwdLen] != 0) cwdLen++;
+    auto cwd = cwdBuf[0 .. cwdLen];
+
+    static immutable parsed = allParsed;
+    auto found = resolveRitual(parsed, name, cwd);
+
+    if (found.fail == ResolveFail.NoSuchRitual) {
+        fputs("ground ritual: no ritual named ", stderr);
+        fwrite(name.ptr, 1, name.length, stderr);
+        fputs("\n", stderr);
+        return 1;
+    }
+    if (found.fail == ResolveFail.WrongProject) {
+        fputs("ground ritual: ", stderr);
+        fwrite(name.ptr, 1, name.length, stderr);
+        fputs(" belongs to ", stderr);
+        auto path = parsed.rituals[found.index].projectPath;
+        fwrite(path.ptr, 1, path.length, stderr);
+        fputs(", and this is not it\n", stderr);
+        return 1;
+    }
+
+    auto flat = flatten(parsed, found.index);
+    if (flat.count == 0) {
+        fputs("ground ritual: that ritual has no rites\n", stderr);
+        return 1;
+    }
+
+    auto p = start(parsed.rituals[found.index].name, flat.count);
+
+    auto db = openDb();
+    if (db is null) {
+        fputs("ground ritual: cannot open the ground db\n", stderr);
+        return 1;
+    }
+    auto ok = writePosition(db, cwd, p);
+    sqlite3_close(db);
+    if (!ok) return 1;
+
+    printLine(p, flat);
+    return 0;
 }

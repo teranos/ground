@@ -1,3 +1,32 @@
+Rituals are performed in the grove.
+
+```
+rites green {
+  built { cmd: `make build` }
+  tested { cmd: `make test` }
+}
+
+rites shipped {
+  sealed { cmd: `test -z "$(git status --porcelain)"` }
+  ci     { cmd: `gh pr checks ${pr}`  catch: 1 }
+}
+
+project {
+  path: "/sbvh-nl/grove"
+
+  env {
+    pr: "1"
+  }
+
+  ritual grove {
+    green
+    shipped
+  }
+}
+```
+
+Parked until it is ready. It kills a live box, and nothing yet runs a rite:
+
 ```
 rites parity {
   params: [row]
