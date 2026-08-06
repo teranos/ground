@@ -300,6 +300,34 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         fputs("\n", stderr);
     }
 
+    // A performance is being done in this directory. Without this an agent
+    // works inside one without knowing, and only meets the ritual when
+    // something interrupts it.
+    {
+        import db : openDb, sqlite3_close;
+        import ritual : readPositionAt, briefing, flatten;
+        import controls : allParsed;
+
+        auto rdb = openDb();
+        if (rdb !is null) {
+            auto found = readPositionAt(rdb, cwd);
+            sqlite3_close(rdb);
+            if (found.valid) {
+                static immutable parsed = allParsed;
+                foreach (i; 0 .. parsed.ritualCount) {
+                    if (parsed.rituals[i].name != found.p.ritual) continue;
+                    auto brief = briefing(found.p, flatten(parsed, i));
+                    if (brief.len > 0) {
+                        if (any) ctx.put(" | ");
+                        ctx.put(brief.text());
+                        any = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     if (projectNews !is null) {
         import parse : writeJsonString;
         if (any) ctx.put(" | ");

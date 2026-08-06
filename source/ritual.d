@@ -360,6 +360,68 @@ Position jump(Position p, size_t target) {
     return p;
 }
 
+// What an agent is told at the start of a turn.
+struct Brief {
+    char[1024] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void put(ref Brief b, const(char)[] s) {
+    foreach (c; s) { if (b.len < b.buf.length) b.buf[b.len++] = c; }
+}
+
+private void putNum(ref Brief b, size_t v) {
+    char[20] d = 0;
+    size_t n;
+    if (v == 0) d[n++] = '0';
+    while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+    foreach (i; 0 .. n) b.put(d[n - 1 - i .. n - i]);
+}
+
+// A held rite reads the same as a fresh one: holding is not a failure, and an
+// agent told it failed goes looking for something to fix.
+Brief briefing(const Position p, const Flattened f) {
+    Brief b;
+    if (p.state == RitualState.Done) {
+        b.put("Ritual ");
+        b.put(p.ritual);
+        b.put(" is done.");
+        return b;
+    }
+    if (p.current >= f.count) return b;
+    auto r = f.rites[p.current];
+
+    if (p.state == RitualState.Halted) {
+        b.put("Ritual ");
+        b.put(p.ritual);
+        b.put(" halted on rite ");
+        b.putNum(p.current + 1);
+        b.put(" of ");
+        b.putNum(f.count);
+        b.put(": ");
+        b.put(r.name);
+        b.put(".");
+        return b;
+    }
+
+    b.put("Performing ritual ");
+    b.put(p.ritual);
+    b.put(", rite ");
+    b.putNum(p.current + 1);
+    b.put(" of ");
+    b.putNum(f.count);
+    b.put(": ");
+    b.put(r.name);
+    b.put(". It is met when this exits 0: ");
+    b.put(r.cmd);
+    if (r.msg.length > 0) {
+        b.put(". ");
+        b.put(r.msg);
+    }
+    return b;
+}
+
 // The line the operator reads back, and the one collet renders: brackets say
 // where, the names say what is behind and ahead.
 void printLine(const Position p, const Flattened f) {
