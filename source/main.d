@@ -151,23 +151,8 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
     auto db = openDb();
     if (db is null) return;
 
-    enum createSql = "CREATE TABLE IF NOT EXISTS timing (id INTEGER PRIMARY KEY, duration_us INTEGER NOT NULL, hook_event TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
-
-    // Migrate: add hook_event column if missing
-    enum migrateSql = "ALTER TABLE timing ADD COLUMN hook_event TEXT\0";
-    sqlite3_exec(db, migrateSql.ptr, null, null, null);
-
-    // Migrate: add project column for per-project timing
-    enum migrateProject = "ALTER TABLE timing ADD COLUMN project TEXT\0";
-    sqlite3_exec(db, migrateProject.ptr, null, null, null);
-
-    // Migrate: add phases column for per-call breakdown
-    enum migratePhases = "ALTER TABLE timing ADD COLUMN phases TEXT\0";
-    sqlite3_exec(db, migratePhases.ptr, null, null, null);
-
-    enum idxTiming = "CREATE INDEX IF NOT EXISTS idx_timing_event_project ON timing(hook_event, project, id)\0";
-    sqlite3_exec(db, idxTiming.ptr, null, null, null);
+    // The timing table and its three added columns live in db.applySchema,
+    // which openDb has already run on this handle.
 
     enum sql = "INSERT INTO timing (duration_us, hook_event, project, phases) VALUES (?1, ?2, ?3, ?4)\0";
     sqlite3_stmt* stmt;

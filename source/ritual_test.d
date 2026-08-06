@@ -97,9 +97,22 @@ static assert(!restore("r", 5, "+-.", RitualState.Live).valid);
 // Except at exactly the end, which is where a Done ritual sits.
 static assert(restore("r", 3, "+++", RitualState.Done).valid);
 
+// --- Identity ---
+// "each ritual perfomance occurs in separate named branches" /
+// "the name of the branch is not something to key on"
+
+import ritual : performanceId;
+
+// The id names the performance and the moment. Two performances of the same
+// ritual are two rows, not one overwriting the other.
+enum idA = performanceId("grove", 1754400000);
+enum idB = performanceId("grove", 1754400001);
+static assert(idA.text() == "grove-1754400000");
+static assert(idA.text() != idB.text());
+
 // --- The row on disk ---
 
-import ritual : writePosition, readPosition;
+import ritual : writePosition, readPosition, readPositionAt;
 import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
 
 private sqlite3* memDb() {
@@ -109,19 +122,31 @@ private sqlite3* memDb() {
     return db;
 }
 
+private Position perf(Position p, string id, string repo, string tree) {
+    p.id = id;
+    p.repo = repo;
+    p.worktree = tree;
+    p.branch = "detached";
+    return p;
+}
+
 unittest {
     auto db = memDb();
-    // No ritual here. Absence is a verdict too, not an empty Position.
-    assert(!readPosition(db, "/q.sbvh.nl").valid);
+    // No performance here. Absence is a verdict too, not an empty Position.
+    assert(!readPosition(db, "/sbvh-nl/grove").valid);
     sqlite3_close(db);
 }
 
 unittest {
     auto db = memDb();
-    assert(writePosition(db, "/q.sbvh.nl", held));
-    auto got = readPosition(db, "/q.sbvh.nl");
+    auto p = perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a");
+    assert(writePosition(db, p));
+
+    auto got = readPosition(db, "/sbvh-nl/grove");
     assert(got.valid);
+    assert(got.p.id == "grove-1");
     assert(got.p.ritual == "boxsurvival");
+    assert(got.p.worktree == "/tmp/wt-a");
     assert(got.p.current == 1);
     assert(got.p.states[0] == RiteState.Passed);
     assert(got.p.states[1] == RiteState.Ran);
@@ -131,11 +156,32 @@ unittest {
 
 unittest {
     auto db = memDb();
-    assert(writePosition(db, "/q.sbvh.nl", held));
-    assert(writePosition(db, "/q.sbvh.nl", atLast));
-    // One ritual per project. A second start replaces, never accumulates —
-    // two live rituals both want the one Stop message per turn.
-    auto got = readPosition(db, "/q.sbvh.nl");
+    auto p = perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a");
+    assert(writePosition(db, p));
+
+    // The tree is gone. The record is not — that is the whole point of the
+    // id being the key and the path being an index.
+    assert(!readPositionAt(db, "/tmp/wt-a-removed").valid);
+    assert(readPosition(db, "/sbvh-nl/grove").valid);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    assert(writePosition(db, perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    // Standing in the tree finds the performance being done there.
+    auto got = readPositionAt(db, "/tmp/wt-a");
+    assert(got.valid);
+    assert(got.p.id == "grove-1");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    assert(writePosition(db, perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    assert(writePosition(db, perf(atLast, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    // Same id is the same performance moving, not a second one.
+    auto got = readPosition(db, "/sbvh-nl/grove");
     assert(got.valid);
     assert(got.p.state == RitualState.Done);
     sqlite3_close(db);
@@ -143,8 +189,8 @@ unittest {
 
 unittest {
     auto db = memDb();
-    assert(writePosition(db, "/q.sbvh.nl", held));
-    // Projects do not see each other's rituals.
-    assert(!readPosition(db, "/QNTX").valid);
+    assert(writePosition(db, perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    // Repos do not see each other's performances.
+    assert(!readPosition(db, "/teranos/QNTX").valid);
     sqlite3_close(db);
 }
