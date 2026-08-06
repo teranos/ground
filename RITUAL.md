@@ -142,6 +142,10 @@ Not in the example above, and therefore not implementable from it:
 | | 45 | A watcher that outlives one delivery | `watch.d:384` returns 2 after a batch, so a watcher delivers once and dies. The next one exists only because Stop spawned it |
 | | 46 | The verdict as an immediate row | how a rite reaches the agent without waiting for a turn boundary |
 | | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded rite — cmd, four outcomes, adaptive retry. Ritual generalises it into the pbt |
+| | 52 | A performance has its own worktree and branch | "each ritual perfomance occurs in separate named branches" / "the name of the branch is not something to key on". The tree is the identity; the branch is what it is on. `writePosition` already stores cwd, `scopeMatches` already keys on cwd, `runRite` already inherits it — under worktrees all three are right without a change |
+| | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved". `Scope.decision` already does `"allow"`. The gate reads the live row, not a branch name, so authorisation ends when the performance does |
+| | 54 | A performance is identified by itself, not by where it happens | the worktree is where it is being performed, not what it is. The key is a performance id; repo, ritual, branch and worktree path are columns. Lookup by path when you stand in it, by repo when the tree is gone — losing the path loses a route to the record, not the record |
+| | 55 | A performance closed out on `WorktreeRemove` | ground cannot refuse the removal, so it writes down that the route is gone. Without 54 this only records the death; with it, the record survives |
 
 Known defects in the example:
 
@@ -164,6 +168,18 @@ Not known:
 |---|---|---|---|
 | | 49 | Does asyncRewake reach a mid-turn session | the code cannot answer it. It decides whether the watcher fixes the loop or only the walk-away |
 
+One performance, start to finish. Columns are what fires, in order.
+
+| | `ground ritual` | `WorktreeCreate` | `SubagentStart` | `SessionStart` | `CwdChanged` | `UserPromptSubmit` | `PreToolUse` | `PostToolUse` | watcher | `Stop` | `SubagentStop` | `SessionEnd` | `WorktreeRemove` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **position** | written | path bound | — | read | re-resolved | read | read | — | stepped | read | read | decided | route lost |
+| **worktree** | — | created, path from stdout | entered | — | entered or left | — | — | — | — | — | — | — | removed |
+| **agent knows** | — | — | given the ritual | told the rite | — | told the rite | — | — | told the verdict | told by the block | — | — | — |
+| **consent** | — | — | — | — | — | — | allowed while live | — | — | — | — | — | ends |
+| **can refuse** | — | yes, creation fails | no | no | no | no | yes | yes | — | yes | yes, exit 2 | no | no |
+
+The two halves are visible in the third row. Everything in **agent knows** left of the watcher is carrying; everything right of it is interrupting. Only two columns fill it today, and neither is built.
+
 Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | notes |
@@ -174,3 +190,8 @@ Claude Code hook events, in the context of this feature:
 | | 40 | `TaskCompleted` | — | inbound only. Attests what the agent did while a rite was held |
 | | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | fires when the turn ends on an API error. Payload adds `error_type` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`) and `error_message`. Cannot block, exit code ignored, output ignored |
 | | 42 | `Notification` | "Notification is one that is on my wish list actually" | fires when Claude Code sends a notification. Payload adds `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`) and `message`. Cannot block. Honors `systemMessage`, `terminalSequence` |
+| | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | fires only for Claude Code's own trees — `--worktree`, `isolation: "worktree"`, a background session. Not for a `git worktree add` you type. stdout prints the path; hook failure or no path fails the creation |
+| | 51 | `WorktreeRemove` | — | fires at session exit, when a subagent finishes, when a background session is deleted. No decision control; ground cannot refuse it |
+| | 56 | `CwdChanged` | — | payload `old_cwd`, `new_cwd`. How ground learns you stepped into or out of a performance's tree, instead of re-deriving it every hook. The lookup-by-path event |
+| | 57 | `SessionEnd` | — | a live performance in an ending session needs an answer, and this is what forces the question |
+| | 58 | `SessionStart` | — | a new session in a repo whose live performance has no tree: reattach or report. The same hook the carrying half needs, for a second reason |
