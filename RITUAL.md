@@ -145,7 +145,7 @@ command running right now. No glyph carries any of this.
 | | 20 | Halt with code + output on screen | runtime | "leave on the screen the non 0 non 1 was and its message" | |
 | | 21 | The watcher runs the current rite | `watch.d` | "it takes a super long time before an agent will reach Stop, sometimes it never gets there and is stuck in a loop even though the objective has been cleared" | Stop is the last-resort gate, not where the rite runs |
 | | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one, i case more clarification helps, i think it really helps to shape the course of development" | |
-| | 23 | Attest each rite's outcome | integration | — | mine |
+| ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | mine. One row per attempt, keyed on performance + rite + second, so counting rows counts attempts. `verdict` is spelled out rather than inferred from the code |
 | ✓ | 24 | Name a ritual | `ritual.d` | "i want to specify a ritual" / "i dont think that ground ritual start would be it" | `ground ritual tree`. `resolveRitual` separates no-such-ritual from wrong-project; `flatten` builds the rite list and the index `goto` needs. Today naming writes a live row — whether that is also starting is unanswered |
 | | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" | the exception, not the exit |
 | | 26 | List rituals for this path | command | "ask about rituals for where we are now (path in project)" | |
