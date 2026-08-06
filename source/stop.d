@@ -155,6 +155,51 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         branchUs = usecNow() - tb0;
     }
 
+    // A live performance in this directory is the reason the turn is
+    // happening, so it is answered before the advisory controls.
+    {
+        import ritual : readPositionAt, advance, briefing, flatten, RitualState;
+        import rite : Verdict;
+        import controls : allParsed;
+        import core.stdc.time : time;
+
+        auto found = readPositionAt(db, cwd);
+        if (found.valid && found.p.state == RitualState.Live) {
+            static immutable ritualsParsed = allParsed;
+            foreach (i; 0 .. ritualsParsed.ritualCount) {
+                if (ritualsParsed.rituals[i].name != found.p.ritual) continue;
+
+                auto flat = flatten(ritualsParsed, i);
+                auto res = advance(db, sessionId, found.p, flat, cast(long) time(null));
+                if (!res.ran) break;
+
+                __gshared ZBuf rmsg;
+                rmsg.reset();
+
+                if (res.verdict == Verdict.Halt) {
+                    // The number and what the command said, on screen. A rite
+                    // the ritual cannot read is not a finding about the world.
+                    rmsg.put("Ritual ");
+                    rmsg.put(found.p.ritual);
+                    rmsg.put(" halted on ");
+                    rmsg.put(flat.rites[found.p.current].name);
+                    rmsg.put(" with exit ");
+                    putInt(rmsg, res.code);
+                    if (res.output.length > 0) {
+                        rmsg.put(": ");
+                        rmsg.put(res.output);
+                    }
+                } else {
+                    rmsg.put(briefing(res.after, flat).text());
+                }
+
+                sqlite3_close(db);
+                writeStopResponseAndNotify(rmsg.slice());
+                return 0;
+            }
+        }
+    }
+
     auto t3 = usecNow();
 
     // Stop controls — pattern matching on last assistant message

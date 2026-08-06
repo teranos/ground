@@ -125,9 +125,9 @@ command running right now. No glyph carries any of this.
 |---|---|---|---|---|---|
 | ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists out of rites" | |
 | ✓ | 2 | `params: [a, b]` list field | `proto.d` | "obviously i would want rites to be able to accept a parameter" | |
-| ✓ | 3 | Rite block: `<name> { cmd: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci untill it passes..." | each step became a rite |
-| ✓ | 4 | `catch:` as int or int list | `proto.d` | "its decided it will be called catch" / "catch: 22" | list form is mine — `answers` needed 7 and 22 |
-| ✓ | 5 | `ritual <name> { }` nested in `project` | `proto.d` | "why cant the ritual block be literally inside project for this purpose?" | |
+| ✓ | 3 | Rite block: `<name> { cmd: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci" | each step became a rite |
+| ✓ | 4 | `catch:` as int or int list | `proto.d` | "its decided it will be called catch" | list form is mine |
+| ✓ | 5 | `ritual <name> { }` nested in `project` | `proto.d` | "why cant the ritual block be literally inside project" | |
 | ✓ | 6 | Ritual body: bare name = reference | `proto.d` | — | mine, from a compaction pass |
 | ✓ | 7 | Ritual body: `name { k: v }` = reference with values | `proto.d` | "how do i set the row param from the ritual" | |
 | ✓ | 8 | CTFE structs + arrays | `proto.d`, `controls.d` | — | mine, mechanical |
@@ -135,43 +135,43 @@ command running right now. No glyph carries any of this.
 | ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | mine |
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | mine |
 | ✓ | 12 | Referenced group exists | CTFE assert | — | mine |
-| ✓ | 13 | Run under `set -euo pipefail` | `rite.d` | "wouldnt the pipefail need to be present essentially everywhere?" | each flag has a test proving the false pass it closes |
-| ✓ | 14 | Params into the command's environment | `rite.d` | — | assignments in the script text, not a hidden environment |
-| ✓ | 15 | `${var}` from project env | `envSubst` | "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?" | existed; wired in. An unresolved `${key}` leaves the rite unready rather than running with a hole |
-| ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message" | |
-| ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | per-rite, not a cursor: the status line needs both pendings. `ritual_position`, keyed on project |
-| ✓ | 18 | `goto` moves position | `ritual.d` | "i think i want goto, not else, goto seems more honest for what it is" | a caught code jumps when the rite names somewhere to go; `indexOfRite` is the name-to-index map |
-| | 19 | Hold and re-run on a caught code | `adaptive.d` | "so catch means hold, until true" | `pickAdaptiveSleep` is the interval, already CTFE-tested against real CI durations |
+| ✓ | 13 | Run under `set -euo pipefail` | `rite.d` | "wouldnt the pipefail need to be present essentially everywhere?" | a test per flag |
+| ✓ | 14 | Params into the command's environment | `rite.d` | — | assignments in the script, not a hidden env |
+| ✓ | 15 | `${var}` from project env | `envSubst` | "env block right?" | unresolved leaves the rite unready |
+| ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent" | |
+| ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | per-rite, not a cursor |
+| ✓ | 18 | `goto` moves position | `ritual.d` | "i think i want goto, not else, goto seems more honest for what it is" | `indexOfRite` maps name to index |
+| | 19 | Hold and re-run on a caught code | `adaptive.d` | "so catch means hold, until true" | `pickAdaptiveSleep` is the interval |
 | | 20 | Halt with code + output on screen | runtime | "leave on the screen the non 0 non 1 was and its message" | |
-| ✓ | 21 | Something runs the current rite | `ritual.d` | "it takes a super long time before an agent will reach Stop, sometimes it never gets there and is stuck in a loop even though the objective has been cleared" | `advance` reads the position, runs the rite, classifies, attests, steps and writes back. It has no caller yet — the watcher is 45 |
-| | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one, i case more clarification helps, i think it really helps to shape the course of development" | |
-| ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | mine. One row per attempt, keyed on performance + rite + second, so counting rows counts attempts. `verdict` is spelled out rather than inferred from the code |
-| ✓ | 24 | Name a ritual | `ritual.d` | "i want to specify a ritual" / "i dont think that ground ritual start would be it" | `ground ritual tree`. `resolveRitual` separates no-such-ritual from wrong-project; `flatten` builds the rite list and the index `goto` needs. Today naming writes a live row — whether that is also starting is unanswered |
+| ✓ | 21 | Something runs the current rite | `ritual.d` | "it takes a super long time before an agent will reach Stop" | `advance`. Caller is 45 |
+| | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one" | |
+| ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | one row per attempt |
+| ✓ | 24 | Name a ritual | `ritual.d` | "i want to specify a ritual" | naming writes a live row; is that starting? |
 | | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" | the exception, not the exit |
-| | 26 | List rituals for this path | command | "ask about rituals for where we are now (path in project)" | |
-| | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual in total" | |
-| | 28 | Read position from ground db | collet | — | mine; prompted by "And i need you to get familliar with a project called collet" |
-| | 29 | Render a ritual segment | collet | "watcher > exists > [kill] > gone > rebuild > answers > new" / "[kill] is now active because we can see the [ and ]" / "i hate the hourglass emoji" | the spec above; exhaustive enum, compile error for an unrendered state |
+| | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
+| | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
+| | 28 | Read position from ground db | collet | — | mine |
+| | 29 | Render a ritual segment | collet | "[kill] is now active because we can see the [ and ]" | exhaustive enum |
 
 Not in the example above, and therefore not implementable from it:
 
 | | nr | thing | notes |
 |---|---|---|---|
 | ✓ | 30 | `pass:` | the code that advances, default 0; a code cannot be both pass and catch |
-| x | 31 | `$AUTH` | hallucinated. I put `$AUTH` in the example and then filed its absence as a gap in the spec. Ground already resolves the token in `attest.d:13` — env, then `~/.qntx/ground-token` — and `buildCurlConfig` keeps it out of argv. No pbt change was ever needed. Removed from the rites |
-| | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
-| ✓ | 43 | Terminal state | "it ends when it ends". Two endings: the last rite passes, or a rite halts. Item 16 classifies a rite, item 17 tracks position — neither has a value for the ritual being over |
-| | 44 | Colour for a ritual that ended | the five colours cover a ritual in progress. Done is all green and no brackets; aborted has none |
-| | 45 | A watcher that outlives one delivery | `watch.d:384` returns 2 after a batch, so a watcher delivers once and dies. The next one exists only because Stop spawned it |
-| | 46 | The verdict as an immediate row | how a rite reaches the agent without waiting for a turn boundary |
-| | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded rite — cmd, four outcomes, adaptive retry. Ritual generalises it into the pbt |
-| | 52 | A performance has its own worktree and branch | "each ritual perfomance occurs in separate named branches" / "the name of the branch is not something to key on". The tree is the identity; the branch is what it is on. `writePosition` already stores cwd, `scopeMatches` already keys on cwd, `runRite` already inherits it — under worktrees all three are right without a change |
-| | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved". `Scope.decision` already does `"allow"`. The gate reads the live row, not a branch name, so authorisation ends when the performance does |
-| | 54 | A performance is identified by itself, not by where it happens | the worktree is where it is being performed, not what it is. The key is a performance id; repo, ritual, branch and worktree path are columns. Lookup by path when you stand in it, by repo when the tree is gone — losing the path loses a route to the record, not the record |
-| | 55 | A performance closed out on `WorktreeRemove` | ground cannot refuse the removal, so it writes down that the route is gone. Without 54 this only records the death; with it, the record survives |
-| | 59 | Ground removes the tree it made | no `WorktreeRemove` fires for a tree ground created, so nothing else will. Verified: a probe tree and its branch are still on disk. 55 records a removal that happens; this is the removal happening |
-| | 60 | Ground says it made one | creation is silent. The only way to learn a tree exists is `git worktree list` |
-| | 61 | The performance ends in a pull request | settled point 7 says the branch is what you merge. Nothing opens one. It is a rite — `gh pr create` before DONE — not a ground feature |
+| x | 31 | `$AUTH` | hallucinated. `attest.d:13` already resolves the token |
+| | 32 | Carrying a value between rites | `new` needs `$BEFORE` |
+| ✓ | 43 | Terminal state | Done or Halted, reached by running |
+| | 44 | Colour for a ritual that ended | done is all green, no brackets; aborted has none |
+| | 45 | A watcher that outlives one delivery | `watch.d:384` returns after one batch |
+| | 46 | The verdict as an immediate row | reaches the agent without a turn boundary |
+| | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded one |
+| ✓ | 52 | A performance has its own worktree and branch | tree is the identity, branch is what it is on |
+| | 53 | Commit, push and CI auto-approved inside a performance | gate reads the live row, not a name |
+| ✓ | 54 | A performance is identified by itself | path is an index, not the key |
+| ✓ | 55 | A performance closed out on `WorktreeRemove` | clears the stale path, keeps the record |
+| ✓ | 59 | Ground removes the tree it made | nothing else will. No caller yet |
+| ✓ | 60 | Ground says it made one | creation was silent |
+| | 61 | The performance ends in a pull request | a rite — `gh pr create` before DONE |
 
 Known defects in the example:
 
@@ -186,7 +186,7 @@ Inherited by anything that rides the watcher:
 
 | | nr | thing | notes |
 |---|---|---|---|
-| | 48 | `claimSession` is not session-scoped | `watch.d:100`. The glob lists every session's claim file, so a watcher spawned for session A can claim session B. Measured 2026-08-06: 151 `watch-*` files, 4 live watchers, 3 orphaned at ppid 1, oldest 5d10h |
+| | 48 | `claimSession` is not session-scoped | `watch.d:100`. A watcher for A can claim B |
 
 Not known:
 
@@ -210,14 +210,14 @@ Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | notes |
 |---|---|---|---|---|
-| | 37 | `SubagentStart` | "they arent REUIRED, but you COULD if you wanted to run an agent like that, equiped with ritual" | starting an agent with a ritual |
-| | 38 | `SubagentStop` | same | stopping an agent with a ritual |
-| | 39 | `TaskCreated` | — | inbound only. Blocks a delegation while a rite is held |
-| | 40 | `TaskCompleted` | — | inbound only. Attests what the agent did while a rite was held |
-| | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | fires when the turn ends on an API error. Payload adds `error_type` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`) and `error_message`. Cannot block, exit code ignored, output ignored |
-| | 42 | `Notification` | "Notification is one that is on my wish list actually" | fires when Claude Code sends a notification. Payload adds `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`) and `message`. Cannot block. Honors `systemMessage`, `terminalSequence` |
-| ✓ | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | fires only for Claude Code's own trees — `--worktree`, `isolation: "worktree"`, a background session. Not for a `git worktree add` you type. stdout prints the path; hook failure or no path fails the creation |
-| | 51 | `WorktreeRemove` | — | fires at session exit, when a subagent finishes, when a background session is deleted. No decision control; ground cannot refuse it |
-| | 56 | `CwdChanged` | — | payload `old_cwd`, `new_cwd`. How ground learns you stepped into or out of a performance's tree, instead of re-deriving it every hook. The lookup-by-path event |
-| | 57 | `SessionEnd` | — | a live performance in an ending session needs an answer, and this is what forces the question |
-| | 58 | `SessionStart` | — | a new session in a repo whose live performance has no tree: reattach or report. The same hook the carrying half needs, for a second reason |
+| | 37 | `SubagentStart` | "you COULD if you wanted to run an agent like that, equiped with ritual" | an agent started with one |
+| | 38 | `SubagentStop` | same | an agent stopped with one |
+| | 39 | `TaskCreated` | — | inbound only. No use found |
+| | 40 | `TaskCompleted` | — | inbound only |
+| | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | carries `error_type`, `error_message`. Cannot block |
+| | 42 | `Notification` | "Notification is one that is on my wish list actually" | carries `notification_type`, `message`. Cannot block |
+| ✓ | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | ground makes the tree and prints the path |
+| ✓ | 51 | `WorktreeRemove` | — | no decision control; ground cannot refuse |
+| | 56 | `CwdChanged` | — | `old_cwd`, `new_cwd`. The lookup-by-path event |
+| | 57 | `SessionEnd` | — | a live performance in an ending session |
+| ✓ | 58 | `SessionStart` | — | `briefing` goes into `additionalContext` |
