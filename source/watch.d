@@ -123,6 +123,7 @@ import core.stdc.stdio : stderr, fputs, fwrite, FILE;
 extern (C) {
     uint sleep(uint seconds);
     int getpid();
+    int getppid();
     int kill(int pid, int sig);
     FILE* fopen(const(char)* path, const(char)* mode);
     int fclose(FILE* f);
@@ -168,6 +169,22 @@ const(char)[] cwdLeaf(const(char)[] path) {
     return path[last .. $];
 }
 
+// Everything a pid file can hold that is not a live pid reaches the caller
+// as 0, and 0 is never signalled: kill(0, SIGTERM) hits the whole group.
+int parsePid(const(char)[] text) {
+    int pid = 0;
+    foreach (c; text) {
+        if (c < '0' || c > '9') break;
+        pid = pid * 10 + (c - '0');
+    }
+    return pid;
+}
+
+// A watcher's parent is claude. ppid 1 means the session it would wake is
+// gone, and nothing will ever kill it — killSessionWatcher runs from that
+// session's own Stop, which will not happen again.
+bool orphaned(int ppid) { return ppid <= 1; }
+
 // --- Called by Stop handler (has session ID) ---
 
 // Kill the previous watcher for THIS session only.
@@ -183,14 +200,13 @@ void killSessionWatcher(const(char)[] sessionId) {
     auto n = fread(&pidBuf[0], 1, 15, rf);
     fclose(rf);
 
-    int oldPid = 0;
-    foreach (i; 0 .. n) {
-        if (pidBuf[i] >= '0' && pidBuf[i] <= '9')
-            oldPid = oldPid * 10 + (pidBuf[i] - '0');
-        else break;
-    }
+    auto oldPid = parsePid(pidBuf[0 .. n]);
     if (oldPid > 0)
         kill(oldPid, 15); // SIGTERM
+
+    // The file outlives the watcher it named. Left in place it accumulates,
+    // and the number it holds is eventually handed to something else.
+    remove(&pathBuf[0]);
 }
 
 // Write a claim file so the new watcher knows its session ID.
@@ -291,6 +307,14 @@ void writePid(const(char)[] sessionId) {
     }
 }
 
+// The watcher unlinks its own file on the way out. Left behind, the number
+// it holds is eventually reissued and killSessionWatcher signals a stranger.
+void removePid(const(char)[] sessionId) {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, "watch-", sessionId, ".pid") == 0) return;
+    remove(&pathBuf[0]);
+}
+
 int handleWatch(int argc, const(char)** argv) {
     if (argc < 3) {
         fputs("usage: ground watch <cwd>\n", stderr);
@@ -302,7 +326,11 @@ int handleWatch(int argc, const(char)** argv) {
 
     auto sessionId = claimSession(cwd);
     if (sessionId is null) {
-        fputs("ground watch: no claim file found\n", stderr);
+        // asyncRewake surfaces stderr on exit 2 only, so this line reached
+        // nobody for as long as it has existed.
+        import exec : emitError;
+        emitError("watch.claim", "no claim file to take, so this watcher has no session",
+                  0, 1, "", "watch", "", "", "");
         return 1;
     }
 
@@ -381,9 +409,19 @@ int handleWatch(int argc, const(char)** argv) {
             if (batchLen > 0) {
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
+                removePid(sessionId);
                 return 2;
             }
         }
+
+        // The session that spawned this watcher is gone, and only that
+        // session's Stop ever calls killSessionWatcher. Without this the
+        // loop runs until the machine reboots.
+        if (orphaned(getppid())) {
+            removePid(sessionId);
+            return 0;
+        }
+
         sleep(nextSleep);
     }
 }

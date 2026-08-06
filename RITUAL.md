@@ -89,9 +89,9 @@ command running right now. No glyph carries any of this.
 | ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message" | |
 | ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | per-rite, not a cursor: the status line needs both pendings. `ritual_position`, keyed on project |
 | | 18 | `goto` moves position | runtime | "i think i want goto, not else, goto seems more honest for what it is" | |
-| | 19 | Hold and re-run on a caught code | runtime | "so catch means hold, until true" | |
+| | 19 | Hold and re-run on a caught code | `adaptive.d` | "so catch means hold, until true" | `pickAdaptiveSleep` is the interval, already CTFE-tested against real CI durations |
 | | 20 | Halt with code + output on screen | runtime | "leave on the screen the non 0 non 1 was and its message" | |
-| | 21 | Stop hook runs the current rite | integration | — | mine |
+| | 21 | The watcher runs the current rite | `watch.d` | "it takes a super long time before an agent will reach Stop, sometimes it never gets there and is stuck in a loop even though the objective has been cleared" | Stop is the last-resort gate, not where the rite runs |
 | | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one, i case more clarification helps, i think it really helps to shape the course of development" | |
 | | 23 | Attest each rite's outcome | integration | — | mine |
 | | 24 | Start a ritual by naming it | command | "i want to specify a ritual" | `ground ritual boxsurvival`; naming it is starting it |
@@ -110,6 +110,9 @@ Not in the example above, and therefore not implementable from it:
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE`; no construct provides it |
 | ✓ | 43 | Terminal state | "it ends when it ends". Two endings: the last rite passes, or a rite halts. Item 16 classifies a rite, item 17 tracks position — neither has a value for the ritual being over |
 | | 44 | Colour for a ritual that ended | the five colours cover a ritual in progress. Done is all green and no brackets; aborted has none |
+| | 45 | A watcher that outlives one delivery | `watch.d:384` returns 2 after a batch, so a watcher delivers once and dies. The next one exists only because Stop spawned it |
+| | 46 | The verdict as an immediate row | how a rite reaches the agent without waiting for a turn boundary |
+| | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded rite — cmd, four outcomes, adaptive retry. Ritual generalises it into the pbt |
 
 Known defects in the example:
 
@@ -120,13 +123,25 @@ Known defects in the example:
 | | 35 | `catch: 22` on `survived` | curl returns 22 for both 4xx and 5xx; a broken server reads as a finding |
 | | 36 | `survived` measures the API | a 404 says the API did not return it, not that it is absent from the bucket |
 
+Inherited by anything that rides the watcher:
+
+| | nr | thing | notes |
+|---|---|---|---|
+| | 48 | `claimSession` is not session-scoped | `watch.d:100`. The glob lists every session's claim file, so a watcher spawned for session A can claim session B. Measured 2026-08-06: 151 `watch-*` files, 4 live watchers, 3 orphaned at ppid 1, oldest 5d10h |
+
+Not known:
+
+| | nr | thing | notes |
+|---|---|---|---|
+| | 49 | Does asyncRewake reach a mid-turn session | the code cannot answer it. It decides whether the watcher fixes the loop or only the walk-away |
+
 Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | notes |
 |---|---|---|---|---|
 | | 37 | `SubagentStart` | "they arent REUIRED, but you COULD if you wanted to run an agent like that, equiped with ritual" | starting an agent with a ritual |
 | | 38 | `SubagentStop` | same | stopping an agent with a ritual |
-| | 39 | `TaskCreated` | "TaskCreated, is like a rite of a rites block right?" | |
-| | 40 | `TaskCompleted` | "TaskCompleted, is when te success condition makes it so the rite has been passed right?" | |
+| | 39 | `TaskCreated` | — | inbound only. Blocks a delegation while a rite is held |
+| | 40 | `TaskCompleted` | — | inbound only. Attests what the agent did while a rite was held |
 | | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | fires when the turn ends on an API error. Payload adds `error_type` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`) and `error_message`. Cannot block, exit code ignored, output ignored |
 | | 42 | `Notification` | "Notification is one that is on my wish list actually" | fires when Claude Code sends a notification. Payload adds `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`) and `message`. Cannot block. Honors `systemMessage`, `terminalSequence` |
