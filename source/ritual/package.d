@@ -8,3 +8,4 @@ public import ritual.store;     // the row
 public import ritual.record;    // what a rite that ran leaves behind
 public import ritual.run;       // running one, and what the agent is told
 public import ritual.command;   // ground ritual <name>
+public import ritual.consent;   // what a performance authorises

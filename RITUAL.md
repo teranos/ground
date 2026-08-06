@@ -162,11 +162,11 @@ Not in the example above, and therefore not implementable from it:
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE` |
 | ✓ | 43 | Terminal state | Done or Halted, reached by running |
 | | 44 | Colour for a ritual that ended | done is all green, no brackets; aborted has none |
-| | 45 | A watcher that outlives one delivery | `watch.d:384` returns after one batch |
+| ✓ | 45 | The watcher advances the performance | each cycle, 15s when a rite holds |
 | | 46 | The verdict as an immediate row | reaches the agent without a turn boundary |
 | | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded one |
-| | 52 | A performance has its own worktree and branch | `ground ritual` still writes `worktree = cwd` and spawns nothing |
-| | 53 | Commit, push and CI auto-approved inside a performance | gate reads the live row, not a name |
+| ✓ | 52 | A performance has its own worktree and branch | `repoRoot` locates the repo; the tree is named after the performance |
+| ✓ | 53 | Commit, push and CI auto-approved inside a performance | gate reads the live row, not a name |
 | ✓ | 54 | A performance is identified by itself | path is an index, not the key |
 | ✓ | 55 | A performance closed out on `WorktreeRemove` | clears the stale path, keeps the record |
 | ✓ | 59 | Ground removes the tree it made | nothing else will. No caller yet |

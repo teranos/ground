@@ -350,6 +350,40 @@ int handleWatch(int argc, const(char)** argv) {
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
 
+            // Advancing here rather than at Stop is the point: an agent can be
+            // in a loop for an hour without reaching a turn boundary, and the
+            // rite may have been met twenty minutes ago.
+            {
+                import ritual : readPositionAt, advance, briefing, flatten, RitualState;
+                import rite : Verdict;
+                import controls : allParsed;
+                import immediate : writeNote;
+                import core.stdc.time : time;
+
+                auto here = readPositionAt(db, cwd);
+                if (here.valid && here.p.state == RitualState.Live) {
+                    static immutable ritualsParsed = allParsed;
+                    foreach (ri; 0 .. ritualsParsed.ritualCount) {
+                        if (ritualsParsed.rituals[ri].name != here.p.ritual) continue;
+
+                        auto flat = flatten(ritualsParsed, ri);
+                        auto res = advance(db, sessionId, here.p, flat, cast(long) time(null));
+                        if (!res.ran) break;
+
+                        // A held rite waits on the world, so asking again in
+                        // two seconds is noise.
+                        if (res.verdict == Verdict.Hold) nextSleep = 15;
+
+                        if (res.after.current != here.p.current
+                            || res.after.state != RitualState.Live) {
+                            writeNote(db, sessionId, "ritual-moved",
+                                      briefing(res.after, flat).text());
+                        }
+                        break;
+                    }
+                }
+            }
+
             while (true) {
                 auto imm = readImmediateMessage(db, cwd, sessionId);
                 if (imm.message is null) break;
