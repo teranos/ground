@@ -7,37 +7,44 @@ import rite : buildRiteScript, RiteScript;
 
 // Every rite runs under the same three flags. They are not hygiene — each
 // one closes a way a rite can report a pass it did not earn.
-enum bare = buildRiteScript("make parity", [], []);
+enum bare = buildRiteScript("", "make parity", [], []);
 static assert(bare.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity\n");
 
 // -o pipefail: `make parity | grep row` without it returns grep's status, so
 // a crashed make reads as "the row is not YES YES" — a finding, not a fault.
 // With it, make's code propagates and the rite halts on it instead.
-enum piped = buildRiteScript(`make parity | grep "$row"`, [], []);
+enum piped = buildRiteScript("", `make parity | grep "$row"`, [], []);
 static assert(piped.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity | grep \"$row\"\n");
 
 // "how do i set the row param from the ritual"
 // A param is an assignment above the command, in the script the operator can
 // read, not an environment the operator has to be told about.
-enum withParam = buildRiteScript(`grep "$row"`, ["row"], ["watchers"]);
+enum withParam = buildRiteScript("", `grep "$row"`, ["row"], ["watchers"]);
 static assert(withParam.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\nrow='watchers'\ngrep \"$row\"\n");
 
 // Order is declaration order, so the script reads the way the pbt reads.
-enum twoParams = buildRiteScript("echo", ["row", "pr"], ["watchers", "833"]);
+enum twoParams = buildRiteScript("", "echo", ["row", "pr"], ["watchers", "833"]);
 static assert(twoParams.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\nrow='watchers'\npr='833'\necho\n");
 
 // -u: an unsupplied param is an unset variable, and the script dies on it.
 // Without -u it expands to empty, and `grep ""` matches every line — the
 // false pass CTFE item 11 refuses at build time and this refuses at run time.
-enum unsupplied = buildRiteScript(`grep "$row"`, [], []);
+enum unsupplied = buildRiteScript("", `grep "$row"`, [], []);
 static assert(unsupplied.text() == "#!/usr/bin/env bash\nset -euo pipefail\ngrep \"$row\"\n");
 
 // A single quote in a value would close the quoting and hand the rest of the
 // value to the shell as code.
-enum quoted = buildRiteScript("echo", ["msg"], ["it's"]);
+enum quoted = buildRiteScript("", "echo", ["msg"], ["it's"]);
 static assert(quoted.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmsg='it'\\''s'\necho\n");
+
+// The rite runs in the performance's tree, and whoever runs it is not
+// standing there. The cd is in the script so the rite stays one thing you
+// can print and run by hand.
+enum located = buildRiteScript("/home/u/src/proj-probe", "make test", [], []);
+static assert(located.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-probe'\nmake test\n");
 
 // --- What envSubst leaves behind ---
 // "i found a TODO at the top in controls/local/x.pbt" / "env block right?"
@@ -74,7 +81,10 @@ unittest {
     enum r = parsePbt(src).rites[0].rites[0];
     auto p = prepareRite(r, "/no/project/matches/this");
     assert(p.ready);
-    assert(p.script.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity\n");
+    // prepareRite's cwd is the performance's tree, so it is both what envSubst
+    // resolves against and where the rite runs.
+    assert(p.script.text() ==
+        "#!/usr/bin/env bash\nset -euo pipefail\ncd '/no/project/matches/this'\nmake parity\n");
 }
 
 // --- The flags against a real shell ---
@@ -82,7 +92,7 @@ unittest {
 import rite : runRite;
 
 private int codeOf(const(char)[] cmd, const(char[])[] k = [], const(char[])[] v = []) {
-    return runRite(buildRiteScript(cmd, k, v).text()).code;
+    return runRite(buildRiteScript("", cmd, k, v).text()).code;
 }
 
 unittest {
@@ -115,14 +125,14 @@ unittest {
 unittest {
     static immutable const(char)[][1] k = ["row"];
     static immutable const(char)[][1] v = ["watchers"];
-    auto r = runRite(buildRiteScript(`echo "$row"`, k[], v[]).text());
+    auto r = runRite(buildRiteScript("", `echo "$row"`, k[], v[]).text());
     assert(r.code == 0);
     assert(r.output() == "watchers\n");
 }
 
 unittest {
     // Output is captured on failure too — it is what goes on screen at Halt.
-    auto r = runRite(buildRiteScript("echo before; false", [], []).text());
+    auto r = runRite(buildRiteScript("", "echo before; false", [], []).text());
     assert(r.code == 1);
     assert(r.output() == "before\n");
 }

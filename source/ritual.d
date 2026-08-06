@@ -495,6 +495,60 @@ bool attestRite(DB)(DB db, const(char)[] sessionId, const Position p,
     return true;
 }
 
+// One rite, run and recorded, and the position it leaves behind.
+struct Advanced {
+    bool ran;
+    Verdict verdict;
+    int code;
+    const(char)[] output;
+    Position after;
+}
+
+// The sequence nothing performed until now: read where we are, run that rite,
+// read its code as one of three answers, write it down, move.
+Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
+                     const Flattened f, long unixSeconds) {
+    import rite : prepareRite, runRite, classify;
+    import exec : emitError;
+
+    Advanced a;
+    a.after = p;
+    if (p.state != RitualState.Live) return a;
+    if (p.current >= f.count) return a;
+
+    auto r = f.rites[p.current];
+    auto prepared = prepareRite(r, p.worktree,
+                                r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
+    if (!prepared.ready) {
+        emitError("ritual.rite.unresolved", "the rite still holds a placeholder no project env resolves",
+                  0, 0, cast(string) sessionId, cast(string) r.name, "",
+                  cast(string) prepared.cmd, "");
+        return a;
+    }
+
+    auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
+    if (!run.ran) return a;
+
+    a.ran = true;
+    a.code = run.code;
+    a.output = run.output();
+    a.verdict = classify(run.code, r);
+
+    attestRite(db, sessionId, p, r.name, a.verdict, run.code, run.output(), unixSeconds);
+
+    auto moved = step(p, a.verdict);
+
+    // goto is what a caught code does when the rite names somewhere to go.
+    if (a.verdict == Verdict.Hold && r.goto_.length > 0) {
+        auto target = indexOfRite(f, r.goto_);
+        if (target >= 0) moved = jump(moved, cast(size_t) target);
+    }
+
+    writePosition(db, moved);
+    a.after = moved;
+    return a;
+}
+
 // What an agent is told at the start of a turn.
 struct Brief {
     char[1024] buf = 0;

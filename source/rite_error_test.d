@@ -20,7 +20,7 @@ static assert(fromPclose(-1).code == 0);
 
 // A run that reached a process carries no failure.
 unittest {
-    auto r = runRite(buildRiteScript("false", [], []).text());
+    auto r = runRite(buildRiteScript("", "false", [], []).text());
     assert(r.failure == RunFailure.None);
     assert(r.ran);
     assert(r.code == 1);

@@ -74,12 +74,20 @@ Waited fromPclose(int status) {
     return Waited(true, (status >> 8) & 0xFF);
 }
 
-RiteScript buildRiteScript(const(char)[] cmd,
+RiteScript buildRiteScript(const(char)[] cwd, const(char)[] cmd,
                            const(char[])[] keys, const(char[])[] values) {
     RiteScript s;
     // pipefail is not POSIX. /bin/sh is dash on Debian, which rejects the
     // whole `set` line, so the rite fails before its command runs.
     s.put("#!/usr/bin/env bash\nset -euo pipefail\n");
+
+    // Whoever runs the rite is not standing in the performance's tree. The cd
+    // is in the script so the whole rite is still one readable thing.
+    if (cwd.length > 0) {
+        s.put("cd ");
+        s.putQuoted(cwd);
+        s.put("\n");
+    }
     foreach (i; 0 .. keys.length) {
         if (keys[i].length == 0) continue;
         s.put(keys[i]);
@@ -105,7 +113,7 @@ PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
     PreparedRite p;
     p.cmd = envSubst(r.cmd, cwd);
     p.ready = !hasUnresolved(p.cmd);
-    if (p.ready) p.script = buildRiteScript(p.cmd, keys, values);
+    if (p.ready) p.script = buildRiteScript(cwd, p.cmd, keys, values);
     return p;
 }
 

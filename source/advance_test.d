@@ -1,0 +1,124 @@
+module advance_test;
+
+// The one piece with no code: something reads the position, runs the rite it
+// is on, and moves. Every part of it existed and tested; none was ever called
+// in sequence, so the briefing said rite 1 of 9 forever.
+
+import proto : parsePbt;
+import ritual : advance, flatten, start, Position, RiteState, RitualState;
+import rite : Verdict;
+import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK,
+            sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_stmt,
+            sqlite3_column_int64, SQLITE_ROW;
+
+enum src = `
+rites walk {
+  START { cmd: "true" }
+  HOLD  { cmd: "false"  catch: 1 }
+  BACK  { cmd: "false"  catch: 1  goto: START }
+  WEIRD { cmd: "exit 3" }
+}
+
+project {
+  path: "/src/proj"
+  ritual probe { walk }
+}
+`;
+enum parsed = parsePbt(src);
+enum flat = flatten(parsed, 0);
+
+private sqlite3* memDb() {
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    return db;
+}
+
+private long rows(sqlite3* db) {
+    enum q = "SELECT count(*) FROM attestations WHERE json_extract(attributes,'$.rite') IS NOT NULL\0";
+    sqlite3_stmt* s;
+    if (sqlite3_prepare_v2(db, q.ptr, -1, &s, null) != SQLITE_OK) return -1;
+    long n = -1;
+    if (sqlite3_step(s) == SQLITE_ROW) n = sqlite3_column_int64(s, 0);
+    sqlite3_finalize(s);
+    return n;
+}
+
+private Position at(size_t i) {
+    auto p = start("probe", flat.count);
+    p.id = "probe-1";
+    p.repo = "/src/proj";
+    p.worktree = "/tmp";
+    p.current = i;
+    return p;
+}
+
+unittest {
+    auto db = memDb();
+    auto r = advance(db, "sess", at(0), flat, 100);
+    assert(r.ran);
+    assert(r.verdict == Verdict.Advance);
+    assert(r.after.current == 1);
+    assert(r.after.states[0] == RiteState.Passed);
+    assert(rows(db) == 1);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // A caught code holds the position and marks the rite as having run —
+    // the difference between the two pendings the status line renders.
+    auto r = advance(db, "sess", at(1), flat, 100);
+    assert(r.verdict == Verdict.Hold);
+    assert(r.after.current == 1);
+    assert(r.after.states[1] == RiteState.Ran);
+    assert(r.after.state == RitualState.Live);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // goto is what a caught code does when the rite names somewhere to go.
+    auto r = advance(db, "sess", at(2), flat, 100);
+    assert(r.verdict == Verdict.Hold);
+    assert(r.after.current == 0);
+    assert(r.after.states[2] == RiteState.Ran);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // 3 is neither the pass nor a catch, so the rite cannot read it.
+    auto r = advance(db, "sess", at(3), flat, 100);
+    assert(r.verdict == Verdict.Halt);
+    assert(r.code == 3);
+    assert(r.after.state == RitualState.Halted);
+    assert(r.after.states[3] == RiteState.Halted);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // An ended performance is not stepped again, and no row is written for a
+    // rite that did not run.
+    auto p = at(0);
+    p.state = RitualState.Done;
+    auto r = advance(db, "sess", p, flat, 100);
+    assert(!r.ran);
+    assert(r.after.current == 0);
+    assert(rows(db) == 0);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // The position it returns is the position on disk, or the next turn reads
+    // a stale one and runs the same rite again.
+    import ritual : readPosition;
+    auto r = advance(db, "sess", at(0), flat, 100);
+    assert(r.ran);
+    auto back = readPosition(db, "/src/proj");
+    assert(back.valid);
+    assert(back.p.current == 1);
+    sqlite3_close(db);
+}
