@@ -8,8 +8,8 @@ import ritual : Position, RiteState, RitualState, start, step, jump,
                 encodeStates, restore;
 
 // A ritual that has not run has no history. Every rite is the darker gray.
-enum fresh = start("boxsurvival", 3);
-static assert(fresh.ritual == "boxsurvival");
+enum fresh = start("probe", 3);
+static assert(fresh.ritual == "probe");
 static assert(fresh.current == 0);
 static assert(fresh.state == RitualState.Live);
 static assert(fresh.states[0] == RiteState.Never);
@@ -81,9 +81,9 @@ static assert(!bad.valid);
 
 // Round trip. The states survive; so does everything the row carries.
 enum heldRow = encodeStates(held);
-enum back = restore("boxsurvival", held.current, heldRow.text(), RitualState.Live);
+enum back = restore("probe", held.current, heldRow.text(), RitualState.Live);
 static assert(back.valid);
-static assert(back.p.ritual == "boxsurvival");
+static assert(back.p.ritual == "probe");
 static assert(back.p.current == 1);
 static assert(back.p.riteCount == 3);
 static assert(back.p.states[0] == RiteState.Passed);
@@ -105,9 +105,9 @@ import ritual : performanceId;
 
 // The id names the performance and the moment. Two performances of the same
 // ritual are two rows, not one overwriting the other.
-enum idA = performanceId("grove", 1754400000);
-enum idB = performanceId("grove", 1754400001);
-static assert(idA.text() == "grove-1754400000");
+enum idA = performanceId("probe", 1754400000);
+enum idB = performanceId("probe", 1754400001);
+static assert(idA.text() == "probe-1754400000");
 static assert(idA.text() != idB.text());
 
 // --- The row on disk ---
@@ -133,19 +133,19 @@ private Position perf(Position p, string id, string repo, string tree) {
 unittest {
     auto db = memDb();
     // No performance here. Absence is a verdict too, not an empty Position.
-    assert(!readPosition(db, "/sbvh-nl/grove").valid);
+    assert(!readPosition(db, "/src/proj").valid);
     sqlite3_close(db);
 }
 
 unittest {
     auto db = memDb();
-    auto p = perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a");
+    auto p = perf(held, "probe-1", "/src/proj", "/tmp/wt-a");
     assert(writePosition(db, p));
 
-    auto got = readPosition(db, "/sbvh-nl/grove");
+    auto got = readPosition(db, "/src/proj");
     assert(got.valid);
-    assert(got.p.id == "grove-1");
-    assert(got.p.ritual == "boxsurvival");
+    assert(got.p.id == "probe-1");
+    assert(got.p.ritual == "probe");
     assert(got.p.worktree == "/tmp/wt-a");
     assert(got.p.current == 1);
     assert(got.p.states[0] == RiteState.Passed);
@@ -156,32 +156,32 @@ unittest {
 
 unittest {
     auto db = memDb();
-    auto p = perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a");
+    auto p = perf(held, "probe-1", "/src/proj", "/tmp/wt-a");
     assert(writePosition(db, p));
 
     // The tree is gone. The record is not — that is the whole point of the
     // id being the key and the path being an index.
     assert(!readPositionAt(db, "/tmp/wt-a-removed").valid);
-    assert(readPosition(db, "/sbvh-nl/grove").valid);
+    assert(readPosition(db, "/src/proj").valid);
     sqlite3_close(db);
 }
 
 unittest {
     auto db = memDb();
-    assert(writePosition(db, perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    assert(writePosition(db, perf(held, "probe-1", "/src/proj", "/tmp/wt-a")));
     // Standing in the tree finds the performance being done there.
     auto got = readPositionAt(db, "/tmp/wt-a");
     assert(got.valid);
-    assert(got.p.id == "grove-1");
+    assert(got.p.id == "probe-1");
     sqlite3_close(db);
 }
 
 unittest {
     auto db = memDb();
-    assert(writePosition(db, perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
-    assert(writePosition(db, perf(atLast, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    assert(writePosition(db, perf(held, "probe-1", "/src/proj", "/tmp/wt-a")));
+    assert(writePosition(db, perf(atLast, "probe-1", "/src/proj", "/tmp/wt-a")));
     // Same id is the same performance moving, not a second one.
-    auto got = readPosition(db, "/sbvh-nl/grove");
+    auto got = readPosition(db, "/src/proj");
     assert(got.valid);
     assert(got.p.state == RitualState.Done);
     sqlite3_close(db);
@@ -189,8 +189,8 @@ unittest {
 
 unittest {
     auto db = memDb();
-    assert(writePosition(db, perf(held, "grove-1", "/sbvh-nl/grove", "/tmp/wt-a")));
+    assert(writePosition(db, perf(held, "probe-1", "/src/proj", "/tmp/wt-a")));
     // Repos do not see each other's performances.
-    assert(!readPosition(db, "/teranos/QNTX").valid);
+    assert(!readPosition(db, "/src/other").valid);
     sqlite3_close(db);
 }

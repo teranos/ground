@@ -103,13 +103,13 @@ rites live {
 }
 
 project {
-  path: "/q.sbvh.nl"
+  path: "/src/proj"
 
   env {
-    api: "https://api.q.sbvh.nl"
+    api: "https://api.example.invalid"
   }
 
-  ritual boxsurvival {
+  ritual probe {
     parity { row: "watchers" }
     live
   }
@@ -117,8 +117,8 @@ project {
 `;
 enum ritualParsed = parsePbt(ritualInput);
 static assert(ritualParsed.ritualCount == 1);
-static assert(ritualParsed.rituals[0].name == "boxsurvival");
-static assert(ritualParsed.rituals[0].projectPath == "/q.sbvh.nl");
+static assert(ritualParsed.rituals[0].name == "probe");
+static assert(ritualParsed.rituals[0].projectPath == "/src/proj");
 static assert(ritualParsed.rituals[0].refCount == 2);
 
 // A bare name is a reference and carries nothing.

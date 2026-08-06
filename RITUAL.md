@@ -1,3 +1,26 @@
+A performance, in the user's words:
+
+> AS A USER
+>
+> I OPEN CAUDE CODE FROM ANYWHERE
+>
+> I TELL CLAUDE
+>
+> ground ritual tree
+>
+> THE SUBAGENT STARTS AND THE WORKTREE IS THERE AND THE AGENT DOES ITS THING THERE
+> AND THE AGENT DOES A COMMIT AT THE END OF EAH RITE
+
+Settled:
+
+1. Invoked from anywhere. The ritual's `project { path: }` is the locator. It is not a test against cwd.
+2. Ground starts the agent and its worktree — `claude -w <name> -p`, dispatched the way `exec.d` already dispatches.
+3. The agent does the work of each rite, in that worktree.
+4. The agent commits at the end of each rite. The branch's history is the record of the walk, and the `goto` shows as the walk starting over.
+5. A rite's `cmd` is the success condition ground evaluates, not the work.
+6. The performance is identified by itself. The worktree is where it happens, not what it is.
+7. What you come back to and merge is the branch.
+
 Rituals are performed in the grove.
 
 ```
@@ -123,7 +146,7 @@ command running right now. No glyph carries any of this.
 | | 21 | The watcher runs the current rite | `watch.d` | "it takes a super long time before an agent will reach Stop, sometimes it never gets there and is stuck in a loop even though the objective has been cleared" | Stop is the last-resort gate, not where the rite runs |
 | | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one, i case more clarification helps, i think it really helps to shape the course of development" | |
 | | 23 | Attest each rite's outcome | integration | — | mine |
-| | 24 | Start a ritual by naming it | command | "i want to specify a ritual" | `ground ritual boxsurvival`; naming it is starting it |
+| ✓ | 24 | Name a ritual | `ritual.d` | "i want to specify a ritual" / "i dont think that ground ritual start would be it" | `ground ritual tree`. `resolveRitual` separates no-such-ritual from wrong-project; `flatten` builds the rite list and the index `goto` needs. Today naming writes a live row — whether that is also starting is unanswered |
 | | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" | the exception, not the exit |
 | | 26 | List rituals for this path | command | "ask about rituals for where we are now (path in project)" | |
 | | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual in total" | |
@@ -146,6 +169,9 @@ Not in the example above, and therefore not implementable from it:
 | | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved". `Scope.decision` already does `"allow"`. The gate reads the live row, not a branch name, so authorisation ends when the performance does |
 | | 54 | A performance is identified by itself, not by where it happens | the worktree is where it is being performed, not what it is. The key is a performance id; repo, ritual, branch and worktree path are columns. Lookup by path when you stand in it, by repo when the tree is gone — losing the path loses a route to the record, not the record |
 | | 55 | A performance closed out on `WorktreeRemove` | ground cannot refuse the removal, so it writes down that the route is gone. Without 54 this only records the death; with it, the record survives |
+| | 59 | Ground removes the tree it made | no `WorktreeRemove` fires for a tree ground created, so nothing else will. Verified: a probe tree and its branch are still on disk. 55 records a removal that happens; this is the removal happening |
+| | 60 | Ground says it made one | creation is silent. The only way to learn a tree exists is `git worktree list` |
+| | 61 | The performance ends in a pull request | settled point 7 says the branch is what you merge. Nothing opens one. It is a rite — `gh pr create` before DONE — not a ground feature |
 
 Known defects in the example:
 
@@ -190,7 +216,7 @@ Claude Code hook events, in the context of this feature:
 | | 40 | `TaskCompleted` | — | inbound only. Attests what the agent did while a rite was held |
 | | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | fires when the turn ends on an API error. Payload adds `error_type` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`) and `error_message`. Cannot block, exit code ignored, output ignored |
 | | 42 | `Notification` | "Notification is one that is on my wish list actually" | fires when Claude Code sends a notification. Payload adds `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`) and `message`. Cannot block. Honors `systemMessage`, `terminalSequence` |
-| | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | fires only for Claude Code's own trees — `--worktree`, `isolation: "worktree"`, a background session. Not for a `git worktree add` you type. stdout prints the path; hook failure or no path fails the creation |
+| ✓ | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | fires only for Claude Code's own trees — `--worktree`, `isolation: "worktree"`, a background session. Not for a `git worktree add` you type. stdout prints the path; hook failure or no path fails the creation |
 | | 51 | `WorktreeRemove` | — | fires at session exit, when a subagent finishes, when a background session is deleted. No decision control; ground cannot refuse it |
 | | 56 | `CwdChanged` | — | payload `old_cwd`, `new_cwd`. How ground learns you stepped into or out of a performance's tree, instead of re-deriving it every hook. The lookup-by-path event |
 | | 57 | `SessionEnd` | — | a live performance in an ending session needs an answer, and this is what forces the question |

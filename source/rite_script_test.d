@@ -40,14 +40,14 @@ enum quoted = buildRiteScript("echo", ["msg"], ["it's"]);
 static assert(quoted.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmsg='it'\\''s'\necho\n");
 
 // --- What envSubst leaves behind ---
-// "i found a TODO at the top in controls/local/sbvh.pbt" / "env block right?"
+// "i found a TODO at the top in controls/local/x.pbt" / "env block right?"
 
 import rite : hasUnresolved;
 
 // envSubst returns an unknown ${key} unchanged (matcher.d:862). In a msg that
 // is a cosmetic defect. In a rite it is a command with a hole in it.
 static assert(hasUnresolved("curl -sf ${api}/api/plugins"));
-static assert(!hasUnresolved("curl -sf https://api.q.sbvh.nl/api/plugins"));
+static assert(!hasUnresolved("curl -sf https://api.example.invalid/api/plugins"));
 
 // $row is a shell variable the script assigns itself, not a project env key.
 static assert(!hasUnresolved(`make parity | grep "$row *YES *YES"`));

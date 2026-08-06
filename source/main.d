@@ -337,6 +337,19 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         return handlePostToolUseFailure(input, cwd, sessionId);
     }
 
+    // The one event where exiting 0 with no output is itself the failure:
+    // the docs make the printed path the success, and a hook that prints
+    // nothing aborts the creation.
+    if (event == HookEvent.WorktreeCreate) {
+        import worktree : handleWorktreeCreate;
+        return handleWorktreeCreate(input, cwd);
+    }
+
+    if (event == HookEvent.WorktreeRemove) {
+        import worktree : handleWorktreeRemove;
+        return handleWorktreeRemove(input, cwd);
+    }
+
     // Unknown/unhandled events — exit 0, no output
     return 0;
 }

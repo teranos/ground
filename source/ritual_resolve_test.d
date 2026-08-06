@@ -18,10 +18,10 @@ rites live {
 }
 
 project {
-  path: "/q.sbvh.nl"
-  env { api: "https://api.q.sbvh.nl" }
+  path: "/src/proj"
+  env { api: "https://api.example.invalid" }
 
-  ritual boxsurvival {
+  ritual probe {
     parity { row: "watchers" }
     live
   }
@@ -30,16 +30,16 @@ project {
 enum parsed = parsePbt(src);
 
 // The name resolves only where its project is.
-enum here = resolveRitual(parsed, "boxsurvival", "/Users/x/SBVH/sbvh-nl/q.sbvh.nl");
+enum here = resolveRitual(parsed, "probe", "/home/u/src/proj");
 static assert(here.fail == ResolveFail.None);
 static assert(here.index == 0);
 
 // Standing somewhere else is not the same failure as asking for a ritual that
 // does not exist, and one told as the other sends you looking in the wrong place.
-enum elsewhere = resolveRitual(parsed, "boxsurvival", "/Users/x/SBVH/teranos/QNTX");
+enum elsewhere = resolveRitual(parsed, "probe", "/home/u/src/other");
 static assert(elsewhere.fail == ResolveFail.WrongProject);
 
-enum absent = resolveRitual(parsed, "nosuch", "/Users/x/SBVH/sbvh-nl/q.sbvh.nl");
+enum absent = resolveRitual(parsed, "nosuch", "/home/u/src/proj");
 static assert(absent.fail == ResolveFail.NoSuchRitual);
 
 // --- Flattening ---

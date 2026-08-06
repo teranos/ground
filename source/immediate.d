@@ -539,6 +539,89 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
 // This row is that answer, and it does not depend on the run surviving.
 // With it, a missing result becomes informative instead of ambiguous.
 // after:0 — no gate, it is delivered on the watcher's next pass.
+// Something ground did, said out loud. Session-keyed, deliverable at once.
+// The alternative is what worktree creation was until now: ground makes a
+// directory and a branch and the only way to find out is git worktree list.
+bool writeNote(sqlite3* db,
+               const(char)[] sessionId,
+               const(char)[] key,
+               const(char)[] detail) {
+    import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
+
+    if (sessionId.length == 0) return false;
+
+    __gshared ZBuf idBuf;
+    idBuf.reset();
+    idBuf.put("immediate:note:");
+    idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(key);
+
+    __gshared ZBuf attrBuf;
+    attrBuf.reset();
+    attrBuf.put(`{"detail":"`);
+    foreach (c; detail) {
+        if (c == '"' || c == '\\') continue;
+        attrBuf.putChar(c);
+    }
+    attrBuf.put(`","after":0}`);
+
+    __gshared ZBuf ctxBuf;
+    ctxBuf.reset();
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
+    ctxBuf.put(`"]`);
+
+    __gshared ZBuf srcBuf;
+    srcBuf.reset();
+    srcBuf.put("ground ");
+    srcBuf.put(versionString());
+
+    auto ts = formatTimestamp();
+
+    enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+
+    foreach (attempt; 0 .. 10) {
+        sqlite3_stmt* stmt;
+        auto prep = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+        if (prep == SQLITE_BUSY) { usleep(50_000); continue; }
+        if (prep != SQLITE_OK) return false;
+
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, `["immediate:note"]`.ptr, 18, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+
+        auto step = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (step == SQLITE_DONE) return true;
+        if (step == SQLITE_BUSY) { usleep(50_000); continue; }
+        return false;
+    }
+    return false;
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    assert(writeNote(testDb, "sess-note", "worktree", "made a worktree at /tmp/x"));
+    auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-note");
+    assert(msg.message !is null, "a note must be deliverable at once");
+
+    // No session, nobody to tell.
+    assert(!writeNote(testDb, "", "worktree", "orphan"));
+    sqlite3_close(testDb);
+}
+
 bool writeExecStarted(sqlite3* db,
                       const(char)[] sessionId,
                       const(char)[] controlName,
