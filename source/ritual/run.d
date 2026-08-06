@@ -1,0 +1,156 @@
+module ritual.run;
+
+import rite : Verdict;
+import ritual.position : Position, RitualState, step, jump;
+import ritual.resolve : Flattened, indexOfRite;
+import ritual.record : attestRite;
+import ritual.store : writePosition;
+
+// One rite, run and recorded, and the position it leaves behind.
+struct Advanced {
+    bool ran;
+    Verdict verdict;
+    int code;
+    const(char)[] output;
+    Position after;
+}
+
+// The sequence nothing performed until now: read where we are, run that rite,
+// read its code as one of three answers, write it down, move.
+Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
+                     const Flattened f, long unixSeconds) {
+    import rite : prepareRite, runRite, classify;
+    import exec : emitError;
+
+    Advanced a;
+    a.after = p;
+    if (p.state != RitualState.Live) return a;
+    if (p.current >= f.count) return a;
+
+    auto r = f.rites[p.current];
+    auto prepared = prepareRite(r, p.worktree,
+                                r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
+    if (!prepared.ready) {
+        emitError("ritual.rite.unresolved", "the rite still holds a placeholder no project env resolves",
+                  0, 0, cast(string) sessionId, cast(string) r.name, "",
+                  cast(string) prepared.cmd, "");
+        return a;
+    }
+
+    auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
+    if (!run.ran) return a;
+
+    a.ran = true;
+    a.code = run.code;
+    a.output = run.output();
+    a.verdict = classify(run.code, r);
+
+    attestRite(db, sessionId, p, r.name, a.verdict, run.code, run.output(), unixSeconds);
+
+    auto moved = step(p, a.verdict);
+
+    // goto is what a caught code does when the rite names somewhere to go.
+    if (a.verdict == Verdict.Hold && r.goto_.length > 0) {
+        auto target = indexOfRite(f, r.goto_);
+        if (target >= 0) moved = jump(moved, cast(size_t) target);
+    }
+
+    writePosition(db, moved);
+    a.after = moved;
+    return a;
+}
+
+// What an agent is told at the start of a turn.
+struct Brief {
+    char[1024] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void put(ref Brief b, const(char)[] s) {
+    foreach (c; s) { if (b.len < b.buf.length) b.buf[b.len++] = c; }
+}
+
+private void putNum(ref Brief b, size_t v) {
+    char[20] d = 0;
+    size_t n;
+    if (v == 0) d[n++] = '0';
+    while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+    foreach (i; 0 .. n) b.put(d[n - 1 - i .. n - i]);
+}
+
+// A held rite reads the same as a fresh one: holding is not a failure, and an
+// agent told it failed goes looking for something to fix.
+Brief briefing(const Position p, const Flattened f) {
+    Brief b;
+    if (p.state == RitualState.Done) {
+        b.put("Ritual ");
+        b.put(p.ritual);
+        b.put(" is done.");
+        return b;
+    }
+    if (p.current >= f.count) return b;
+    auto r = f.rites[p.current];
+
+    if (p.state == RitualState.Halted) {
+        b.put("Ritual ");
+        b.put(p.ritual);
+        b.put(" halted on rite ");
+        b.putNum(p.current + 1);
+        b.put(" of ");
+        b.putNum(f.count);
+        b.put(": ");
+        b.put(r.name);
+        b.put(".");
+        return b;
+    }
+
+    b.put("Performing ritual ");
+    b.put(p.ritual);
+    b.put(", rite ");
+    b.putNum(p.current + 1);
+    b.put(" of ");
+    b.putNum(f.count);
+    b.put(": ");
+    b.put(r.name);
+    b.put(". It is met when this exits 0: ");
+    b.put(r.cmd);
+    if (r.msg.length > 0) {
+        b.put(". ");
+        b.put(r.msg);
+    }
+    return b;
+}
+
+// The command that starts the agent. -w names the tree and ground's own
+// WorktreeCreate handler places it, so the path is known before it exists.
+struct SpawnScript {
+    char[8192] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void put(ref SpawnScript s, const(char)[] t) {
+    foreach (c; t) { if (s.len < s.buf.length) s.buf[s.len++] = c; }
+}
+
+private void putQuoted(ref SpawnScript s, const(char)[] v) {
+    s.put("'");
+    foreach (c; v) {
+        if (c == '\'') s.put(`'\''`);
+        else if (s.len < s.buf.length) s.buf[s.len++] = c;
+    }
+    s.put("'");
+}
+
+SpawnScript spawnScript(const(char)[] root, const(char)[] treeName, const(char)[] prompt) {
+    SpawnScript s;
+    s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
+    s.putQuoted(root);
+    s.put("\nclaude -w ");
+    s.putQuoted(treeName);
+    s.put(" -p ");
+    s.putQuoted(prompt);
+    s.put("\n");
+    return s;
+}

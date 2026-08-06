@@ -165,7 +165,7 @@ Not in the example above, and therefore not implementable from it:
 | | 45 | A watcher that outlives one delivery | `watch.d:384` returns after one batch |
 | | 46 | The verdict as an immediate row | reaches the agent without a turn boundary |
 | | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded one |
-| ✓ | 52 | A performance has its own worktree and branch | tree is the identity, branch is what it is on |
+| | 52 | A performance has its own worktree and branch | `ground ritual` still writes `worktree = cwd` and spawns nothing |
 | | 53 | Commit, push and CI auto-approved inside a performance | gate reads the live row, not a name |
 | ✓ | 54 | A performance is identified by itself | path is an index, not the key |
 | ✓ | 55 | A performance closed out on `WorktreeRemove` | clears the stale path, keeps the record |
