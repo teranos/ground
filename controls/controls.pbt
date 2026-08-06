@@ -160,10 +160,10 @@ scope {
 # git merge — always squashes. A merge lands on the target as one commit.
 scope {
   event: "PreToolUse"
-  cmd: "git merge"
 
   control {
     name: "git-merge-always-squash"
+    cmd: "git merge"
     arg: "--squash"
     msg: "--squash added; a merge lands as one commit."
   }
@@ -183,10 +183,10 @@ scope {
 # local-side cleanup so it's blocked when paired with merge.
 scope {
   event: "PreToolUse"
-  cmd: "gh pr merge"
 
   control {
     name: "gh-pr-merge-always-delete-branch"
+    cmd: "gh pr merge"
     arg: "--delete-branch"
     msg: "--delete-branch added; branches die on merge."
   }
