@@ -141,17 +141,17 @@ command running right now. No glyph carries any of this.
 | ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent" | |
 | ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | per-rite, not a cursor |
 | ✓ | 18 | `goto` moves position | `ritual.d` | "i think i want goto, not else, goto seems more honest for what it is" | `indexOfRite` maps name to index |
-| | 19 | Hold and re-run on a caught code | `adaptive.d` | "so catch means hold, until true" | `pickAdaptiveSleep` is the interval |
+| | 19 | A rite that is not met throws the Stop back and the agent carries on | `stop.d` | "so catch means hold, until true" / "the rite is like a bucket we are currently intending to throw a Stop in, if the condition is not met we throw it back allowing the agent to continue, because the rite is blocking the Stop" | `stop.d` blocks once and `stop_hook_active` ends the turn. Nothing to do with polling |
 | ✓ | 20 | Halt with code + output on screen | `stop.d`, collet | "leave on the screen the non 0 non 1 was and its message" | the halted rite stays on the line in red |
-| ✓ | 21 | Something runs the current rite | `ritual.d` | "it takes a super long time before an agent will reach Stop" | `advance`. Caller is 45 |
-| | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one" | |
+| ✓ | 21 | The current rite runs and the position moves | `ritual.d` | "it takes a super long time before an agent will reach Stop" | `advance` |
+| | 22 | The agent knows where it is, what happened, and what the author said | integration | "msg i also want as anotgher optional one" | |
 | ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | one row per attempt |
 | ✓ | 24 | Name a ritual | `ritual.d` | "i want to specify a ritual" | naming writes a live row; is that starting? |
 | | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" | the exception, not the exit |
 | | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
 | | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
-| ✓ | 28 | Read position from ground db | collet | — | mine. READONLY could not open a WAL db, so this read nothing and neither did the ✉/⏳ counts |
-| | 29 | Render a ritual segment | collet | "[kill] is now active because we can see the [ and ]" | renders; an unknown glyph is refused at runtime, not at compile time |
+| ✓ | 28 | Collet knows where a performance is | collet | — | mine. READONLY could not open a WAL db, so this read nothing and neither did the ✉/⏳ counts |
+| | 29 | A state collet cannot render is a compile error | collet | "[kill] is now active because we can see the [ and ]" | it renders; an unknown glyph is refused at runtime, not at compile time |
 
 Not in the example above, and therefore not implementable from it:
 
@@ -162,19 +162,19 @@ Not in the example above, and therefore not implementable from it:
 | | 32 | Carrying a value between rites | — | `new` needs `$BEFORE` |
 | ✓ | 43 | Terminal state | "it ends when it ends, not because i ran ritual stop" | Done or Halted, reached by running |
 | ✓ | 44 | Colour for a ritual that ended | "green is passed" / "blinking red is halted" | done needs no word; halted and aborted say so |
-| ✓ | 45 | Something drives the loop while the agent works | "it takes a super long time before an agent will reach Stop" | `ground drive <tree>`. Eight rites in ten seconds against one per turn |
-| | 46 | The verdict as an immediate row | — | reaches the agent without a turn boundary |
-| | 47 | `ci-status` replaced by a rite | — | `watch.d:331-361` is a hardcoded one |
+| ✓ | 45 | The ritual keeps moving while the agent works | "it takes a super long time before an agent will reach Stop" | `ground drive <tree>`. Eight rites in ten seconds against one per turn |
+| | 46 | A rite's verdict reaches the agent without waiting for a turn to end | — | as an immediate row |
+| | 47 | A CI check is a rite like any other | — | `watch.d:331-361` is one hardcoded in D, with its own four outcomes and adaptive retry |
 | ✓ | 52 | A performance has its own worktree and branch | "each ritual perfomance occurs in separate named branches" | `repoRoot` locates the repo |
 | ✓ | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | the gate reads the live row, not a name |
 | ✓ | 54 | A performance is identified by itself | "the name of the branch is not something to key on" | path is an index, not the key |
-| ✓ | 55 | A performance closed out on `WorktreeRemove` | "item 55 approved now" | clears the stale path, keeps the record |
+| ✓ | 55 | A performance survives losing its worktree | "item 55 approved now" | `WorktreeRemove` clears the stale path and keeps the record |
 | ✓ | 59 | Ground removes the tree it made | "the reason you need to remove them by hand is because?" | the driver removes it on Done. A halt keeps its tree — what the failing rite left uncommitted is what you would look at |
 | ✓ | 60 | Ground says it made one | "I dont like that its siltent" | creation was silent |
 | ✓ | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | on Done only, and a halt opens nothing. `sbvh-nl/grove#1` was opened by a performance nobody touched after starting it |
 | ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | `MAX_GOTOS`. Spending the budget halts rather than holds — holding waits on a jump that will never come |
 | | 66 | Who passed each rite: the agent or ground | "i want to be able to know if an agent went through the chain or ground" / "agent should be at [ ]" / "and if ground went through them it should be a different green" / "the agent [ and ] should have moved no further than apple" | the bracket is the agent's position and stops where the agent stopped. Rites past it are a darker green because ground walked them. `advance` is called from `stop.d` for an agent turn and from `drive.d` for the driver and the row cannot tell them apart — today only the session on each rite attestation can |
-| | 68 | The closing sentences arrive after the line has gone | "i never saw the two sentences" | the agent writes minutes after DONE, the expiry counts from `updated_at`, and with no tail nothing forces a marquee. Measured: done at 75s with the agent still running and nothing written |
+| | 68 | The closing sentences are on screen when the ritual ends | "i never saw the two sentences" | the agent writes minutes after DONE, the expiry counts from `updated_at`, and with no tail nothing forces a marquee. Measured: done at 75s with the agent still running and nothing written |
 | | 64 | A completed ritual marquees the agent's closing sentences after its rites | "when a ritual ends fully, when it is fully ended and completed ... turns into this: SOURSOP > LIME > JACKFRUIT > CHECKWILLOW > DONE \| Done. All fruits are picked." / "i meant sentences" / "i dont care who owns the last rite" / "the colors should do the work" / "and the brackets" | the rite line is kept and scrolls; the sentences follow a `\|`. No prose restating position — the colours and brackets do that |
 | ✓ | 63 | Ground commits, not the agent | "n, i dont trust the agent with it" | one commit per rite that passed and changed the tree. Eight commits for ten rites — START and CHECKTREE changed nothing |
 
