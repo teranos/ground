@@ -274,6 +274,11 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "ritual_position", "session", "TEXT");
     ensureColumn(db, "ritual_position", "agent", "TEXT");
     ensureColumn(db, "ritual_position", "gotos", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "parent", "TEXT");
+    ensureColumn(db, "ritual_position", "agent_pid", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "thrown_at", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "throws", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "acted_at", "INTEGER NOT NULL DEFAULT 0");
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";

@@ -65,6 +65,23 @@ static assert(commitScript("/r", "t", "X").text() ==
     ~ "git diff --cached --quiet && exit 0\n"
     ~ "git commit -q -m 't: X'\n");
 
+// --- The ending ends the agent ---
+// Measured 2026-08-07: eight `claude -w` processes still editing worktrees of
+// performances that had ended, the oldest an hour past its abort.
+
+import ritual : reapScript;
+
+// The wrapper's child is the script and its child is the agent, so the pid
+// ground forked does not reach it. The performance id does: it is in the
+// agent's own command line and nowhere else.
+enum reap = reapScript("willow-1786133819");
+static assert(reap.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\n"
+    ~ "pkill -f 'claude -w willow-1786133819' || true\n");
+
+// No id, nothing to reap — a bare pattern would match every agent running.
+static assert(reapScript("").text() == "");
+
 // A performance that reached DONE ends in the thing you merge. A push that
 // fails or a PR that will not open is the difference between a verdict and
 // the belief that there is one, so neither is tolerated quietly.

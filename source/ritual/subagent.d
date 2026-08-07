@@ -3,7 +3,7 @@ module ritual.subagent;
 import ritual.position : RitualState;
 import ritual.resolve : flatten;
 import ritual.run : briefing;
-import ritual.store : liveHere, writePosition;
+import ritual.store : liveByParent, writePosition;
 
 // An agent started with a ritual. SubagentStart is the only place the owning
 // session and the agent are both known, so it is where a performance stops
@@ -17,7 +17,7 @@ int handleSubagentStart(const(char)[] input, const(char)[] cwd, const(char)[] se
     auto db = openDb();
     if (db is null) return 0;
 
-    auto found = liveHere(db, cwd);
+    auto found = liveByParent(db, sessionId);
     if (!found.valid || found.p.state != RitualState.Live) {
         sqlite3_close(db);
         return 0;
@@ -47,6 +47,14 @@ int handleSubagentStart(const(char)[] input, const(char)[] cwd, const(char)[] se
     return 0;
 }
 
+// Refusing a subagent's stop is the whole mechanism, and the only thing that
+// decides it is whether the performance is still going.
+enum SubagentOutcome { Refuse, Release }
+
+SubagentOutcome subagentOutcome(RitualState state) {
+    return state == RitualState.Live ? SubagentOutcome.Refuse : SubagentOutcome.Release;
+}
+
 // An agent stopping with rites unmet. Exit 2 refuses it, which is the only
 // place a subagent can be refused — its Stop is not the session's Stop.
 int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
@@ -60,7 +68,7 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
     auto db = openDb();
     if (db is null) return 0;
 
-    auto found = liveHere(db, cwd);
+    auto found = liveByParent(db, sessionId);
     if (!found.valid) { sqlite3_close(db); return 0; }
 
     char[128] agentBuf = 0;
@@ -88,21 +96,66 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
         writeNote(db, found.p.session, "ritual-agent-last", note.slice());
     }
 
-    auto state = found.p.state;
-    auto ritualName = found.p.ritual;
-    sqlite3_close(db);
+    if (found.p.state != RitualState.Live) { sqlite3_close(db); return 0; }
 
-    if (state != RitualState.Live) return 0;
-
-    // The rites are not met and the agent is leaving. Say which one.
+    // The agent believes it is finished, so this is the moment to ask the
+    // rite. Until now this handler re-read the briefing and never ran one.
     static immutable parsed = allParsed;
     foreach (i; 0 .. parsed.ritualCount) {
-        if (parsed.rituals[i].name != ritualName) continue;
-        auto brief = briefing(found.p, flatten(parsed, i));
-        if (brief.len == 0) break;
-        fwrite(brief.buf.ptr, 1, brief.len, stderr);
-        fputs("\n", stderr);
-        return 2;
+        if (parsed.rituals[i].name != found.p.ritual) continue;
+
+        import core.stdc.time : time;
+        import ritual.position : threw;
+        import ritual.run : advance;
+        import ritual.store : writePosition;
+        import rite : Verdict;
+
+        auto flat = flatten(parsed, i);
+        auto res = advance(db, sessionId, found.p, flat, cast(long) time(null));
+        if (!res.ran) break;
+
+        auto back = res.after;
+        if (res.verdict == Verdict.Hold) {
+            back = threw(back);
+            back.thrownAt = cast(long) time(null);
+        } else {
+            back.thrownAt = 0;
+        }
+        writePosition(db, back);
+
+        // The two sentences, to the session watching. session_id on this hook
+        // is the parent's, so there is nobody else to tell.
+        if (sessionId.length > 0) {
+            import notification : riteLine;
+            import sentences : firstTwoSentences;
+
+            auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
+                                 res.verdict,
+                                 last is null ? "" : firstTwoSentences(last),
+                                 found.p.id);
+            __gshared ZBuf key;
+            key.reset();
+            key.put("rite:");
+            key.put(found.p.id);
+            key.put(":");
+            key.put(flat.rites[found.p.current].name);
+            writeNote(db, sessionId, key.slice(), line.text());
+        }
+
+        auto brief = briefing(back, flat);
+        sqlite3_close(db);
+
+        final switch (subagentOutcome(back.state)) {
+        case SubagentOutcome.Release:
+            return 0;
+        case SubagentOutcome.Refuse:
+            if (brief.len == 0) return 0;
+            fwrite(brief.buf.ptr, 1, brief.len, stderr);
+            fputs("\n", stderr);
+            return 2;
+        }
     }
+
+    sqlite3_close(db);
     return 0;
 }

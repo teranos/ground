@@ -93,6 +93,33 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
+
+    // `ground ritual` is a CLI call and carries no session, so the row it
+    // writes has nobody to report to. This is the one place the command and
+    // the session that ran it are both in hand, and the row already exists.
+    if (command !is null && sessionId.length > 0) {
+        import ritual : ritualStarted, readPosition, writePosition, RitualState;
+        import controls : allParsed;
+        import db : openDb, sqlite3_close;
+
+        auto started = ritualStarted(command);
+        if (started.length > 0) {
+            static immutable parsed = allParsed;
+            foreach (i; 0 .. parsed.ritualCount) {
+                if (parsed.rituals[i].name != started) continue;
+                auto db = openDb();
+                if (db is null) break;
+                auto found = readPosition(db, parsed.rituals[i].projectPath);
+                if (found.valid && found.p.state == RitualState.Live
+                    && found.p.parent.length == 0) {
+                    found.p.parent = sessionId;
+                    writePosition(db, found.p);
+                }
+                sqlite3_close(db);
+                break;
+            }
+        }
+    }
     auto detail = command !is null ? command : (filePath !is null ? filePath : cast(const(char)[])"PostToolUse");
 
     auto tParse = usecNow();

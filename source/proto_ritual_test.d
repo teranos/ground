@@ -81,6 +81,42 @@ static assert(passParsed.rites[0].rites[0].catches[0] == 0);
 static assert(passParsed.rites[0].rites[1].pass == 0);
 static assert(passParsed.rites[0].rites[1].catches[0] == 1);
 
+// "in case something else comes is fast which does happen sometimes"
+// Seconds ground keeps a Stop the rite did not pass. The window ends when the
+// Stop goes back — nothing checks again until the agent's next one.
+enum graceInput = `
+rites shipped {
+  built  { cmd: "test -x build/ground"  grace: 6 }
+  sealed { cmd: "git diff --quiet" }
+}
+`;
+enum graceParsed = parsePbt(graceInput);
+
+// A linker still writing when the turn ended is the case: six seconds costs
+// nothing and saves the agent a whole turn spent re-checking.
+static assert(graceParsed.rites[0].rites[0].grace == 6);
+
+// Silence means 2. A diff is clean or it is not, the instant you ask.
+static assert(graceParsed.rites[0].rites[1].grace == 2);
+
+// "before the rite check takes place"
+// wait is spent before the first look, so it is taken after the turn's work
+// has settled. grace is the second look, and a pass cuts it short.
+enum waitInput = `
+rites paced {
+  polled { cmd: "gh pr checks 833"  catch: 1  wait: 20 }
+  quick  { cmd: "true" }
+}
+`;
+enum waitParsed = parsePbt(waitInput);
+static assert(waitParsed.rites[0].rites[0].wait == 20);
+
+// Silence means none. A rite that does not say so is not slowed down.
+static assert(waitParsed.rites[0].rites[1].wait == 0);
+
+// The two are independent: a rite can declare either, both, or neither.
+static assert(waitParsed.rites[0].rites[0].grace == 2);
+
 // A code cannot both advance and hold.
 enum overlapInput = `
 rites bad {

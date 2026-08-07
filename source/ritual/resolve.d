@@ -1,5 +1,38 @@
 module ritual.resolve;
 
+private bool isSep(char c) {
+    return c == '&' || c == ';' || c == '|' || c == '\n';
+}
+
+private bool isBlank(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+// The ritual a shell command starts, if it starts one. `ground ritual` has to
+// be a command rather than a word inside one, or a grep for the phrase binds
+// the parent session to whoever read the documentation.
+const(char)[] ritualStarted(const(char)[] cmd) {
+    enum verb = "ground ritual";
+    if (cmd.length < verb.length) return "";
+
+    foreach (i; 0 .. cmd.length - verb.length + 1) {
+        if (cmd[i .. i + verb.length] != verb) continue;
+
+        size_t back = i;
+        while (back > 0 && isBlank(cmd[back - 1])) back--;
+        if (back > 0 && !isSep(cmd[back - 1])) continue;
+
+        size_t s = i + verb.length;
+        while (s < cmd.length && isBlank(cmd[s])) s++;
+        if (s == i + verb.length) continue;  // "ground rituals", not "ground ritual x"
+
+        size_t e = s;
+        while (e < cmd.length && !isBlank(cmd[e])) e++;
+        return cmd[s .. e];
+    }
+    return "";
+}
+
 import ritual.position : MAX_RITES;
 
 // Told as each other, these send you looking in the wrong place.

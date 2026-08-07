@@ -33,10 +33,14 @@ struct Position {
     const(char)[] worktree;
     const(char)[] rites;   // comma-joined names, so the row renders alone
     const(char)[] session; // the session that owns it
+    const(char)[] parent;  // the session that started it, and is owed the news
     const(char)[] agent;   // the agent carrying it, if one was started with it
+    int agentPid;          // the process carrying it, so an ending can end it
+    long thrownAt;         // when the rite last threw a Stop back at the agent
     size_t current;
     size_t riteCount;
     size_t gotos;          // jumps taken, against MAX_GOTOS
+    size_t throws;         // times this rite threw the Stop back
     RiteState[MAX_RITES] states;
     RitualState state;
 }
@@ -65,6 +69,33 @@ PerfId performanceId(const(char)[] ritual, long unixSeconds) {
     return p;
 }
 
+// A performance is `willow-1786132853`. Nobody types that, and a trace line
+// saying only `willow` cannot be told from the next performance's.
+struct ShortId {
+    char[3] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+ShortId shortId(const(char)[] performanceId) {
+    ShortId s;
+    size_t at = performanceId.length;
+    while (at > 0 && performanceId[at - 1] >= '0' && performanceId[at - 1] <= '9') at--;
+    if (at == performanceId.length) return s;
+
+    size_t v;
+    foreach (c; performanceId[at .. $]) v = v * 10 + (c - '0');
+    v %= 46_656;  // 36^3, about thirteen hours of seconds
+
+    static immutable string ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
+    foreach_reverse (i; 0 .. 3) {
+        s.buf[i] = ALPHABET[v % 36];
+        v /= 36;
+    }
+    s.len = 3;
+    return s;
+}
+
 Position start(const(char)[] name, size_t riteCount) {
     Position p;
     p.ritual = name;
@@ -82,6 +113,7 @@ Position step(Position p, Verdict v) {
     case Verdict.Advance:
         p.states[p.current] = RiteState.Passed;
         p.current++;
+        p.throws = 0;
         if (p.current >= p.riteCount) p.state = RitualState.Done;
         break;
     case Verdict.Hold:
@@ -92,6 +124,29 @@ Position step(Position p, Verdict v) {
         p.state = RitualState.Halted;
         break;
     }
+    return p;
+}
+
+// The Stop went back. Separate from step(Hold) because the watcher evaluates
+// the same rite every fifteen seconds without the agent ever seeing it, and a
+// count that included those would say twenty where the agent was told once.
+Position threw(Position p) {
+    p.throws++;
+    return p;
+}
+
+// An ending ends the agent too. A pid of 0 is never signalled — kill(0, …)
+// hits the whole process group, which is every claude on the machine.
+bool owesKill(const Position p) {
+    if (p.agentPid <= 0) return false;
+    return p.state != RitualState.Live;
+}
+
+// Every outward channel keys on the performance's session. The first session
+// to start in the tree owns it; a later one does not take it over, or the
+// driver's notes would follow whoever opened a terminal there last.
+Position bindSession(Position p, const(char)[] sessionId) {
+    if (p.session.length == 0 && sessionId.length > 0) p.session = sessionId;
     return p;
 }
 
@@ -107,6 +162,7 @@ Position abort(Position p) {
 // ritual is about to walk over it again.
 Position jump(Position p, size_t target) {
     if (target >= p.riteCount) return p;
+    if (target != p.current) p.throws = 0;
     p.current = target;
     if (p.state == RitualState.Done) p.state = RitualState.Live;
     return p;

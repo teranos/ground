@@ -54,6 +54,18 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         wantsJump = false;
     }
 
+    // A halt is the outcome that needs a person, and the block message only
+    // reaches the agent. This is the one path that reaches the operator.
+    if (a.verdict == Verdict.Halt) {
+        import rite : unreached;
+        auto why = unreached(run.code)
+            ? "the rite never reached its tree, so its condition did not run"
+            : "the rite answered with a code it does not declare";
+        emitError("ritual.rite.halt", why, 0, run.code, cast(string) sessionId,
+                  cast(string) r.name, "", cast(string) prepared.cmd,
+                  cast(string) a.output);
+    }
+
     attestRite(db, sessionId, p, r.name, a.verdict, run.code, a.output, unixSeconds);
 
     auto moved = step(p, a.verdict);
@@ -148,6 +160,12 @@ Brief briefing(const Position p, const Flattened f) {
     b.putNum(f.count);
     b.put(": ");
     b.put(r.name);
+    // Being asked again is the one thing a held rite's briefing never said, so
+    // an agent in a loop had no way to know it was in one.
+    if (p.throws > 0) {
+        b.put("x");
+        b.putNum(p.throws);
+    }
     // The rite declares its own pass code. Saying 0 when the rite passes on 1
     // tells the agent the inverse of the condition, and it acts on that.
     b.put(". It is met when this exits ");
@@ -200,6 +218,22 @@ SpawnScript commitScript(const(char)[] tree, const(char)[] ritual, const(char)[]
     msg.put(rite);
     s.putQuoted(msg.text());
     s.put("\n");
+    return s;
+}
+
+// An ending ends the agent. The pid ground forked is the wrapper's, whose
+// child is the script, whose child is the agent — so the id is the handle,
+// and it appears in the agent's command line and nowhere else.
+SpawnScript reapScript(const(char)[] performanceId) {
+    SpawnScript s;
+    if (performanceId.length == 0) return s;
+    s.put("#!/usr/bin/env bash\nset -euo pipefail\npkill -f ");
+
+    SpawnScript pat;
+    pat.put("claude -w ");
+    pat.put(performanceId);
+    s.putQuoted(pat.text());
+    s.put(" || true\n");
     return s;
 }
 

@@ -9,6 +9,15 @@ import rite : Verdict;
 extern (C) uint sleep(uint seconds);
 extern (C) int access(const(char)* path, int mode);
 
+// A tree that is not there is two different facts, and the driver ran rites
+// through both of them.
+enum TreeVerdict { Run, Wait, Gone }
+
+TreeVerdict treeVerdict(bool exists, bool sawTree) {
+    if (exists) return TreeVerdict.Run;
+    return sawTree ? TreeVerdict.Gone : TreeVerdict.Wait;
+}
+
 // ground drive <worktree> — the loop that keeps a performance moving. The
 // watcher cannot: delivery is `exit 2`, so it dies every time it speaks, and
 // an agent working a rite reaches neither a Stop nor a new watcher.
@@ -34,8 +43,11 @@ int handleDrive(int argc, const(char)** argv) {
     bool sawTree = false;
 
     for (;;) {
-        if (access(argv[2], 0) == 0) sawTree = true;
-        else if (sawTree) return 0;
+        final switch (treeVerdict(access(argv[2], 0) == 0, sawTree)) {
+        case TreeVerdict.Run:  sawTree = true; break;
+        case TreeVerdict.Gone: return 0;
+        case TreeVerdict.Wait: sleep(1); continue;
+        }
 
         auto db = openDb();
         if (db is null) return 0;
@@ -55,6 +67,15 @@ int handleDrive(int argc, const(char)** argv) {
                 auto root = repoRoot(parsed, repo);
                 if (root.length > 0) removeWorktree(root, tree);
             }
+
+            // Whatever the ending, the agent stops. Done removed the tree out
+            // from under one that was still running in it.
+            if (found.valid && found.p.id.length > 0) {
+                import rite : runRite;
+                import ritual.run : reapScript;
+                auto reap = reapScript(found.p.id);
+                if (reap.text().length > 0) runRite(reap.text(), "ritual-reap", "");
+            }
             return 0;
         }
 
@@ -68,12 +89,38 @@ int handleDrive(int argc, const(char)** argv) {
             // A held rite waits on the world, so asking twice a second is noise.
             nextSleep = res.verdict == Verdict.Hold ? 15 : 2;
 
+            // A rite the agent has not met, said to the agent. Its watcher
+            // delivers this as a wake — the driver otherwise notices a stall
+            // every fifteen seconds and tells nobody.
+            if (res.verdict == Verdict.Hold && found.p.session.length > 0)
+                writeNote(db, found.p.session, "rite-open",
+                          briefing(found.p, flat).text());
+
             if (res.after.current != found.p.current
                 || res.after.state != RitualState.Live) {
                 moved = true;
                 if (found.p.session.length > 0)
                     writeNote(db, found.p.session, "ritual-moved",
                               briefing(res.after, flat).text());
+            }
+
+            // Every rite, not only the ones an agent's Stop answered — the
+            // driver walks most of them, and walked all of them silently.
+            // Only on a move: a held rite is re-run every cycle.
+            if (moved && found.p.parent.length > 0) {
+                import notification : riteLine;
+                import db : ZBuf;
+
+                auto rite = flat.rites[found.p.current].name;
+                auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id);
+
+                __gshared ZBuf key;
+                key.reset();
+                key.put("rite:");
+                key.put(found.p.id);
+                key.put(":");
+                key.put(rite);
+                writeNote(db, found.p.parent, key.slice(), line.text());
             }
             break;
         }

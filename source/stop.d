@@ -89,6 +89,15 @@ void writeStopResponse(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
+// "the agent carries on" — verbatim, and `continue` is the field that says so.
+// Blocking alone left the agent doing one Edit every 605 seconds.
+void writeStopContinue(const(char)[] reason) {
+    fputs(`{"decision":"block","continue":true,"reason":"`, stdout);
+    writeJsonString(reason);
+    fputs(`"}`, stdout);
+    fputs("\n", stdout);
+}
+
 // cwd/sessionId stashed by handleStop so writeStopResponse callers don't need them
 __gshared const(char)[] g_cwd;
 __gshared const(char)[] g_sessionId;
@@ -187,6 +196,19 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 auto res = advance(db, sessionId, found.p, flat, cast(long) time(null));
                 if (!res.ran) break;
 
+                // The bucket did not take it. Stamped while the rite is in
+                // that state, cleared when it finally takes one — being
+                // thrown back lasts until the rite passes, it is not a flash.
+                import ritual : writePosition, threw;
+                auto back = res.after;
+                if (res.verdict == Verdict.Hold) {
+                    back = threw(back);
+                    back.thrownAt = cast(long) time(null);
+                } else {
+                    back.thrownAt = 0;
+                }
+                writePosition(db, back);
+
                 __gshared ZBuf rmsg;
                 rmsg.reset();
 
@@ -204,11 +226,49 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         rmsg.put(res.output);
                     }
                 } else {
-                    rmsg.put(briefing(res.after, flat).text());
+                    // What just happened, then where that leaves it. Without
+                    // the first half an agent is told to do the next thing
+                    // and never learns whether the last thing counted.
+                    if (res.verdict == Verdict.Advance) {
+                        rmsg.put(flat.rites[found.p.current].name);
+                        rmsg.put(" passed. ");
+                    }
+                    rmsg.put(briefing(back, flat).text());
+                }
+
+                // What the rite answered and what the agent said about it, to
+                // the session that started the performance. This block used to
+                // return before last_assistant_message was ever read.
+                if (found.p.parent.length > 0) {
+                    import immediate : writeNote;
+                    import notification : riteLine;
+                    import sentences : firstTwoSentences;
+
+                    auto said = extractLastAssistantMessage(input);
+                    auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
+                                         res.verdict,
+                                         said is null ? "" : firstTwoSentences(said),
+                                         found.p.id);
+
+                    // The immediate queue, which the watcher polls every two
+                    // seconds. Keyed on performance and rite so each line is
+                    // its own row rather than replacing the one before it.
+                    __gshared ZBuf key;
+                    key.reset();
+                    key.put("rite:");
+                    key.put(found.p.id);
+                    key.put(":");
+                    key.put(flat.rites[found.p.current].name);
+                    writeNote(db, found.p.parent, key.slice(), line.text());
+
                 }
 
                 sqlite3_close(db);
-                writeStopResponseAndNotify(rmsg.slice());
+
+                // A rite's block is the one place the agent is meant to keep
+                // going rather than stop. Everything else keeps the old shape.
+                writeStopContinue(rmsg.slice());
+                notifyLoomHook(cwd, sessionId, rmsg.slice());
                 return 0;
             }
         }

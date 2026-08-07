@@ -305,12 +305,23 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     // something interrupts it.
     {
         import db : openDb, sqlite3_close;
-        import ritual : readPositionAt, briefing, flatten;
+        import ritual : readPositionAt, briefing, flatten, bindSession, writePosition,
+                        RitualState;
         import controls : allParsed;
 
         auto rdb = openDb();
         if (rdb !is null) {
             auto found = readPositionAt(rdb, cwd);
+
+            // SubagentStart was the only writer of the session, and it does
+            // not fire for `claude -w`. The agent's own start is where the
+            // performance learns who is carrying it.
+            if (found.valid && found.p.state == RitualState.Live
+                && found.p.session.length == 0 && sessionId.length > 0) {
+                found.p = bindSession(found.p, sessionId);
+                writePosition(rdb, found.p);
+            }
+
             sqlite3_close(rdb);
             if (found.valid) {
                 static immutable parsed = allParsed;

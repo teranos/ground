@@ -46,12 +46,6 @@ int handleAbort(int argc, const(char)** argv) {
         known = true;
         break;
     }
-    if (!known) {
-        fputs("ground abort: no ritual named ", stderr);
-        fwrite(name.ptr, 1, name.length, stderr);
-        fputs("\n", stderr);
-        return 1;
-    }
 
     auto db = openDb();
     if (db is null) {
@@ -59,7 +53,19 @@ int handleAbort(int argc, const(char)** argv) {
         return 1;
     }
 
-    auto found = readPosition(db, parsed.rituals[idx].projectPath);
+    // The three characters off the status line name one performance. A ritual
+    // name names whichever row was written last, which is not a choice.
+    import ritual.store : byHandle;
+    auto found = known ? readPosition(db, parsed.rituals[idx].projectPath)
+                       : byHandle(db, name);
+
+    if (!known && !found.valid) {
+        sqlite3_close(db);
+        fputs("ground abort: no ritual and no live performance named ", stderr);
+        fwrite(name.ptr, 1, name.length, stderr);
+        fputs("\n", stderr);
+        return 1;
+    }
     if (!found.valid || found.p.state != RitualState.Live) {
         sqlite3_close(db);
         fputs("ground abort: nothing live to abort\n", stderr);
@@ -69,6 +75,15 @@ int handleAbort(int argc, const(char)** argv) {
     auto p = abort(found.p);
     auto ok = writePosition(db, p);
     sqlite3_close(db);
+
+    // The row is not the performance. An agent left running keeps editing a
+    // worktree and committing into a walk that ended.
+    {
+        import rite : runRite;
+        import ritual.run : reapScript;
+        auto reap = reapScript(p.id);
+        if (reap.text().length > 0) runRite(reap.text(), "ritual-reap", "");
+    }
     if (!ok) {
         fputs("ground abort: could not write the position\n", stderr);
         return 1;
@@ -76,6 +91,15 @@ int handleAbort(int argc, const(char)** argv) {
 
     // The tree stays. What the rite it stopped on left behind is the reason
     // somebody aborted, and removing it removes the evidence.
+    // Reached by handle, the ritual index was never resolved — find it from
+    // the row, which names its own ritual.
+    if (!known) {
+        foreach (i; 0 .. parsed.ritualCount) {
+            if (parsed.rituals[i].name != p.ritual) continue;
+            idx = i;
+            break;
+        }
+    }
     printLine(p, flatten(parsed, idx));
     fwrite(p.worktree.ptr, 1, p.worktree.length, stdout);
     fputs("\n", stdout);
@@ -164,26 +188,16 @@ int handleRitual(int argc, const(char)** argv) {
         return 1;
     }
 
-    // The agent starts knowing what it carries: its SessionStart reads the
-    // row that was just written.
+    // Ground cannot spawn a sidechain — it is a hook, and only the model calls
+    // Task. So it asks, and the session that asked launches the agent inside
+    // itself. A detached `claude -w` was reachable by nothing but pkill.
     {
         auto brief = briefing(p, flat);
-        auto script = spawnScript(root, p.id, brief.text());
-        dispatchExec(cast(string) script.text(), "ritual", "", 86_400,
-                     [], [], "", root, "");
-    }
-
-    // And the loop that keeps it moving while the agent works. Without this
-    // the position only advances when a turn ends, which for a working agent
-    // can be never.
-    {
-        __gshared ZBuf driver;
-        driver.reset();
-        driver.put("#!/usr/bin/env bash\nexec ground drive '");
-        driver.put(p.worktree);
-        driver.put("'\n");
-        dispatchExec(cast(string) driver.slice(), "ritual-drive", "", 86_400,
-                     [], [], "", root, "");
+        fputs("Launch a subagent to perform this ritual. It works in ", stdout);
+        fwrite(p.worktree.ptr, 1, p.worktree.length, stdout);
+        fputs(" and its prompt is:\n\n", stdout);
+        fwrite(brief.buf.ptr, 1, brief.len, stdout);
+        fputs("\n\n", stdout);
     }
 
     printLine(p, flat);

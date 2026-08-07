@@ -3,7 +3,7 @@ module rite_script_test;
 // The text a rite actually runs.
 // Brandon: "wouldnt the pipefail need to be present essentially everywhere?"
 
-import rite : buildRiteScript, RiteScript;
+import rite : buildRiteScript, RiteScript, RITE_UNREACHED, runRite;
 
 // Every rite runs under the same three flags. They are not hygiene — each
 // one closes a way a rite can report a pass it did not earn.
@@ -44,7 +44,17 @@ static assert(quoted.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmsg='it'
 // can print and run by hand.
 enum located = buildRiteScript("/home/u/src/proj-probe", "make test", [], []);
 static assert(located.text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-probe'\nmake test\n");
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-probe' || exit 125\nmake test\n");
+
+// Reaching the tree is not the condition. Silence about catch means 1
+// (proto.d:1205), so a cd that failed with 1 read as "not yet" — measured:
+// a performance recorded "the fruit is still hanging" when the tree was gone.
+unittest {
+    auto r = runRite(buildRiteScript("/no/such/tree/anywhere", "true", [], []).text());
+    assert(r.code == RITE_UNREACHED);
+    assert(r.code != 0);
+    assert(r.code != 1);
+}
 
 // --- What envSubst leaves behind ---
 // "i found a TODO at the top in controls/local/x.pbt" / "env block right?"
@@ -84,7 +94,7 @@ unittest {
     // prepareRite's cwd is the performance's tree, so it is both what envSubst
     // resolves against and where the rite runs.
     assert(p.script.text() ==
-        "#!/usr/bin/env bash\nset -euo pipefail\ncd '/no/project/matches/this'\nmake parity\n");
+        "#!/usr/bin/env bash\nset -euo pipefail\ncd '/no/project/matches/this' || exit 125\nmake parity\n");
 }
 
 // --- The flags against a real shell ---

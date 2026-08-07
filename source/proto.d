@@ -111,6 +111,14 @@ struct ParsedRite {
     int[8] catches;
     size_t catchCount;
     string goto_;
+    // Seconds ground keeps a Stop the rite did not pass, before throwing it
+    // back. The window ends there — nothing checks the rite again until the
+    // agent's next Stop, so this is grace, not a poll.
+    int grace = 2;
+    // Seconds ground sleeps before running the rite at all, so the first look
+    // is taken after whatever the turn left in flight has settled. Nothing
+    // shortens it — there is no answer yet to shorten it with.
+    int wait = 0;
 }
 
 // A rites group is material — it is never invoked, only referenced.
@@ -1260,6 +1268,8 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
             case "msg":  r.msg = val; break;
             case "goto": r.goto_ = val; break;
             case "pass": r.pass = parseInt(val); break;
+            case "grace": r.grace = parseInt(val); break;
+            case "wait": r.wait = parseInt(val); break;
             default: assert(0, "Unknown rite field");
         }
     }

@@ -18,8 +18,9 @@ enum HookEvent {
                         // TODO: exit 2 — stderr fed back to Claude as feedback
                         // TODO: suppressOutput:true hides stdout; updatedToolOutput rewrites the result
     PostToolUseFailure, // trigger-matched hints on failure (e.g. wrong directory)
-    Notification,       // TODO: cross-session awareness — session A completes a 4+ min task, idle_prompt
-                        //   fires; combine with session B's next Notification to surface the result
+    Notification,       // a halted performance, said once per session. No decision control:
+                        //   exit 2 shows stderr to the user and is the only reply it accepts
+                        //   fires on permission_prompt, idle_prompt, agent_needs_input, agent_completed
     SubagentStart,      // TODO: agent-type scoped controls — inject context or adjust decisions per type
                         //   payload: agent_type, agent_id, session_id, cwd
                         //   time-scoped modes could auto-approve agent spawning during event windows

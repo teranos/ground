@@ -32,6 +32,14 @@ private void put(ref RiteScript s, const(char)[] t) {
     }
 }
 
+private void putNum(ref RiteScript s, int v) {
+    char[12] d = 0;
+    size_t n;
+    if (v == 0) d[n++] = '0';
+    while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+    foreach (i; 0 .. n) s.put(d[n - 1 - i .. n - i]);
+}
+
 // Single-quote a value and end the quoting around any quote inside it, so no
 // part of a param is ever read as shell.
 private void putQuoted(ref RiteScript s, const(char)[] v) {
@@ -53,6 +61,15 @@ bool hasUnresolved(const(char)[] cmd) {
 
 // Why a rite never reached a process. Not an exit code — nothing exited.
 enum RunFailure { None, Mkstemp, Write, Chmod, Popen, Pclose }
+
+// A rite that could not reach its tree never evaluated its condition. Silence
+// about catch means 1, so a failed cd read as "not yet"; this code is outside
+// what a condition returns, and CTFE refuses a rite that declares it.
+enum RITE_UNREACHED = 125;
+
+// RunFailure is "nothing exited". This is the third category: a process ran
+// and exited, but the condition never did.
+bool unreached(int code) { return code == RITE_UNREACHED; }
 
 // What one run of a rite produced. `ran` is the gate: a code is only the
 // verdict's input when a process actually produced it.
@@ -86,6 +103,8 @@ RiteScript buildRiteScript(const(char)[] cwd, const(char)[] cmd,
     if (cwd.length > 0) {
         s.put("cd ");
         s.putQuoted(cwd);
+        s.put(" || exit ");
+        s.putNum(RITE_UNREACHED);
         s.put("\n");
     }
     foreach (i; 0 .. keys.length) {

@@ -327,6 +327,13 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         return handleSessionStart(source, cwd, sessionId);
     }
 
+    // The only event that reaches the person and costs nothing: exit 2 shows
+    // stderr and nothing else. Registered since forever, handled by nobody.
+    if (event == HookEvent.Notification) {
+        import notification : handleNotification;
+        return handleNotification(input, cwd, sessionId);
+    }
+
     if (event == HookEvent.PreCompact) {
         import precompact : handlePreCompact;
         return handlePreCompact(input, cwd, sessionId);

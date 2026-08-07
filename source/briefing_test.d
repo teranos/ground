@@ -42,6 +42,29 @@ static assert(second.text() ==
 enum held = step(step(fresh, Verdict.Advance), Verdict.Hold);
 static assert(briefing(held, flat).text() == second.text());
 
+// Holding is not being thrown back. The watcher runs the same rite every 15
+// seconds (watch.d:375) and the agent never learns of it, so the count is
+// stamped where the Stop actually goes back, not where the rite is evaluated.
+import ritual : threw;
+
+enum thrown1 = threw(held);
+static assert(briefing(thrown1, flat).text() ==
+    "Performing ritual probe, rite 2 of 3: PICKx1. "
+    ~ "It is met when this exits 0: grep -q x T.md. Take one and commit.");
+
+// "if there is back and forward, it would mean the counter increments no?"
+// A frozen count is the stall; a climbing one is the ping-pong. It reads the
+// same here as it does on the status line.
+enum thrown3 = threw(threw(thrown1));
+static assert(briefing(thrown3, flat).text() ==
+    "Performing ritual probe, rite 2 of 3: PICKx3. "
+    ~ "It is met when this exits 0: grep -q x T.md. Take one and commit.");
+
+// The count is the rite's, not the performance's. Carried over a move it
+// would tell the next rite it had already been refused.
+static assert(step(thrown3, Verdict.Advance).throws == 0);
+static assert(jump(thrown3, 0).throws == 0);
+
 // An ended performance has no rite, and saying rite 4 of 3 would be a lie.
 enum done = step(step(step(fresh, Verdict.Advance), Verdict.Advance), Verdict.Advance);
 static assert(done.state == RitualState.Done);
