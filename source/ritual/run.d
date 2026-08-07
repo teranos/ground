@@ -67,6 +67,15 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         }
     }
 
+    // A rite that passed and changed the tree gets a commit, so the branch
+    // history is the walk. Only on Advance: a halt's changes are unreviewed
+    // and a hold has not finished doing whatever it is doing.
+    if (a.verdict == Verdict.Advance && p.worktree.length > 0) {
+        import rite : runRite;
+        auto c = commitScript(p.worktree, p.ritual, r.name);
+        runRite(c.text(), cast(string) r.name, cast(string) sessionId);
+    }
+
     writePosition(db, moved);
     a.after = moved;
     return a;
@@ -153,6 +162,26 @@ private void putQuoted(ref SpawnScript s, const(char)[] v) {
         else if (s.len < s.buf.length) s.buf[s.len++] = c;
     }
     s.put("'");
+}
+
+// Ground commits, not the agent: a record the agent writes is a record the
+// agent can skip. The staged-and-quiet line means a rite that changed nothing
+// leaves no commit, so a walk over an unchanged tree is not empty commits.
+SpawnScript commitScript(const(char)[] tree, const(char)[] ritual, const(char)[] rite) {
+    SpawnScript s;
+    s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
+    s.putQuoted(tree);
+    s.put("\ngit add -A\n");
+    s.put("git diff --cached --quiet && exit 0\n");
+    s.put("git commit -q -m ");
+
+    SpawnScript msg;
+    msg.put(ritual);
+    msg.put(": ");
+    msg.put(rite);
+    s.putQuoted(msg.text());
+    s.put("\n");
+    return s;
 }
 
 SpawnScript spawnScript(const(char)[] root, const(char)[] treeName, const(char)[] prompt) {

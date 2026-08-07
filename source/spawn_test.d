@@ -43,3 +43,24 @@ enum q = spawnScript("/r", "p-1", "say 'hi' now");
 static assert(q.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
     ~ "claude -w 'p-1' -p 'say '\\''hi'\\'' now'\n");
+
+// --- The commit ---
+// Ground commits, not the agent. The branch history is the record of the
+// walk, and a record the agent writes is a record the agent can skip.
+
+import ritual : commitScript;
+
+enum c = commitScript("/home/u/src/proj-p1", "tree", "APPLE");
+static assert(c.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
+    ~ "git add -A\n"
+    ~ "git diff --cached --quiet && exit 0\n"
+    ~ "git commit -q -m 'tree: APPLE'\n");
+
+// A rite that changed nothing leaves no commit, so eight rites passing against
+// an unchanged tree do not become eight empty ones. That is the --quiet line.
+static assert(commitScript("/r", "t", "X").text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "git add -A\n"
+    ~ "git diff --cached --quiet && exit 0\n"
+    ~ "git commit -q -m 't: X'\n");
