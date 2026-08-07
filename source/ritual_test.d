@@ -97,6 +97,25 @@ static assert(!restore("r", 5, "+-.", RitualState.Live).valid);
 // Except at exactly the end, which is where a Done ritual sits.
 static assert(restore("r", 3, "+++", RitualState.Done).valid);
 
+// --- Abort ---
+// "it ends when it ends, not because i ran ritual stop" — so this is the
+// exception, and it is the only ending a person causes.
+
+import ritual : abort;
+
+enum stopped = abort(step(fresh, Verdict.Advance));
+static assert(stopped.state == RitualState.Aborted);
+
+// The position is left where it was. Aborting says stop, not rewind, and the
+// line still shows how far it got.
+static assert(stopped.current == 1);
+static assert(stopped.states[0] == RiteState.Passed);
+
+// An ending is not overwritten by another ending. A done performance that
+// could be aborted would lose the verdict it earned.
+static assert(abort(atLast).state == RitualState.Done);
+static assert(abort(halted).state == RitualState.Halted);
+
 // --- Identity ---
 // "each ritual perfomance occurs in separate named branches" /
 // "the name of the branch is not something to key on"

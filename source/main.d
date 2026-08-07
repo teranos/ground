@@ -194,6 +194,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import ritual : handleRitual;
             return handleRitual(argc, argv);
         }
+        if (cmd == "abort") {
+            import ritual : handleAbort;
+            return handleAbort(argc, argv);
+        }
         if (cmd == "drive") {
             import ritual : handleDrive;
             return handleDrive(argc, argv);

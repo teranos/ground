@@ -95,6 +95,14 @@ Position step(Position p, Verdict v) {
     return p;
 }
 
+// The only ending a person causes. An ending is not overwritten by another
+// one: a performance that earned Done or Halted keeps that verdict.
+Position abort(Position p) {
+    if (p.state != RitualState.Live) return p;
+    p.state = RitualState.Aborted;
+    return p;
+}
+
 // goto. History is left alone: a rite that passed still passed, even if the
 // ritual is about to walk over it again.
 Position jump(Position p, size_t target) {

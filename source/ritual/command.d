@@ -21,6 +21,67 @@ void printLine(const Position p, const Flattened f) {
     fputs("\n", stdout);
 }
 
+// ground abort <name>. Until this existed the only way to stop a runaway
+// performance was to know the schema and write the UPDATE yourself.
+int handleAbort(int argc, const(char)** argv) {
+    import core.stdc.stdio : stdout, stderr, fputs, fwrite;
+    import controls : allParsed;
+    import db : openDb, sqlite3_close;
+    import main : argLen;
+    import ritual.position : RitualState, abort;
+    import ritual.store : readPosition;
+
+    if (argc < 3) {
+        fputs("usage: ground abort <ritual>\n", stderr);
+        return 1;
+    }
+    auto name = argv[2][0 .. argLen(argv[2])];
+
+    static immutable parsed = allParsed;
+    size_t idx;
+    bool known = false;
+    foreach (i; 0 .. parsed.ritualCount) {
+        if (parsed.rituals[i].name != name) continue;
+        idx = i;
+        known = true;
+        break;
+    }
+    if (!known) {
+        fputs("ground abort: no ritual named ", stderr);
+        fwrite(name.ptr, 1, name.length, stderr);
+        fputs("\n", stderr);
+        return 1;
+    }
+
+    auto db = openDb();
+    if (db is null) {
+        fputs("ground abort: cannot open the ground db\n", stderr);
+        return 1;
+    }
+
+    auto found = readPosition(db, parsed.rituals[idx].projectPath);
+    if (!found.valid || found.p.state != RitualState.Live) {
+        sqlite3_close(db);
+        fputs("ground abort: nothing live to abort\n", stderr);
+        return 1;
+    }
+
+    auto p = abort(found.p);
+    auto ok = writePosition(db, p);
+    sqlite3_close(db);
+    if (!ok) {
+        fputs("ground abort: could not write the position\n", stderr);
+        return 1;
+    }
+
+    // The tree stays. What the rite it stopped on left behind is the reason
+    // somebody aborted, and removing it removes the evidence.
+    printLine(p, flatten(parsed, idx));
+    fwrite(p.worktree.ptr, 1, p.worktree.length, stdout);
+    fputs("\n", stdout);
+    return 0;
+}
+
 // ground ritual <name>.
 int handleRitual(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fwrite;

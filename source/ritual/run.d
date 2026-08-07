@@ -148,7 +148,11 @@ Brief briefing(const Position p, const Flattened f) {
     b.putNum(f.count);
     b.put(": ");
     b.put(r.name);
-    b.put(". It is met when this exits 0: ");
+    // The rite declares its own pass code. Saying 0 when the rite passes on 1
+    // tells the agent the inverse of the condition, and it acts on that.
+    b.put(". It is met when this exits ");
+    b.putNum(cast(size_t) r.pass);
+    b.put(": ");
     b.put(r.cmd);
     if (r.msg.length > 0) {
         b.put(". ");
@@ -163,9 +167,10 @@ struct SpawnScript {
     char[8192] buf = 0;
     size_t len;
     const(char)[] text() const return { return buf[0 .. len]; }
+    void add(const(char)[] t) { foreach (c; t) { if (len < buf.length) buf[len++] = c; } }
 }
 
-private void put(ref SpawnScript s, const(char)[] t) {
+package void put(ref SpawnScript s, const(char)[] t) {
     foreach (c; t) { if (s.len < s.buf.length) s.buf[s.len++] = c; }
 }
 

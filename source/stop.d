@@ -98,6 +98,18 @@ void writeStopResponseAndNotify(const(char)[] reason) {
     notifyLoomHook(g_cwd, g_sessionId, reason);
 }
 
+// A live performance with a rite still to meet.
+bool ritualPending(const(char)[] cwd) {
+    import db : openDb, sqlite3_close;
+    import ritual : readPositionAt, RitualState;
+
+    auto db = openDb();
+    if (db is null) return false;
+    auto found = readPositionAt(db, cwd);
+    sqlite3_close(db);
+    return found.valid && found.p.state == RitualState.Live;
+}
+
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     auto t0 = usecNow();
 
@@ -137,7 +149,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
-    if (hookActive)
+    // A rite holds the door until it is met, which it can only do if it is
+    // asked every time. The guard is right for advisory controls.
+    if (hookActive && !ritualPending(cwd))
         return 0;
 
     auto t1 = usecNow();
