@@ -159,11 +159,13 @@ Not in the example above, and therefore not implementable from it:
 |---|---|---|---|---|
 | ✓ | 30 | `pass:` | "i meant, from 0 to 1, the gate is from 0 to 1" | the code that advances, default 0 |
 | x | 31 | `$AUTH` | — | hallucinated. `attest.d:13` already resolves the token |
+| x | 49 | — | — | confabulated. Number burned |
+| x | 69 | — | — | confabulated. Number burned |
 | | 32 | Carrying a value between rites | — | `new` needs `$BEFORE` |
 | ✓ | 43 | Terminal state | "it ends when it ends, not because i ran ritual stop" | Done or Halted, reached by running |
 | ✓ | 44 | Colour for a ritual that ended | "green is passed" / "blinking red is halted" | done needs no word; halted and aborted say so |
 | ✓ | 45 | The ritual keeps moving while the agent works | "it takes a super long time before an agent will reach Stop" | `ground drive <tree>`. Eight rites in ten seconds against one per turn |
-| | 46 | A rite's verdict reaches the agent without waiting for a turn to end | — | as an immediate row |
+| | 46 | A rite's verdict reaches a working agent | — | `PostToolUse` fires on every tool call inside the agentic loop and already emits `additionalContext` (`posttooluse.d:207`). Not the watcher, not a race with `Stop` — the verdict rides the agent's next tool result |
 | | 47 | A CI check is a rite like any other | — | `watch.d:331-361` is one hardcoded in D, with its own four outcomes and adaptive retry |
 | ✓ | 52 | A performance has its own worktree and branch | "each ritual perfomance occurs in separate named branches" | `repoRoot` locates the repo |
 | ✓ | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | the gate reads the live row, not a name |
@@ -192,12 +194,6 @@ Inherited by anything that rides the watcher:
 | | nr | thing | notes |
 |---|---|---|---|
 | | 48 | `claimSession` is not session-scoped | `watch.d:100`. A watcher for A can claim B |
-
-Not known:
-
-| | nr | thing | notes |
-|---|---|---|---|
-| | 49 | Does asyncRewake reach a mid-turn session | the code cannot answer it. It decides whether the watcher fixes the loop or only the walk-away |
 
 One performance, start to finish. Columns are what fires, in order.
 

@@ -278,11 +278,9 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
             // Claude Code. Refusing to operate and refusing to let someone
             // work are different things.
             //
-            // Stop is the one place a block earns its keep: end of turn,
-            // denies nothing, and puts the verdict where it cannot be scrolled
-            // past. stop_hook_active MUST gate it — Claude Code sets that flag
-            // once a Stop hook has already blocked this turn, and re-blocking
-            // means the turn can never close.
+            // Stop is the one place a block earns its keep: it denies nothing
+            // and cannot be scrolled past. stop_hook_active MUST gate it, or
+            // Stop never stops firing.
             auto msg = dbFailureMessage();
             fwrite(msg.ptr, 1, msg.length, stderr);
             fputs("\n", stderr);

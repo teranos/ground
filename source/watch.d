@@ -351,8 +351,8 @@ int handleWatch(int argc, const(char)** argv) {
             nextSleep = 2;
 
             // Advancing here rather than at Stop is the point: an agent can be
-            // in a loop for an hour without reaching a turn boundary, and the
-            // rite may have been met twenty minutes ago.
+            // inside the agentic loop for an hour without Claude finishing its
+            // response, and the rite may have been met twenty minutes ago.
             {
                 import ritual : readPositionAt, advance, briefing, flatten, RitualState;
                 import rite : Verdict;
