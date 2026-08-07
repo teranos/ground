@@ -42,7 +42,19 @@ int handleDrive(int argc, const(char)** argv) {
 
         auto found = readPositionAt(db, tree);
         if (!found.valid || found.p.state != RitualState.Live) {
+            auto ended = found.valid ? found.p.state : RitualState.Aborted;
+            auto repo = found.valid ? found.p.repo : "";
             sqlite3_close(db);
+
+            // Done takes its tree with it: the branch is pushed and the
+            // commits are the record, so the checkout is spare. A halt keeps
+            // its tree — what the rite left uncommitted is what you look at.
+            if (ended == RitualState.Done && repo.length > 0) {
+                import ritual.resolve : repoRoot;
+                import worktree : removeWorktree;
+                auto root = repoRoot(parsed, repo);
+                if (root.length > 0) removeWorktree(root, tree);
+            }
             return 0;
         }
 

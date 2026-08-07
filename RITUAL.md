@@ -169,7 +169,7 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | the gate reads the live row, not a name |
 | ✓ | 54 | A performance is identified by itself | "the name of the branch is not something to key on" | path is an index, not the key |
 | ✓ | 55 | A performance closed out on `WorktreeRemove` | "item 55 approved now" | clears the stale path, keeps the record |
-| ✓ | 59 | Ground removes the tree it made | "the reason you need to remove them by hand is because?" | nothing else will. No caller yet |
+| ✓ | 59 | Ground removes the tree it made | "the reason you need to remove them by hand is because?" | the driver removes it on Done. A halt keeps its tree — what the failing rite left uncommitted is what you would look at |
 | ✓ | 60 | Ground says it made one | "I dont like that its siltent" | creation was silent |
 | ✓ | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | on Done only, and a halt opens nothing. `sbvh-nl/grove#1` was opened by a performance nobody touched after starting it |
 | ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | `MAX_GOTOS`. Spending the budget halts rather than holds — holding waits on a jump that will never come |
