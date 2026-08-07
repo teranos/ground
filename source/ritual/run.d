@@ -1,7 +1,7 @@
 module ritual.run;
 
 import rite : Verdict;
-import ritual.position : Position, RitualState, step, jump;
+import ritual.position : Position, RitualState, MAX_GOTOS, step, jump;
 import ritual.resolve : Flattened, indexOfRite;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
@@ -45,14 +45,26 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     a.output = run.output();
     a.verdict = classify(run.code, r);
 
-    attestRite(db, sessionId, p, r.name, a.verdict, run.code, run.output(), unixSeconds);
+    // A cycle that cannot be taken again is a halt, not a hold — holding
+    // would leave the performance waiting on a jump it will never make.
+    bool wantsJump = a.verdict == Verdict.Hold && r.goto_.length > 0;
+    if (wantsJump && p.gotos >= MAX_GOTOS) {
+        a.verdict = Verdict.Halt;
+        a.output = "goto taken 16 times, which is the most one performance gets";
+        wantsJump = false;
+    }
+
+    attestRite(db, sessionId, p, r.name, a.verdict, run.code, a.output, unixSeconds);
 
     auto moved = step(p, a.verdict);
 
     // goto is what a caught code does when the rite names somewhere to go.
-    if (a.verdict == Verdict.Hold && r.goto_.length > 0) {
+    if (wantsJump) {
         auto target = indexOfRite(f, r.goto_);
-        if (target >= 0) moved = jump(moved, cast(size_t) target);
+        if (target >= 0) {
+            moved = jump(moved, cast(size_t) target);
+            moved.gotos = p.gotos + 1;
+        }
     }
 
     writePosition(db, moved);

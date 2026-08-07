@@ -122,3 +122,53 @@ unittest {
     assert(back.p.current == 1);
     sqlite3_close(db);
 }
+
+// --- A goto cycle is bounded ---
+// Measured: a ritual walked its rites until it was aborted by hand, because
+// a fruit in the tree had no rite to pick it and CHECKTREE never emptied.
+
+import ritual : MAX_GOTOS, RitualState;
+
+enum loopSrc = `
+rites spin {
+  HERE { cmd: "true" }
+  BACK { cmd: "false"  catch: 1  goto: HERE }
+}
+
+project {
+  path: "/src/proj"
+  ritual spinner { spin }
+}
+`;
+enum loopFlat = flatten(parsePbt(loopSrc), 0);
+
+unittest {
+    auto db = memDb();
+    auto p = start("spinner", loopFlat.count);
+    p.id = "spin-1";
+    p.repo = "/src/proj";
+    p.worktree = "/tmp";
+
+    // Left alone this never ends: BACK holds and jumps to HERE forever.
+    size_t turns;
+    while (p.state == RitualState.Live && turns < 500) {
+        auto r = advance(db, "sess", p, loopFlat, 100 + cast(long) turns);
+        if (!r.ran) break;
+        p = r.after;
+        turns++;
+    }
+
+    assert(p.state == RitualState.Halted, "an unbounded cycle must stop itself");
+    assert(p.gotos == MAX_GOTOS);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // The budget is spent by jumping, not by running. A rite that advances
+    // does not cost one.
+    auto p = at(0);
+    auto r = advance(db, "sess", p, flat, 100);
+    assert(r.after.gotos == 0);
+    sqlite3_close(db);
+}

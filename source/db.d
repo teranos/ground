@@ -273,6 +273,7 @@ bool applySchema(sqlite3* db) {
     // the agent, which is the only place both are known at once.
     ensureColumn(db, "ritual_position", "session", "TEXT");
     ensureColumn(db, "ritual_position", "agent", "TEXT");
+    ensureColumn(db, "ritual_position", "gotos", "INTEGER NOT NULL DEFAULT 0");
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";

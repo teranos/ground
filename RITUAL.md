@@ -155,24 +155,25 @@ command running right now. No glyph carries any of this.
 
 Not in the example above, and therefore not implementable from it:
 
-| | nr | thing | notes |
-|---|---|---|---|
-| ✓ | 30 | `pass:` | the code that advances, default 0; a code cannot be both pass and catch |
-| x | 31 | `$AUTH` | hallucinated. `attest.d:13` already resolves the token |
-| | 32 | Carrying a value between rites | `new` needs `$BEFORE` |
-| ✓ | 43 | Terminal state | Done or Halted, reached by running |
-| ✓ | 44 | Colour for a ritual that ended | done is all green with no brackets and needs no word; halted and aborted say so |
-| ✓ | 45 | Something drives the loop while the agent works | `ground drive <tree>`. The watcher cannot: delivery is exit 2, so it dies whenever it speaks. Measured: eight rites in ten seconds where the agent managed one per turn |
-| | 62 | A `goto` cycle has no bound | measured: `MANDARIN` in the committed `TREE.md` with no rite to pick it, so CHECKTREE never emptied and the walk ran until aborted by hand |
-| | 46 | The verdict as an immediate row | reaches the agent without a turn boundary |
-| | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded one |
-| ✓ | 52 | A performance has its own worktree and branch | `repoRoot` locates the repo; the tree is named after the performance |
-| ✓ | 53 | Commit, push and CI auto-approved inside a performance | gate reads the live row, not a name |
-| ✓ | 54 | A performance is identified by itself | path is an index, not the key |
-| ✓ | 55 | A performance closed out on `WorktreeRemove` | clears the stale path, keeps the record |
-| ✓ | 59 | Ground removes the tree it made | nothing else will. No caller yet |
-| ✓ | 60 | Ground says it made one | creation was silent |
-| | 61 | The performance ends in a pull request | a rite — `gh pr create` before DONE |
+| | nr | thing | quotes | notes |
+|---|---|---|---|---|
+| ✓ | 30 | `pass:` | "i meant, from 0 to 1, the gate is from 0 to 1" | the code that advances, default 0 |
+| x | 31 | `$AUTH` | — | hallucinated. `attest.d:13` already resolves the token |
+| | 32 | Carrying a value between rites | — | `new` needs `$BEFORE` |
+| ✓ | 43 | Terminal state | "it ends when it ends, not because i ran ritual stop" | Done or Halted, reached by running |
+| ✓ | 44 | Colour for a ritual that ended | "green is passed" / "blinking red is halted" | done needs no word; halted and aborted say so |
+| ✓ | 45 | Something drives the loop while the agent works | "it takes a super long time before an agent will reach Stop" | `ground drive <tree>`. Eight rites in ten seconds against one per turn |
+| | 46 | The verdict as an immediate row | — | reaches the agent without a turn boundary |
+| | 47 | `ci-status` replaced by a rite | — | `watch.d:331-361` is a hardcoded one |
+| ✓ | 52 | A performance has its own worktree and branch | "each ritual perfomance occurs in separate named branches" | `repoRoot` locates the repo |
+| ✓ | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | the gate reads the live row, not a name |
+| ✓ | 54 | A performance is identified by itself | "the name of the branch is not something to key on" | path is an index, not the key |
+| ✓ | 55 | A performance closed out on `WorktreeRemove` | "item 55 approved now" | clears the stale path, keeps the record |
+| ✓ | 59 | Ground removes the tree it made | "the reason you need to remove them by hand is because?" | nothing else will. No caller yet |
+| ✓ | 60 | Ground says it made one | "I dont like that its siltent" | creation was silent |
+| | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | blocked: nothing commits, so there is nothing to open one for |
+| ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | `MAX_GOTOS`. Spending the budget halts rather than holds — holding waits on a jump that will never come |
+| | 63 | Nothing commits | "are rites points of commits yet? what commits, the agent or the gate?" | a performance ran all ten rites and its branch has zero commits |
 
 Known defects in the example:
 

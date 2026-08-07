@@ -11,10 +11,10 @@ bool writePosition(DB)(DB db, const Position p) {
                 sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
     import exec : emitError;
 
-    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent) "
-        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO UPDATE SET "
+    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos) "
+        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(id) DO UPDATE SET "
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
-        ~ "session=?10, agent=?11, updated_at=CURRENT_TIMESTAMP\0";
+        ~ "session=?10, agent=?11, gotos=?12, updated_at=CURRENT_TIMESTAMP\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
@@ -36,6 +36,7 @@ bool writePosition(DB)(DB db, const Position p) {
     sqlite3_bind_text(stmt, 9, p.rites.ptr, cast(int) p.rites.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 10, p.session.ptr, cast(int) p.session.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 11, p.agent.ptr, cast(int) p.agent.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 12, cast(long) p.gotos);
 
     auto rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -51,14 +52,14 @@ bool writePosition(DB)(DB db, const Position p) {
 // worktree, and survives finishing — a terminal state is the verdict, and a
 // query that returns only live ones hides what you walked away to collect.
 Restored readPosition(DB)(DB db, const(char)[] repo) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos "
         ~ "FROM ritual_position WHERE repo = ?1 ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, repo);
 }
 
 // The performance being done in this tree.
 Restored readPositionAt(DB)(DB db, const(char)[] worktree) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos "
         ~ "FROM ritual_position WHERE worktree = ?1 ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, worktree);
 }
@@ -106,6 +107,7 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     copyText(sqlite3_column_text(stmt, 8), namesBuf.ptr, namesBuf.length, namesLen);
     copyText(sqlite3_column_text(stmt, 9), sessBuf.ptr, sessBuf.length, sessLen);
     copyText(sqlite3_column_text(stmt, 10), agentBuf.ptr, agentBuf.length, agentLen);
+    auto gotoCount = cast(size_t) sqlite3_column_int64(stmt, 11);
 
     auto wordPtr = sqlite3_column_text(stmt, 7);
     RitualState st = RitualState.Live;
@@ -130,6 +132,7 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     r.p.rites = namesBuf[0 .. namesLen];
     r.p.session = sessBuf[0 .. sessLen];
     r.p.agent = agentBuf[0 .. agentLen];
+    r.p.gotos = gotoCount;
     return r;
 }
 
@@ -164,7 +167,7 @@ Restored liveHere(DB)(DB db, const(char)[] cwd) {
     sqlite3_finalize(stmt);
     if (!found) return Restored(false);
 
-    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent "
+    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos "
         ~ "FROM ritual_position WHERE id = ?1\0";
     return readOne(db, byId, idBuf[0 .. idLen]);
 }

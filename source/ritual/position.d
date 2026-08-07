@@ -18,6 +18,11 @@ enum RitualState { Live, Done, Halted, Aborted }
 
 enum MAX_RITES = 32;
 
+// A goto may be taken at most this many times in one performance. Without a
+// bound a cycle runs until somebody notices: measured, a walk that repeated
+// because one fruit in the tree had no rite to pick it.
+enum MAX_GOTOS = 16;
+
 // A performance is identified by itself. The worktree is where it is being
 // performed, not what it is.
 struct Position {
@@ -31,6 +36,7 @@ struct Position {
     const(char)[] agent;   // the agent carrying it, if one was started with it
     size_t current;
     size_t riteCount;
+    size_t gotos;          // jumps taken, against MAX_GOTOS
     RiteState[MAX_RITES] states;
     RitualState state;
 }
