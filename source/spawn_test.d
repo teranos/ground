@@ -64,3 +64,15 @@ static assert(commitScript("/r", "t", "X").text() ==
     ~ "git add -A\n"
     ~ "git diff --cached --quiet && exit 0\n"
     ~ "git commit -q -m 't: X'\n");
+
+// A performance that reached DONE ends in the thing you merge. A push that
+// fails or a PR that will not open is the difference between a verdict and
+// the belief that there is one, so neither is tolerated quietly.
+
+import ritual : prScript;
+
+enum pr = prScript("/home/u/src/proj-p1", "tree", "tree-17");
+static assert(pr.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
+    ~ "git push -q -u origin HEAD\n"
+    ~ "gh pr create --title 'tree: tree-17' --body 'Performed by ground.'\n");

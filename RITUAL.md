@@ -171,7 +171,7 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 55 | A performance closed out on `WorktreeRemove` | "item 55 approved now" | clears the stale path, keeps the record |
 | ✓ | 59 | Ground removes the tree it made | "the reason you need to remove them by hand is because?" | nothing else will. No caller yet |
 | ✓ | 60 | Ground says it made one | "I dont like that its siltent" | creation was silent |
-| | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | blocked: nothing commits, so there is nothing to open one for |
+| ✓ | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | on Done only, and a halt opens nothing. `sbvh-nl/grove#1` was opened by a performance nobody touched after starting it |
 | ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | `MAX_GOTOS`. Spending the budget halts rather than holds — holding waits on a jump that will never come |
 | ✓ | 63 | Ground commits, not the agent | "n, i dont trust the agent with it" | one commit per rite that passed and changed the tree. Eight commits for ten rites — START and CHECKTREE changed nothing |
 

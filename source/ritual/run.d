@@ -77,6 +77,20 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     }
 
     writePosition(db, moved);
+
+    // The last rite passed. Push the branch and open the thing you merge.
+    if (moved.state == RitualState.Done && moved.worktree.length > 0) {
+        import rite : runRite;
+        import exec : emitError;
+        auto pr = prScript(moved.worktree, moved.ritual, moved.id);
+        auto out_ = runRite(pr.text(), "ritual-pr", cast(string) sessionId);
+        if (!out_.ran || out_.code != 0) {
+            emitError("ritual.pr", "the performance finished but its branch did not become a pull request",
+                      0, out_.code, cast(string) sessionId, cast(string) moved.ritual, "",
+                      cast(string) out_.output(), "");
+        }
+    }
+
     a.after = moved;
     return a;
 }
@@ -181,6 +195,24 @@ SpawnScript commitScript(const(char)[] tree, const(char)[] ritual, const(char)[]
     msg.put(rite);
     s.putQuoted(msg.text());
     s.put("\n");
+    return s;
+}
+
+// What a performance ends in. Only on Done — a halt is not something to
+// merge, and its branch is left where it stopped.
+SpawnScript prScript(const(char)[] tree, const(char)[] ritual, const(char)[] id) {
+    SpawnScript s;
+    s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
+    s.putQuoted(tree);
+    s.put("\ngit push -q -u origin HEAD\n");
+    s.put("gh pr create --title ");
+
+    SpawnScript title;
+    title.put(ritual);
+    title.put(": ");
+    title.put(id);
+    s.putQuoted(title.text());
+    s.put(" --body 'Performed by ground.'\n");
     return s;
 }
 
