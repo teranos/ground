@@ -1,7 +1,7 @@
 module ritual.command;
 
 import ritual.position : Position, RitualState, start, performanceId;
-import ritual.resolve : Flattened, ResolveFail, resolveRitual, flatten, repoRoot;
+import ritual.resolve : Flattened, ResolveFail, resolveRitual, flatten, repoRoot, riteNames;
 import ritual.run : briefing, spawnScript;
 import ritual.store : writePosition;
 
@@ -30,6 +30,7 @@ int handleRitual(int argc, const(char)** argv) {
     import exec : dispatchExec;
     import main : argLen;
     import worktree : worktreePath;
+    import db : ZBuf;
 
     if (argc < 3) {
         fputs("usage: ground ritual <name>\n", stderr);
@@ -76,6 +77,11 @@ int handleRitual(int argc, const(char)** argv) {
     p.id = pid.text();
     p.repo = projectPath;
 
+    // The names travel with the row so collet can draw the line from it
+    // alone, without the pbt.
+    auto names = riteNames(flat);
+    p.rites = names.text();
+
     // The tree is named after the performance. Nothing parses either name —
     // the row is the identity.
     auto tree = worktreePath(root, p.id);
@@ -103,6 +109,19 @@ int handleRitual(int argc, const(char)** argv) {
         auto brief = briefing(p, flat);
         auto script = spawnScript(root, p.id, brief.text());
         dispatchExec(cast(string) script.text(), "ritual", "", 86_400,
+                     [], [], "", root, "");
+    }
+
+    // And the loop that keeps it moving while the agent works. Without this
+    // the position only advances when a turn ends, which for a working agent
+    // can be never.
+    {
+        __gshared ZBuf driver;
+        driver.reset();
+        driver.put("#!/usr/bin/env bash\nexec ground drive '");
+        driver.put(p.worktree);
+        driver.put("'\n");
+        dispatchExec(cast(string) driver.slice(), "ritual-drive", "", 86_400,
                      [], [], "", root, "");
     }
 

@@ -261,9 +261,18 @@ bool applySchema(sqlite3* db) {
     enum ritualPositionSchema = "CREATE TABLE IF NOT EXISTS ritual_position ("
         ~ "id TEXT PRIMARY KEY, repo TEXT NOT NULL, ritual TEXT NOT NULL, "
         ~ "branch TEXT, worktree TEXT, current INTEGER NOT NULL, "
-        ~ "states TEXT NOT NULL, state TEXT NOT NULL, "
+        ~ "states TEXT NOT NULL, state TEXT NOT NULL, rites TEXT, "
         ~ "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
     sqlite3_exec(db, ritualPositionSchema.ptr, null, null, null);
+
+    // collet renders the line from the row alone. Without the names it has
+    // glyphs and a cursor and nothing to put brackets around.
+    ensureColumn(db, "ritual_position", "rites", "TEXT");
+
+    // Who owns the performance. SubagentStart carries the parent session and
+    // the agent, which is the only place both are known at once.
+    ensureColumn(db, "ritual_position", "session", "TEXT");
+    ensureColumn(db, "ritual_position", "agent", "TEXT");
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";

@@ -162,7 +162,8 @@ Not in the example above, and therefore not implementable from it:
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE` |
 | ✓ | 43 | Terminal state | Done or Halted, reached by running |
 | | 44 | Colour for a ritual that ended | done is all green, no brackets; aborted has none |
-| ✓ | 45 | The watcher advances the performance | each cycle, 15s when a rite holds |
+| ✓ | 45 | Something drives the loop while the agent works | `ground drive <tree>`. The watcher cannot: delivery is exit 2, so it dies whenever it speaks. Measured: eight rites in ten seconds where the agent managed one per turn |
+| | 62 | A `goto` cycle has no bound | measured: `MANDARIN` in the committed `TREE.md` with no rite to pick it, so CHECKTREE never emptied and the walk ran until aborted by hand |
 | | 46 | The verdict as an immediate row | reaches the agent without a turn boundary |
 | | 47 | `ci-status` replaced by a rite | `watch.d:331-361` is a hardcoded one |
 | ✓ | 52 | A performance has its own worktree and branch | `repoRoot` locates the repo; the tree is named after the performance |
@@ -210,8 +211,8 @@ Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | notes |
 |---|---|---|---|---|
-| | 37 | `SubagentStart` | "you COULD if you wanted to run an agent like that, equiped with ritual" | an agent started with one |
-| | 38 | `SubagentStop` | same | an agent stopped with one |
+| ✓ | 37 | `SubagentStart` | "you COULD if you wanted to run an agent like that, equiped with ritual" | binds the performance to the owning session and the agent, and hands it the briefing |
+| ✓ | 38 | `SubagentStop` | same | exit 2 refuses an agent leaving rites unmet — the only place a subagent can be refused. Keeps `last_assistant_message` with the performance |
 | | 39 | `TaskCreated` | — | inbound only. No use found |
 | | 40 | `TaskCompleted` | — | inbound only |
 | | 41 | `StopFailure` | "I still want to better understand before i can say a thing about it" | carries `error_type`, `error_message`. Cannot block |

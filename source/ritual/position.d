@@ -26,6 +26,9 @@ struct Position {
     const(char)[] ritual;
     const(char)[] branch;
     const(char)[] worktree;
+    const(char)[] rites;   // comma-joined names, so the row renders alone
+    const(char)[] session; // the session that owns it
+    const(char)[] agent;   // the agent carrying it, if one was started with it
     size_t current;
     size_t riteCount;
     RiteState[MAX_RITES] states;

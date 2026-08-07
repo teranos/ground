@@ -88,6 +88,24 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
     return f;
 }
 
+// The names, joined, so a reader with only the row can draw the line.
+struct RiteNames {
+    char[1024] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+RiteNames riteNames(const Flattened f) {
+    RiteNames n;
+    foreach (i; 0 .. f.count) {
+        if (i > 0 && n.len < n.buf.length) n.buf[n.len++] = ',';
+        foreach (c; f.rites[i].name) {
+            if (n.len < n.buf.length) n.buf[n.len++] = c;
+        }
+    }
+    return n;
+}
+
 long indexOfRite(const Flattened f, const(char)[] name) {
     foreach (i; 0 .. f.count)
         if (f.rites[i].name == name) return cast(long) i;

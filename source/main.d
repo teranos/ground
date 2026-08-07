@@ -194,6 +194,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import ritual : handleRitual;
             return handleRitual(argc, argv);
         }
+        if (cmd == "drive") {
+            import ritual : handleDrive;
+            return handleDrive(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
@@ -340,6 +344,20 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     // The one event where exiting 0 with no output is itself the failure:
     // the docs make the printed path the success, and a hook that prints
     // nothing aborts the creation.
+    // An agent started with a ritual: the only place the owning session and
+    // the agent are both known.
+    if (event == HookEvent.SubagentStart) {
+        import ritual : handleSubagentStart;
+        return handleSubagentStart(input, cwd, sessionId);
+    }
+
+    // A subagent's Stop is not the session's Stop, so this is the only place
+    // an agent leaving a performance unfinished can be refused.
+    if (event == HookEvent.SubagentStop) {
+        import ritual : handleSubagentStop;
+        return handleSubagentStop(input, cwd, sessionId);
+    }
+
     if (event == HookEvent.WorktreeCreate) {
         import worktree : handleWorktreeCreate;
         return handleWorktreeCreate(input, cwd);
