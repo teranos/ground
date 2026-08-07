@@ -142,7 +142,7 @@ command running right now. No glyph carries any of this.
 | ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | per-rite, not a cursor |
 | ✓ | 18 | `goto` moves position | `ritual.d` | "i think i want goto, not else, goto seems more honest for what it is" | `indexOfRite` maps name to index |
 | | 19 | Hold and re-run on a caught code | `adaptive.d` | "so catch means hold, until true" | `pickAdaptiveSleep` is the interval |
-| | 20 | Halt with code + output on screen | runtime | "leave on the screen the non 0 non 1 was and its message" | |
+| ✓ | 20 | Halt with code + output on screen | `stop.d`, collet | "leave on the screen the non 0 non 1 was and its message" | the halted rite stays on the line in red |
 | ✓ | 21 | Something runs the current rite | `ritual.d` | "it takes a super long time before an agent will reach Stop" | `advance`. Caller is 45 |
 | | 22 | Report position, output and `msg` to the agent | integration | "msg i also want as anotgher optional one" | |
 | ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | one row per attempt |
@@ -150,8 +150,8 @@ command running right now. No glyph carries any of this.
 | | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" | the exception, not the exit |
 | | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
 | | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
-| | 28 | Read position from ground db | collet | — | mine |
-| | 29 | Render a ritual segment | collet | "[kill] is now active because we can see the [ and ]" | exhaustive enum |
+| ✓ | 28 | Read position from ground db | collet | — | mine. READONLY could not open a WAL db, so this read nothing and neither did the ✉/⏳ counts |
+| | 29 | Render a ritual segment | collet | "[kill] is now active because we can see the [ and ]" | renders; an unknown glyph is refused at runtime, not at compile time |
 
 Not in the example above, and therefore not implementable from it:
 
@@ -161,7 +161,7 @@ Not in the example above, and therefore not implementable from it:
 | x | 31 | `$AUTH` | hallucinated. `attest.d:13` already resolves the token |
 | | 32 | Carrying a value between rites | `new` needs `$BEFORE` |
 | ✓ | 43 | Terminal state | Done or Halted, reached by running |
-| | 44 | Colour for a ritual that ended | done is all green, no brackets; aborted has none |
+| ✓ | 44 | Colour for a ritual that ended | done is all green with no brackets and needs no word; halted and aborted say so |
 | ✓ | 45 | Something drives the loop while the agent works | `ground drive <tree>`. The watcher cannot: delivery is exit 2, so it dies whenever it speaks. Measured: eight rites in ten seconds where the agent managed one per turn |
 | | 62 | A `goto` cycle has no bound | measured: `MANDARIN` in the committed `TREE.md` with no rite to pick it, so CHECKTREE never emptied and the walk ran until aborted by hand |
 | | 46 | The verdict as an immediate row | reaches the agent without a turn boundary |
