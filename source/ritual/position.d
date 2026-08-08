@@ -1,6 +1,7 @@
 module ritual.position;
 
 import rite : Verdict;
+public import mic : Mic, micWord, micFromWord;
 
 // The two pendings are distinct because a rite waiting for the first time
 // and one waiting again are not the same fact.
@@ -42,6 +43,10 @@ struct Position {
     size_t gotos;          // jumps taken, against MAX_GOTOS
     size_t throws;         // times this rite threw the mic back
     long rev;              // bumped on every write, so a stale one can be told
+    // One per performance, and something always has it. Who, and since when:
+    // holding is legitimate or blocking depending on both.
+    Mic mic;
+    long micAt;
     RiteState[MAX_RITES] states;
     RitualState state;
 }
@@ -126,6 +131,20 @@ Position step(Position p, Verdict v) {
         break;
     }
     return p;
+}
+
+// Handing it on. The only way the holder changes, so a walk's history is the
+// sequence of these and nothing has to be inferred from silence.
+Position takeMic(Position p, Mic who, long unixSeconds) {
+    p.mic = who;
+    p.micAt = unixSeconds;
+    return p;
+}
+
+// Seconds the current holder has had it.
+long heldFor(const Position p, long now) {
+    if (p.micAt <= 0) return 0;
+    return now - p.micAt;
 }
 
 // The Stop went back. Separate from step(Hold) because the watcher evaluates

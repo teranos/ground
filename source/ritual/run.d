@@ -78,6 +78,16 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         }
     }
 
+    // Ground held it while the rite ran and has nothing left to wait for. Here
+    // and not at a call site: four things advance a position, and a handoff
+    // one of them can skip is a holder nobody can trust.
+    {
+        import ritual.position : takeMic;
+        import mic : Mic;
+        moved = takeMic(moved, moved.state == RitualState.Live ? Mic.Agent : Mic.Human,
+                        unixSeconds);
+    }
+
     // Claim the position before anything is recorded or committed. A driver
     // that read the row before another one moved it has run a rite whose
     // verdict is about a position that no longer exists.

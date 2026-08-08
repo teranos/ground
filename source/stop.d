@@ -200,10 +200,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 // that state, cleared when it finally takes one — being
                 // thrown back lasts until the rite passes, it is not a flash.
                 import ritual : writePositionIf, threw;
+                auto now = cast(long) time(null);
                 auto back = res.after;
                 if (res.verdict == Verdict.Hold) {
                     back = threw(back);
-                    back.thrownAt = cast(long) time(null);
+                    back.thrownAt = now;
                 } else {
                     back.thrownAt = 0;
                 }
