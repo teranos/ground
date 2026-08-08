@@ -36,11 +36,11 @@ struct Position {
     const(char)[] parent;  // the session that started it, and is owed the news
     const(char)[] agent;   // the agent carrying it, if one was started with it
     int agentPid;          // the process carrying it, so an ending can end it
-    long thrownAt;         // when the rite last threw a Stop back at the agent
+    long thrownAt;         // when the rite last threw the mic back at the agent
     size_t current;
     size_t riteCount;
     size_t gotos;          // jumps taken, against MAX_GOTOS
-    size_t throws;         // times this rite threw the Stop back
+    size_t throws;         // times this rite threw the mic back
     long rev;              // bumped on every write, so a stale one can be told
     RiteState[MAX_RITES] states;
     RitualState state;
