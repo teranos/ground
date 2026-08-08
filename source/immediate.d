@@ -50,11 +50,14 @@ struct ImmediateMsg {
 
 // Read a pending immediate message matching this session OR (for
 // external writers like QNTX that don't know sessions) this cwd's project.
-ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId) {
+ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId,
+                                  const(char)[] mark = "delivered:") {
     auto now = cast(long) time(null);
 
-    // Per-message, per-session delivery: NOT EXISTS checks for delivered:<msgId> tagged with THIS session.
-    enum sql = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
+    // The mark is a parameter because one row is read twice, once per channel:
+    // exit 2 wakes the model and hides the text, exit 0 shows the text and
+    // wakes nobody, so neither reader may consume the other's copy.
+    enum sql = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
 
     // Build session LIKE pattern: %session:<id>%
     __gshared ZBuf sessPattern;
@@ -67,6 +70,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
         return ImmediateMsg(null, null, null, null, null, null, null, 0, 0, 0);
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, mark.ptr, cast(int) mark.length, SQLITE_TRANSIENT);
 
     __gshared char[128] idBuf = 0;
     __gshared char[256] nameBuf = 0;
@@ -271,10 +275,11 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 }
 
 // Mark a specific immediate message as delivered for this session.
-void markImmediateDelivered(sqlite3* db, const(char)[] msgId, const(char)[] projectContext, const(char)[] sessionId) {
+void markImmediateDelivered(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
+                            const(char)[] sessionId, const(char)[] mark = "delivered:") {
     __gshared ZBuf predBuf;
     predBuf.reset();
-    predBuf.put("delivered:");
+    predBuf.put(mark);
     predBuf.put(msgId);
 
     auto ts = formatTimestamp();

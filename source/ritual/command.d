@@ -173,6 +173,15 @@ int handleRitual(int argc, const(char)** argv) {
     p.worktree = tree.text();
     p.branch = "";
 
+    // The session that asked, claimed at PreToolUse. Stamped here, at row
+    // creation, so a performance that ends in twenty seconds still has an
+    // address to send its rite lines to.
+    {
+        import ritual.intent : takeIntent;
+        auto owed = takeIntent(p.ritual);
+        if (owed !is null) p.parent = owed;
+    }
+
     auto db = openDb();
     if (db is null) {
         fputs("ground ritual: cannot open the ground db\n", stderr);
@@ -188,16 +197,27 @@ int handleRitual(int argc, const(char)** argv) {
         return 1;
     }
 
-    // Ground cannot spawn a sidechain — it is a hook, and only the model calls
-    // Task. So it asks, and the session that asked launches the agent inside
-    // itself. A detached `claude -w` was reachable by nothing but pkill.
+    // The agent starts knowing what it carries: its SessionStart reads the row
+    // that was just written. A background session and not print mode, so it is
+    // a row in `claude agents` rather than a pid only pkill could reach.
     {
         auto brief = briefing(p, flat);
-        fputs("Launch a subagent to perform this ritual. It works in ", stdout);
-        fwrite(p.worktree.ptr, 1, p.worktree.length, stdout);
-        fputs(" and its prompt is:\n\n", stdout);
-        fwrite(brief.buf.ptr, 1, brief.len, stdout);
-        fputs("\n\n", stdout);
+        auto script = spawnScript(root, p.id, brief.text());
+        dispatchExec(cast(string) script.text(), "ritual", "", 86_400,
+                     [], [], "", root, "");
+    }
+
+    // And the loop that keeps it moving while the agent works. Without this
+    // the position only advances when a turn ends, which for a working agent
+    // can be never.
+    {
+        __gshared ZBuf driver;
+        driver.reset();
+        driver.put("#!/usr/bin/env bash\nexec ground drive '");
+        driver.put(p.worktree);
+        driver.put("'\n");
+        dispatchExec(cast(string) driver.slice(), "ritual-drive", "", 86_400,
+                     [], [], "", root, "");
     }
 
     printLine(p, flat);

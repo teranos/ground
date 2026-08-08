@@ -35,14 +35,21 @@ static assert(repoRoot(parsed, "/home/u/src/other") == "/home/u/src/other");
 enum s = spawnScript("/home/u/src/proj", "probe-17", "Performing ritual probe.");
 static assert(s.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj'\n"
-    ~ "claude -w 'probe-17' -p 'Performing ritual probe.'\n");
+    ~ "claude -w 'probe-17' --bg 'Performing ritual probe.'\n");
+
+// --bg and not -p. Print mode is one shot and detached, reachable by nothing
+// but pkill; a background session is in `claude agents`, where it can be
+// peeked at, replied to, attached to, and stopped without a signal.
+enum bg = spawnScript("/r", "p-1", "go");
+static assert(bg.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\nclaude -w 'p-1' --bg 'go'\n");
 
 // The prompt is built from a rite's msg and cmd, so it carries whatever those
 // carry — including a quote that would end the argument early.
 enum q = spawnScript("/r", "p-1", "say 'hi' now");
 static assert(q.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "claude -w 'p-1' -p 'say '\\''hi'\\'' now'\n");
+    ~ "claude -w 'p-1' --bg 'say '\\''hi'\\'' now'\n");
 
 // --- The commit ---
 // Ground commits, not the agent. The branch history is the record of the

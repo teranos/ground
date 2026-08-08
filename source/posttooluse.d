@@ -94,9 +94,24 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
 
-    // `ground ritual` is a CLI call and carries no session, so the row it
-    // writes has nobody to report to. This is the one place the command and
-    // the session that ran it are both in hand, and the row already exists.
+    // Blue is "the agent is doing something", so it is stamped where the agent
+    // does something. Collet read this off the attestation table before, which
+    // was accurate and cost 2s a frame against a 1s repaint.
+    if (sessionId.length > 0) {
+        import core.stdc.time : time;
+        import db : openDb, sqlite3_close;
+        import ritual : stampActed;
+
+        auto adb = openDb();
+        if (adb !is null) {
+            stampActed(adb, sessionId, cast(long) time(null));
+            sqlite3_close(adb);
+        }
+    }
+
+    // The fallback address. PreToolUse claims the session before the row is
+    // created; this catches a performance whose claim was missed and is still
+    // Live, which is every case except a ritual that finished inside the call.
     if (command !is null && sessionId.length > 0) {
         import ritual : ritualStarted, readPosition, writePosition, RitualState;
         import controls : allParsed;

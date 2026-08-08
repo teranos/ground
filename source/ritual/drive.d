@@ -83,7 +83,7 @@ int handleDrive(int argc, const(char)** argv) {
         foreach (i; 0 .. parsed.ritualCount) {
             if (parsed.rituals[i].name != found.p.ritual) continue;
             auto flat = flatten(parsed, i);
-            auto res = advance(db, found.p.session, found.p, flat, cast(long) time(null));
+            auto res = advance(db, found.p.agentSession, found.p, flat, cast(long) time(null));
             if (!res.ran) break;
 
             // A held rite waits on the world, so asking twice a second is noise.
@@ -92,23 +92,24 @@ int handleDrive(int argc, const(char)** argv) {
             // A rite the agent has not met, said to the agent. Its watcher
             // delivers this as a wake — the driver otherwise notices a stall
             // every fifteen seconds and tells nobody.
-            if (res.verdict == Verdict.Hold && found.p.session.length > 0)
-                writeNote(db, found.p.session, "rite-open",
+            if (res.verdict == Verdict.Hold && found.p.agentSession.length > 0)
+                writeNote(db, found.p.agentSession, "rite-open",
                           briefing(found.p, flat).text());
 
             if (res.after.current != found.p.current
                 || res.after.state != RitualState.Live) {
                 moved = true;
-                if (found.p.session.length > 0)
-                    writeNote(db, found.p.session, "ritual-moved",
+                if (found.p.agentSession.length > 0)
+                    writeNote(db, found.p.agentSession, "ritual-moved",
                               briefing(res.after, flat).text());
             }
 
             // Every rite, not only the ones an agent's Stop answered — the
             // driver walks most of them, and walked all of them silently.
             // Only on a move: a held rite is re-run every cycle.
-            if (moved && found.p.parent.length > 0) {
+            if (moved) {
                 import notification : riteLine;
+                import ritual.delivery : deliver;
                 import db : ZBuf;
 
                 auto rite = flat.rites[found.p.current].name;
@@ -120,7 +121,12 @@ int handleDrive(int argc, const(char)** argv) {
                 key.put(found.p.id);
                 key.put(":");
                 key.put(rite);
-                writeNote(db, found.p.parent, key.slice(), line.text());
+
+                // The rite says where it goes, here too. Writing to the parent
+                // unconditionally is what put a `to: human` rite in the model's
+                // queue while stop.d was correctly leaving it out.
+                deliver(db, found.p, flat.rites[found.p.current].to,
+                        key.slice(), line.text());
             }
             break;
         }

@@ -103,6 +103,16 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         g_sessionId = sessionId;
         g_input = input;
 
+        // Who is owed the news, before there is a row to write it on. Bound
+        // at PostToolUse this raced the performance: a ritual that finished
+        // inside the Bash call was already Done and never got an address.
+        {
+            import ritual : ritualStarted;
+            import ritual.intent : writeIntent;
+            auto starting = ritualStarted(command);
+            if (starting.length > 0) writeIntent(starting, sessionId);
+        }
+
         // A live performance is standing consent for three things, and the
         // gate reads the row rather than a branch name — so the authorisation
         // ends when the performance does, not when a branch is abandoned.

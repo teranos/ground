@@ -9,6 +9,7 @@ import ritual.store : writePosition;
 // One rite, run and recorded, and the position it leaves behind.
 struct Advanced {
     bool ran;
+    bool applied;   // the write landed; another driver had not moved the row
     Verdict verdict;
     int code;
     const(char)[] output;
@@ -66,8 +67,6 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                   cast(string) a.output);
     }
 
-    attestRite(db, sessionId, p, r.name, a.verdict, run.code, a.output, unixSeconds);
-
     auto moved = step(p, a.verdict);
 
     // goto is what a caught code does when the rite names somewhere to go.
@@ -79,6 +78,18 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         }
     }
 
+    // Claim the position before anything is recorded or committed. A driver
+    // that read the row before another one moved it has run a rite whose
+    // verdict is about a position that no longer exists.
+    {
+        import ritual.store : writePositionIf;
+        a.applied = writePositionIf(db, moved, p.rev);
+    }
+    if (!a.applied) return a;
+    moved.rev = p.rev + 1;
+
+    attestRite(db, sessionId, p, r.name, a.verdict, run.code, a.output, unixSeconds);
+
     // A rite that passed and changed the tree gets a commit, so the branch
     // history is the walk. Only on Advance: a halt's changes are unreviewed
     // and a hold has not finished doing whatever it is doing.
@@ -88,7 +99,8 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         runRite(c.text(), cast(string) r.name, cast(string) sessionId);
     }
 
-    writePosition(db, moved);
+    // The position was already written by the claim above. Writing it again
+    // unconditionally is what let a stale driver overwrite a winner.
 
     // The last rite passed. Push the branch and open the thing you merge.
     if (moved.state == RitualState.Done && moved.worktree.length > 0) {
@@ -261,7 +273,7 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName, const(char)[
     s.putQuoted(root);
     s.put("\nclaude -w ");
     s.putQuoted(treeName);
-    s.put(" -p ");
+    s.put(" --bg ");
     s.putQuoted(prompt);
     s.put("\n");
     return s;

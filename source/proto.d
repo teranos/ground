@@ -1,6 +1,7 @@
 module proto;
 
 import hooks;
+import receiver : Receiver, parseReceiver;
 import strop : parseStropBlock, Strop, MAX_STROP_POOL;
 
 // TODO: pbt variable/template support — define a message once, reference it in multiple controls.
@@ -111,14 +112,18 @@ struct ParsedRite {
     int[8] catches;
     size_t catchCount;
     string goto_;
-    // Seconds ground keeps a Stop the rite did not pass, before throwing it
-    // back. The window ends there — nothing checks the rite again until the
-    // agent's next Stop, so this is grace, not a poll.
+    // Seconds ground holds after throwing the Stop back, not before. Neither
+    // side has it for that long, which is the one window a throw-back is
+    // visible in — the throw itself has no duration to see.
     int grace = 2;
     // Seconds ground sleeps before running the rite at all, so the first look
     // is taken after whatever the turn left in flight has settled. Nothing
     // shortens it — there is no answer yet to shorten it with.
     int wait = 0;
+    // Where this rite's verdict goes. Silence is silence: a rite that names
+    // no receiver reports to nobody, which is the only honest default when
+    // the alternative is guessing that somebody wanted to hear it.
+    Receiver to = Receiver.None;
 }
 
 // A rites group is material — it is never invoked, only referenced.
@@ -1270,6 +1275,11 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
             case "pass": r.pass = parseInt(val); break;
             case "grace": r.grace = parseInt(val); break;
             case "wait": r.wait = parseInt(val); break;
+            case "to":
+                r.to = parseReceiver(val);
+                assert(r.to != Receiver.None,
+                       "to: names no receiver — parent, human or host");
+                break;
             default: assert(0, "Unknown rite field");
         }
     }

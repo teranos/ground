@@ -199,7 +199,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 // The bucket did not take it. Stamped while the rite is in
                 // that state, cleared when it finally takes one — being
                 // thrown back lasts until the rite passes, it is not a flash.
-                import ritual : writePosition, threw;
+                import ritual : writePositionIf, threw;
                 auto back = res.after;
                 if (res.verdict == Verdict.Hold) {
                     back = threw(back);
@@ -207,7 +207,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 } else {
                     back.thrownAt = 0;
                 }
-                writePosition(db, back);
+
+                // Conditional on the revision advance just claimed. An
+                // unconditional write here put a stale driver's count back.
+                if (res.applied && writePositionIf(db, back, back.rev))
+                    back.rev = back.rev + 1;
 
                 __gshared ZBuf rmsg;
                 rmsg.reset();
@@ -239,8 +243,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 // What the rite answered and what the agent said about it, to
                 // the session that started the performance. This block used to
                 // return before last_assistant_message was ever read.
-                if (found.p.parent.length > 0) {
-                    import immediate : writeNote;
+                {
+                    import ritual.delivery : deliver;
                     import notification : riteLine;
                     import sentences : firstTwoSentences;
 
@@ -259,8 +263,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     key.put(found.p.id);
                     key.put(":");
                     key.put(flat.rites[found.p.current].name);
-                    writeNote(db, found.p.parent, key.slice(), line.text());
-
+                    // The rite says where its verdict goes. Silence is silence:
+                    // a rite naming no receiver reports to nobody.
+                    deliver(db, back, flat.rites[found.p.current].to,
+                            key.slice(), line.text(), true);
                 }
 
                 sqlite3_close(db);

@@ -1,5 +1,7 @@
 module ritual.resolve;
 
+import receiver : Receiver;
+
 private bool isSep(char c) {
     return c == '&' || c == ';' || c == '|' || c == '\n';
 }
@@ -79,6 +81,10 @@ struct FlatRite {
     int[8] catches;
     size_t catchCount;
     string goto_;
+    // Where this rite's verdict goes. Carried through the flatten because the
+    // delivery sites hold a FlatRite and nothing else knows what the author
+    // wrote — dropping it here would silently make every rite report to all.
+    Receiver to;
     string[8] keys;
     string[8] values;
     size_t valueCount;
@@ -111,6 +117,7 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
                 fr.catches = src.catches;
                 fr.catchCount = src.catchCount;
                 fr.goto_ = src.goto_;
+                fr.to = src.to;
                 fr.keys = refr.keys;
                 fr.values = refr.values;
                 fr.valueCount = refr.valueCount;

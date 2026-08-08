@@ -295,9 +295,9 @@ const(char)[] claimSession(const(char)[] cwd) {
 // honest signal is undelivered work — see immediate.countStaleExecForSession.
 
 // Write our PID to the session-keyed PID file.
-void writePid(const(char)[] sessionId) {
+void writePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
     __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-", sessionId, ".pid");
+    auto pLen = buildGroundPath(pathBuf, prefix, sessionId, ".pid");
     if (pLen == 0) return;
 
     auto wf = fopen(&pathBuf[0], "w");
@@ -309,9 +309,9 @@ void writePid(const(char)[] sessionId) {
 
 // The watcher unlinks its own file on the way out. Left behind, the number
 // it holds is eventually reissued and killSessionWatcher signals a stranger.
-void removePid(const(char)[] sessionId) {
+void removePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
     __gshared char[512] pathBuf = 0;
-    if (buildGroundPath(pathBuf, "watch-", sessionId, ".pid") == 0) return;
+    if (buildGroundPath(pathBuf, prefix, sessionId, ".pid") == 0) return;
     remove(&pathBuf[0]);
 }
 
@@ -324,7 +324,26 @@ int handleWatch(int argc, const(char)** argv) {
     import main : argLen;
     auto cwd = argv[2][0 .. argLen(argv[2])];
 
-    auto sessionId = claimSession(cwd);
+    // The model's mark. The operator is not reached from here — exit 0 renders
+    // systemMessage but sends stdout to the debug log, so a second watcher for
+    // the screen was built, measured, and deleted. MessageDisplay carries it.
+    enum mark = "delivered:";
+
+    // Two watchers cannot share the claim mechanism: the glob is not
+    // session-scoped and the rename is a mutex, so the second one steals the
+    // first one's session. Stdin carries session_id if it is piped at all.
+    const(char)[] sessionId = null;
+    {
+        import main : readStdin;
+        import parse : extractJsonString;
+        auto input = readStdin();
+        if (input !is null) {
+            __gshared char[128] sidBuf = 0;
+            sessionId = extractJsonString(input, `"session_id"`, &sidBuf[0], sidBuf.length);
+        }
+    }
+
+    if (sessionId is null) sessionId = claimSession(cwd);
     if (sessionId is null) {
         // asyncRewake surfaces stderr on exit 2 only, so this line reached
         // nobody for as long as it has existed.
@@ -334,7 +353,8 @@ int handleWatch(int argc, const(char)** argv) {
         return 1;
     }
 
-    writePid(sessionId);
+    enum pidPrefix = "watch-";
+    writePid(sessionId, pidPrefix);
 
     __gshared char[4096] batchBuf = 0;
     size_t batchLen = 0;
@@ -385,7 +405,7 @@ int handleWatch(int argc, const(char)** argv) {
             }
 
             while (true) {
-                auto imm = readImmediateMessage(db, cwd, sessionId);
+                auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
 
                 // Late-binding: ci-status resolves live. Uses the repo + branch
@@ -397,7 +417,7 @@ int handleWatch(int argc, const(char)** argv) {
                     import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.branch.length == 0) {
                         // Row predates the repo-keyed format — drop it.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
                         continue;
                     }
                     import deferred : CIQuery;
@@ -411,7 +431,7 @@ int handleWatch(int argc, const(char)** argv) {
                     }
                     if (ci.kind == CIQuery.NoWorkflow) {
                         // gh answered and there is genuinely no run to report.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
                         continue;
                     }
                     // Unavailable falls through and is DELIVERED, not dropped.
@@ -422,7 +442,7 @@ int handleWatch(int argc, const(char)** argv) {
                         urgent = true;
                 }
 
-                markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
                 foundNew = true;
 
                 // Append to batch: "ground: <message>\n"
@@ -441,9 +461,9 @@ int handleWatch(int argc, const(char)** argv) {
 
             // No new messages this cycle. If we accumulated anything, deliver now.
             if (batchLen > 0) {
+                removePid(sessionId, pidPrefix);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
-                removePid(sessionId);
                 return 2;
             }
         }
@@ -452,7 +472,7 @@ int handleWatch(int argc, const(char)** argv) {
         // session's Stop ever calls killSessionWatcher. Without this the
         // loop runs until the machine reboots.
         if (orphaned(getppid())) {
-            removePid(sessionId);
+            removePid(sessionId, pidPrefix);
             return 0;
         }
 

@@ -15,7 +15,7 @@ bool writePosition(DB)(DB db, const Position p) {
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) ON CONFLICT(id) DO UPDATE SET "
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
         ~ "session=?10, agent=?11, gotos=?12, parent=?13, agent_pid=?14, thrown_at=?15, throws=?16, "
-        ~ "updated_at=CURRENT_TIMESTAMP\0";
+        ~ "rev=rev+1, updated_at=CURRENT_TIMESTAMP\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
@@ -35,7 +35,7 @@ bool writePosition(DB)(DB db, const Position p) {
     sqlite3_bind_text(stmt, 7, row.buf.ptr, cast(int) row.len, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 8, word.ptr, cast(int) word.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 9, p.rites.ptr, cast(int) p.rites.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 10, p.session.ptr, cast(int) p.session.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 10, p.agentSession.ptr, cast(int) p.agentSession.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 11, p.agent.ptr, cast(int) p.agent.length, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 12, cast(long) p.gotos);
     sqlite3_bind_text(stmt, 13, p.parent.ptr, cast(int) p.parent.length, SQLITE_TRANSIENT);
@@ -57,14 +57,14 @@ bool writePosition(DB)(DB db, const Position p) {
 // worktree, and survives finishing — a terminal state is the verdict, and a
 // query that returns only live ones hides what you walked away to collect.
 Restored readPosition(DB)(DB db, const(char)[] repo) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev "
         ~ "FROM ritual_position WHERE repo = ?1 ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, repo);
 }
 
 // The performance being done in this tree.
 Restored readPositionAt(DB)(DB db, const(char)[] worktree) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev "
         ~ "FROM ritual_position WHERE worktree = ?1 ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, worktree);
 }
@@ -118,6 +118,7 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     auto pid = cast(int) sqlite3_column_int64(stmt, 13);
     auto thrown = sqlite3_column_int64(stmt, 14);
     auto throwCount = cast(size_t) sqlite3_column_int64(stmt, 15);
+    auto revision = sqlite3_column_int64(stmt, 16);
 
     auto wordPtr = sqlite3_column_text(stmt, 7);
     RitualState st = RitualState.Live;
@@ -140,12 +141,13 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     r.p.branch = branchBuf[0 .. branchLen];
     r.p.worktree = treeBuf[0 .. treeLen];
     r.p.rites = namesBuf[0 .. namesLen];
-    r.p.session = sessBuf[0 .. sessLen];
+    r.p.agentSession = sessBuf[0 .. sessLen];
     r.p.agent = agentBuf[0 .. agentLen];
     r.p.parent = parentBuf[0 .. parentLen];
     r.p.agentPid = pid;
     r.p.thrownAt = thrown;
     r.p.throws = throwCount;
+    r.p.rev = revision;
     r.p.gotos = gotoCount;
     return r;
 }
@@ -155,13 +157,78 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
 // the repo path is what both have in common.
 Restored liveHere(DB)(DB db, const(char)[] cwd) { return stateHere(db, cwd, "live"); }
 
-// The performance the asking session owns. A subagent runs in the parent's
-// directory, which is neither the tree nor guaranteed to contain the project
-// path, so cwd containment found nothing and bound nobody.
-Restored liveByParent(DB)(DB db, const(char)[] sessionId) {
+// A write that loses if the row moved since it was read. Four callers advance
+// a position and none of them coordinated: the willow recorded START twice and
+// JACKFRUIT twice, and a throw-back count was put back by a stale reader.
+bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+                sqlite3_bind_text, sqlite3_bind_int64, sqlite3_changes,
+                sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+
+    // An upsert and not an UPDATE: a performance's first write creates the row,
+    // and a guarded UPDATE would refuse it for having no revision to match.
+    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev) "
+        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17 + 1) ON CONFLICT(id) DO UPDATE SET "
+        ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
+        ~ "session=?10, agent=?11, gotos=?12, parent=?13, agent_pid=?14, thrown_at=?15, throws=?16, "
+        ~ "rev=rev+1, updated_at=CURRENT_TIMESTAMP WHERE ritual_position.rev=?17\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+
+    auto row = encodeStates(p);
+    auto word = STATE_WORD[cast(size_t) p.state];
+    sqlite3_bind_text(stmt, 1, p.id.ptr, cast(int) p.id.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, p.repo.ptr, cast(int) p.repo.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, p.ritual.ptr, cast(int) p.ritual.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, p.branch.ptr, cast(int) p.branch.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, p.worktree.ptr, cast(int) p.worktree.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 6, cast(long) p.current);
+    sqlite3_bind_text(stmt, 7, row.buf.ptr, cast(int) row.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, word.ptr, cast(int) word.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 9, p.rites.ptr, cast(int) p.rites.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 10, p.agentSession.ptr, cast(int) p.agentSession.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 11, p.agent.ptr, cast(int) p.agent.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 12, cast(long) p.gotos);
+    sqlite3_bind_text(stmt, 13, p.parent.ptr, cast(int) p.parent.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 14, cast(long) p.agentPid);
+    sqlite3_bind_int64(stmt, 15, p.thrownAt);
+    sqlite3_bind_int64(stmt, 16, cast(long) p.throws);
+    sqlite3_bind_int64(stmt, 17, expectedRev);
+
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    return sqlite3_changes(db) > 0;
+}
+
+// The agent did something. Stamped per tool call, so blue on the line means
+// work is happening rather than a colour asserting it. An UPDATE and not a
+// read: this runs on every tool call in every session, live performance or no.
+void stampActed(DB)(DB db, const(char)[] sessionId, long unixSeconds) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+                sqlite3_bind_text, sqlite3_bind_int64, sqlite3_stmt,
+                SQLITE_OK, SQLITE_TRANSIENT;
+
+    if (sessionId.length == 0) return;
+    enum sql = "UPDATE ritual_position SET acted_at = ?2 "
+        ~ "WHERE session = ?1 AND state = 'live'\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, sessionId.ptr, cast(int) sessionId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, unixSeconds);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+// The performance this session is carrying, keyed on the agent's own session.
+// Keyed on `parent`, every subagent stopping in the session that started a
+// ritual advanced it and signed it with words its agent never said.
+Restored liveByAgentSession(DB)(DB db, const(char)[] sessionId) {
     if (sessionId.length == 0) return Restored(false);
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws "
-        ~ "FROM ritual_position WHERE state = 'live' AND parent = ?1 "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev "
+        ~ "FROM ritual_position WHERE state = 'live' AND session = ?1 "
         ~ "ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, sessionId);
 }
@@ -197,7 +264,7 @@ Restored byHandle(DB)(DB db, const(char)[] handle) {
     sqlite3_finalize(stmt);
     if (!found) return Restored(false);
 
-    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws "
+    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev "
         ~ "FROM ritual_position WHERE id = ?1\0";
     return readOne(db, byId, idBuf[0 .. idLen]);
 }
@@ -234,7 +301,7 @@ private Restored stateHere(DB)(DB db, const(char)[] cwd, const(char)[] want) {
     sqlite3_finalize(stmt);
     if (!found) return Restored(false);
 
-    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws "
+    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev "
         ~ "FROM ritual_position WHERE id = ?1\0";
     return readOne(db, byId, idBuf[0 .. idLen]);
 }

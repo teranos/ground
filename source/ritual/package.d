@@ -11,3 +11,5 @@ public import ritual.command;   // ground ritual <name>
 public import ritual.consent;   // what a performance authorises
 public import ritual.subagent;  // an agent started with one
 public import ritual.drive;     // the loop that keeps one moving
+public import ritual.intent;    // who is owed the news, before there is a row
+public import ritual.delivery;  // who a message is for, named not looked up

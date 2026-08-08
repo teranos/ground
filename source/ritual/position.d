@@ -32,7 +32,7 @@ struct Position {
     const(char)[] branch;
     const(char)[] worktree;
     const(char)[] rites;   // comma-joined names, so the row renders alone
-    const(char)[] session; // the session that owns it
+    const(char)[] agentSession; // the session of the agent carrying it
     const(char)[] parent;  // the session that started it, and is owed the news
     const(char)[] agent;   // the agent carrying it, if one was started with it
     int agentPid;          // the process carrying it, so an ending can end it
@@ -41,6 +41,7 @@ struct Position {
     size_t riteCount;
     size_t gotos;          // jumps taken, against MAX_GOTOS
     size_t throws;         // times this rite threw the Stop back
+    long rev;              // bumped on every write, so a stale one can be told
     RiteState[MAX_RITES] states;
     RitualState state;
 }
@@ -146,7 +147,7 @@ bool owesKill(const Position p) {
 // to start in the tree owns it; a later one does not take it over, or the
 // driver's notes would follow whoever opened a terminal there last.
 Position bindSession(Position p, const(char)[] sessionId) {
-    if (p.session.length == 0 && sessionId.length > 0) p.session = sessionId;
+    if (p.agentSession.length == 0 && sessionId.length > 0) p.agentSession = sessionId;
     return p;
 }
 

@@ -82,8 +82,8 @@ static assert(passParsed.rites[0].rites[1].pass == 0);
 static assert(passParsed.rites[0].rites[1].catches[0] == 1);
 
 // "in case something else comes is fast which does happen sometimes"
-// Seconds ground keeps a Stop the rite did not pass. The window ends when the
-// Stop goes back — nothing checks again until the agent's next one.
+// Seconds ground holds after the Stop has gone back, not before. Nothing is
+// checked in that window; it is the only span a throw-back can be seen in.
 enum graceInput = `
 rites shipped {
   built  { cmd: "test -x build/ground"  grace: 6 }
@@ -92,8 +92,8 @@ rites shipped {
 `;
 enum graceParsed = parsePbt(graceInput);
 
-// A linker still writing when the turn ended is the case: six seconds costs
-// nothing and saves the agent a whole turn spent re-checking.
+// Six seconds is a throw-back an eye can catch. Two is the default and one
+// repaint wide, and the throw itself has no duration of its own.
 static assert(graceParsed.rites[0].rites[0].grace == 6);
 
 // Silence means 2. A diff is clean or it is not, the instant you ask.
@@ -101,7 +101,7 @@ static assert(graceParsed.rites[0].rites[1].grace == 2);
 
 // "before the rite check takes place"
 // wait is spent before the first look, so it is taken after the turn's work
-// has settled. grace is the second look, and a pass cuts it short.
+// has settled. grace is spent after the verdict, so the two never overlap.
 enum waitInput = `
 rites paced {
   polled { cmd: "gh pr checks 833"  catch: 1  wait: 20 }
@@ -116,6 +116,27 @@ static assert(waitParsed.rites[0].rites[1].wait == 0);
 
 // The two are independent: a rite can declare either, both, or neither.
 static assert(waitParsed.rites[0].rites[0].grace == 2);
+
+// "that means delivery is going to be explicit from now on"
+// "i want the thing to no longer deliver by default to both me and hostllm"
+import receiver : Receiver, PARENT, wants;
+
+enum toInput = `
+rites reported {
+  loud  { cmd: "true"  to: parent }
+  quiet { cmd: "true" }
+}
+`;
+enum toParsed = parsePbt(toInput);
+
+// "to: parent / means to both" — one Stop line, read on screen and in context.
+static assert(toParsed.rites[0].rites[0].to == PARENT);
+static assert(wants(toParsed.rites[0].rites[0].to, Receiver.Human));
+static assert(wants(toParsed.rites[0].rites[0].to, Receiver.HostLlm));
+
+// Silence is silence. A rite that names no receiver reports to nobody, and
+// the alternative is guessing that somebody wanted to hear it.
+static assert(toParsed.rites[0].rites[1].to == Receiver.None);
 
 // A code cannot both advance and hold.
 enum overlapInput = `

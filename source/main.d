@@ -362,6 +362,11 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
 
     // A subagent's Stop is not the session's Stop, so this is the only place
     // an agent leaving a performance unfinished can be refused.
+    if (event == HookEvent.MessageDisplay) {
+        import messagedisplay : handleMessageDisplay;
+        return handleMessageDisplay(input, cwd, sessionId);
+    }
+
     if (event == HookEvent.SubagentStop) {
         import ritual : handleSubagentStop;
         return handleSubagentStop(input, cwd, sessionId);

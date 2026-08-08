@@ -39,7 +39,7 @@ unittest {
     p.ritual = "willow";
     p.rites = "START,APPLE";
     p.riteCount = 2;
-    p.session = "agent-sess";
+    p.agentSession = "agent-sess";
     p.parent = "operator-sess";
     p.state = RitualState.Live;
     assert(writePosition(db, p));
@@ -47,6 +47,6 @@ unittest {
     auto got = readPosition(db, "/sbvh-nl/grove");
     assert(got.valid);
     assert(got.p.parent == "operator-sess");
-    assert(got.p.session == "agent-sess");
+    assert(got.p.agentSession == "agent-sess");
     sqlite3_close(db);
 }

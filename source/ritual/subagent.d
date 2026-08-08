@@ -3,7 +3,7 @@ module ritual.subagent;
 import ritual.position : RitualState;
 import ritual.resolve : flatten;
 import ritual.run : briefing;
-import ritual.store : liveByParent, writePosition;
+import ritual.store : liveByAgentSession, writePosition;
 
 // An agent started with a ritual. SubagentStart is the only place the owning
 // session and the agent are both known, so it is where a performance stops
@@ -17,7 +17,7 @@ int handleSubagentStart(const(char)[] input, const(char)[] cwd, const(char)[] se
     auto db = openDb();
     if (db is null) return 0;
 
-    auto found = liveByParent(db, sessionId);
+    auto found = liveByAgentSession(db, sessionId);
     if (!found.valid || found.p.state != RitualState.Live) {
         sqlite3_close(db);
         return 0;
@@ -28,7 +28,7 @@ int handleSubagentStart(const(char)[] input, const(char)[] cwd, const(char)[] se
     if (agentId is null) agentId = "";
 
     auto p = found.p;
-    p.session = sessionId;
+    p.agentSession = sessionId;
     p.agent = agentId;
     writePosition(db, p);
     sqlite3_close(db);
@@ -68,7 +68,7 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
     auto db = openDb();
     if (db is null) return 0;
 
-    auto found = liveByParent(db, sessionId);
+    auto found = liveByAgentSession(db, sessionId);
     if (!found.valid) { sqlite3_close(db); return 0; }
 
     char[128] agentBuf = 0;
@@ -86,14 +86,15 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
     __gshared char[4096] msgBuf = 0;
     auto last = extractJsonString(input, `"last_assistant_message"`,
                                   &msgBuf[0], msgBuf.length);
-    if (last !is null && last.length > 0 && found.p.session.length > 0) {
+    if (last !is null && last.length > 0) {
+        import ritual.delivery : deliver, PARENT;
         __gshared ZBuf note;
         note.reset();
         note.put("ritual ");
         note.put(found.p.ritual);
         note.put(" — the agent said: ");
         note.put(last);
-        writeNote(db, found.p.session, "ritual-agent-last", note.slice());
+        deliver(db, found.p, PARENT, "ritual-agent-last", note.slice(), true);
     }
 
     if (found.p.state != RitualState.Live) { sqlite3_close(db); return 0; }
@@ -107,7 +108,7 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
         import core.stdc.time : time;
         import ritual.position : threw;
         import ritual.run : advance;
-        import ritual.store : writePosition;
+        import ritual.store : writePositionIf;
         import rite : Verdict;
 
         auto flat = flatten(parsed, i);
@@ -121,13 +122,14 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
         } else {
             back.thrownAt = 0;
         }
-        writePosition(db, back);
+        if (res.applied) writePositionIf(db, back, back.rev);
 
-        // The two sentences, to the session watching. session_id on this hook
-        // is the parent's, so there is nobody else to tell.
-        if (sessionId.length > 0) {
+        // The two sentences, where the rite says they go. Written to the raw
+        // hook sessionId this ignored `to:` entirely, the way the driver did.
+        {
             import notification : riteLine;
             import sentences : firstTwoSentences;
+            import ritual.delivery : deliver;
 
             auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
                                  res.verdict,
@@ -139,7 +141,8 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
             key.put(found.p.id);
             key.put(":");
             key.put(flat.rites[found.p.current].name);
-            writeNote(db, sessionId, key.slice(), line.text());
+            deliver(db, found.p, flat.rites[found.p.current].to,
+                    key.slice(), line.text(), true);
         }
 
         auto brief = briefing(back, flat);

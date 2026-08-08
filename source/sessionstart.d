@@ -317,8 +317,14 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             // not fire for `claude -w`. The agent's own start is where the
             // performance learns who is carrying it.
             if (found.valid && found.p.state == RitualState.Live
-                && found.p.session.length == 0 && sessionId.length > 0) {
+                && found.p.agentSession.length == 0 && sessionId.length > 0) {
                 found.p = bindSession(found.p, sessionId);
+
+                // This hook runs inside the agent, so its parent is the agent.
+                // Nothing else knows the pid: with --bg the process is Fleet's,
+                // and asking Fleet costs a frame the status line does not have.
+                import watch : getppid;
+                found.p.agentPid = getppid();
                 writePosition(rdb, found.p);
             }
 
