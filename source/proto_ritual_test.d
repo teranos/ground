@@ -259,3 +259,29 @@ static assert(validateRituals(sandParsed) == "ritual probeRitual: probe needs ro
 // readWord lands on a brace and asserts — the parser never gets to run.
 enum sandCounted = countPbt(sandShapeInput);
 static assert(sandCounted.totalProjects == 1);
+
+// "you set a branch on the block on the project level"
+enum branchInput = `
+rites walk {
+  one { cmd: "true" }
+}
+
+project {
+  path:   "/sbvh-nl/grove"
+  branch: "rituals"
+
+  ritual worker {
+    walk
+  }
+}
+`;
+enum branchParsed = parsePbt(branchInput);
+static assert(branchParsed.rituals[0].projectBranch == "rituals");
+
+// Absent, the PR keeps going wherever gh sends it.
+static assert(sandParsed.rituals[0].projectBranch.length == 0);
+
+// The flat list carries it, because prScript is built where the walk is and
+// not where the pbt is.
+import ritual : flatten;
+static assert(flatten(branchParsed, 0).branch == "rituals");

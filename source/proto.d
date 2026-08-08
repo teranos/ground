@@ -152,6 +152,8 @@ struct ParsedRiteRef {
 struct ParsedRitual {
     string name;
     string projectPath;
+    // "you set a branch on the block on the project level"
+    string projectBranch;
     ParsedRiteRef[16] refs;
     size_t refCount;
 }
@@ -705,6 +707,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
 
 void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
     string projectPath;
+    string projectBranch;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
     string[1024] files;
@@ -749,7 +752,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             skipWS(input, pos);
             expect(input, pos, '{');
             assert(result.ritualCount < result.rituals.length, "Ritual overflow");
-            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath);
+            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath, projectBranch);
             result.ritualCount++;
         } else if (wm.base == "scope") {
             skipWS(input, pos);
@@ -793,6 +796,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             auto val = readValue(input, pos);
             switch (key) {
                 case "path": projectPath = val; break;
+                case "branch": projectBranch = val; break;
                 case "files":
                     if (val is null) {
                         // List syntax: files: ["a", "b", ...]
@@ -1132,10 +1136,12 @@ void parseQntx(ref string input, ref size_t pos, ref ParseResult result) {
 
 // A ritual body holds only references — never definitions — so a name
 // followed by a block is unambiguous: it is that reference, with values.
-ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string projectPath) {
+ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string projectPath,
+                         string projectBranch = "") {
     ParsedRitual r;
     r.name = name;
     r.projectPath = projectPath;
+    r.projectBranch = projectBranch;
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;

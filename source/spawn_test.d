@@ -100,3 +100,11 @@ static assert(pr.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
     ~ "git push -q -u origin HEAD\n"
     ~ "gh pr create --title 'tree: tree-17' --body 'Performed by ground.'\n");
+
+// "you set a branch on the block on the project level" — a performance whose
+// project names one lands there instead of wherever gh would send it.
+enum prBranched = prScript("/home/u/src/proj-p1", "tree", "tree-17", "rituals");
+static assert(prBranched.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
+    ~ "git push -q -u origin HEAD\n"
+    ~ "gh pr create --base 'rituals' --title 'tree: tree-17' --body 'Performed by ground.'\n");

@@ -130,7 +130,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (moved.state == RitualState.Done && moved.worktree.length > 0) {
         import rite : runRite;
         import exec : emitError;
-        auto pr = prScript(moved.worktree, moved.ritual, moved.id);
+        auto pr = prScript(moved.worktree, moved.ritual, moved.id, f.branch);
         auto out_ = runRite(pr.text(), "ritual-pr", cast(string) sessionId);
         if (!out_.ran || out_.code != 0) {
             emitError("ritual.pr", "the performance finished but its branch did not become a pull request",
@@ -323,12 +323,21 @@ SpawnScript reapScript(const(char)[] performanceId) {
 
 // What a performance ends in. Only on Done — a halt is not something to
 // merge, and its branch is left where it stopped.
-SpawnScript prScript(const(char)[] tree, const(char)[] ritual, const(char)[] id) {
+SpawnScript prScript(const(char)[] tree, const(char)[] ritual, const(char)[] id,
+                     const(char)[] branch = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(tree);
     s.put("\ngit push -q -u origin HEAD\n");
-    s.put("gh pr create --title ");
+    s.put("gh pr create ");
+    // Silence leaves gh to `gh-merge-base` if the branch has one configured,
+    // and to the repository's default branch if it does not.
+    if (branch.length > 0) {
+        s.put("--base ");
+        s.putQuoted(branch);
+        s.put(" ");
+    }
+    s.put("--title ");
 
     SpawnScript title;
     title.put(ritual);

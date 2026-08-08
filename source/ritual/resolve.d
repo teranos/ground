@@ -97,12 +97,16 @@ struct FlatRite {
 struct Flattened {
     FlatRite[MAX_RITES] rites;
     size_t count;
+    // "you set a branch on the block on the project level" — carried here
+    // because prScript is built where the walk is, not where the pbt is.
+    string branch;
 }
 
 Flattened flatten(PR)(const PR r, size_t ritualIdx) {
     Flattened f;
     if (ritualIdx >= r.ritualCount) return f;
     auto rit = r.rituals[ritualIdx];
+    f.branch = rit.projectBranch;
 
     foreach (ri; 0 .. rit.refCount) {
         auto refr = rit.refs[ri];
