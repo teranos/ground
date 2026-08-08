@@ -93,6 +93,48 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
+
+    // Blue is "the agent is doing something", so it is stamped where the agent
+    // does something. Collet read this off the attestation table before, which
+    // was accurate and cost 2s a frame against a 1s repaint.
+    if (sessionId.length > 0) {
+        import core.stdc.time : time;
+        import db : openDb, sqlite3_close;
+        import ritual : stampActed;
+
+        auto adb = openDb();
+        if (adb !is null) {
+            stampActed(adb, sessionId, cast(long) time(null));
+            sqlite3_close(adb);
+        }
+    }
+
+    // The fallback address. PreToolUse claims the session before the row is
+    // created; this catches a performance whose claim was missed and is still
+    // Live, which is every case except a ritual that finished inside the call.
+    if (command !is null && sessionId.length > 0) {
+        import ritual : ritualStarted, readPosition, writePosition, RitualState;
+        import controls : allParsed;
+        import db : openDb, sqlite3_close;
+
+        auto started = ritualStarted(command);
+        if (started.length > 0) {
+            static immutable parsed = allParsed;
+            foreach (i; 0 .. parsed.ritualCount) {
+                if (parsed.rituals[i].name != started) continue;
+                auto db = openDb();
+                if (db is null) break;
+                auto found = readPosition(db, parsed.rituals[i].projectPath);
+                if (found.valid && found.p.state == RitualState.Live
+                    && found.p.parent.length == 0) {
+                    found.p.parent = sessionId;
+                    writePosition(db, found.p);
+                }
+                sqlite3_close(db);
+                break;
+            }
+        }
+    }
     auto detail = command !is null ? command : (filePath !is null ? filePath : cast(const(char)[])"PostToolUse");
 
     auto tParse = usecNow();

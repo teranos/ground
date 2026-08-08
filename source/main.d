@@ -151,23 +151,8 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
     auto db = openDb();
     if (db is null) return;
 
-    enum createSql = "CREATE TABLE IF NOT EXISTS timing (id INTEGER PRIMARY KEY, duration_us INTEGER NOT NULL, hook_event TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
-
-    // Migrate: add hook_event column if missing
-    enum migrateSql = "ALTER TABLE timing ADD COLUMN hook_event TEXT\0";
-    sqlite3_exec(db, migrateSql.ptr, null, null, null);
-
-    // Migrate: add project column for per-project timing
-    enum migrateProject = "ALTER TABLE timing ADD COLUMN project TEXT\0";
-    sqlite3_exec(db, migrateProject.ptr, null, null, null);
-
-    // Migrate: add phases column for per-call breakdown
-    enum migratePhases = "ALTER TABLE timing ADD COLUMN phases TEXT\0";
-    sqlite3_exec(db, migratePhases.ptr, null, null, null);
-
-    enum idxTiming = "CREATE INDEX IF NOT EXISTS idx_timing_event_project ON timing(hook_event, project, id)\0";
-    sqlite3_exec(db, idxTiming.ptr, null, null, null);
+    // The timing table and its three added columns live in db.applySchema,
+    // which openDb has already run on this handle.
 
     enum sql = "INSERT INTO timing (duration_us, hook_event, project, phases) VALUES (?1, ?2, ?3, ?4)\0";
     sqlite3_stmt* stmt;
@@ -204,6 +189,18 @@ extern (C) int main(int argc, const(char)** argv) {
         if (cmd == "watch") {
             import watch : handleWatch;
             return handleWatch(argc, argv);
+        }
+        if (cmd == "ritual") {
+            import ritual : handleRitual;
+            return handleRitual(argc, argv);
+        }
+        if (cmd == "abort") {
+            import ritual : handleAbort;
+            return handleAbort(argc, argv);
+        }
+        if (cmd == "drive") {
+            import ritual : handleDrive;
+            return handleDrive(argc, argv);
         }
         if (cmd == "decay") {
             import decay : decayDb;
@@ -281,11 +278,9 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
             // Claude Code. Refusing to operate and refusing to let someone
             // work are different things.
             //
-            // Stop is the one place a block earns its keep: end of turn,
-            // denies nothing, and puts the verdict where it cannot be scrolled
-            // past. stop_hook_active MUST gate it — Claude Code sets that flag
-            // once a Stop hook has already blocked this turn, and re-blocking
-            // means the turn can never close.
+            // Stop is the one place a block earns its keep: it denies nothing
+            // and cannot be scrolled past. stop_hook_active MUST gate it, or
+            // Stop never stops firing.
             auto msg = dbFailureMessage();
             fwrite(msg.ptr, 1, msg.length, stderr);
             fputs("\n", stderr);
@@ -332,6 +327,13 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         return handleSessionStart(source, cwd, sessionId);
     }
 
+    // The only event that reaches the person and costs nothing: exit 2 shows
+    // stderr and nothing else. Registered since forever, handled by nobody.
+    if (event == HookEvent.Notification) {
+        import notification : handleNotification;
+        return handleNotification(input, cwd, sessionId);
+    }
+
     if (event == HookEvent.PreCompact) {
         import precompact : handlePreCompact;
         return handlePreCompact(input, cwd, sessionId);
@@ -346,6 +348,38 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     if (event == HookEvent.PostToolUseFailure) {
         import posttoolusefailure : handlePostToolUseFailure;
         return handlePostToolUseFailure(input, cwd, sessionId);
+    }
+
+    // The one event where exiting 0 with no output is itself the failure:
+    // the docs make the printed path the success, and a hook that prints
+    // nothing aborts the creation.
+    // An agent started with a ritual: the only place the owning session and
+    // the agent are both known.
+    if (event == HookEvent.SubagentStart) {
+        import ritual : handleSubagentStart;
+        return handleSubagentStart(input, cwd, sessionId);
+    }
+
+    // A subagent's Stop is not the session's Stop, so this is the only place
+    // an agent leaving a performance unfinished can be refused.
+    if (event == HookEvent.MessageDisplay) {
+        import messagedisplay : handleMessageDisplay;
+        return handleMessageDisplay(input, cwd, sessionId);
+    }
+
+    if (event == HookEvent.SubagentStop) {
+        import ritual : handleSubagentStop;
+        return handleSubagentStop(input, cwd, sessionId);
+    }
+
+    if (event == HookEvent.WorktreeCreate) {
+        import worktree : handleWorktreeCreate;
+        return handleWorktreeCreate(input, cwd);
+    }
+
+    if (event == HookEvent.WorktreeRemove) {
+        import worktree : handleWorktreeRemove;
+        return handleWorktreeRemove(input, cwd);
     }
 
     // Unknown/unhandled events — exit 0, no output

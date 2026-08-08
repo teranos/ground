@@ -193,6 +193,50 @@ sqlite3* openStandaloneDb() {
 // write a CREATE TABLE: a second copy of the schema drifts from this one
 // silently, and a test asserting against a schema the product does not have is
 // worse than no test.
+// Does the store already have this column? PRAGMA table_info returns nothing
+// for a table that does not exist, so an absent table reads as absent columns.
+bool hasColumn(sqlite3* db, const(char)[] table, const(char)[] column) {
+    __gshared ZBuf sql;
+    sql.reset();
+    sql.put("PRAGMA table_info(");
+    sql.put(table);
+    sql.put(")");
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr(), -1, &stmt, null) != SQLITE_OK) return false;
+
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto name = sqlite3_column_text(stmt, 1);
+        if (name is null) continue;
+        size_t i = 0;
+        while (i < column.length && name[i] != 0 && name[i] == column[i]) i++;
+        if (i == column.length && name[i] == 0) { found = true; break; }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+// A CREATE TABLE IF NOT EXISTS is a no-op against a store that already has an
+// older shape, so the schema and the store drift while every test stays green
+// — tests open :memory: and always get the new shape.
+private bool ensureColumn(sqlite3* db, const(char)[] table, const(char)[] column, const(char)[] decl) {
+    if (hasColumn(db, table, column)) return true;
+
+    __gshared ZBuf sql;
+    sql.reset();
+    sql.put("ALTER TABLE ");
+    sql.put(table);
+    sql.put(" ADD COLUMN ");
+    sql.put(column);
+    sql.put(" ");
+    sql.put(decl);
+
+    if (sqlite3_exec(db, sql.ptr(), null, null, null) == SQLITE_OK) return true;
+    noteDbFailure(sqlite3_errcode(db));
+    return false;
+}
+
 bool applySchema(sqlite3* db) {
     enum schema = "CREATE TABLE IF NOT EXISTS attestations ("
         ~ "id TEXT PRIMARY KEY, subjects JSON NOT NULL, predicates JSON NOT NULL, "
@@ -211,6 +255,53 @@ bool applySchema(sqlite3* db) {
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
     sqlite3_exec(db, sessionProjectSchema.ptr, null, null, null);
+
+    // Keyed on the performance, not on where it happens. The worktree is an
+    // index: removing the tree loses a route to the record, not the record.
+    enum ritualPositionSchema = "CREATE TABLE IF NOT EXISTS ritual_position ("
+        ~ "id TEXT PRIMARY KEY, repo TEXT NOT NULL, ritual TEXT NOT NULL, "
+        ~ "branch TEXT, worktree TEXT, current INTEGER NOT NULL, "
+        ~ "states TEXT NOT NULL, state TEXT NOT NULL, rites TEXT, "
+        ~ "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+    sqlite3_exec(db, ritualPositionSchema.ptr, null, null, null);
+
+    // collet renders the line from the row alone. Without the names it has
+    // glyphs and a cursor and nothing to put brackets around.
+    ensureColumn(db, "ritual_position", "rites", "TEXT");
+
+    // Who owns the performance. SubagentStart carries the parent session and
+    // the agent, which is the only place both are known at once.
+    ensureColumn(db, "ritual_position", "session", "TEXT");
+    ensureColumn(db, "ritual_position", "agent", "TEXT");
+    ensureColumn(db, "ritual_position", "gotos", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "parent", "TEXT");
+    ensureColumn(db, "ritual_position", "agent_pid", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "thrown_at", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "throws", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "rev", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "mic", "TEXT NOT NULL DEFAULT 'ground'");
+    ensureColumn(db, "ritual_position", "mic_at", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "said", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "acted_at", "INTEGER NOT NULL DEFAULT 0");
+
+    enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
+    enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";
+    sqlite3_exec(db, idxRitualRepo.ptr, null, null, null);
+    sqlite3_exec(db, idxRitualTree.ptr, null, null, null);
+
+    // Was in main.d's recordTiming: a CREATE TABLE in the one place the rule
+    // above forbids one, and three ALTER TABLEs whose failures went nowhere.
+    enum timingSchema = "CREATE TABLE IF NOT EXISTS timing (id INTEGER PRIMARY KEY, "
+        ~ "duration_us INTEGER NOT NULL, hook_event TEXT, "
+        ~ "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+    sqlite3_exec(db, timingSchema.ptr, null, null, null);
+
+    ensureColumn(db, "timing", "hook_event", "TEXT");
+    ensureColumn(db, "timing", "project", "TEXT");
+    ensureColumn(db, "timing", "phases", "TEXT");
+
+    enum idxTiming = "CREATE INDEX IF NOT EXISTS idx_timing_event_project ON timing(hook_event, project, id)\0";
+    sqlite3_exec(db, idxTiming.ptr, null, null, null);
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

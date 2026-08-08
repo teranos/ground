@@ -89,6 +89,25 @@ void writeStopResponse(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
+// "the agent carries on" — verbatim, and `continue` is the field that says so.
+// Blocking alone left the agent doing one Edit every 605 seconds.
+void writeStopContinue(const(char)[] reason) {
+    fputs(`{"decision":"block","continue":true,"reason":"`, stdout);
+    writeJsonString(reason);
+    fputs(`"}`, stdout);
+    fputs("\n", stdout);
+}
+
+// https://code.claude.com/docs/en/hooks — `continue`, `stopReason`
+void writeStopEnded(V)(const(char)[] ritual, V state) {
+    import ritual : RitualState;
+    fputs(`{"continue":false,"stopReason":"Ritual `, stdout);
+    writeJsonString(ritual);
+    fputs(state == RitualState.Aborted ? ` was aborted.` : ` ended.`, stdout);
+    fputs(` This performance is over."}`, stdout);
+    fputs("\n", stdout);
+}
+
 // cwd/sessionId stashed by handleStop so writeStopResponse callers don't need them
 __gshared const(char)[] g_cwd;
 __gshared const(char)[] g_sessionId;
@@ -96,6 +115,18 @@ __gshared const(char)[] g_sessionId;
 void writeStopResponseAndNotify(const(char)[] reason) {
     writeStopResponse(reason);
     notifyLoomHook(g_cwd, g_sessionId, reason);
+}
+
+// A live performance with a rite still to meet.
+bool ritualPending(const(char)[] cwd) {
+    import db : openDb, sqlite3_close;
+    import ritual : readPositionAt, RitualState;
+
+    auto db = openDb();
+    if (db is null) return false;
+    auto found = readPositionAt(db, cwd);
+    sqlite3_close(db);
+    return found.valid && found.p.state == RitualState.Live;
 }
 
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
@@ -113,13 +144,13 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // ERROR AXIOM: catch wrapper processes that died before delivering,
     // and check the delivery pipeline itself is alive. Stop runs both since
-    // it's the natural end-of-turn sync point.
+    // it fires when Claude finishes responding, after the agentic loop.
     if (sessionId !is null) {
         import errors : scanVanishedWrappers, immediateBacklogMessage;
         scanVanishedWrappers(cast(string) sessionId);
         // If the watch daemon is dead and rows are pending, block Stop
         // with the backlog message. Point of interaction: user sees the
-        // failure at end-of-turn instead of silently missing exec output.
+        // failure at Stop instead of silently missing exec output.
         // The killSessionWatcher/writeWatchClaim above still ran, and the
         // asyncRewake config still spawns a new watch — blocking Stop
         // doesn't prevent recovery on the next turn.
@@ -137,7 +168,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
-    if (hookActive)
+    // A rite holds the door until it is met, which it can only do if it is
+    // asked every time. The guard is right for advisory controls.
+    if (hookActive && !ritualPending(cwd))
         return 0;
 
     auto t1 = usecNow();
@@ -153,6 +186,124 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto tb0 = usecNow();
         branch = getBranch(cwd);
         branchUs = usecNow() - tb0;
+    }
+
+    // A live performance in this directory is the reason the turn is
+    // happening, so it is answered before the advisory controls.
+    {
+        import ritual : readPositionAt, advance, briefing, flatten, RitualState;
+        import rite : Verdict;
+        import controls : allParsed;
+        import core.stdc.time : time;
+
+        auto found = readPositionAt(db, cwd);
+
+        // "ground should take responsibility"
+        if (found.valid && found.p.state != RitualState.Live) {
+            sqlite3_close(db);
+            writeStopEnded(found.p.ritual, found.p.state);
+            return 0;
+        }
+
+        if (found.valid && found.p.state == RitualState.Live) {
+            static immutable ritualsParsed = allParsed;
+            foreach (i; 0 .. ritualsParsed.ritualCount) {
+                if (ritualsParsed.rituals[i].name != found.p.ritual) continue;
+
+                auto flat = flatten(ritualsParsed, i);
+                auto res = advance(db, sessionId, found.p, flat, cast(long) time(null));
+                if (!res.ran) break;
+
+                // The bucket did not take it. Stamped while the rite is in
+                // that state, cleared when it finally takes one — being
+                // thrown back lasts until the rite passes, it is not a flash.
+                import ritual : writePositionIf, threw;
+                import mic : wordsHash, freshWords;
+                auto now = cast(long) time(null);
+                auto back = res.after;
+
+                // "make the message a property of the mic"
+                auto said = extractLastAssistantMessage(input);
+                auto spoken = said is null ? 0 : wordsHash(said);
+                auto fresh = freshWords(spoken, found.p.said);
+                back.said = fresh ? spoken : found.p.said;
+                if (res.verdict == Verdict.Hold) {
+                    back = threw(back);
+                    back.thrownAt = now;
+                } else {
+                    back.thrownAt = 0;
+                }
+
+                // Conditional on the revision advance just claimed. An
+                // unconditional write here put a stale driver's count back.
+                if (res.applied && writePositionIf(db, back, back.rev))
+                    back.rev = back.rev + 1;
+
+                __gshared ZBuf rmsg;
+                rmsg.reset();
+
+                if (res.verdict == Verdict.Halt) {
+                    // The number and what the command said, on screen. A rite
+                    // the ritual cannot read is not a finding about the world.
+                    rmsg.put("Ritual ");
+                    rmsg.put(found.p.ritual);
+                    rmsg.put(" halted on ");
+                    rmsg.put(flat.rites[found.p.current].name);
+                    rmsg.put(" with exit ");
+                    putInt(rmsg, res.code);
+                    if (res.output.length > 0) {
+                        rmsg.put(": ");
+                        rmsg.put(res.output);
+                    }
+                } else {
+                    // What just happened, then where that leaves it. Without
+                    // the first half an agent is told to do the next thing
+                    // and never learns whether the last thing counted.
+                    if (res.verdict == Verdict.Advance) {
+                        rmsg.put(flat.rites[found.p.current].name);
+                        rmsg.put(" passed. ");
+                    }
+                    rmsg.put(briefing(back, flat).text());
+                }
+
+                // What the rite answered and what the agent said about it, to
+                // the session that started the performance. This block used to
+                // return before last_assistant_message was ever read.
+                {
+                    import ritual.delivery : deliver;
+                    import notification : riteLine;
+                    import sentences : firstTwoSentences;
+
+                    auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
+                                         res.verdict,
+                                         fresh ? firstTwoSentences(said) : "",
+                                         found.p.id,
+                                         flat.rites[found.p.current].mic);
+
+                    // The immediate queue, which the watcher polls every two
+                    // seconds. Keyed on performance and rite so each line is
+                    // its own row rather than replacing the one before it.
+                    __gshared ZBuf key;
+                    key.reset();
+                    key.put("rite:");
+                    key.put(found.p.id);
+                    key.put(":");
+                    key.put(flat.rites[found.p.current].name);
+                    // The rite says where its verdict goes. Silence is silence:
+                    // a rite naming no receiver reports to nobody.
+                    deliver(db, back, flat.rites[found.p.current].to,
+                            key.slice(), line.text(), true);
+                }
+
+                sqlite3_close(db);
+
+                // A rite's block is the one place the agent is meant to keep
+                // going rather than stop. Everything else keeps the old shape.
+                writeStopContinue(rmsg.slice());
+                notifyLoomHook(cwd, sessionId, rmsg.slice());
+                return 0;
+            }
+        }
     }
 
     auto t3 = usecNow();

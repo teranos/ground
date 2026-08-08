@@ -123,6 +123,7 @@ import core.stdc.stdio : stderr, fputs, fwrite, FILE;
 extern (C) {
     uint sleep(uint seconds);
     int getpid();
+    int getppid();
     int kill(int pid, int sig);
     FILE* fopen(const(char)* path, const(char)* mode);
     int fclose(FILE* f);
@@ -168,6 +169,22 @@ const(char)[] cwdLeaf(const(char)[] path) {
     return path[last .. $];
 }
 
+// Everything a pid file can hold that is not a live pid reaches the caller
+// as 0, and 0 is never signalled: kill(0, SIGTERM) hits the whole group.
+int parsePid(const(char)[] text) {
+    int pid = 0;
+    foreach (c; text) {
+        if (c < '0' || c > '9') break;
+        pid = pid * 10 + (c - '0');
+    }
+    return pid;
+}
+
+// A watcher's parent is claude. ppid 1 means the session it would wake is
+// gone, and nothing will ever kill it — killSessionWatcher runs from that
+// session's own Stop, which will not happen again.
+bool orphaned(int ppid) { return ppid <= 1; }
+
 // --- Called by Stop handler (has session ID) ---
 
 // Kill the previous watcher for THIS session only.
@@ -183,14 +200,13 @@ void killSessionWatcher(const(char)[] sessionId) {
     auto n = fread(&pidBuf[0], 1, 15, rf);
     fclose(rf);
 
-    int oldPid = 0;
-    foreach (i; 0 .. n) {
-        if (pidBuf[i] >= '0' && pidBuf[i] <= '9')
-            oldPid = oldPid * 10 + (pidBuf[i] - '0');
-        else break;
-    }
+    auto oldPid = parsePid(pidBuf[0 .. n]);
     if (oldPid > 0)
         kill(oldPid, 15); // SIGTERM
+
+    // The file outlives the watcher it named. Left in place it accumulates,
+    // and the number it holds is eventually handed to something else.
+    remove(&pathBuf[0]);
 }
 
 // Write a claim file so the new watcher knows its session ID.
@@ -279,9 +295,9 @@ const(char)[] claimSession(const(char)[] cwd) {
 // honest signal is undelivered work — see immediate.countStaleExecForSession.
 
 // Write our PID to the session-keyed PID file.
-void writePid(const(char)[] sessionId) {
+void writePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
     __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-", sessionId, ".pid");
+    auto pLen = buildGroundPath(pathBuf, prefix, sessionId, ".pid");
     if (pLen == 0) return;
 
     auto wf = fopen(&pathBuf[0], "w");
@@ -289,6 +305,14 @@ void writePid(const(char)[] sessionId) {
         fprintf(wf, "%d\n", getpid());
         fclose(wf);
     }
+}
+
+// The watcher unlinks its own file on the way out. Left behind, the number
+// it holds is eventually reissued and killSessionWatcher signals a stranger.
+void removePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, prefix, sessionId, ".pid") == 0) return;
+    remove(&pathBuf[0]);
 }
 
 int handleWatch(int argc, const(char)** argv) {
@@ -300,13 +324,37 @@ int handleWatch(int argc, const(char)** argv) {
     import main : argLen;
     auto cwd = argv[2][0 .. argLen(argv[2])];
 
-    auto sessionId = claimSession(cwd);
+    // The model's mark. The operator is not reached from here — exit 0 renders
+    // systemMessage but sends stdout to the debug log, so a second watcher for
+    // the screen was built, measured, and deleted. MessageDisplay carries it.
+    enum mark = "delivered:";
+
+    // Two watchers cannot share the claim mechanism: the glob is not
+    // session-scoped and the rename is a mutex, so the second one steals the
+    // first one's session. Stdin carries session_id if it is piped at all.
+    const(char)[] sessionId = null;
+    {
+        import main : readStdin;
+        import parse : extractJsonString;
+        auto input = readStdin();
+        if (input !is null) {
+            __gshared char[128] sidBuf = 0;
+            sessionId = extractJsonString(input, `"session_id"`, &sidBuf[0], sidBuf.length);
+        }
+    }
+
+    if (sessionId is null) sessionId = claimSession(cwd);
     if (sessionId is null) {
-        fputs("ground watch: no claim file found\n", stderr);
+        // asyncRewake surfaces stderr on exit 2 only, so this line reached
+        // nobody for as long as it has existed.
+        import exec : emitError;
+        emitError("watch.claim", "no claim file to take, so this watcher has no session",
+                  0, 1, "", "watch", "", "", "");
         return 1;
     }
 
-    writePid(sessionId);
+    enum pidPrefix = "watch-";
+    writePid(sessionId, pidPrefix);
 
     __gshared char[4096] batchBuf = 0;
     size_t batchLen = 0;
@@ -322,8 +370,42 @@ int handleWatch(int argc, const(char)** argv) {
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
 
+            // Advancing here rather than at Stop is the point: an agent can be
+            // inside the agentic loop for an hour without Claude finishing its
+            // response, and the rite may have been met twenty minutes ago.
+            {
+                import ritual : readPositionAt, advance, briefing, flatten, RitualState;
+                import rite : Verdict;
+                import controls : allParsed;
+                import immediate : writeNote;
+                import core.stdc.time : time;
+
+                auto here = readPositionAt(db, cwd);
+                if (here.valid && here.p.state == RitualState.Live) {
+                    static immutable ritualsParsed = allParsed;
+                    foreach (ri; 0 .. ritualsParsed.ritualCount) {
+                        if (ritualsParsed.rituals[ri].name != here.p.ritual) continue;
+
+                        auto flat = flatten(ritualsParsed, ri);
+                        auto res = advance(db, sessionId, here.p, flat, cast(long) time(null));
+                        if (!res.ran) break;
+
+                        // A held rite waits on the world, so asking again in
+                        // two seconds is noise.
+                        if (res.verdict == Verdict.Hold) nextSleep = 15;
+
+                        if (res.after.current != here.p.current
+                            || res.after.state != RitualState.Live) {
+                            writeNote(db, sessionId, "ritual-moved",
+                                      briefing(res.after, flat).text());
+                        }
+                        break;
+                    }
+                }
+            }
+
             while (true) {
-                auto imm = readImmediateMessage(db, cwd, sessionId);
+                auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
 
                 // Late-binding: ci-status resolves live. Uses the repo + branch
@@ -335,7 +417,7 @@ int handleWatch(int argc, const(char)** argv) {
                     import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.branch.length == 0) {
                         // Row predates the repo-keyed format — drop it.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
                         continue;
                     }
                     import deferred : CIQuery;
@@ -349,7 +431,7 @@ int handleWatch(int argc, const(char)** argv) {
                     }
                     if (ci.kind == CIQuery.NoWorkflow) {
                         // gh answered and there is genuinely no run to report.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
                         continue;
                     }
                     // Unavailable falls through and is DELIVERED, not dropped.
@@ -360,7 +442,7 @@ int handleWatch(int argc, const(char)** argv) {
                         urgent = true;
                 }
 
-                markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
                 foundNew = true;
 
                 // Append to batch: "ground: <message>\n"
@@ -379,11 +461,21 @@ int handleWatch(int argc, const(char)** argv) {
 
             // No new messages this cycle. If we accumulated anything, deliver now.
             if (batchLen > 0) {
+                removePid(sessionId, pidPrefix);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
                 return 2;
             }
         }
+
+        // The session that spawned this watcher is gone, and only that
+        // session's Stop ever calls killSessionWatcher. Without this the
+        // loop runs until the machine reboots.
+        if (orphaned(getppid())) {
+            removePid(sessionId, pidPrefix);
+            return 0;
+        }
+
         sleep(nextSleep);
     }
 }

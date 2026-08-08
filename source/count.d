@@ -52,6 +52,15 @@ PbtCounts countPbt(string input) {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
+        } else if (wm.base == "rites") {
+            // Named block. Rites are sized by their own fixed arrays, so
+            // nothing is counted — but it must be consumed, or the next
+            // readWord lands on a brace.
+            skipWS(input, pos);
+            readWord(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
         }
     }
     return r;
@@ -159,6 +168,13 @@ void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
             expect(input, pos, '{');
             skipBlock(input, pos);
             r.totalEnvs++;
+        } else if (wm.base == "ritual") {
+            // Named block, same as rites — consumed, not counted.
+            skipWS(input, pos);
+            readWord(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
         } else {
             // Field: key: value
             skipWS(input, pos);

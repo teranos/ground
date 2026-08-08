@@ -300,6 +300,51 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         fputs("\n", stderr);
     }
 
+    // A performance is being done in this directory. Without this an agent
+    // works inside one without knowing, and only meets the ritual when
+    // something interrupts it.
+    {
+        import db : openDb, sqlite3_close;
+        import ritual : readPositionAt, briefing, flatten, bindSession, writePosition,
+                        RitualState;
+        import controls : allParsed;
+
+        auto rdb = openDb();
+        if (rdb !is null) {
+            auto found = readPositionAt(rdb, cwd);
+
+            // SubagentStart was the only writer of the session, and it does
+            // not fire for `claude -w`. The agent's own start is where the
+            // performance learns who is carrying it.
+            if (found.valid && found.p.state == RitualState.Live
+                && found.p.agentSession.length == 0 && sessionId.length > 0) {
+                found.p = bindSession(found.p, sessionId);
+
+                // This hook runs inside the agent, so its parent is the agent.
+                // Nothing else knows the pid: with --bg the process is Fleet's,
+                // and asking Fleet costs a frame the status line does not have.
+                import watch : getppid;
+                found.p.agentPid = getppid();
+                writePosition(rdb, found.p);
+            }
+
+            sqlite3_close(rdb);
+            if (found.valid) {
+                static immutable parsed = allParsed;
+                foreach (i; 0 .. parsed.ritualCount) {
+                    if (parsed.rituals[i].name != found.p.ritual) continue;
+                    auto brief = briefing(found.p, flatten(parsed, i));
+                    if (brief.len > 0) {
+                        if (any) ctx.put(" | ");
+                        ctx.put(brief.text());
+                        any = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     if (projectNews !is null) {
         import parse : writeJsonString;
         if (any) ctx.put(" | ");

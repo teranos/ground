@@ -41,7 +41,7 @@ enum DEFAULT_TIMEOUT_SEC = 300;
 // calls deliverError. This helper packages the boilerplate. When called,
 // SOMETHING lands in front of the user — via db, breadcrumb, or stderr.
 // Never a silent return.
-private void emitError(
+void emitError(
     string origin, string message,
     int errnoVal, int exitCode,
     string sessionId, string controlName, string toolUseId,
