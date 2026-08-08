@@ -6,14 +6,16 @@ module mic;
 
 // "PARENT: HUMAN / HOSTLLM"
 // "CHILD : RITUAL / AGENTLLM"
+// "it is the error code that is holding the mic"
 enum Mic {
     Ground,
     Agent,
     Ci,
     Human,
+    Error,
 }
 
-immutable string[4] MIC_WORD = ["ground", "agent", "ci", "human"];
+immutable string[5] MIC_WORD = ["ground", "agent", "ci", "human", "error"];
 
 string micWord(Mic m) { return MIC_WORD[cast(size_t) m]; }
 
@@ -52,6 +54,9 @@ long micBound(Mic who, long ciExpected, long agentExpected) {
     case Mic.Ci:     return ciExpected;
     case Mic.Agent:  return agentExpected;
     case Mic.Human:  return 0;
+    // The API says when it will be over, not ground. Until `retry-after` is
+    // read, an outage has no bound and cannot be called late.
+    case Mic.Error:  return 0;
     }
 }
 

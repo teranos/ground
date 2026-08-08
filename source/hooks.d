@@ -31,7 +31,7 @@ enum HookEvent {
     Stop,               // deferred messages, lazy-verify, CI nudge
                         //   stop_hook_active:false = first stop, controls run.
                         //   stop_hook_active:true = re-stop after prior block, skip to avoid loop.
-    StopFailure,        // TODO: fires when turn ends due to API error — retry logic, error logging
+    StopFailure,        // recorded raw by stopfailure.d. Cannot block, so nothing here retries the turn
     TeammateIdle,       // TODO: quality gates before teammate stops — exit 2 to continue, continue:false to halt
     TaskCreated,        // TODO: fires when a task is being created
                         //   payload: task_id, task_subject, task_description, teammate_name, team_name
