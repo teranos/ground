@@ -77,6 +77,7 @@ struct FlatRite {
     string name;
     string cmd;
     string msg;
+    string mic;
     int pass;
     int[8] catches;
     size_t catchCount;
@@ -113,6 +114,7 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
                 fr.name = src.name;
                 fr.cmd = src.cmd;
                 fr.msg = src.msg;
+                fr.mic = src.mic;
                 fr.pass = src.pass;
                 fr.catches = src.catches;
                 fr.catchCount = src.catchCount;

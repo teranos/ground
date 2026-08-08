@@ -78,9 +78,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         }
     }
 
-    // Ground held it while the rite ran and has nothing left to wait for. Here
-    // and not at a call site: four things advance a position, and a handoff
-    // one of them can skip is a holder nobody can trust.
+    // "move it into advance"
     {
         import ritual.position : takeMic;
         import mic : Mic;
@@ -197,6 +195,12 @@ Brief briefing(const Position p, const Flattened f) {
     if (r.msg.length > 0) {
         b.put(". ");
         b.put(r.msg);
+    }
+    // "if it goes through the mic, it means both the parent and the child
+    // agent would be receivers"
+    if (r.mic.length > 0) {
+        b.put(". ");
+        b.put(r.mic);
     }
     return b;
 }

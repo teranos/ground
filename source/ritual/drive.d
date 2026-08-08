@@ -113,7 +113,8 @@ int handleDrive(int argc, const(char)** argv) {
                 import db : ZBuf;
 
                 auto rite = flat.rites[found.p.current].name;
-                auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id);
+                auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id,
+                                     flat.rites[found.p.current].mic);
 
                 __gshared ZBuf key;
                 key.reset();

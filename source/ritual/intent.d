@@ -1,8 +1,6 @@
 module ritual.intent;
 
-// Who is owed the news, learned before there is a row to write it on.
-// `ground ritual <name>` is a CLI call and carries no session; PostToolUse has
-// one but fires after the Bash call returns and only binds a Live performance.
+// "ALL RITUALS SHOULD SHOW UP IN THE PARENT SSESSION"
 
 import watch : buildGroundPath;
 
@@ -15,8 +13,6 @@ extern (C) {
     int remove(const(char)* path);
 }
 
-// A ritual name reaches this from a shell command, so it names a file only if
-// it cannot climb out of the directory it is written in.
 bool nameable(const(char)[] name) {
     if (name.length == 0 || name.length > 64) return false;
     foreach (c; name) {
@@ -27,8 +23,6 @@ bool nameable(const(char)[] name) {
     return true;
 }
 
-// The session that asked, left where the next `ground ritual` will look.
-// Overwritten rather than queued: the last asker is the owner.
 void writeIntent(const(char)[] ritual, const(char)[] sessionId) {
     if (!nameable(ritual) || sessionId.length == 0) return;
 
@@ -41,8 +35,6 @@ void writeIntent(const(char)[] ritual, const(char)[] sessionId) {
     fclose(f);
 }
 
-// Read it and consume it. Left behind, the next performance of this ritual
-// would report to whoever started the last one.
 const(char)[] takeIntent(const(char)[] ritual) {
     if (!nameable(ritual)) return null;
 

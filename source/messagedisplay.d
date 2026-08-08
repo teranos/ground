@@ -1,40 +1,34 @@
 module messagedisplay;
 
-// What the operator reads, as it is drawn. A rite's verdict reaches the model
-// as a blocking error and the client folds that into a header; displayContent
-// replaces the text on screen instead, so the line is simply there.
+// "i need to see it in the transcript without me having to press ctrl-o"
+// "i want MessageDisplay and displayContent"
+// https://code.claude.com/docs/en/hooks — MessageDisplay, displayContent
 
 import db : openDb, sqlite3_close, ZBuf;
 import immediate : readImmediateMessage, markImmediateDelivered;
 import parse : extractJsonString, writeJsonString;
 import core.stdc.stdio : stdout, fputs;
 
-// Its own mark. The model's watcher drains with `delivered:`, and the screen
-// must not race it for the same row — one line, two readers, two marks.
 enum SCREEN_MARK = "screen:";
 
-// The first chunk, not the last. A message streams in several, and `final`
-// marks the closing one — prepending there pastes the lines into the middle
-// of a reply instead of above it.
 bool firstChunk(const(char)[] input) {
     import matcher : contains;
     return contains(input, `"index":0`);
 }
 
-// The gutter is the attribution. ANSI does not survive this channel, so a
-// line ground injects would otherwise read as something the model said —
-// which is the echo defect in a different coat.
+// "it looks the same as your text, its as if you said it, but its coming from
+// a rite of a ritual no?"
+// "  ░░▒▓▏ritual" / "    ░░▏rite"
 enum RITE_GUTTER   = "  ░░▏";
 enum RITUAL_GUTTER = "░░▒▓▏";
 
-// Density says which level is speaking: the performance, or one of its rites.
 const(char)[] gutterFor(const(char)[] msgId) {
     import matcher : contains;
     return contains(msgId, ":rite:") ? RITE_GUTTER : RITUAL_GUTTER;
 }
 
-// Every line, not only the first. A multi-line message with a bare first line
-// falls out of the margin and reads as prose again halfway through.
+// "░▏Could not do shit bro."
+// "░▏Just didnt have the perission."
 void gutter(B)(ref B out_, const(char)[] mark, const(char)[] body_) {
     out_.put(mark);
     foreach (c; body_) {
@@ -65,8 +59,6 @@ int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] s
 
     if (lines.len == 0) return 0;
 
-    // The original text follows, unchanged. Replacing rather than prepending
-    // would delete the message the operator was reading.
     __gshared char[262144] deltaBuf = 0;
     auto delta = extractJsonString(input, `"delta"`, &deltaBuf[0], deltaBuf.length);
 

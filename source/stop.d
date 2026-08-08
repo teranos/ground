@@ -98,6 +98,16 @@ void writeStopContinue(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
+// https://code.claude.com/docs/en/hooks — `continue`, `stopReason`
+void writeStopEnded(V)(const(char)[] ritual, V state) {
+    import ritual : RitualState;
+    fputs(`{"continue":false,"stopReason":"Ritual `, stdout);
+    writeJsonString(ritual);
+    fputs(state == RitualState.Aborted ? ` was aborted.` : ` ended.`, stdout);
+    fputs(` This performance is over."}`, stdout);
+    fputs("\n", stdout);
+}
+
 // cwd/sessionId stashed by handleStop so writeStopResponse callers don't need them
 __gshared const(char)[] g_cwd;
 __gshared const(char)[] g_sessionId;
@@ -187,6 +197,14 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         import core.stdc.time : time;
 
         auto found = readPositionAt(db, cwd);
+
+        // "ground should take responsibility"
+        if (found.valid && found.p.state != RitualState.Live) {
+            sqlite3_close(db);
+            writeStopEnded(found.p.ritual, found.p.state);
+            return 0;
+        }
+
         if (found.valid && found.p.state == RitualState.Live) {
             static immutable ritualsParsed = allParsed;
             foreach (i; 0 .. ritualsParsed.ritualCount) {
@@ -200,8 +218,15 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 // that state, cleared when it finally takes one — being
                 // thrown back lasts until the rite passes, it is not a flash.
                 import ritual : writePositionIf, threw;
+                import mic : wordsHash, freshWords;
                 auto now = cast(long) time(null);
                 auto back = res.after;
+
+                // "make the message a property of the mic"
+                auto said = extractLastAssistantMessage(input);
+                auto spoken = said is null ? 0 : wordsHash(said);
+                auto fresh = freshWords(spoken, found.p.said);
+                back.said = fresh ? spoken : found.p.said;
                 if (res.verdict == Verdict.Hold) {
                     back = threw(back);
                     back.thrownAt = now;
@@ -249,11 +274,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     import notification : riteLine;
                     import sentences : firstTwoSentences;
 
-                    auto said = extractLastAssistantMessage(input);
                     auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
                                          res.verdict,
-                                         said is null ? "" : firstTwoSentences(said),
-                                         found.p.id);
+                                         fresh ? firstTwoSentences(said) : "",
+                                         found.p.id,
+                                         flat.rites[found.p.current].mic);
 
                     // The immediate queue, which the watcher polls every two
                     // seconds. Keyed on performance and rite so each line is

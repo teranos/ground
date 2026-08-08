@@ -43,10 +43,11 @@ struct Position {
     size_t gotos;          // jumps taken, against MAX_GOTOS
     size_t throws;         // times this rite threw the mic back
     long rev;              // bumped on every write, so a stale one can be told
-    // One per performance, and something always has it. Who, and since when:
-    // holding is legitimate or blocking depending on both.
+    // "there can only be 1 mic per ritual performance"
+    // "something is always holding the mic"
     Mic mic;
     long micAt;
+    long said;             // the words already spoken, so they cannot repeat
     RiteState[MAX_RITES] states;
     RitualState state;
 }
@@ -133,23 +134,18 @@ Position step(Position p, Verdict v) {
     return p;
 }
 
-// Handing it on. The only way the holder changes, so a walk's history is the
-// sequence of these and nothing has to be inferred from silence.
 Position takeMic(Position p, Mic who, long unixSeconds) {
     p.mic = who;
     p.micAt = unixSeconds;
     return p;
 }
 
-// Seconds the current holder has had it.
 long heldFor(const Position p, long now) {
     if (p.micAt <= 0) return 0;
     return now - p.micAt;
 }
 
-// The Stop went back. Separate from step(Hold) because the watcher evaluates
-// the same rite every fifteen seconds without the agent ever seeing it, and a
-// count that included those would say twenty where the agent was told once.
+// "if there is back and forward, it would mean the counter increments no?"
 Position threw(Position p) {
     p.throws++;
     return p;

@@ -33,6 +33,23 @@ static assert(blocking(Mic.Ci, 400, 20, 0));
 // cannot be said to be late.
 static assert(!blocking(Mic.Ci, 4000, 0, 0));
 
+// "and that is before the faulty commit from yours" — willow-kkp stapled one
+// complaint to six rites, because the words attached were the agent's most
+// recent, not what it said while holding.
+static assert(wordsHash("I plucked a CHERRY.") != wordsHash("I plucked a MANGO."));
+static assert(wordsHash("") == 0);
+
+// Said once, then silence. The second rite carries nothing rather than the
+// first rite's words.
+static assert(freshWords(wordsHash("tools are dead"), 0));
+static assert(!freshWords(wordsHash("tools are dead"), wordsHash("tools are dead")));
+
+// New words after old ones are still new.
+static assert(freshWords(wordsHash("I plucked a LIME."), wordsHash("tools are dead")));
+
+// Nothing said is never fresh, even against a blank history.
+static assert(!freshWords(0, 0));
+
 // The operator is never on a clock.
 static assert(!blocking(Mic.Human, 86_400, 20, 20));
 

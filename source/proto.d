@@ -108,6 +108,9 @@ struct ParsedRite {
     string name;
     string cmd;
     string msg;
+    // "mic makes sure it also gets to us"
+    // "nothing / msg / mic / msg+mic are all possible"
+    string mic;
     int pass;
     int[8] catches;
     size_t catchCount;
@@ -1271,6 +1274,7 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
         switch (key) {
             case "cmd":  r.cmd = val; break;
             case "msg":  r.msg = val; break;
+            case "mic":  r.mic = val; break;
             case "goto": r.goto_ = val; break;
             case "pass": r.pass = parseInt(val); break;
             case "grace": r.grace = parseInt(val); break;

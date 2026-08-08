@@ -36,7 +36,8 @@ private immutable string[3] VERDICT_SAID = ["passed", "held", "halted"];
 // it. The verdict leads because it is the part that reads as blocking,
 // passing or stopped without being parsed.
 Notice riteLine(V)(const(char)[] ritual, const(char)[] rite, V verdict,
-                   const(char)[] said, const(char)[] performance = "") {
+                   const(char)[] said, const(char)[] performance = "",
+                   const(char)[] mic = "") {
     Notice n;
     n.put(ritual);
     // Several performances of one ritual walk at once, and every line saying
@@ -50,6 +51,11 @@ Notice riteLine(V)(const(char)[] ritual, const(char)[] rite, V verdict,
     n.put(rite);
     n.put(" ");
     n.put(VERDICT_SAID[cast(size_t) verdict]);
+    // "the rite never speaks? even though its holding the mic?"
+    if (mic.length > 0) {
+        n.put(" · ");
+        n.put(mic);
+    }
     if (said.length > 0) {
         n.put(" · ");
         n.put(said);

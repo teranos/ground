@@ -134,7 +134,8 @@ int handleSubagentStop(const(char)[] input, const(char)[] cwd, const(char)[] ses
             auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
                                  res.verdict,
                                  last is null ? "" : firstTwoSentences(last),
-                                 found.p.id);
+                                 found.p.id,
+                                 flat.rites[found.p.current].mic);
             __gshared ZBuf key;
             key.reset();
             key.put("rite:");
