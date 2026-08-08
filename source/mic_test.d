@@ -57,3 +57,10 @@ static assert(!blocking(Mic.Human, 86_400, 20, 20));
 // 605-second silences would not have been called blocking by this.
 static assert(!blocking(Mic.Agent, 605, 0, 0));
 static assert(blocking(Mic.Agent, 605, 0, 60));
+
+// "and ci keeps holding the mic in this case"
+static assert(holder(20) == Mic.Ci);
+
+// "ground, or the rite should have no reason to keep holding the mic for
+// longer than 2s"
+static assert(holder(0) == Mic.Ground);

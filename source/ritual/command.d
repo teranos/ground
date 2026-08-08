@@ -114,7 +114,7 @@ int handleRitual(int argc, const(char)** argv) {
     import db : openDb, sqlite3_close;
     import exec : dispatchExec;
     import main : argLen;
-    import worktree : worktreePath;
+    import worktree : worktreePath, branchOf;
     import db : ZBuf;
 
     if (argc < 3) {
@@ -171,7 +171,7 @@ int handleRitual(int argc, const(char)** argv) {
     // the row is the identity.
     auto tree = worktreePath(root, p.id);
     p.worktree = tree.text();
-    p.branch = "";
+    p.branch = branchOf(p.worktree);
 
     // The session that asked, claimed at PreToolUse. Stamped here, at row
     // creation, so a performance that ends in twenty seconds still has an

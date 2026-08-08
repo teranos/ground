@@ -55,6 +55,11 @@ long micBound(Mic who, long ciExpected, long agentExpected) {
     }
 }
 
+// "and ci keeps holding the mic in this case"
+Mic holder(int wait) {
+    return wait > 0 ? Mic.Ci : Mic.Ground;
+}
+
 bool blocking(Mic who, long heldFor, long ciExpected, long agentExpected) {
     auto bound = micBound(who, ciExpected, agentExpected);
     if (bound <= 0) return false;

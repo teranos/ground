@@ -59,8 +59,9 @@ unittest {
     assert(first.applied, "the first writer owns the position");
     assert(first.after.current == 1);
 
+    // "there can only be 1 mic per ritual performance"
     auto second = advance(db, "sess", driverB, flat, 1001);
-    assert(second.ran, "the rite still ran — that is not what is being refused");
+    assert(!second.ran, "the loser never reaches the rite");
     assert(!second.applied, "a write from a stale read must not land");
 
     auto now = readPosition(db, "/src/proj");
@@ -97,8 +98,6 @@ unittest {
     sqlite3_close(db);
 }
 
-// One position, one attestation per run that counted. A rite the losing
-// driver ran is not a verdict anything acted on, so it is not a row.
 unittest {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
                 sqlite3_stmt, sqlite3_column_int64, SQLITE_ROW;

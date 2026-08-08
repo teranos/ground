@@ -116,12 +116,17 @@ int handleDrive(int argc, const(char)** argv) {
                 auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id,
                                      flat.rites[found.p.current].mic);
 
+                // The note id is the key, so the revision keeps a rite asked
+                // twice from writing the id it was already delivered under.
+                import stop : putInt;
                 __gshared ZBuf key;
                 key.reset();
                 key.put("rite:");
                 key.put(found.p.id);
                 key.put(":");
                 key.put(rite);
+                key.put(":");
+                putInt(key, res.after.rev);
 
                 // The rite says where it goes, here too. Writing to the parent
                 // unconditionally is what put a `to: human` rite in the model's

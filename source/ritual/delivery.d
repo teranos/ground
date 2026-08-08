@@ -26,10 +26,16 @@ bool deliver(DB)(DB db, const Position p, Receiver to,
                  const(char)[] key, const(char)[] body_, bool bodyIsAgents = false) {
     import immediate : writeNote;
 
-    if (!wants(to, Receiver.HostLlm) && !wants(to, Receiver.AgentLlm)) return false;
+    // "the outcome is what is spoken back into the mic to both the agent and
+    // parent"
+    static immutable Receiver[2] SIDES = [Receiver.HostLlm, Receiver.AgentLlm];
 
-    auto one = wants(to, Receiver.HostLlm) ? Receiver.HostLlm : Receiver.AgentLlm;
-    if (!deliverable(p, one, bodyIsAgents)) return false;
-    writeNote(db, sessionOf(p, one), key, body_);
-    return true;
+    bool sent;
+    foreach (one; SIDES) {
+        if (!wants(to, one)) continue;
+        if (!deliverable(p, one, bodyIsAgents)) continue;
+        writeNote(db, sessionOf(p, one), key, body_);
+        sent = true;
+    }
+    return sent;
 }

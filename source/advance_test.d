@@ -17,6 +17,8 @@ rites walk {
   HOLD  { cmd: "false"  catch: 1 }
   BACK  { cmd: "false"  catch: 1  goto: START }
   WEIRD { cmd: "exit 3" }
+  SLOW  { cmd: "echo short-moon Successful in 8s"  wait: 20  to: parent }
+  AFTER { cmd: "true" }
 }
 
 project {
@@ -49,6 +51,8 @@ private Position at(size_t i) {
     p.id = "probe-1";
     p.repo = "/src/proj";
     p.worktree = "/tmp";
+    p.parent = "parent-session";
+    p.branch = "probe-branch";
     p.current = i;
     return p;
 }
@@ -170,5 +174,73 @@ unittest {
     auto p = at(0);
     auto r = advance(db, "sess", p, flat, 100);
     assert(r.after.gotos == 0);
+    sqlite3_close(db);
+}
+
+// --- The mic is claimed before the rite, not after it ---
+// "and ci keeps holding the mic in this case"
+
+// `wait:` parsed into ParsedRite and was dropped at flatten, so no rite ever
+// carried it as far as the thing that runs rites.
+static assert(flat.rites[4].wait == 20);
+
+unittest {
+    auto db = memDb();
+    // Two writes for one rite: the claim before it runs, and the handoff after.
+    // Taken only after, the row says the agent is speaking for as long as the
+    // rite blocks, which is the whole of what the mic exists to say.
+    auto r = advance(db, "sess", at(0), flat, 100);
+    assert(r.applied);
+    assert(r.after.rev == 2, "the claim and the handoff are both writes");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    import mic : Mic;
+    import ritual : readPosition;
+    // SLOW names a wait, so ci is who the claim names while it runs.
+    auto r = advance(db, "sess", at(4), flat, 100);
+    assert(r.applied);
+    assert(r.after.rev == 2);
+    // "the mic would at that point be handed over to the agent as we wait for
+    // it to reach a stop again"
+    assert(r.after.mic == Mic.Agent);
+    sqlite3_close(db);
+}
+
+private long notes(sqlite3* db, const(char)* q) {
+    sqlite3_stmt* s;
+    if (sqlite3_prepare_v2(db, q, -1, &s, null) != SQLITE_OK) return -1;
+    long n = -1;
+    if (sqlite3_step(s) == SQLITE_ROW) n = sqlite3_column_int64(s, 0);
+    sqlite3_finalize(s);
+    return n;
+}
+
+unittest {
+    auto db = memDb();
+    // "the outcome is what is spoken back into the mic" — what the rite
+    // printed is what CI said, under a key the CI gutter can recognise.
+    auto r = advance(db, "sess", at(4), flat, 100);
+    assert(r.verdict == Verdict.Advance);
+
+    enum q = "SELECT count(*) FROM attestations WHERE id LIKE 'immediate:note:%:ci:probe-1:SLOW%'\0";
+    assert(notes(db, q.ptr) >= 1, "nothing wrote a ci key");
+
+    enum said = "SELECT count(*) FROM attestations WHERE id LIKE '%:ci:probe-1:SLOW%' "
+        ~ "AND json_extract(attributes,'$.detail') LIKE '%short-moon Successful in 8s%'\0";
+    assert(notes(db, said.ptr) >= 1, "the rite's own output is what ci said");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    import mic : Mic;
+    // Nothing is waiting for a stop that will not come. A performance that
+    // ended hands the mic to the operator, not to an agent it just ended.
+    auto r = advance(db, "sess", at(5), flat, 100);
+    assert(r.after.state == RitualState.Done);
+    assert(r.after.mic == Mic.Human);
     sqlite3_close(db);
 }

@@ -5,6 +5,8 @@ import ritual.position : Position, RitualState, MAX_GOTOS, step, jump;
 import ritual.resolve : Flattened, indexOfRite;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
+import receiver : Receiver;
+import db : ZBuf;
 
 // One rite, run and recorded, and the position it leaves behind.
 struct Advanced {
@@ -36,6 +38,16 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                   0, 0, cast(string) sessionId, cast(string) r.name, "",
                   cast(string) prepared.cmd, "");
         return a;
+    }
+
+    // "it keeps holding the mic until ci has an outcome"
+    {
+        import ritual.position : takeMic;
+        import ritual.store : writePositionIf;
+        import mic : holder;
+        auto held = takeMic(p, holder(r.wait), unixSeconds);
+        if (!writePositionIf(db, held, p.rev)) return a;
+        p.rev = p.rev + 1;
     }
 
     auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
@@ -98,6 +110,10 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     attestRite(db, sessionId, p, r.name, a.verdict, run.code, a.output, unixSeconds);
 
+    // "the outcome is what is spoken back into the mic to both the agent and
+    // parent"
+    if (r.wait > 0 && r.to != Receiver.None) ciSpeaks(db, p, moved, r, a);
+
     // A rite that passed and changed the tree gets a commit, so the branch
     // history is the walk. Only on Advance: a halt's changes are unreviewed
     // and a hold has not finished doing whatever it is doing.
@@ -125,6 +141,48 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     a.after = moved;
     return a;
+}
+
+// "  ░▓▓▏[REPONAME] [BRANCHNAME] ci all checks passed ✓"
+private immutable string[3] CI_SAID =
+    ["ci all checks passed ✓", "ci checks failed", "ci could not be read"];
+
+private void putRev(ref ZBuf b, long v) {
+    char[20] d = 0;
+    size_t n;
+    if (v == 0) d[n++] = '0';
+    while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+    foreach (i; 0 .. n) b.put(d[n - 1 - i .. n - i]);
+}
+
+// The head names the run; what hangs under it is whatever the rite printed,
+// which is the only place CI's own words exist.
+private void ciSpeaks(DB, R, A)(DB db, const Position p, const Position moved,
+                                const R r, const A a) {
+    import ritual.delivery : deliver, both;
+
+    __gshared ZBuf key;
+    key.reset();
+    key.put("ci:");
+    key.put(p.id);
+    key.put(":");
+    key.put(r.name);
+    key.put(":");
+    putRev(key, moved.rev);
+
+    __gshared ZBuf said;
+    said.reset();
+    said.put(p.repo);
+    said.put(" ");
+    said.put(p.branch);
+    said.put(" ");
+    said.put(CI_SAID[cast(size_t) a.verdict]);
+    if (a.output.length > 0) {
+        said.put("\n");
+        said.put(a.output);
+    }
+
+    deliver(db, moved, both(r.to, Receiver.AgentLlm), key.slice(), said.slice());
 }
 
 // What an agent is told at the start of a turn.

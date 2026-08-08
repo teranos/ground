@@ -34,6 +34,14 @@ Path worktreePath(const(char)[] cwd, const(char)[] name) {
     return p;
 }
 
+// `git worktree add <path>` is run below without -b, so git takes the branch
+// name from the path's last segment.
+const(char)[] branchOf(const(char)[] path) {
+    size_t start;
+    foreach (i, c; path) if (c == '/') start = i + 1;
+    return path[start .. $];
+}
+
 extern (C) {
     import core.stdc.stdio : FILE;
     FILE* popen(const(char)* command, const(char)* mode);

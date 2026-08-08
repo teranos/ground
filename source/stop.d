@@ -280,15 +280,17 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                                          found.p.id,
                                          flat.rites[found.p.current].mic);
 
-                    // The immediate queue, which the watcher polls every two
-                    // seconds. Keyed on performance and rite so each line is
-                    // its own row rather than replacing the one before it.
+                    // The note id is the key. Without the revision, a rite
+                    // asked twice writes the id it was already delivered
+                    // under, and is never shown again.
                     __gshared ZBuf key;
                     key.reset();
                     key.put("rite:");
                     key.put(found.p.id);
                     key.put(":");
                     key.put(flat.rites[found.p.current].name);
+                    key.put(":");
+                    putInt(key, back.rev);
                     // The rite says where its verdict goes. Silence is silence:
                     // a rite naming no receiver reports to nobody.
                     deliver(db, back, flat.rites[found.p.current].to,

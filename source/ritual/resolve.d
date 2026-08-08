@@ -86,6 +86,9 @@ struct FlatRite {
     // delivery sites hold a FlatRite and nothing else knows what the author
     // wrote — dropping it here would silently make every rite report to all.
     Receiver to;
+    // "it keeps holding the mic until ci has an outcome" — so this is not a
+    // deadline. It is what holding that long is measured against.
+    int wait;
     string[8] keys;
     string[8] values;
     size_t valueCount;
@@ -120,6 +123,7 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
                 fr.catchCount = src.catchCount;
                 fr.goto_ = src.goto_;
                 fr.to = src.to;
+                fr.wait = src.wait;
                 fr.keys = refr.keys;
                 fr.values = refr.values;
                 fr.valueCount = refr.valueCount;

@@ -4,7 +4,14 @@ module worktree_test;
 // The docs: "Command hook prints path on stdout... Hook failure or missing
 // path fails creation" and "Replaces default git behavior".
 
-import worktree : worktreePath;
+import worktree : worktreePath, branchOf;
+
+// `git worktree add <path>` is run without -b, so git names the branch after
+// the path's last segment. Measured: headBranch grove-moon-1786212018 for the
+// tree at /Users/s.b.vanhouten/SBVH/sbvh-nl/grove-moon-1786212018.
+static assert(branchOf("/home/u/src/proj-probe") == "proj-probe");
+static assert(branchOf("/proj-probe") == "proj-probe");
+static assert(branchOf("") == "");
 
 // A sibling of the repo: findable, and `git worktree list` names it.
 enum p = worktreePath("/home/u/src/proj", "probe");
