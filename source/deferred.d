@@ -519,8 +519,25 @@ struct CIStatus {
 // Interpret gh's exit status and stdout. Pure — the shelling out lives in
 // checkCIStatus, the judgement lives here where it can be tested.
 CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
-    if (exitStatus != 0)
-        return CIStatus(CIQuery.Unavailable, "CI status unknown: gh exited non-zero");
+    // Whatever gh or jq said, said. Ground's account of a failure it never
+    // read is not the failure.
+    if (exitStatus != 0) {
+        __gshared char[520] failBuf = 0;
+        size_t fp = 0;
+        foreach (c; output) { if (fp < failBuf.length - 1) failBuf[fp++] = c; }
+        while (fp > 0 && failBuf[fp - 1] == '\n') fp--;
+        // It said nothing, so the status is the only thing observed.
+        if (fp == 0) {
+            foreach (c; "exit ") failBuf[fp++] = c;
+            auto v = exitStatus;
+            char[12] d = 0;
+            int dl = 0;
+            if (v == 0) d[dl++] = '0';
+            while (v > 0 && dl < 11) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+            foreach_reverse (i; 0 .. dl) failBuf[fp++] = d[i];
+        }
+        return CIStatus(CIQuery.Unavailable, cast(string) failBuf[0 .. fp]);
+    }
 
     auto n = output.length;
     if (n > 0 && output[n - 1] == '\n') n--;
@@ -531,6 +548,11 @@ CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
     import matcher : contains;
     if (contains(line, "in_progress"))
         return CIStatus(CIQuery.InProgress, null);
+
+    // gh's own field, blank. The line is the evidence; ground has nothing to
+    // add to it and no business describing it.
+    if (line[0] == ' ')
+        return CIStatus(CIQuery.Unavailable, line);
 
     __gshared char[520] resultBuf = 0;
     enum prefix = "CI: ";
@@ -546,6 +568,14 @@ unittest {
     auto r = interpretCIOutput(256, "");
     assert(r.kind == CIQuery.Unavailable);
     assert(r.text.length > 0, "must say what happened, not just fail");
+}
+
+unittest {
+    // What gh and jq say, said. Not ground's account of it.
+    auto r = interpretCIOutput(256, "jq: error: syntax error, unexpected INVALID_CHARACTER\n");
+    assert(r.kind == CIQuery.Unavailable);
+    import matcher : contains;
+    assert(contains(r.text, "jq: error: syntax error"), "the tool's own words reach the user");
 }
 
 unittest {
@@ -574,6 +604,13 @@ unittest {
     assert(r.text == "CI: failure Rust (push)");
 }
 
+unittest {
+    // Delivered three times on 2026-08-09 as "CI:  CI (pull_request)".
+    auto r = interpretCIOutput(0, " CI (pull_request)\n");
+    assert(r.kind == CIQuery.Unavailable, "a line with no conclusion states nothing");
+    assert(r.text.length > 0, "and it says so out loud");
+}
+
 // Query live CI status for a repo + branch. Returns a human-readable summary.
 // Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
 CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
@@ -583,7 +620,13 @@ CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
     ghCmd.put(repo);
     ghCmd.put(" run list --branch ");
     ghCmd.put(branch);
-    ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))" end'`);
+    // `//` substitutes on null only, and gh sends "" for a run that has not
+    // concluded, so the field arrived blank and the line read as a result.
+    ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(if (.conclusion // "") == "" then "in_progress" else .conclusion end) \(.name) (\(.event))" end'`);
+
+    // Without this, gh's and jq's own errors go nowhere and every failure is
+    // reported in ground's words instead of theirs.
+    ghCmd.put(" 2>&1");
 
     auto pipe = popen(ghCmd.ptr(), "r");
     if (pipe is null)
