@@ -14,6 +14,21 @@ Read bench.fish for CTFE scaling limits.
 
 TEST DRIVEN DEVELOPMENT (TDD): write a failing test before implementing. Confirm it fails, then Green: Write code that makes the test pass.
 
+## AUTHORITY
+
+Lower number wins.
+
+1. ERROR AXIOM
+2. MY LITERAL WORDS IN SESSION
+3. RECORDED "" QUOTES
+4. OFFICIAL DOCS
+5. REPO SOURCE CODE
+6. REPO DOCS
+7. REPO SOURCE CODE COMMENTS LITERAL "" QUOTE
+8. REPO SOURCE CODE COMMENT; YOUR STUFF
+
+NOT AUTHORITATIVE: YOUR MEMORY AND INFERENCE
+
 ## ERROR AXIOM
 
 An **ERROR** is a first-class primitive. A typed value that crosses
