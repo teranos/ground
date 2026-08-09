@@ -2,6 +2,7 @@ module apierror;
 
 // "it is the error code that is holding the mic"
 // "and it is angry"
+// "you always get one of these with the ZALGO retained"
 
 import mic : Mic;
 
