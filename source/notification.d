@@ -173,6 +173,8 @@ private bool markShown(DB)(DB db, const(char)[] lineId) {
 
 // Every line written for this session since the last drain, oldest first, in
 // one write.
+enum NOTICE_MARK = "notice:";
+
 Notice drainSaid(DB)(DB db, const(char)[] sessionId) {
     import immediate : readImmediateMessage, markImmediateDelivered;
 
@@ -182,9 +184,9 @@ Notice drainSaid(DB)(DB db, const(char)[] sessionId) {
     // The queue the watcher already polls. One record, one delivery mark —
     // ordering, dedupe and per-session addressing all come with it.
     foreach (i; 0 .. 32) {
-        auto imm = readImmediateMessage(db, "", sessionId);
+        auto imm = readImmediateMessage(db, "", sessionId, NOTICE_MARK);
         if (imm.message is null) break;
-        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, NOTICE_MARK);
         if (out_.len > 0) out_.put("\n");
         out_.put(imm.message);
     }

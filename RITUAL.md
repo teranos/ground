@@ -232,7 +232,7 @@ Claude Code hook events, in the context of this feature:
 | ✓ | 38 | `SubagentStop` | same | SUBAGENT.md, s38 |
 | D | 39 | `TaskCreated` | — | inbound only. No use found. Deferred to TASK.md |
 | D | 40 | `TaskCompleted` | — | inbound only. Deferred to TASK.md |
-| | 42 | `Notification` | "Notification is one that is on my wish list actually" | carries `notification_type`, `message`. Cannot block |
+| x | 42 | `Notification` | "Notification is one that is on my wish list actually" | "Impossible to reason about, or have a real conversation about it with CLaude Code without it confabulating and inventing and not working with me. In my session, there were multiple instances of me doing an easy ask, If Claude Code sends notifications, and this event matches on it. do it now, you are Claude Code, you can make it happen. The reality is it cant't make it happen at will on command. The basic thing required to develop this thing, i havent yet figured out how to do it, further research required before we can make definitive statements about it, never believe anything Claude is inferring from this, always consult Antropic docs as first source." |
 | ✓ | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | ground makes the tree and prints the path |
 | ✓ | 51 | `WorktreeRemove` | — | no decision control; ground cannot refuse |
 | | 56 | `CwdChanged` | — | `old_cwd`, `new_cwd`. The lookup-by-path event |
