@@ -158,8 +158,10 @@ scope {
 }
 
 # git merge — always squashes. A merge lands on the target as one commit.
+# Not in ground: a branch here is the record of how it was built.
 scope {
   event: "PreToolUse"
+  path: "!/ground"
 
   control {
     name: "git-merge-always-squash"
@@ -179,10 +181,11 @@ scope {
   }
 }
 
-# gh pr merge — branches die on merge; --repo silently breaks the
-# local-side cleanup so it's blocked when paired with merge.
+# Branches die on merge. Not in ground: a branch here is the record of how it
+# was built, and this branch is not to be squashed either.
 scope {
   event: "PreToolUse"
+  path: "!/ground"
 
   control {
     name: "gh-pr-merge-always-delete-branch"
@@ -190,6 +193,12 @@ scope {
     arg: "--delete-branch"
     msg: "--delete-branch added; branches die on merge."
   }
+}
+
+# gh pr merge — branches die on merge; --repo silently breaks the
+# local-side cleanup so it's blocked when paired with merge.
+scope {
+  event: "PreToolUse"
 
   scope {
     decision: "deny"

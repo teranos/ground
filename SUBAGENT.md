@@ -4,10 +4,11 @@ A subagent is a Task-tool sidechain: it runs inside its caller's session,
 shares the transcript, and is refused or released through `SubagentStart` and
 `SubagentStop`.
 
-**Ground does not build on it.** A ritual is carried by a Fleet session —
-`claude -w <tree> --bg` in `run.d:284` — which is a process of its own with its
-own session id, its own transcript, and its own worktree. The two are told
-apart in one line of ground's source, `sessionstart.d:316`:
+**This is its own track, and nothing here is in scope of the `rituals`
+branch.** A ritual is carried by a background session — `claude -w <tree>
+--bg` in `run.d:284` — which is a process of its own with its own session id,
+its own transcript, and its own worktree. The two are told apart in one line of
+ground's source, `sessionstart.d:316`:
 
 > SubagentStart ... does not fire for `claude -w`
 
