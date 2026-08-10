@@ -249,7 +249,7 @@ Brief briefing(const Position p, const Flattened f) {
     b.put(". It is met when this exits ");
     b.putNum(cast(size_t) r.pass);
     b.put(": ");
-    b.put(r.cmd);
+    b.put(r.eval);
     if (r.msg.length > 0) {
         b.put(". ");
         b.put(r.msg);
@@ -348,13 +348,21 @@ SpawnScript prScript(const(char)[] tree, const(char)[] ritual, const(char)[] id,
     return s;
 }
 
-SpawnScript spawnScript(const(char)[] root, const(char)[] treeName, const(char)[] prompt) {
+SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
+                        const(char)[] prompt, const(char)[] system = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
     s.put("\nclaude -w ");
     s.putQuoted(treeName);
     s.put(" --bg ");
+    // Appended rather than replacing: what a ritual declares is what this
+    // agent additionally is, the way a CLAUDE.md is.
+    if (system.length > 0) {
+        s.put("--append-system-prompt ");
+        s.putQuoted(system);
+        s.put(" ");
+    }
     s.putQuoted(prompt);
     s.put("\n");
     return s;

@@ -106,7 +106,12 @@ struct ParsedAttestation {
 // A rite is a command and a verdict. `cmd` is the only required field.
 struct ParsedRite {
     string name;
-    string cmd;
+    // "to me its eval" — the operation. `pass`, `catch`, `goto`, `to`, `wait`
+    // and `mic` are what the writer changes its default behaviour with.
+    string eval;
+    // A field this rite named that no rite has. Carried so the refusal can
+    // say which one, which betterC forbids building at the parse site.
+    string badKey;
     string msg;
     // "mic makes sure it also gets to us"
     // "nothing / msg / mic / msg+mic are all possible"
@@ -154,6 +159,10 @@ struct ParsedRitual {
     string projectPath;
     // "you set a branch on the block on the project level"
     string projectBranch;
+    // "define a CLAUDE.md inline in a ritual" — appended to what the agent
+    // already is, so a ritual says what this performer additionally knows.
+    string system;
+    string badKey;
     ParsedRiteRef[16] refs;
     size_t refCount;
 }
@@ -196,6 +205,27 @@ string validateRituals(PR)(const PR r) {
                         return "duplicate rite name: " ~ name;
                 }
             }
+        }
+    }
+
+    // A field no ritual has.
+    foreach (i; 0 .. r.ritualCount) {
+        if (r.rituals[i].badKey.length > 0)
+            return "ritual " ~ r.rituals[i].name
+                ~ ": unknown field `" ~ r.rituals[i].badKey ~ "`";
+    }
+
+    // A field no rite has. `cmd` gets its own line because it is a real word
+    // elsewhere in the grammar, pointing the other way.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto bad = r.rites[i].rites[j].badKey;
+            if (bad.length == 0) continue;
+            if (bad == "cmd")
+                return "rite " ~ r.rites[i].rites[j].name
+                    ~ ": `cmd` is a control's word. A rite evaluates: use `eval`";
+            return "rite " ~ r.rites[i].rites[j].name
+                ~ ": unknown field `" ~ bad ~ "`";
         }
     }
 
@@ -1149,6 +1179,23 @@ ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string p
         if (input[pos] == '}') { pos++; return r; }
 
         auto refName = readWord(input, pos);
+
+        // A word followed by a colon is a field on the ritual. A bare word is
+        // a rites group. Nothing else can appear here.
+        {
+            auto save = pos;
+            skipWS(input, pos);
+            if (pos < input.length && input[pos] == ':') {
+                pos++;
+                skipWS(input, pos);
+                auto val = readValue(input, pos);
+                if (refName == "system") r.system = val;
+                else r.badKey = refName;
+                continue;
+            }
+            pos = save;
+        }
+
         assert(r.refCount < r.refs.length, "Ritual reference overflow");
         ParsedRiteRef rr;
         rr.name = refName;
@@ -1278,7 +1325,10 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
 
         auto val = readValue(input, pos);
         switch (key) {
-            case "cmd":  r.cmd = val; break;
+            case "eval": r.eval = val; break;
+            // Recorded, not asserted: betterC has no GC, so the message that
+            // names the rite and the field is built in validateRituals.
+            case "cmd":  r.badKey = "cmd"; break;
             case "msg":  r.msg = val; break;
             case "mic":  r.mic = val; break;
             case "goto": r.goto_ = val; break;
@@ -1290,7 +1340,7 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
                 assert(r.to != Receiver.None,
                        "to: names no receiver — parent, human or host");
                 break;
-            default: assert(0, "Unknown rite field");
+            default: r.badKey = key; break;
         }
     }
     assert(0, "Unterminated rite block");

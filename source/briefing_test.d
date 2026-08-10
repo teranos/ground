@@ -10,9 +10,9 @@ import rite : Verdict;
 
 enum src = `
 rites walk {
-  START { cmd: "test -f T.md" }
-  PICK  { cmd: "grep -q x T.md"  catch: 1  msg: "Take one and commit." }
-  CHECK { cmd: "test -s T.md"  catch: 1  goto: START }
+  START { eval: "test -f T.md" }
+  PICK  { eval: "grep -q x T.md"  catch: 1  msg: "Take one and commit." }
+  CHECK { eval: "test -s T.md"  catch: 1  goto: START }
 }
 
 project {

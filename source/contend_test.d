@@ -12,8 +12,8 @@ import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
 
 enum src = `
 rites walk {
-  ONE { cmd: "true" }
-  TWO { cmd: "false"  catch: 1 }
+  ONE { eval: "true" }
+  TWO { eval: "false"  catch: 1 }
 }
 
 project {

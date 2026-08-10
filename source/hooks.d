@@ -296,7 +296,8 @@ Control control(string name, Cmd c, Trigger t, Defer d) {
     Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.trigger = t; ctrl.defer = d; return ctrl;
 }
 
-// Groups controls by scope and decision.
+// Groups controls by scope and decision. A control can live in one — written
+// at top level it is wrapped in a scope with path "/" (proto.d:518).
 // Empty path = fires everywhere. Non-empty = cwd must contain the path.
 // "!" prefix inverts: "!/QNTX" means cwd must NOT contain "/QNTX".
 // Decision: "allow" auto-approves, "ask" shows the permission prompt.

@@ -13,12 +13,12 @@ import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK,
 
 enum src = `
 rites walk {
-  START { cmd: "true" }
-  HOLD  { cmd: "false"  catch: 1 }
-  BACK  { cmd: "false"  catch: 1  goto: START }
-  WEIRD { cmd: "exit 3" }
-  SLOW  { cmd: "echo short-moon Successful in 8s"  wait: 20  to: parent }
-  AFTER { cmd: "true" }
+  START { eval: "true" }
+  HOLD  { eval: "false"  catch: 1 }
+  BACK  { eval: "false"  catch: 1  goto: START }
+  WEIRD { eval: "exit 3" }
+  SLOW  { eval: "echo short-moon Successful in 8s"  wait: 20  to: parent }
+  AFTER { eval: "true" }
 }
 
 project {
@@ -135,8 +135,8 @@ import ritual : MAX_GOTOS, RitualState;
 
 enum loopSrc = `
 rites spin {
-  HERE { cmd: "true" }
-  BACK { cmd: "false"  catch: 1  goto: HERE }
+  HERE { eval: "true" }
+  BACK { eval: "false"  catch: 1  goto: HERE }
 }
 
 project {

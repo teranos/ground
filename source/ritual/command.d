@@ -202,7 +202,7 @@ int handleRitual(int argc, const(char)** argv) {
     // a row in `claude agents` rather than a pid only pkill could reach.
     {
         auto brief = briefing(p, flat);
-        auto script = spawnScript(root, p.id, brief.text());
+        auto script = spawnScript(root, p.id, brief.text(), flat.system);
         dispatchExec(cast(string) script.text(), "ritual", "", 86_400,
                      [], [], "", root, "");
     }

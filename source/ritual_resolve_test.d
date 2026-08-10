@@ -9,12 +9,12 @@ import ritual : resolveRitual, ResolveFail, flatten, indexOfRite;
 enum src = `
 rites parity {
   params: [row]
-  parity { cmd: "make parity" }
+  parity { eval: "make parity" }
 }
 
 rites live {
-  sealed { cmd: "git diff --quiet" }
-  ci     { cmd: "gh pr checks 833"  catch: 1 }
+  sealed { eval: "git diff --quiet" }
+  ci     { eval: "gh pr checks 833"  catch: 1 }
 }
 
 project {

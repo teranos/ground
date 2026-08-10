@@ -10,7 +10,7 @@ enum src = `
 project { path: "/home/u/src/proj" }
 project { path: "/home/u/src/other" }
 
-rites walk { START { cmd: "true" } }
+rites walk { START { eval: "true" } }
 
 project {
   path: "/src/proj"
@@ -43,6 +43,18 @@ static assert(s.text() ==
 enum bg = spawnScript("/r", "p-1", "go");
 static assert(bg.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\nclaude -w 'p-1' --bg 'go'\n");
+
+// "define a CLAUDE.md inline in a ritual" — appended, not replacing, because
+// a CLAUDE.md adds to what an agent already is. Measured working under --bg.
+enum sys = spawnScript("/r", "p-1", "go", "You are a Specialist in Targeted Advertisement Campaigns.");
+static assert(sys.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "claude -w 'p-1' --bg "
+    ~ "--append-system-prompt 'You are a Specialist in Targeted Advertisement Campaigns.' "
+    ~ "'go'\n");
+
+// A ritual that says nothing about it spawns exactly as before.
+static assert(spawnScript("/r", "p-1", "go", "").text() == bg.text());
 
 // The prompt is built from a rite's msg and cmd, so it carries whatever those
 // carry — including a quote that would end the argument early.

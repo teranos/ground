@@ -79,7 +79,7 @@ import rite : prepareRite;
 import proto : parsePbt;
 
 unittest {
-    enum src = `rites x { a { cmd: "curl -sf ${api}/z" } }`;
+    enum src = `rites x { a { eval: "curl -sf ${api}/z" } }`;
     enum r = parsePbt(src).rites[0].rites[0];
     auto p = prepareRite(r, "/no/project/matches/this");
     assert(!p.ready);
@@ -87,7 +87,7 @@ unittest {
 }
 
 unittest {
-    enum src = `rites x { a { cmd: "make parity" } }`;
+    enum src = `rites x { a { eval: "make parity" } }`;
     enum r = parsePbt(src).rites[0].rites[0];
     auto p = prepareRite(r, "/no/project/matches/this");
     assert(p.ready);

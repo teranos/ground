@@ -16,7 +16,7 @@ static assert(allRituals.length >= 0);
 enum ritesInput = `
 rites parity {
   parity {
-    cmd: "make parity"
+    eval: "make parity"
   }
 }
 `;
@@ -25,7 +25,32 @@ static assert(ritesParsed.ritesCount == 1);
 static assert(ritesParsed.rites[0].name == "parity");
 static assert(ritesParsed.rites[0].riteCount == 1);
 static assert(ritesParsed.rites[0].rites[0].name == "parity");
-static assert(ritesParsed.rites[0].rites[0].cmd == "make parity");
+static assert(ritesParsed.rites[0].rites[0].eval == "make parity");
+
+// "to me its eval" / "because its evaluated, and its up to the writer of the
+// rite to change default eval behaviour through to: goto: pass: etc"
+enum evalInput = `
+rites parity {
+  parity {
+    eval: "make parity"
+  }
+}
+`;
+enum evalParsed = parsePbt(evalInput);
+static assert(evalParsed.rites[0].rites[0].eval == "make parity");
+
+// "Imagine i wan't to mix Rite and Control in the same Rites block" — which
+// they cannot while one word points at a pattern to match and at a command to
+// run. `cmd` in a rite is refused, not aliased.
+enum oldWordInput = `
+rites parity {
+  parity {
+    cmd: "make parity"
+  }
+}
+`;
+static assert(validateRituals(parsePbt(oldWordInput))
+    == "rite parity: `cmd` is a control's word. A rite evaluates: use `eval`");
 
 // "obviously i would want rites to be able to accept a parameter"
 enum paramsInput = `
@@ -33,7 +58,7 @@ rites parity {
   params: [row]
 
   parity {
-    cmd: ` ~ "`" ~ `make parity | grep "$row *YES *YES"` ~ "`" ~ `
+    eval: ` ~ "`" ~ `make parity | grep "$row *YES *YES"` ~ "`" ~ `
   }
 }
 `;
@@ -46,10 +71,10 @@ static assert(paramsParsed.rites[0].riteCount == 1);
 // "i think i want goto, not else, goto seems more honest for what it is"
 enum catchInput = `
 rites boxdeath {
-  exists   { cmd: "curl -sf x"  catch: 22 }
-  answers  { cmd: "curl -sf y"  catch: [7, 22] }
-  survived { cmd: "curl -sf z"  catch: 22  goto: parity }
-  plain    { cmd: "true" }
+  exists   { eval: "curl -sf x"  catch: 22 }
+  answers  { eval: "curl -sf y"  catch: [7, 22] }
+  survived { eval: "curl -sf z"  catch: 22  goto: parity }
+  plain    { eval: "true" }
 }
 `;
 enum catchParsed = parsePbt(catchInput);
@@ -71,8 +96,8 @@ static assert(catchParsed.rites[0].rites[3].goto_ == "");
 // pass. Declared instead of inverted.
 enum passInput = `
 rites gone {
-  scratch { cmd: "test -f /var/lib/qntx/qntx-operational.db"  pass: 1  catch: 0 }
-  plain   { cmd: "true" }
+  scratch { eval: "test -f /var/lib/qntx/qntx-operational.db"  pass: 1  catch: 0 }
+  plain   { eval: "true" }
 }
 `;
 enum passParsed = parsePbt(passInput);
@@ -86,8 +111,8 @@ static assert(passParsed.rites[0].rites[1].catches[0] == 1);
 // checked in that window; it is the only span a throw-back can be seen in.
 enum graceInput = `
 rites shipped {
-  built  { cmd: "test -x build/ground"  grace: 6 }
-  sealed { cmd: "git diff --quiet" }
+  built  { eval: "test -x build/ground"  grace: 6 }
+  sealed { eval: "git diff --quiet" }
 }
 `;
 enum graceParsed = parsePbt(graceInput);
@@ -104,8 +129,8 @@ static assert(graceParsed.rites[0].rites[1].grace == 2);
 // has settled. grace is spent after the verdict, so the two never overlap.
 enum waitInput = `
 rites paced {
-  polled { cmd: "gh pr checks 833"  catch: 1  wait: 20 }
-  quick  { cmd: "true" }
+  polled { eval: "gh pr checks 833"  catch: 1  wait: 20 }
+  quick  { eval: "true" }
 }
 `;
 enum waitParsed = parsePbt(waitInput);
@@ -123,8 +148,8 @@ import receiver : Receiver, PARENT, wants;
 
 enum toInput = `
 rites reported {
-  loud  { cmd: "true"  to: parent }
-  quiet { cmd: "true" }
+  loud  { eval: "true"  to: parent }
+  quiet { eval: "true" }
 }
 `;
 enum toParsed = parsePbt(toInput);
@@ -138,10 +163,51 @@ static assert(wants(toParsed.rites[0].rites[0].to, Receiver.HostLlm));
 // the alternative is guessing that somebody wanted to hear it.
 static assert(toParsed.rites[0].rites[1].to == Receiver.None);
 
+// "which is to define a CLAUDE.md inline in a ritual"
+enum systemInput = `
+rites page { WRITE { eval: "true" } }
+
+project {
+  path: "/src/proj"
+
+  ritual campaign {
+    system: "You are a Specialist in Targeted Advertisement Campaigns."
+    page
+  }
+}
+`;
+enum systemParsed = parsePbt(systemInput);
+static assert(systemParsed.rituals[0].system
+    == "You are a Specialist in Targeted Advertisement Campaigns.");
+
+// A field does not consume the group that follows it.
+static assert(systemParsed.rituals[0].refCount == 1);
+static assert(systemParsed.rituals[0].refs[0].name == "page");
+static assert(validateRituals(systemParsed) == "");
+
+// A ritual that says nothing carries nothing, and the spawn is unchanged.
+static assert(ritualParsed.rituals[0].system == "");
+
+// A word with a colon that names no field is refused by name, rather than
+// being read as a rites group that does not exist.
+enum badFieldInput = `
+rites page { WRITE { eval: "true" } }
+
+project {
+  path: "/src/proj"
+  ritual campaign {
+    sytsem: "typo"
+    page
+  }
+}
+`;
+static assert(validateRituals(parsePbt(badFieldInput))
+    == "ritual campaign: unknown field `sytsem`");
+
 // A code cannot both advance and hold.
 enum overlapInput = `
 rites bad {
-  both { cmd: "true"  pass: 1  catch: [1, 7] }
+  both { eval: "true"  pass: 1  catch: [1, 7] }
 }
 `;
 static assert(validateRituals(parsePbt(overlapInput)) == "rite both: 1 is both pass and catch");
@@ -152,11 +218,11 @@ static assert(validateRituals(parsePbt(overlapInput)) == "rite both: 1 is both p
 enum ritualInput = `
 rites parity {
   params: [row]
-  parity { cmd: "make parity" }
+  parity { eval: "make parity" }
 }
 
 rites live {
-  ci { cmd: "gh pr checks 833" }
+  ci { eval: "gh pr checks 833" }
 }
 
 project {
@@ -194,14 +260,14 @@ static assert(validateRituals(ritualParsed) == "");
 // "ok" — rite names unique across every group, so a goto target and a
 // position report both name one thing.
 enum dupInput = `
-rites a { shared { cmd: "true" } }
-rites b { shared { cmd: "true" } }
+rites a { shared { eval: "true" } }
+rites b { shared { eval: "true" } }
 `;
 static assert(validateRituals(parsePbt(dupInput)) == "duplicate rite name: shared");
 
 // A goto that names nothing is a jump into the dark.
 enum badGotoInput = `
-rites a { one { cmd: "true"  goto: nowhere } }
+rites a { one { eval: "true"  goto: nowhere } }
 `;
 static assert(validateRituals(parsePbt(badGotoInput)) == "goto names no rite: nowhere");
 
@@ -211,7 +277,7 @@ static assert(validateRituals(parsePbt(badGotoInput)) == "goto names no rite: no
 enum missingParamInput = `
 rites parity {
   params: [row]
-  parity { cmd: "make parity" }
+  parity { eval: "make parity" }
 }
 
 project {
@@ -239,7 +305,7 @@ static assert(validateRituals(parsePbt(badRefInput)) == "ritual r: no rites name
 enum sandShapeInput = `
 rites probe {
   params: [row]
-  onlyrite { cmd: "true" }
+  onlyrite { eval: "true" }
 }
 
 project {
@@ -263,7 +329,7 @@ static assert(sandCounted.totalProjects == 1);
 // "you set a branch on the block on the project level"
 enum branchInput = `
 rites walk {
-  one { cmd: "true" }
+  one { eval: "true" }
 }
 
 project {

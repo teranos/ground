@@ -130,7 +130,7 @@ PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
                             const(char[])[] keys = [], const(char[])[] values = []) {
     import matcher : envSubst;
     PreparedRite p;
-    p.cmd = envSubst(r.cmd, cwd);
+    p.cmd = envSubst(r.eval, cwd);
     p.ready = !hasUnresolved(p.cmd);
     if (p.ready) p.script = buildRiteScript(cwd, p.cmd, keys, values);
     return p;

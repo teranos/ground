@@ -75,7 +75,7 @@ const(char)[] repoRoot(PR)(const PR r, const(char)[] projectPath) {
 struct FlatRite {
     string group;
     string name;
-    string cmd;
+    string eval;
     string msg;
     string mic;
     int pass;
@@ -100,6 +100,8 @@ struct Flattened {
     // "you set a branch on the block on the project level" — carried here
     // because prScript is built where the walk is, not where the pbt is.
     string branch;
+    // Same reason: spawnScript is built from the walk, not from the pbt.
+    string system;
 }
 
 Flattened flatten(PR)(const PR r, size_t ritualIdx) {
@@ -107,6 +109,7 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
     if (ritualIdx >= r.ritualCount) return f;
     auto rit = r.rituals[ritualIdx];
     f.branch = rit.projectBranch;
+    f.system = rit.system;
 
     foreach (ri; 0 .. rit.refCount) {
         auto refr = rit.refs[ri];
@@ -119,7 +122,7 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
                 FlatRite fr;
                 fr.group = grp.name;
                 fr.name = src.name;
-                fr.cmd = src.cmd;
+                fr.eval = src.eval;
                 fr.msg = src.msg;
                 fr.mic = src.mic;
                 fr.pass = src.pass;
