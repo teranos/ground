@@ -50,13 +50,51 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         p.rev = p.rev + 1;
     }
 
-    auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
-    if (!run.ran) return a;
+    // "a failed run: is critical enough for us not to want to continue and
+    // return the error point blanc , keep the mic" — so nothing downstream of
+    // it is asked, including an eval that would have passed.
+    if (r.run.length > 0) {
+        import rite : prepareCmd;
+        auto act = prepareCmd(r.run, p.worktree,
+                              r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
+        if (!act.ready) {
+            emitError("ritual.run.unresolved", "the rite's run still holds a placeholder no project env resolves",
+                      0, 0, cast(string) sessionId, cast(string) r.name, "",
+                      cast(string) act.cmd, "");
+            return a;
+        }
+        auto did = runRite(act.script.text(), cast(string) r.name, cast(string) sessionId);
+        if (!did.ran || did.code != 0) {
+            a.ran = did.ran;
+            a.code = did.code;
+            a.output = did.output();
+            a.verdict = Verdict.Halt;
+            emitError("ritual.run", "the rite's run did not succeed, so nothing it was for was asked",
+                      0, did.code, cast(string) sessionId, cast(string) r.name, "",
+                      cast(string) act.cmd, cast(string) a.output);
+            import ritual.store : writePositionIf;
+            auto stopped = step(p, Verdict.Halt);
+            attestRite(db, sessionId, p, r.name, a.verdict, did.code, a.output, unixSeconds);
+            cast(void) writePositionIf(db, stopped, p.rev);
+            a.applied = true;
+            a.after = stopped;
+            return a;
+        }
+    }
 
-    a.ran = true;
-    a.code = run.code;
-    a.output = run.output();
-    a.verdict = classify(run.code, r);
+    // A rite with a run and no eval asked nothing, so there is no code to read.
+    if (r.eval.length == 0) {
+        a.ran = true;
+        a.verdict = Verdict.Advance;
+    } else {
+        auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
+        if (!run.ran) return a;
+
+        a.ran = true;
+        a.code = run.code;
+        a.output = run.output();
+        a.verdict = classify(run.code, r);
+    }
 
     // A cycle that cannot be taken again is a halt, not a hold — holding
     // would leave the performance waiting on a jump it will never make.
@@ -71,10 +109,10 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     // reaches the agent. This is the one path that reaches the operator.
     if (a.verdict == Verdict.Halt) {
         import rite : unreached;
-        auto why = unreached(run.code)
+        auto why = unreached(a.code)
             ? "the rite never reached its tree, so its condition did not run"
             : "the rite answered with a code it does not declare";
-        emitError("ritual.rite.halt", why, 0, run.code, cast(string) sessionId,
+        emitError("ritual.rite.halt", why, 0, a.code, cast(string) sessionId,
                   cast(string) r.name, "", cast(string) prepared.cmd,
                   cast(string) a.output);
     }
@@ -108,7 +146,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (!a.applied) return a;
     moved.rev = p.rev + 1;
 
-    attestRite(db, sessionId, p, r.name, a.verdict, run.code, a.output, unixSeconds);
+    attestRite(db, sessionId, p, r.name, a.verdict, a.code, a.output, unixSeconds);
 
     // "the outcome is what is spoken back into the mic to both the agent and
     // parent"
@@ -119,25 +157,24 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     // and a hold has not finished doing whatever it is doing.
     if (a.verdict == Verdict.Advance && p.worktree.length > 0) {
         import rite : runRite;
+        import exec : emitError;
         auto c = commitScript(p.worktree, p.ritual, r.name);
-        runRite(c.text(), cast(string) r.name, cast(string) sessionId);
+        auto out_ = runRite(c.text(), cast(string) r.name, cast(string) sessionId);
+        // Discarded until 2026-08-09: a rite advanced, its commit failed, and
+        // the branch history silently stopped being the record of the walk.
+        if (!out_.ran || out_.code != 0) {
+            emitError("ritual.commit", "the rite passed but its work was not committed",
+                      0, out_.code, cast(string) sessionId, cast(string) r.name, "",
+                      cast(string) out_.output(), "");
+        }
     }
 
     // The position was already written by the claim above. Writing it again
     // unconditionally is what let a stale driver overwrite a winner.
 
-    // The last rite passed. Push the branch and open the thing you merge.
-    if (moved.state == RitualState.Done && moved.worktree.length > 0) {
-        import rite : runRite;
-        import exec : emitError;
-        auto pr = prScript(moved.worktree, moved.ritual, moved.id, f.branch);
-        auto out_ = runRite(pr.text(), "ritual-pr", cast(string) sessionId);
-        if (!out_.ran || out_.code != 0) {
-            emitError("ritual.pr", "the performance finished but its branch did not become a pull request",
-                      0, out_.code, cast(string) sessionId, cast(string) moved.ritual, "",
-                      cast(string) out_.output(), "");
-        }
-    }
+    // "i want NO pr to be created if i did not set it". Done used to open one
+    // here. A pbt that wants a pull request says so, in a rite, like anything
+    // else ground runs.
 
     a.after = moved;
     return a;

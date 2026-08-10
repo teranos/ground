@@ -109,6 +109,9 @@ struct ParsedRite {
     // "to me its eval" — the operation. `pass`, `catch`, `goto`, `to`, `wait`
     // and `mic` are what the writer changes its default behaviour with.
     string eval;
+    // "a different rite that runs a tool unconditionally". Fires once when the
+    // rite is entered, before the agent has the mic. A non-zero halts.
+    string run;
     // A field this rite named that no rite has. Carried so the refusal can
     // say which one, which betterC forbids building at the parse site.
     string badKey;
@@ -1326,6 +1329,7 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
         auto val = readValue(input, pos);
         switch (key) {
             case "eval": r.eval = val; break;
+            case "run":  r.run = val; break;
             // Recorded, not asserted: betterC has no GC, so the message that
             // names the rite and the field is built in validateRituals.
             case "cmd":  r.badKey = "cmd"; break;

@@ -126,14 +126,21 @@ struct PreparedRite {
     const(char)[] cmd;
 }
 
-PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
-                            const(char[])[] keys = [], const(char[])[] values = []) {
+// Both halves of a rite are prepared the same way — `run` and `eval` differ in
+// when they fire and how their code is read, not in how they are built.
+PreparedRite prepareCmd(const(char)[] cmd, const(char)[] cwd,
+                        const(char[])[] keys = [], const(char[])[] values = []) {
     import matcher : envSubst;
     PreparedRite p;
-    p.cmd = envSubst(r.eval, cwd);
+    p.cmd = envSubst(cmd, cwd);
     p.ready = !hasUnresolved(p.cmd);
     if (p.ready) p.script = buildRiteScript(cwd, p.cmd, keys, values);
     return p;
+}
+
+PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
+                            const(char[])[] keys = [], const(char[])[] values = []) {
+    return prepareCmd(r.eval, cwd, keys, values);
 }
 
 extern (C) {

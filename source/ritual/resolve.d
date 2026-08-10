@@ -76,6 +76,8 @@ struct FlatRite {
     string group;
     string name;
     string eval;
+    // Run before the agent has the mic, once per entry into the rite.
+    string run;
     string msg;
     string mic;
     int pass;
@@ -123,6 +125,7 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
                 fr.group = grp.name;
                 fr.name = src.name;
                 fr.eval = src.eval;
+                fr.run = src.run;
                 fr.msg = src.msg;
                 fr.mic = src.mic;
                 fr.pass = src.pass;

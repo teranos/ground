@@ -19,6 +19,12 @@ rites walk {
   WEIRD { eval: "exit 3" }
   SLOW  { eval: "echo short-moon Successful in 8s"  wait: 20  to: parent }
   AFTER { eval: "true" }
+
+  # "a different rite that runs a tool unconditionally"
+  ACTED { run: "true" }
+  BOTH  { run: "true"   eval: "false"  catch: 1 }
+  BROKE { run: "exit 4" eval: "true" }
+  LAST  { eval: "true" }
 }
 
 project {
@@ -98,6 +104,41 @@ unittest {
     assert(r.code == 3);
     assert(r.after.state == RitualState.Halted);
     assert(r.after.states[3] == RiteState.Halted);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // "Advance unconditionally is the obvious reading" — "yes". A rite with
+    // run and no eval asked nothing, so there is no code to read.
+    auto r = advance(db, "sess", at(6), flat, 100);
+    assert(r.ran);
+    assert(r.verdict == Verdict.Advance);
+    assert(r.after.current == 7);
+    assert(r.after.states[6] == RiteState.Passed);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // run happened, eval still decides. The tool firing is not the answer.
+    auto r = advance(db, "sess", at(7), flat, 100);
+    assert(r.verdict == Verdict.Hold);
+    assert(r.after.current == 7);
+    assert(r.after.states[7] == RiteState.Ran);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // "a failed run: is critical enough for us not to want to continue and
+    // return the error point blanc , keep the mic" — so the eval that would
+    // have passed is never asked.
+    auto r = advance(db, "sess", at(8), flat, 100);
+    assert(r.verdict == Verdict.Halt);
+    assert(r.code == 4, "the tool's own code, not ground's");
+    assert(r.after.state == RitualState.Halted);
+    assert(r.after.states[8] == RiteState.Halted);
     sqlite3_close(db);
 }
 
@@ -239,7 +280,7 @@ unittest {
     import mic : Mic;
     // Nothing is waiting for a stop that will not come. A performance that
     // ended hands the mic to the operator, not to an agent it just ended.
-    auto r = advance(db, "sess", at(5), flat, 100);
+    auto r = advance(db, "sess", at(9), flat, 100);
     assert(r.after.state == RitualState.Done);
     assert(r.after.mic == Mic.Human);
     sqlite3_close(db);
