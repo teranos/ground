@@ -148,22 +148,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     if (sessionId !is null) {
         import errors : scanVanishedWrappers, immediateBacklogMessage;
         scanVanishedWrappers(cast(string) sessionId);
-        // If the watch daemon is dead and rows are pending, block Stop
-        // with the backlog message. Point of interaction: user sees the
-        // failure at Stop instead of silently missing exec output.
-        // The killSessionWatcher/writeWatchClaim above still ran, and the
-        // asyncRewake config still spawns a new watch — blocking Stop
-        // doesn't prevent recovery on the next turn.
-        //
-        // TODO (CC .163): swap block-with-reason for hookSpecificOutput.
-        //   additionalContext. Same visibility, doesn't hijack the turn or
-        //   surface as "hook error" in the transcript. Ship after bumping
-        //   the minimum Claude Code version to .163.
-        auto backlog = immediateBacklogMessage(cast(string) sessionId);
-        if (backlog.length > 0) {
-            writeStopResponseAndNotify(backlog);
-            return 0;
-        }
+        // This used to block the Stop with a count of undelivered rows. It
+        // ran every turn, said nothing about what was owed, and the session
+        // had no action that could clear it — "nothing is ever stuck".
+        cast(void) immediateBacklogMessage(cast(string) sessionId);
     }
 
     auto hookActive = extractBool(input, `"stop_hook_active"`);

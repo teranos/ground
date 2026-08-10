@@ -321,8 +321,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 found.p = bindSession(found.p, sessionId);
 
                 // This hook runs inside the agent, so its parent is the agent.
-                // Nothing else knows the pid: with --bg the process is Fleet's,
-                // and asking Fleet costs a frame the status line does not have.
+                // Nothing else knows the pid: with --bg the process belongs to
+                // the background host, and asking costs a frame the line lacks.
                 import watch : getppid;
                 found.p.agentPid = getppid();
                 writePosition(rdb, found.p);

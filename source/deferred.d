@@ -517,6 +517,13 @@ struct CIStatus {
 }
 
 // Interpret gh's exit status and stdout. Pure — the shelling out lives in
+// Room for the verdict plus the failing log under it. 520 held one line.
+enum CI_TEXT_CAP = 4096;
+
+// How many lines of a red run's log come home. Enough to carry the compiler
+// error and the line naming what failed.
+enum CI_TAIL_LINES = "5";
+
 // checkCIStatus, the judgement lives here where it can be tested.
 CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
     // Whatever gh or jq said, said. Ground's account of a failure it never
@@ -540,10 +547,16 @@ CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
     }
 
     auto n = output.length;
-    if (n > 0 && output[n - 1] == '\n') n--;
+    while (n > 0 && output[n - 1] == '\n') n--;
     if (n == 0) return CIStatus(CIQuery.NoWorkflow, null);
 
-    auto line = output[0 .. n];
+    auto all = output[0 .. n];
+
+    // The verdict is the first line. Anything under it is gh's failing log,
+    // which must not be read as part of the conclusion.
+    size_t e = 0;
+    while (e < n && all[e] != '\n') e++;
+    auto line = all[0 .. e];
 
     import matcher : contains;
     if (contains(line, "in_progress"))
@@ -554,11 +567,22 @@ CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
     if (line[0] == ' ')
         return CIStatus(CIQuery.Unavailable, line);
 
-    __gshared char[520] resultBuf = 0;
+    __gshared char[CI_TEXT_CAP] resultBuf = 0;
     enum prefix = "CI: ";
-    foreach (i, c; prefix) resultBuf[i] = c;
-    foreach (i; 0 .. n) resultBuf[prefix.length + i] = line[i];
-    return CIStatus(CIQuery.Terminal, resultBuf[0 .. prefix.length + n]);
+    size_t p = 0;
+    foreach (c; prefix) resultBuf[p++] = c;
+    foreach (i; 0 .. n) { if (p < resultBuf.length) resultBuf[p++] = all[i]; }
+    return CIStatus(CIQuery.Terminal, resultBuf[0 .. p]);
+}
+
+// "can we return more lines of the ci error or outcome back? like last 5"
+// Green resolves in silence; a red conclusion owes the log that produced it.
+bool wantsTail(const(char)[] line) {
+    import matcher : contains;
+    return contains(line, "failure")
+        || contains(line, "cancelled")
+        || contains(line, "timed_out")
+        || contains(line, "startup_failure");
 }
 
 unittest {
@@ -588,6 +612,29 @@ unittest {
     // Run exists but hasn't finished — park it, don't deliver.
     auto r = interpretCIOutput(0, "in_progress Branch Latest (push)\n");
     assert(r.kind == CIQuery.InProgress);
+}
+
+unittest {
+    // "can we return more lines of the ci error or outcome back? like last 5"
+    assert(wantsTail("failure Nix (push)"));
+    assert(wantsTail("cancelled Nix (push)"));
+    assert(wantsTail("timed_out Nix (push)"));
+    assert(!wantsTail("success Nix (push)"), "green says nothing more");
+    assert(!wantsTail("in_progress Nix (push)"));
+}
+
+unittest {
+    // A red conclusion with gh's failing log under it. The job name alone
+    // says a thing broke and nothing about what.
+    enum out_ = "failure Nix (push)\n"
+        ~ "ats/wasm/engine.go:29:12: pattern ats.wasm: no matching files found\n"
+        ~ "FAIL github.com/teranos/QNTX/server [setup failed]\n";
+    auto r = interpretCIOutput(0, out_);
+    assert(r.kind == CIQuery.Terminal);
+    import matcher : contains;
+    assert(contains(r.text, "failure Nix (push)"), "the verdict");
+    assert(contains(r.text, "no matching files found"), "and what it was");
+    assert(contains(r.text, "[setup failed]"));
 }
 
 unittest {
@@ -632,12 +679,36 @@ CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
     if (pipe is null)
         return CIStatus(CIQuery.Unavailable, "CI status unknown: could not run gh");
 
-    __gshared char[512] outBuf = 0;
+    __gshared char[CI_TEXT_CAP] outBuf = 0;
     auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
     // pclose carries gh's exit status. Discarding it was what made a gh
     // failure indistinguishable from "this repo has no CI" — both arrive
     // here as zero bytes.
     auto status = pclose(pipe);
+
+    // A red conclusion without its log says a thing broke and nothing about
+    // what. Second call rather than one compound command, so the predicate
+    // that decides it is the one under test.
+    size_t head = 0;
+    while (head < n && outBuf[head] != '\n') head++;
+    if (status == 0 && head > 0 && wantsTail(outBuf[0 .. head])) {
+        __gshared ZBuf logCmd;
+        logCmd.reset();
+        logCmd.put("gh -R ");
+        logCmd.put(repo);
+        logCmd.put(` run view "$(gh -R `);
+        logCmd.put(repo);
+        logCmd.put(" run list --branch ");
+        logCmd.put(branch);
+        logCmd.put(` --limit 1 --json databaseId --jq '.[0].databaseId')" --log-failed 2>&1 | tail -`);
+        logCmd.put(CI_TAIL_LINES);
+        auto lp = popen(logCmd.ptr(), "r");
+        if (lp !is null) {
+            if (n < outBuf.length - 1 && outBuf[n - 1] != '\n') outBuf[n++] = '\n';
+            n += fread(&outBuf[n], 1, outBuf.length - 1 - n, lp);
+            pclose(lp);
+        }
+    }
 
     return interpretCIOutput(status, outBuf[0 .. n]);
 }

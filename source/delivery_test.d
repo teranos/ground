@@ -87,7 +87,8 @@ unittest {
 }
 
 unittest {
-    // A rite naming only the parent still reaches only the parent.
+    // "why would you have to specify it ? its expected, everything comes back
+    // to causer" — `to:` says who ELSE hears. It cannot silence the causer.
     auto db = memDb();
     auto q = perf();
     assert(deliver(db, q, PARENT, "rite:willow-1:APPLE", "APPLE passed"));
@@ -95,6 +96,20 @@ unittest {
     enum toParent = "SELECT count(*) FROM attestations WHERE id = 'immediate:note:parent-session:rite:willow-1:APPLE'\0";
     enum toAgent  = "SELECT count(*) FROM attestations WHERE id = 'immediate:note:agent-session:rite:willow-1:APPLE'\0";
     assert(count(db, toParent.ptr) == 1);
-    assert(count(db, toAgent.ptr) == 0, "silence to anyone the rite did not name");
+    assert(count(db, toAgent.ptr) == 1, "the agent caused the rite and hears its verdict");
+    sqlite3_close(db);
+}
+
+unittest {
+    // "to: agent doesnt make sense" / "not part of the api" — a rite that names
+    // nobody is silent to the parent and still answers the one that ran it.
+    auto db = memDb();
+    auto q = perf();
+    assert(deliver(db, q, Receiver.None, "rite:willow-1:CHERRY", "CHERRY passed"));
+
+    enum toParent = "SELECT count(*) FROM attestations WHERE id = 'immediate:note:parent-session:rite:willow-1:CHERRY'\0";
+    enum toAgent  = "SELECT count(*) FROM attestations WHERE id = 'immediate:note:agent-session:rite:willow-1:CHERRY'\0";
+    assert(count(db, toParent.ptr) == 0, "silence to the parent is a choice a rite can make");
+    assert(count(db, toAgent.ptr) == 1, "silence to the causer is not");
     sqlite3_close(db);
 }

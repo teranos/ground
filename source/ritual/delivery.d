@@ -32,7 +32,9 @@ bool deliver(DB)(DB db, const Position p, Receiver to,
 
     bool sent;
     foreach (one; SIDES) {
-        if (!wants(to, one)) continue;
+        // "why would you have to specify it? its expected, everything comes
+        // back to causer" — `to:` gates the parent. The agent caused the rite.
+        if (one != Receiver.AgentLlm && !wants(to, one)) continue;
         if (!deliverable(p, one, bodyIsAgents)) continue;
         writeNote(db, sessionOf(p, one), key, body_);
         sent = true;
