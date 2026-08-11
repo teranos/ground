@@ -1,13 +1,53 @@
 module ritual.run;
 
 import rite : Verdict;
-import ritual.position : Position, RitualState, MAX_GOTOS, step, jump;
+import ritual.position : Position, RitualState, RiteState, MAX_GOTOS, step, jump;
 import ritual.resolve : Flattened, indexOfRite;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
 import receiver : Receiver;
 import db : ZBuf;
 
+// Who an error raised inside a rite is owed to. Routed to whichever of the
+// four callers of `advance` happened to drive until 2026-08-10, so a rite that
+// failed under the watcher told the watcher's session and nobody else.
+struct Owed {
+    const(char)[][3] who;
+    size_t count;
+    const(char)[][] all() const return { return cast(const(char)[][]) who[0 .. count]; }
+}
+
+// The causer first, then the operator, then the driver if it is neither. `to:`
+// does not appear: it gates an outcome, and an error is not an outcome.
+Owed owedSessions(const(char)[] agentSession, const(char)[] parent,
+                  const(char)[] driver) {
+    Owed o;
+    // A static array, not a literal: betterC has no GC to allocate one in.
+    const(char)[][3] candidates = [agentSession, parent, driver];
+    foreach (one; candidates) {
+        if (one.length == 0) continue;
+        bool already;
+        foreach (i; 0 .. o.count) if (o.who[i] == one) already = true;
+        if (already) continue;
+        o.who[o.count++] = one;
+    }
+    return o;
+}
+
+private void riteError(const Position p, const(char)[] driver, string origin,
+                       string message, int code, const(char)[] rite,
+                       const(char)[] cmd, const(char)[] output) {
+    import exec : emitError;
+    auto owed = owedSessions(p.agentSession, p.parent, driver);
+    foreach (who; owed.all()) {
+        emitError(origin, message, 0, code, cast(string) who,
+                  cast(string) rite, "", cast(string) cmd, cast(string) output);
+    }
+}
+
+// How long a rite may read as Running before another driver takes it anyway.
+// A driver that dies mid-rite would otherwise park the walk forever, and
+// "things either fail or pass, nothing is ever stuck".
 // One rite, run and recorded, and the position it leaves behind.
 struct Advanced {
     bool ran;
@@ -34,9 +74,9 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     auto prepared = prepareRite(r, p.worktree,
                                 r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
     if (!prepared.ready) {
-        emitError("ritual.rite.unresolved", "the rite still holds a placeholder no project env resolves",
-                  0, 0, cast(string) sessionId, cast(string) r.name, "",
-                  cast(string) prepared.cmd, "");
+        riteError(p, sessionId, "ritual.rite.unresolved",
+                  "the rite still holds a placeholder no project env resolves",
+                  0, r.name, prepared.cmd, "");
         return a;
     }
 
@@ -46,9 +86,20 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         import ritual.store : writePositionIf;
         import mic : holder;
         auto held = takeMic(p, holder(r.wait), unixSeconds);
+        // Declared with a glyph and a colour and never once written. It says a
+        // rite is running and nothing reads it to decide anything: ground does
+        // not refuse to act on what this row says.
+        held.states[held.current] = RiteState.Running;
         if (!writePositionIf(db, held, p.rev)) return a;
+        p = held;
         p.rev = p.rev + 1;
     }
+
+    // Measured 2026-08-10 on `sun`: one review comment reached the agent 19
+    // times, because the delivery key carries `rev` and a held rite re-enters
+    // with a new one. A verdict is still an event; its words are not.
+    import mic : wordsHash, freshWords;
+    long spoken = 0;
 
     // "a failed run: is critical enough for us not to want to continue and
     // return the error point blanc , keep the mic" — so nothing downstream of
@@ -58,9 +109,9 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         auto act = prepareCmd(r.run, p.worktree,
                               r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
         if (!act.ready) {
-            emitError("ritual.run.unresolved", "the rite's run still holds a placeholder no project env resolves",
-                      0, 0, cast(string) sessionId, cast(string) r.name, "",
-                      cast(string) act.cmd, "");
+            riteError(p, sessionId, "ritual.run.unresolved",
+                      "the rite's run still holds a placeholder no project env resolves",
+                      0, r.name, act.cmd, "");
             return a;
         }
         auto did = runRite(act.script.text(), cast(string) r.name, cast(string) sessionId);
@@ -69,9 +120,9 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             a.code = did.code;
             a.output = did.output();
             a.verdict = Verdict.Halt;
-            emitError("ritual.run", "the rite's run did not succeed, so nothing it was for was asked",
-                      0, did.code, cast(string) sessionId, cast(string) r.name, "",
-                      cast(string) act.cmd, cast(string) a.output);
+            riteError(p, sessionId, "ritual.run",
+                      "the rite's run did not succeed, so nothing it was for was asked",
+                      did.code, r.name, act.cmd, a.output);
             import ritual.store : writePositionIf;
             auto stopped = step(p, Verdict.Halt);
             attestRite(db, sessionId, p, r.name, a.verdict, did.code, a.output, unixSeconds);
@@ -79,6 +130,17 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             a.applied = true;
             a.after = stopped;
             return a;
+        }
+        // The tool succeeded and said something. That is owed now, not after
+        // the eval decides: a hold sends the agent back to a rite it can only
+        // act on if it has read what the tool printed.
+        if (did.output().length > 0) {
+            a.output = did.output();
+            auto h = wordsHash(a.output);
+            if (freshWords(h, spoken)) {
+                spoken = h;
+                riteSpeaks(db, p, p, r, Verdict.Advance, a.output, "run");
+            }
         }
     }
 
@@ -99,9 +161,15 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     // A cycle that cannot be taken again is a halt, not a hold — holding
     // would leave the performance waiting on a jump it will never make.
     bool wantsJump = a.verdict == Verdict.Hold && r.goto_.length > 0;
-    if (wantsJump && p.gotos >= MAX_GOTOS) {
+    if (wantsJump && p.gotos >= f.maxGoto) {
         a.verdict = Verdict.Halt;
-        a.output = "goto taken 16 times, which is the most one performance gets";
+        __gshared ZBuf spent;
+        spent.reset();
+        spent.put("goto taken ");
+        putRev(spent, cast(long) p.gotos);
+        spent.put(" times, and max_goto for this project is ");
+        putRev(spent, cast(long) f.maxGoto);
+        a.output = spent.slice();
         wantsJump = false;
     }
 
@@ -112,9 +180,8 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         auto why = unreached(a.code)
             ? "the rite never reached its tree, so its condition did not run"
             : "the rite answered with a code it does not declare";
-        emitError("ritual.rite.halt", why, 0, a.code, cast(string) sessionId,
-                  cast(string) r.name, "", cast(string) prepared.cmd,
-                  cast(string) a.output);
+        riteError(p, sessionId, "ritual.rite.halt", why, a.code, r.name,
+                  prepared.cmd, a.output);
     }
 
     auto moved = step(p, a.verdict);
@@ -136,6 +203,12 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                         unixSeconds);
     }
 
+    // A run-only rite already spoke, above, under its own key. Saying it again
+    // here is the same words twice to the same session.
+    auto said = r.eval.length > 0 ? a.output : null;
+    auto words = wordsHash(said);
+    bool fresh = freshWords(words, spoken);
+
     // Claim the position before anything is recorded or committed. A driver
     // that read the row before another one moved it has run a rite whose
     // verdict is about a position that no longer exists.
@@ -149,25 +222,13 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     attestRite(db, sessionId, p, r.name, a.verdict, a.code, a.output, unixSeconds);
 
     // "the outcome is what is spoken back into the mic to both the agent and
-    // parent"
-    if (r.wait > 0 && r.to != Receiver.None) ciSpeaks(db, p, moved, r, a);
+    // parent". Gated on `wait > 0 && to != None` until 2026-08-10, so a rite
+    // that was not slow CI and named no receiver was answered into nothing.
+    if (fresh) riteSpeaks(db, p, moved, r, a.verdict, said, "");
 
-    // A rite that passed and changed the tree gets a commit, so the branch
-    // history is the walk. Only on Advance: a halt's changes are unreviewed
-    // and a hold has not finished doing whatever it is doing.
-    if (a.verdict == Verdict.Advance && p.worktree.length > 0) {
-        import rite : runRite;
-        import exec : emitError;
-        auto c = commitScript(p.worktree, p.ritual, r.name);
-        auto out_ = runRite(c.text(), cast(string) r.name, cast(string) sessionId);
-        // Discarded until 2026-08-09: a rite advanced, its commit failed, and
-        // the branch history silently stopped being the record of the walk.
-        if (!out_.ran || out_.code != 0) {
-            emitError("ritual.commit", "the rite passed but its work was not committed",
-                      0, out_.code, cast(string) sessionId, cast(string) r.name, "",
-                      cast(string) out_.output(), "");
-        }
-    }
+    // "we want to get rid of the auto commit" / "make commit be done by run:".
+    // Every advancing rite used to commit whatever was in the tree. A ritual
+    // that wants a commit writes one, or asks its agent and gates on finding it.
 
     // The position was already written by the claim above. Writing it again
     // unconditionally is what let a stale driver overwrite a winner.
@@ -184,6 +245,10 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 private immutable string[3] CI_SAID =
     ["ci all checks passed ✓", "ci checks failed", "ci could not be read"];
 
+// What every other rite is. `wait:` says a rite is slow, not that it is CI, and
+// a PR comment signed `ci all checks passed ✓` is the record lying.
+private immutable string[3] RITE_SAID = ["passed", "held", "halted"];
+
 private void putRev(ref ZBuf b, long v) {
     char[20] d = 0;
     size_t n;
@@ -193,19 +258,29 @@ private void putRev(ref ZBuf b, long v) {
 }
 
 // The head names the run; what hangs under it is whatever the rite printed,
-// which is the only place CI's own words exist.
-private void ciSpeaks(DB, R, A)(DB db, const Position p, const Position moved,
-                                const R r, const A a) {
+// which is the only place the tool's own words exist. `part` is "run" for the
+// unconditional half of a rite, which speaks before the eval is even asked.
+private void riteSpeaks(DB, R)(DB db, const Position p, const Position moved,
+                               const R r, Verdict v, const(char)[] output,
+                               const(char)[] part) {
     import ritual.delivery : deliver, both;
+
+    // A waiting rite keeps the `ci:` namespace the gutter reads, and its key is
+    // the one 46 was proven on.
+    bool isCi = r.wait > 0;
 
     __gshared ZBuf key;
     key.reset();
-    key.put("ci:");
+    key.put(isCi ? "ci:" : "rite:");
     key.put(p.id);
     key.put(":");
     key.put(r.name);
     key.put(":");
     putRev(key, moved.rev);
+    if (part.length > 0) {
+        key.put(":");
+        key.put(part);
+    }
 
     __gshared ZBuf said;
     said.reset();
@@ -213,10 +288,12 @@ private void ciSpeaks(DB, R, A)(DB db, const Position p, const Position moved,
     said.put(" ");
     said.put(p.branch);
     said.put(" ");
-    said.put(CI_SAID[cast(size_t) a.verdict]);
-    if (a.output.length > 0) {
+    if (isCi) said.put(CI_SAID[cast(size_t) v]);
+    else if (part.length > 0) { said.put(r.name); said.put(" "); said.put(part); }
+    else { said.put(r.name); said.put(" "); said.put(RITE_SAID[cast(size_t) v]); }
+    if (output.length > 0) {
         said.put("\n");
-        said.put(a.output);
+        said.put(output);
     }
 
     deliver(db, moved, both(r.to, Receiver.AgentLlm), key.slice(), said.slice());

@@ -2,6 +2,77 @@ module ritual.resolve;
 
 import receiver : Receiver;
 
+// Which ritual a word or two words name. "ground should refuse if it cant
+// resolve to a single one cleanly".
+struct Chosen {
+    bool ok;
+    size_t ritualIdx;
+    size_t projectIdx;
+    // What ground says when it will not pick for you.
+    string why;
+}
+
+private size_t projectOf(PR)(const PR r, size_t ritualIdx) {
+    auto rit = r.rituals[ritualIdx];
+    foreach (pi; 0 .. r.projectCount) {
+        if (r.projects[pi].path != rit.projectPath) continue;
+        if (r.projects[pi].name != rit.projectName) continue;
+        return pi;
+    }
+    return r.projectCount;
+}
+
+// Two words are a project and one of its rituals. One word is looked up as
+// both, and the unnamed block wins when it is one of the candidates.
+Chosen chooseRitual(PR)(const PR r, const(char)[] first, const(char)[] second) {
+    if (second.length > 0) {
+        foreach (i; 0 .. r.ritualCount) {
+            if (r.rituals[i].projectName != first) continue;
+            if (r.rituals[i].name != second) continue;
+            return Chosen(true, i, projectOf(r, i), "");
+        }
+        return Chosen(false, 0, 0, "no ritual by that name in that project");
+    }
+
+    // The two readings are counted apart. A word that is a ritual in one and a
+    // different ritual in the other is two candidates, and ground refuses.
+    size_t byName, byNameHits, byNameUnnamed, byNameUnnamedHits;
+    size_t byProject, byProjectHits;
+    foreach (i; 0 .. r.ritualCount) {
+        if (r.rituals[i].name == first) {
+            byName = i;
+            byNameHits++;
+            if (r.rituals[i].projectName.length == 0) {
+                byNameUnnamed = i;
+                byNameUnnamedHits++;
+            }
+        }
+        if (r.rituals[i].projectName.length > 0 && r.rituals[i].projectName == first) {
+            byProject = i;
+            byProjectHits++;
+        }
+    }
+
+    if (byNameHits == 0 && byProjectHits == 0)
+        return Chosen(false, 0, 0, "no ritual and no project by that name");
+    if (byNameHits > 0 && byProjectHits > 0)
+        return Chosen(false, 0, 0, "that word is a ritual and a project");
+
+    if (byProjectHits > 0) {
+        if (byProjectHits == 1) return Chosen(true, byProject, projectOf(r, byProject), "");
+        return Chosen(false, 0, 0, "that project holds more than one ritual");
+    }
+
+    if (byNameHits == 1) return Chosen(true, byName, projectOf(r, byName), "");
+
+    // "the unnamed one actually wins, and the named one is the explicit edge
+    // case" — when the unnamed block offers exactly one of the candidates.
+    if (byNameUnnamedHits == 1)
+        return Chosen(true, byNameUnnamed, projectOf(r, byNameUnnamed), "");
+
+    return Chosen(false, 0, 0, "that word names more than one ritual");
+}
+
 private bool isSep(char c) {
     return c == '&' || c == ';' || c == '|' || c == '\n';
 }
@@ -36,22 +107,6 @@ const(char)[] ritualStarted(const(char)[] cmd) {
 }
 
 import ritual.position : MAX_RITES;
-
-// Told as each other, these send you looking in the wrong place.
-enum ResolveFail { None, NoSuchRitual, WrongProject }
-
-struct Resolved { ResolveFail fail; size_t index; }
-
-Resolved resolveRitual(PR)(const PR r, const(char)[] name, const(char)[] cwd) {
-    import matcher : contains;
-    bool sawName = false;
-    foreach (i; 0 .. r.ritualCount) {
-        if (r.rituals[i].name != name) continue;
-        sawName = true;
-        if (contains(cwd, r.rituals[i].projectPath)) return Resolved(ResolveFail.None, i);
-    }
-    return Resolved(sawName ? ResolveFail.WrongProject : ResolveFail.NoSuchRitual, 0);
-}
 
 // A ritual's project path is a locator, not a test against cwd — it is named
 // from anywhere. The declared projects say where that path is on disk.
@@ -104,6 +159,9 @@ struct Flattened {
     string branch;
     // Same reason: spawnScript is built from the walk, not from the pbt.
     string system;
+    // Per performance, a full run of a ritual. The project says how long its
+    // loops may go; MAX_GOTOS is what a project that says nothing gets.
+    size_t maxGoto;
 }
 
 Flattened flatten(PR)(const PR r, size_t ritualIdx) {
@@ -112,6 +170,17 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
     auto rit = r.rituals[ritualIdx];
     f.branch = rit.projectBranch;
     f.system = rit.system;
+
+    // Matched on name as well as path: four blocks share `/sbvh-nl/grove`, and
+    // by path alone the first one's number would govern all of them.
+    import ritual.position : MAX_GOTOS;
+    f.maxGoto = MAX_GOTOS;
+    foreach (pi; 0 .. r.projectCount) {
+        if (r.projects[pi].path != rit.projectPath) continue;
+        if (r.projects[pi].name != rit.projectName) continue;
+        if (r.projects[pi].maxGoto > 0) f.maxGoto = r.projects[pi].maxGoto;
+        break;
+    }
 
     foreach (ri; 0 .. rit.refCount) {
         auto refr = rit.refs[ri];

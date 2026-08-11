@@ -80,7 +80,13 @@ struct ParsedScope {
 }
 
 struct ParsedProject {
+    // Several blocks can share a path, and the name is what tells them apart.
+    // Empty is the unnamed block, which wins when a word resolves to both.
+    string name;
     string path;
+    // Per performance, a full run of a ritual. Zero means the project said
+    // nothing and MAX_GOTOS stands.
+    size_t maxGoto;
     string[1024] files;
     size_t fileCount;
 }
@@ -159,6 +165,8 @@ struct ParsedRiteRef {
 // project whose env its rites read.
 struct ParsedRitual {
     string name;
+    // The block this ritual was declared in. Empty is the unnamed one.
+    string projectName;
     string projectPath;
     // "you set a branch on the block on the project level"
     string projectBranch;
@@ -565,8 +573,15 @@ ParseResult parsePbt(string input) {
             result.scopeCount++;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            // `project { }` and `project <name> { }` both. A word before the
+            // brace names the block; several blocks may share one path.
+            string projectName;
+            if (isNameStart(input, pos)) {
+                projectName = readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
-            parseProject(input, pos, result);
+            parseProject(input, pos, result, projectName);
         } else if (wm.base == "qntx") {
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -654,9 +669,14 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             result.permPoolLen++;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            string projectName;
+            if (isNameStart(input, pos)) {
+                projectName = readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
             hasChildren = true;
-            parseProject(input, pos, result);
+            parseProject(input, pos, result, projectName);
         } else {
             skipWS(input, pos);
             expect(input, pos, ':');
@@ -738,9 +758,20 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
     assert(0, "Unterminated scope block");
 }
 
-void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
+// `project { }` and `project <name> { }` both. A word before the brace names
+// the block, and several blocks may share one path.
+private bool isNameStart(ref string s, size_t pos) {
+    if (pos >= s.length) return false;
+    auto c = s[pos];
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '_' || c == '-';
+}
+
+void parseProject(ref string input, ref size_t pos, ref ParseResult result,
+                  string projectName = "") {
     string projectPath;
     string projectBranch;
+    size_t projectMaxGoto;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
     string[1024] files;
@@ -757,7 +788,9 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
         if (input[pos] == '}') {
             pos++;
             assert(result.projectCount < result.projects.length);
+            result.projects[result.projectCount].name = projectName;
             result.projects[result.projectCount].path = projectPath;
+            result.projects[result.projectCount].maxGoto = projectMaxGoto;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
@@ -785,7 +818,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             skipWS(input, pos);
             expect(input, pos, '{');
             assert(result.ritualCount < result.rituals.length, "Ritual overflow");
-            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath, projectBranch);
+            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath, projectBranch, projectName);
             result.ritualCount++;
         } else if (wm.base == "scope") {
             skipWS(input, pos);
@@ -830,6 +863,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             switch (key) {
                 case "path": projectPath = val; break;
                 case "branch": projectBranch = val; break;
+                case "max_goto": projectMaxGoto = cast(size_t) parseInt(val); break;
                 case "files":
                     if (val is null) {
                         // List syntax: files: ["a", "b", ...]
@@ -1170,9 +1204,10 @@ void parseQntx(ref string input, ref size_t pos, ref ParseResult result) {
 // A ritual body holds only references — never definitions — so a name
 // followed by a block is unambiguous: it is that reference, with values.
 ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string projectPath,
-                         string projectBranch = "") {
+                         string projectBranch = "", string projectName = "") {
     ParsedRitual r;
     r.name = name;
+    r.projectName = projectName;
     r.projectPath = projectPath;
     r.projectBranch = projectBranch;
     while (pos < input.length) {

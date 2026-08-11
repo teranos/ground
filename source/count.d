@@ -45,6 +45,12 @@ PbtCounts countPbt(string input) {
             if (r.maxPermsPerScope < 1) r.maxPermsPerScope = 1;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            // A named block, like `rites` below: the name is consumed here or
+            // the next readWord lands on a brace.
+            if (pos < input.length && input[pos] != '{') {
+                readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
             r.totalProjects++;
             countProject(input, pos, r);
@@ -107,6 +113,10 @@ void countScope(ref string input, ref size_t pos, ref PbtCounts r) {
             perms++;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            if (pos < input.length && input[pos] != '{') {
+                readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
             hasChildren = true;
             r.totalProjects++;

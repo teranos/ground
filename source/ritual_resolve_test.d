@@ -1,10 +1,10 @@
 module ritual_resolve_test;
 
-// Naming a ritual is starting one, so naming it wrong has to say which way.
-// Brandon: "i want to specify a ritual"
+// A ritual names groups; the position walks rites. The flat list is both the
+// order they run in and the index `goto` needs.
 
 import proto : parsePbt;
-import ritual : resolveRitual, ResolveFail, flatten, indexOfRite;
+import ritual : flatten, indexOfRite;
 
 enum src = `
 rites parity {
@@ -28,23 +28,6 @@ project {
 }
 `;
 enum parsed = parsePbt(src);
-
-// The name resolves only where its project is.
-enum here = resolveRitual(parsed, "probe", "/home/u/src/proj");
-static assert(here.fail == ResolveFail.None);
-static assert(here.index == 0);
-
-// Standing somewhere else is not the same failure as asking for a ritual that
-// does not exist, and one told as the other sends you looking in the wrong place.
-enum elsewhere = resolveRitual(parsed, "probe", "/home/u/src/other");
-static assert(elsewhere.fail == ResolveFail.WrongProject);
-
-enum absent = resolveRitual(parsed, "nosuch", "/home/u/src/proj");
-static assert(absent.fail == ResolveFail.NoSuchRitual);
-
-// --- Flattening ---
-// A ritual names groups; the position walks rites. The flat list is both the
-// order they run in and the index `goto` needs.
 
 enum flat = flatten(parsed, 0);
 static assert(flat.count == 3);

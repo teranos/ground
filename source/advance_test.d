@@ -187,6 +187,45 @@ project {
 `;
 enum loopFlat = flatten(parsePbt(loopSrc), 0);
 
+// "let's make it settable on a project { }" — per performance, a full run of
+// a ritual, so a project says how long its agentic loops may run.
+enum boundSrc = `
+rites spin2 {
+  THERE { eval: "true" }
+  AWAY  { eval: "false"  catch: 1  goto: THERE }
+}
+
+project {
+  path: "/src/bound"
+  max_goto: 3
+  ritual bounded { spin2 }
+}
+`;
+enum boundFlat = flatten(parsePbt(boundSrc), 0);
+
+static assert(loopFlat.maxGoto == MAX_GOTOS, "a project that says nothing gets the default");
+static assert(boundFlat.maxGoto == 3, "a project sets how long its loops may run");
+
+unittest {
+    auto db = memDb();
+    auto p = start("bounded", boundFlat.count);
+    p.id = "bound-1";
+    p.repo = "/src/bound";
+    p.worktree = "/tmp";
+
+    size_t turns;
+    while (p.state == RitualState.Live && turns < 500) {
+        auto r = advance(db, "sess", p, boundFlat, 100 + cast(long) turns);
+        if (!r.ran) break;
+        p = r.after;
+        turns++;
+    }
+
+    assert(p.state == RitualState.Halted);
+    assert(p.gotos == 3, "the project's number bounds the walk, not ground's");
+    sqlite3_close(db);
+}
+
 unittest {
     auto db = memDb();
     auto p = start("spinner", loopFlat.count);
@@ -261,6 +300,31 @@ private long notes(sqlite3* db, const(char)* q) {
 
 unittest {
     auto db = memDb();
+    import ritual : RiteState;
+    // "ground doesnt keep agent hostage ever, it doesnt happen its not part of
+    // the spec" — a Running row is something to read, never a reason to refuse.
+    auto p = at(6);
+    p.states[6] = RiteState.Running;
+    p.micAt = 100;
+    auto r = advance(db, "sess", p, flat, 120);
+    assert(r.ran, "ground does not decline to act on a row it wrote");
+    assert(r.verdict == Verdict.Advance);
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    import ritual : RiteState, readPosition;
+    // The claim is what the second driver reads. Running was declared with a
+    // glyph and a colour and never once written.
+    auto r = advance(db, "sess", at(1), flat, 100);
+    assert(r.verdict == Verdict.Hold);
+    assert(r.after.states[1] == RiteState.Ran, "step clears Running when the rite answers");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
     // "the outcome is what is spoken back into the mic" — what the rite
     // printed is what CI said, under a key the CI gutter can recognise.
     auto r = advance(db, "sess", at(4), flat, 100);
@@ -283,5 +347,128 @@ unittest {
     auto r = advance(db, "sess", at(9), flat, 100);
     assert(r.after.state == RitualState.Done);
     assert(r.after.mic == Mic.Human);
+    sqlite3_close(db);
+}
+
+// --- An error inside a rite is owed to the causer, not to the driver ---
+// `advance` has four callers and was passed each one's own session, which is
+// the address `emitError` routed to.
+
+import ritual.run : owedSessions;
+
+unittest {
+    auto o = owedSessions("agent-a", "parent-b", "driver-c");
+    assert(o.count == 3);
+    assert(o.all()[0] == "agent-a", "the causer is first");
+    assert(o.all()[1] == "parent-b");
+}
+
+unittest {
+    // The common case: the driver is the agent. One error, not two.
+    auto o = owedSessions("agent-a", "parent-b", "agent-a");
+    assert(o.count == 2);
+    assert(o.all()[0] == "agent-a");
+    assert(o.all()[1] == "parent-b");
+}
+
+unittest {
+    // Before SessionStart binds the agent there is no causer, and the error is
+    // still owed to somebody.
+    auto o = owedSessions("", "parent-b", "parent-b");
+    assert(o.count == 1);
+    assert(o.all()[0] == "parent-b");
+}
+
+unittest {
+    auto o = owedSessions("", "", "driver-c");
+    assert(o.count == 1);
+    assert(o.all()[0] == "driver-c");
+}
+
+// --- What a rite printed comes back, whether or not it named a receiver ---
+// Delivery was gated on `wait > 0 && to != None`, and `to:` appears in no rite
+// in any pbt on disk, so `run: "gh pr view --json comments"` had nowhere to go.
+
+enum speakSrc = `
+rites talk {
+  SPEAK { run: "echo pr-comment-body" }
+  QUIET { eval: "echo eval-said-this" }
+
+  AGAIN { eval: "echo the-same-comment; exit 1"  catch: 1 }
+}
+
+project {
+  path: "/src/proj"
+  ritual talker { talk }
+}
+`;
+enum speakFlat = flatten(parsePbt(speakSrc), 0);
+
+private Position talker(size_t i) {
+    auto p = start("talker", speakFlat.count);
+    p.id = "talk-1";
+    p.repo = "/src/proj";
+    p.worktree = "/tmp";
+    p.parent = "parent-session";
+    // The causer. Until SessionStart binds it there is nobody to reach.
+    p.agentSession = "agent-session";
+    p.current = i;
+    return p;
+}
+
+unittest {
+    auto db = memDb();
+    // A run's output was read on the failure branch only, so a tool that
+    // succeeded had what it printed dropped before anyone asked who wanted it.
+    auto r = advance(db, "sess", talker(0), speakFlat, 100);
+    assert(r.verdict == Verdict.Advance);
+
+    enum q = "SELECT count(*) FROM attestations "
+        ~ "WHERE id LIKE 'immediate:note:agent-session:rite:talk-1:SPEAK:%:run' "
+        ~ "AND json_extract(attributes,'$.detail') LIKE '%pr-comment-body%'\0";
+    assert(notes(db, q.ptr) == 1, "the run's own output is what the causer is owed");
+
+    enum once = "SELECT count(*) FROM attestations "
+        ~ "WHERE id LIKE 'immediate:note:agent-session:rite:talk-1:SPEAK:%'\0";
+    assert(notes(db, once.ptr) == 1, "a run-only rite says it once, not twice");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // No `wait:`, no `to:`. The rite still said something and the causer still
+    // hears it, under a key that does not claim to be CI.
+    auto r = advance(db, "sess", talker(1), speakFlat, 100);
+    assert(r.verdict == Verdict.Advance);
+
+    enum q = "SELECT count(*) FROM attestations "
+        ~ "WHERE id LIKE 'immediate:note:agent-session:rite:talk-1:QUIET:%' "
+        ~ "AND json_extract(attributes,'$.detail') LIKE '%eval-said-this%'\0";
+    assert(notes(db, q.ptr) == 1, "an eval's output is owed too");
+
+    enum notCi = "SELECT count(*) FROM attestations WHERE id LIKE '%:ci:talk-1:%'\0";
+    assert(notes(db, notCi.ptr) == 0, "a rite that did not wait is not CI");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // The parent is still gated by `to:`: the causer rule is about the causer.
+    cast(void) advance(db, "sess", talker(1), speakFlat, 100);
+    enum q = "SELECT count(*) FROM attestations "
+        ~ "WHERE id LIKE 'immediate:note:parent-session:%'\0";
+    assert(notes(db, q.ptr) == 0, "a rite naming no receiver does not reach the parent");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    // SLOW keeps the `ci:` namespace and CI's own head line, which is what the
+    // gutter reads. Renaming the general case must not move the CI case.
+    cast(void) advance(db, "sess", at(4), flat, 100);
+    enum q = "SELECT count(*) FROM attestations "
+        ~ "WHERE id LIKE 'immediate:note:%:ci:probe-1:SLOW:%' "
+        ~ "AND json_extract(attributes,'$.detail') LIKE '%ci all checks passed%'\0";
+    assert(notes(db, q.ptr) >= 1, "a waiting rite is still spoken as CI");
     sqlite3_close(db);
 }

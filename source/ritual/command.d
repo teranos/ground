@@ -1,7 +1,7 @@
 module ritual.command;
 
 import ritual.position : Position, RitualState, start, performanceId;
-import ritual.resolve : Flattened, ResolveFail, resolveRitual, flatten, repoRoot, riteNames;
+import ritual.resolve : Flattened, chooseRitual, flatten, repoRoot, riteNames;
 import ritual.run : briefing, spawnScript;
 import ritual.store : writePosition;
 
@@ -118,10 +118,12 @@ int handleRitual(int argc, const(char)** argv) {
     import db : ZBuf;
 
     if (argc < 3) {
-        fputs("usage: ground ritual <name>\n", stderr);
+        fputs("usage: ground ritual [project] <ritual>\n", stderr);
         return 1;
     }
     auto name = argv[2][0 .. argLen(argv[2])];
+    // Two words are a project and one of its rituals; one is looked up as both.
+    auto second = argc > 3 ? argv[3][0 .. argLen(argv[3])] : "";
 
     char[1024] cwdBuf = 0;
     if (getcwd(&cwdBuf[0], cwdBuf.length) is null) {
@@ -133,22 +135,30 @@ int handleRitual(int argc, const(char)** argv) {
     auto cwd = cwdBuf[0 .. cwdLen];
 
     static immutable parsed = allParsed;
-    auto found = resolveRitual(parsed, name, cwd);
+    auto chosen = chooseRitual(parsed, name, second);
 
-    if (found.fail == ResolveFail.NoSuchRitual) {
-        fputs("ground ritual: no ritual named ", stderr);
+    // "ground should refuse if it cant resolve to a single one cleanly"
+    if (!chosen.ok) {
+        fputs("ground ritual: ", stderr);
+        fwrite(chosen.why.ptr, 1, chosen.why.length, stderr);
+        fputs(" — ", stderr);
         fwrite(name.ptr, 1, name.length, stderr);
+        if (second.length > 0) {
+            fputs(" ", stderr);
+            fwrite(second.ptr, 1, second.length, stderr);
+        }
         fputs("\n", stderr);
         return 1;
     }
+    auto found = chosen;
 
-    auto flat = flatten(parsed, found.index);
+    auto flat = flatten(parsed, found.ritualIdx);
     if (flat.count == 0) {
         fputs("ground ritual: that ritual has no rites\n", stderr);
         return 1;
     }
 
-    auto projectPath = parsed.rituals[found.index].projectPath;
+    auto projectPath = parsed.rituals[found.ritualIdx].projectPath;
     auto root = repoRoot(parsed, projectPath);
     if (root.length == 0) {
         fputs("ground ritual: nothing declares where ", stderr);
@@ -157,7 +167,7 @@ int handleRitual(int argc, const(char)** argv) {
         return 1;
     }
 
-    auto p = start(parsed.rituals[found.index].name, flat.count);
+    auto p = start(parsed.rituals[found.ritualIdx].name, flat.count);
     auto pid = performanceId(p.ritual, cast(long) time(null));
     p.id = pid.text();
     p.repo = projectPath;
