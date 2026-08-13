@@ -80,6 +80,18 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
     fputs("\n", stdout);
 }
 
+// Called only where ground would otherwise leave the decision to a human, so
+// the common allow and deny paths pay nothing for it.
+private bool inLivePerformance(const(char)[] cwd) {
+    import ritual : performanceAnswers, readPositionAt;
+    import db : openDb, sqlite3_close;
+    auto pdb = openDb();
+    if (pdb is null) return false;
+    auto perf = readPositionAt(pdb, cwd);
+    sqlite3_close(pdb);
+    return performanceAnswers(perf.valid, perf.p.state);
+}
+
 // --- PreToolUse handler ---
 
 // TODO: extract `agent_id`, `agent_type` — gate subagent tool calls differently from main session
@@ -111,25 +123,6 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             import ritual.intent : writeIntent;
             auto starting = ritualStarted(command);
             if (starting.length > 0) writeIntent(starting, sessionId);
-        }
-
-        // A live performance is standing consent for three things, and the
-        // gate reads the row rather than a branch name — so the authorisation
-        // ends when the performance does, not when a branch is abandoned.
-        {
-            import ritual : consented, readPositionAt, RitualState;
-            if (consented(command)) {
-                import db : openDb, sqlite3_close;
-                auto pdb = openDb();
-                if (pdb !is null) {
-                    auto perf = readPositionAt(pdb, cwd);
-                    sqlite3_close(pdb);
-                    if (perf.valid && perf.p.state == RitualState.Live) {
-                        writeContextResponse("allowed by the live performance", "allow");
-                        return 0;
-                    }
-                }
-            }
         }
 
         // Hard deny: binary files in git add
@@ -282,6 +275,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 return 0;
             }
 
+            // A deny is ground answering; an ask is ground handing the question
+            // to someone who has walked away. The rewrites above still applied.
+            if (finalDecision == "ask" && inLivePerformance(cwd)) finalDecision = "allow";
+
             writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
                 hasBg, maxTmo);
             return 0;
@@ -354,6 +351,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             prof.put("us exit=bash-none");
             emitProfile(prof);
         }
+
+        // Saying nothing is what let Claude Code ask. Inside a performance
+        // there is nobody to ask, so ground answers instead.
+        if (inLivePerformance(cwd)) writeResponse(command, "", "allow");
         return 0;
     }
 
@@ -539,6 +540,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             writeContextResponse(fileMsgBuf.slice(), advisoryDecision(fileDecision));
             return 0;
         }
+    }
+
+    // Every non-Bash tool lands here — a Write among them, which is what
+    // `chapter-1786287252` was stopped on for 34 minutes before it was killed.
+    if (inLivePerformance(cwd)) {
+        writeContextResponse("allowed by the live performance", "allow");
+        return 0;
     }
 
     auto tEnd = usecNow();

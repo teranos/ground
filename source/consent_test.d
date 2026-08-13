@@ -1,32 +1,24 @@
 module consent_test;
 
-// "commits and pushes and ci check, are all auto-approved" — inside a live
-// performance and nowhere else. The ritual is the authorisation: it was
-// written in a file and reviewable before it ran, which a prompt at 3am is not.
+// "agent should never be blocked, period, this is the definition and its not
+// going to change" / "if a deny needs to be given, it should not have to come
+// from the user, that needs to get into the stuck session"
 
-import ritual : consented;
+import ritual : performanceAnswers, RitualState;
 
-static assert(consented("git commit -m x"));
-static assert(consented("git push"));
-static assert(consented("git push -u origin HEAD"));
-static assert(consented("gh pr checks 12"));
-static assert(consented("gh pr create --fill"));
+// The tree is the boundary. Inside a live performance ground answers, because
+// the session a prompt would go to has nobody in it.
+static assert(performanceAnswers(true, RitualState.Live));
 
-// Leading whitespace is not a different command.
-static assert(consented("  git commit"));
+// Every ending stops the authorisation. It ends when the performance does,
+// not when a branch is abandoned.
+static assert(!performanceAnswers(true, RitualState.Done));
+static assert(!performanceAnswers(true, RitualState.Halted));
+static assert(!performanceAnswers(true, RitualState.Aborted));
 
-// The list is the list. Everything else takes the normal path, because a
-// performance authorises three things, not a shell.
-static assert(!consented("rm -rf /"));
-static assert(!consented("git reset --hard"));
-static assert(!consented("gh repo delete"));
-static assert(!consented("curl example.invalid"));
+// No row is no performance. A directory that is not one gets the normal path.
+static assert(!performanceAnswers(false, RitualState.Live));
 
-// A prefix that only looks like one of them.
-static assert(!consented("git commitment"));
-static assert(!consented("git pushover"));
-
-// Chaining past the allowed head is how an allowed command stops being one.
-static assert(!consented("git push && rm -rf /"));
-static assert(!consented("git commit; curl x"));
-static assert(!consented("git push | sh"));
+// The enumeration is gone. `chapter-1786287252` sat on a Write that no list
+// of shell commands could ever have named, and was aborted by hand.
+static assert(!__traits(compiles, { import ritual : consented; }));
