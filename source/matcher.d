@@ -162,6 +162,42 @@ int maxCommentRun(const(char)[] text) {
     return best;
 }
 
+// Where a command actually ran. checkAllCommands has tracked this per segment
+// since it existed; this is the same walk with the answer at the end, for
+// callers that gate on a place before they look at any segment.
+const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
+    auto eff = cwd;
+    size_t start = 0;
+    size_t i = 0;
+
+    while (i <= command.length) {
+        bool isSep = false;
+        size_t skip = 0;
+
+        if (i == command.length) {
+            isSep = true;
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
+            isSep = true;
+            skip = 1;
+        } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
+            isSep = true;
+            skip = 2;
+        }
+
+        if (isSep) {
+            auto segment = strip(command[start .. i]);
+            auto target = extractLeadingCd(segment);
+            if (target.length > 0) eff = target;
+            if (i == command.length) break;
+            start = i + skip;
+            i += (skip > 0 ? skip : 1);
+            continue;
+        }
+        i++;
+    }
+    return eff;
+}
+
 const(char)[] extractLeadingCd(const(char)[] command) {
     if (command.length < 3 || command[0 .. 3] != "cd ") return "";
     size_t pos = 3;

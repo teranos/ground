@@ -32,6 +32,10 @@ struct ParsedPermission {
 
 struct ParsedControl {
     string name;
+    // The ritual this control performs. An inline body is registered like any
+    // other ritual; the index is 1-based so 0 means it named one instead.
+    string ritual;
+    size_t inlineRitualIdx;
     string event; // only used for top-level controls (without enclosing scope)
     string mode;  // chmod-style mode (r/w/x/m/a), parsed from control.w syntax
     string[8] cmds;
@@ -171,6 +175,9 @@ struct ParsedRitual {
     // "define a CLAUDE.md inline in a ritual" — appended to what the agent
     // already is, so a ritual says what this performer additionally knows.
     string system;
+    // What kind of worktree it performs in. "empty" is an orphan onto the
+    // empty tree, for a ritual with nothing to inspect.
+    string tree;
     string badKey;
     ParsedRiteRef[16] refs;
     size_t refCount;
@@ -441,6 +448,7 @@ ScopeSet buildScopes(
             }
 
             c.exec = pc.exec;
+            c.ritual = pc.ritual;
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
                 auto dfn = resolveDeliver(pc.deliverHandler);
@@ -629,6 +637,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
                 sc.controlEnd = result.ctrlPoolLen;
                 sc.permEnd = result.permPoolLen;
             }
+            bindInlineRituals(result, sc);
             if (!hasChildren || sc.controlCount > 0 || sc.permissionCount > 0) {
                 assert(result.scopeCount < result.scopes.length,
                     "Scope overflow — pbtCounts.totalScopes too small");
@@ -948,6 +957,26 @@ void parseControlEnvBlock(ref string input, ref size_t pos,
     assert(0, "Unterminated control env block");
 }
 
+// An inline ritual has no project block, so the scope it fired under is the
+// only thing left that says where it performs and what it is called.
+private void bindInlineRituals(ref ParseResult result, ref ParsedScope sc) {
+    foreach (ci; sc.controlStart .. sc.controlEnd) {
+        auto idx = result.ctrlPool[ci].inlineRitualIdx;
+        if (idx == 0) continue;
+
+        assert(sc.pathCount == 1,
+            "a control carrying `ritual { }` needs a scope with exactly one path");
+        assert(sc.paths[0].length > 0 && sc.paths[0][0] != '!',
+            "a control carrying `ritual { }` cannot sit in a scope whose path is negated");
+
+        auto name = result.ctrlPool[ci].name;
+        assert(name.length > 0, "a control carrying `ritual { }` needs a name to perform it under");
+        result.rituals[idx - 1].name = name;
+        result.rituals[idx - 1].projectPath = sc.paths[0];
+        result.ctrlPool[ci].ritual = name;
+    }
+}
+
 public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseResult result) {
     ParsedControl c;
     while (pos < input.length) {
@@ -966,6 +995,23 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
             result.stropPool[result.stropPoolLen] = s;
             c.stropIdx = result.stropPoolLen + 1;
             result.stropPoolLen++;
+            continue;
+        }
+
+        // `ritual: "name"` performs one declared elsewhere. `ritual { }` carries
+        // its own, and takes the control's name and the scope's path at close.
+        if (key == "ritual") {
+            if (pos < input.length && input[pos] == '{') {
+                expect(input, pos, '{');
+                assert(result.ritualCount < result.rituals.length, "Ritual overflow");
+                result.rituals[result.ritualCount] = parseRitual(input, pos, "", "");
+                c.inlineRitualIdx = result.ritualCount + 1;
+                result.ritualCount++;
+                continue;
+            }
+            expect(input, pos, ':');
+            skipWS(input, pos);
+            c.ritual = readValue(input, pos);
             continue;
         }
 
@@ -1223,6 +1269,7 @@ ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string p
                 skipWS(input, pos);
                 auto val = readValue(input, pos);
                 if (refName == "system") r.system = val;
+                else if (refName == "tree") r.tree = val;
                 else r.badKey = refName;
                 continue;
             }

@@ -39,6 +39,52 @@ bool addQuoted(char[] buf, ref size_t n, const(char)[] s) {
     return one('\'');
 }
 
+// A command and whether all of it fit.
+struct TreeCmd {
+    char[1400] buf = 0;
+    size_t len;
+    bool ok = true;
+    const(char)[] text() const return { return ok ? buf[0 .. len] : null; }
+}
+
+private void put(ref TreeCmd c, const(char)[] s) {
+    foreach (ch; s) { if (c.len < c.buf.length - 1) c.buf[c.len++] = ch; else c.ok = false; }
+}
+
+private void putQ(ref TreeCmd c, const(char)[] s) {
+    if (!addQuoted(c.buf[], c.len, s)) c.ok = false;
+}
+
+// A worktree holding nothing. git 2.28 has no `worktree add --orphan`, so the
+// empty tree is named directly and a commit is built onto it — no parent, no
+// files. The checkout that results holds `.git` and nothing else.
+TreeCmd emptyTreeCmd(const(char)[] repo, const(char)[] path, const(char)[] branch) {
+    TreeCmd c;
+    if (repo.length == 0 || path.length == 0 || branch.length == 0) {
+        c.ok = false;
+        return c;
+    }
+
+    c.put("git -C ");
+    c.putQ(repo);
+    c.put(" branch ");
+    c.putQ(branch);
+    c.put(" $(git -C ");
+    c.putQ(repo);
+    c.put(" commit-tree $(git -C ");
+    c.putQ(repo);
+    c.put(" hash-object -t tree /dev/null) -m 'ground stage') 2>&1");
+
+    c.put(" && git -C ");
+    c.putQ(repo);
+    c.put(" worktree add ");
+    c.putQ(path);
+    c.put(" ");
+    c.putQ(branch);
+    c.put(" 2>&1");
+    return c;
+}
+
 // A sibling of the repo, so `git worktree list` names something a person can
 // cd into. An empty result is a refusal — an empty stdout reads to Claude Code
 // as no path at all, and fails the creation without saying why.
@@ -71,6 +117,27 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
+// Which kind of tree this path is for. The ritual says, and the row is what
+// connects the path back to the ritual that named it.
+private bool wantsEmptyTree(const(char)[] path) {
+    import controls : allParsed;
+    import db : openDb, sqlite3_close;
+    import ritual.store : readPositionAt;
+
+    auto db = openDb();
+    if (db is null) return false;
+    auto found = readPositionAt(db, path);
+    sqlite3_close(db);
+    if (!found.valid) return false;
+
+    static immutable parsed = allParsed;
+    foreach (i; 0 .. parsed.ritualCount) {
+        if (parsed.rituals[i].name != found.p.ritual) continue;
+        return parsed.rituals[i].tree == "empty";
+    }
+    return false;
+}
+
 int handleWorktreeCreate(const(char)[] input, const(char)[] cwd) {
     import parse : extractJsonString;
     import exec : emitError;
@@ -87,17 +154,26 @@ int handleWorktreeCreate(const(char)[] input, const(char)[] cwd) {
         return 1;
     }
 
-    __gshared char[1200] cmd = 0;
+    __gshared char[1400] cmd = 0;
     size_t n;
     bool ok = true;
     void add(const(char)[] s) {
         foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; else ok = false; }
     }
-    add("git -C ");
-    ok = addQuoted(cmd[], n, cwd) && ok;
-    add(" worktree add ");
-    ok = addQuoted(cmd[], n, path.text()) && ok;
-    add(" 2>&1");
+
+    // The row is written before the agent spawns and already carries the path,
+    // so the performance is findable here even though the tree is not there.
+    if (wantsEmptyTree(path.text())) {
+        auto e = emptyTreeCmd(cwd, path.text(), branchOf(path.text()));
+        ok = e.ok;
+        add(e.text());
+    } else {
+        add("git -C ");
+        ok = addQuoted(cmd[], n, cwd) && ok;
+        add(" worktree add ");
+        ok = addQuoted(cmd[], n, path.text()) && ok;
+        add(" 2>&1");
+    }
     cmd[n] = 0;
 
     // A command that did not fit is a different command. sh would still run it.

@@ -155,8 +155,12 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         import exec : dispatchExec;
         import db : openDb, execFireExists, attestExecFire, sqlite3_close;
         auto edb = openDb();
+        // Where the command ran, not where the session sits. `cd X && git push`
+        // is work done in X, and a scope naming X was skipped before this.
+        import matcher : effectiveCwd;
+        auto where = effectiveCwd(detail, cwd);
         foreach (ref sc; postToolUseScopes) {
-            if (!scopeMatches(sc, cwd)) continue;
+            if (!scopeMatches(sc, where)) continue;
             if (sc.cmdCount > 0) {
                 bool scopeCmdMatched = false;
                 foreach (i; 0 .. sc.cmdCount) {
@@ -165,6 +169,19 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 if (!scopeCmdMatched) continue;
             }
             foreach (ref c; sc.controls) {
+                // A control that performs a ritual. Same gate as exec, and the
+                // same once-per-tool-call guard: a push is one push.
+                if (c.ritual.length > 0) {
+                    if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
+                    if (edb !is null && toolUseId.length > 0
+                        && execFireExists(edb, c.name, sessionId, toolUseId))
+                        continue;
+                    if (edb !is null && toolUseId.length > 0)
+                        attestExecFire(edb, c.name, cwd, sessionId, toolUseId);
+                    import ritual : performFromControl;
+                    cast(void) performFromControl(c.ritual, sessionId);
+                    continue;
+                }
                 if (c.exec.length == 0) continue;
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
                 if (c.pushedPath.value.length > 0) {

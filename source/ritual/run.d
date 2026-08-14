@@ -403,7 +403,7 @@ package void put(ref SpawnScript s, const(char)[] t) {
     foreach (c; t) { if (s.len < s.buf.length) s.buf[s.len++] = c; else s.over = true; }
 }
 
-private void putQuoted(ref SpawnScript s, const(char)[] v) {
+package void putQuoted(ref SpawnScript s, const(char)[] v) {
     s.put("'");
     foreach (c; v) {
         if (c == '\'') s.put(`'\''`);

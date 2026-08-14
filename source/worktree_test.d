@@ -4,7 +4,26 @@ module worktree_test;
 // The docs: "Command hook prints path on stdout... Hook failure or missing
 // path fails creation" and "Replaces default git behavior".
 
-import worktree : worktreePath, branchOf, addQuoted;
+import worktree : worktreePath, branchOf, addQuoted, emptyTreeCmd;
+
+// A performance with nothing to inspect gets nothing to inspect. The branch is
+// an orphan onto the empty tree, so the checkout holds `.git` and no files.
+// Proven against git 2.28, which has no `worktree add --orphan`.
+enum empty = emptyTreeCmd("/home/u/src/proj", "/home/u/src/proj-p1", "proj-p1");
+static assert(empty.text() ==
+    "git -C '/home/u/src/proj' branch 'proj-p1' "
+    ~ "$(git -C '/home/u/src/proj' commit-tree "
+    ~ "$(git -C '/home/u/src/proj' hash-object -t tree /dev/null) -m 'ground stage') 2>&1"
+    ~ " && git -C '/home/u/src/proj' worktree add '/home/u/src/proj-p1' 'proj-p1' 2>&1");
+
+// Every value is quoted, because a path ground built is still a path.
+enum quotedName = emptyTreeCmd("/r", "/r-it's", "it's");
+static assert(quotedName.ok);
+
+// Nothing to build a command from is a refusal, not an empty command.
+static assert(!emptyTreeCmd("", "/r-p1", "p1").ok);
+static assert(!emptyTreeCmd("/r", "", "p1").ok);
+static assert(!emptyTreeCmd("/r", "/r-p1", "").ok);
 
 // `git worktree add <path>` is run without -b, so git names the branch after
 // the path's last segment. Measured: headBranch grove-moon-1786212018 for the
