@@ -73,3 +73,29 @@ static assert(briefing(done, flat).text() == "Ritual probe is done.");
 enum halted = step(fresh, Verdict.Halt);
 static assert(briefing(halted, flat).text() ==
     "Ritual probe halted on rite 1 of 3: START.");
+
+// A briefing that does not fit is a different instruction, and the tail is
+// what goes: the eval, the msg, the mic. The agent acts on the half it got
+// and nothing anywhere says it was cut.
+private template rep(string s, int n) {
+    static if (n <= 0) enum rep = "";
+    else enum rep = s ~ rep!(s, n - 1);
+}
+private enum k100 = rep!("wordwordw ", 10);
+
+enum longSrc = `
+rites big { ONE { eval: "true"  msg: "` ~ rep!(k100, 13) ~ `" } }
+
+project {
+  path: "/src/proj"
+  ritual huge { big }
+}
+`;
+enum longParsed = parsePbt(longSrc);
+enum longFlat = flatten(longParsed, 0);
+enum longFresh = start("huge", longFlat.count);
+static assert(briefing(longFresh, longFlat).over);
+
+// The ones above still fit, so nothing that used to be said stopped being said.
+static assert(!first.over);
+static assert(!briefing(halted, flat).over);

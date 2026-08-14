@@ -355,11 +355,6 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     // nothing aborts the creation.
     // An agent started with a ritual: the only place the owning session and
     // the agent are both known.
-    if (event == HookEvent.SubagentStart) {
-        import ritual : handleSubagentStart;
-        return handleSubagentStart(input, cwd, sessionId);
-    }
-
     // What Claude Code sends on an API error is not written down anywhere,
     // so this records it before anything reads it.
     if (event == HookEvent.StopFailure) {
@@ -367,16 +362,9 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         return handleStopFailure(input, cwd, sessionId);
     }
 
-    // A subagent's Stop is not the session's Stop, so this is the only place
-    // an agent leaving a performance unfinished can be refused.
     if (event == HookEvent.MessageDisplay) {
         import messagedisplay : handleMessageDisplay;
         return handleMessageDisplay(input, cwd, sessionId);
-    }
-
-    if (event == HookEvent.SubagentStop) {
-        import ritual : handleSubagentStop;
-        return handleSubagentStop(input, cwd, sessionId);
     }
 
     if (event == HookEvent.WorktreeCreate) {

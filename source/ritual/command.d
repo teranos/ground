@@ -213,6 +213,18 @@ int handleRitual(int argc, const(char)** argv) {
     {
         auto brief = briefing(p, flat);
         auto script = spawnScript(root, p.id, brief.text(), flat.system);
+        // No agent is better than a truncated one: the command that starts it
+        // carries the briefing, and half a briefing is a different instruction.
+        if (script.text().length == 0 || brief.over) {
+            import exec : emitError;
+            emitError("ritual.spawn.toobig",
+                      brief.over
+                        ? "the briefing did not fit, so the agent would have been told half a rite"
+                        : "the command that starts the agent did not fit, so no agent was started",
+                      0, 1, cast(string) p.agentSession, "ritual", "", "", "");
+            fputs("ground ritual: the briefing or spawn command did not fit\n", stderr);
+            return 1;
+        }
         dispatchExec(cast(string) script.text(), "ritual", "", 86_400,
                      [], [], "", root, "");
     }

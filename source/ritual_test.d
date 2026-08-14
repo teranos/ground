@@ -213,3 +213,27 @@ unittest {
     assert(!readPosition(db, "/src/other").valid);
     sqlite3_close(db);
 }
+
+// A walk that held twice and then passed reads as ten clean passes: `throws`
+// is the rite's own counter and the advance clears it, `states` keeps one
+// glyph per rite. Nothing survives to say the world was ever not ready.
+enum heldOnce = step(fresh, Verdict.Hold);
+enum heldTwice = step(heldOnce, Verdict.Hold);
+static assert(heldTwice.throws == 0, "throws counts throw-backs, not holds");
+static assert(heldTwice.holds == 2);
+
+// Cleared on nothing. The count is the performance's, the way gotos is.
+static assert(step(heldTwice, Verdict.Advance).holds == 2);
+static assert(jump(heldTwice, 0).holds == 2);
+static assert(fresh.holds == 0);
+
+unittest {
+    auto db = memDb();
+    auto p = perf(heldTwice, "probe-h", "/src/proj", "/tmp/wt-h");
+    assert(writePosition(db, p));
+    // It has to outlive the process, or it answers nothing tomorrow.
+    auto got = readPositionAt(db, "/tmp/wt-h");
+    assert(got.valid);
+    assert(got.p.holds == 2);
+    sqlite3_close(db);
+}

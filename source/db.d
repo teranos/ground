@@ -269,8 +269,8 @@ bool applySchema(sqlite3* db) {
     // glyphs and a cursor and nothing to put brackets around.
     ensureColumn(db, "ritual_position", "rites", "TEXT");
 
-    // Who owns the performance. SubagentStart carries the parent session and
-    // the agent, which is the only place both are known at once.
+    // Who carries the performance. SessionStart writes it, from inside the
+    // background session that is doing the walk.
     ensureColumn(db, "ritual_position", "session", "TEXT");
     ensureColumn(db, "ritual_position", "agent", "TEXT");
     ensureColumn(db, "ritual_position", "gotos", "INTEGER NOT NULL DEFAULT 0");
@@ -278,6 +278,9 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "ritual_position", "agent_pid", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "thrown_at", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "throws", "INTEGER NOT NULL DEFAULT 0");
+    // What throws cannot answer once the walk has moved on: how often the
+    // world was not ready. Rows written before this read 0, not "never held".
+    ensureColumn(db, "ritual_position", "holds", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "rev", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "mic", "TEXT NOT NULL DEFAULT 'ground'");
     ensureColumn(db, "ritual_position", "mic_at", "INTEGER NOT NULL DEFAULT 0");

@@ -24,10 +24,8 @@ enum HookEvent {
     SubagentStart,      // TODO: agent-type scoped controls — inject context or adjust decisions per type
                         //   payload: agent_type, agent_id, session_id, cwd
                         //   time-scoped modes could auto-approve agent spawning during event windows
-    SubagentStop,       // attested only — no handler. CAN BLOCK: exit 2 prevents the subagent stopping.
+    SubagentStop,       // attested only — no handler
                         //   payload: agent_id, agent_type, last_assistant_message
-                        //   honors decision:"block", reason, additionalContext, continue, stopReason
-                        //   TODO: read agent_transcript_path for quality checks on subagent output
     Stop,               // deferred messages, lazy-verify, CI nudge
                         //   stop_hook_active:false = first stop, controls run.
                         //   stop_hook_active:true = re-stop after prior block, skip to avoid loop.

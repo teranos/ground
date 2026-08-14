@@ -63,26 +63,22 @@ static assert(q.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
     ~ "claude -w 'p-1' --bg 'say '\\''hi'\\'' now'\n");
 
-// --- The commit ---
-// Ground commits, not the agent. The branch history is the record of the
-// walk, and a record the agent writes is a record the agent can skip.
+// A prompt too big for the buffer used to lose its closing quote, and sh got a
+// different command than the one built. Overflow refuses instead — the same
+// answer reapScript already gives when it has no id to reap.
+private template rep(string s, int n) {
+    static if (n <= 0) enum rep = "";
+    else enum rep = s ~ rep!(s, n - 1);
+}
+private enum k100 = rep!("aaaaaaaaaa", 10);
+private enum k1000 = rep!(k100, 10);
 
-import ritual : commitScript;
+enum huge = spawnScript("/r", "p-1", rep!(k1000, 9));
+static assert(huge.text().length == 0);
 
-enum c = commitScript("/home/u/src/proj-p1", "tree", "APPLE");
-static assert(c.text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
-    ~ "git add -A\n"
-    ~ "git diff --cached --quiet && exit 0\n"
-    ~ "git commit -q -m 'tree: APPLE'\n");
-
-// A rite that changed nothing leaves no commit, so eight rites passing against
-// an unchanged tree do not become eight empty ones. That is the --quiet line.
-static assert(commitScript("/r", "t", "X").text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "git add -A\n"
-    ~ "git diff --cached --quiet && exit 0\n"
-    ~ "git commit -q -m 't: X'\n");
+// The last prompt that fits still fits.
+enum snug = spawnScript("/r", "p-1", rep!(k1000, 7));
+static assert(snug.text().length > 0);
 
 // --- The ending ends the agent ---
 // Measured 2026-08-07: eight `claude -w` processes still editing worktrees of
@@ -101,22 +97,8 @@ static assert(reap.text() ==
 // No id, nothing to reap — a bare pattern would match every agent running.
 static assert(reapScript("").text() == "");
 
-// A performance that reached DONE ends in the thing you merge. A push that
-// fails or a PR that will not open is the difference between a verdict and
-// the belief that there is one, so neither is tolerated quietly.
-
-import ritual : prScript;
-
-enum pr = prScript("/home/u/src/proj-p1", "tree", "tree-17");
-static assert(pr.text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
-    ~ "git push -q -u origin HEAD\n"
-    ~ "gh pr create --title 'tree: tree-17' --body 'Performed by ground.'\n");
-
-// "you set a branch on the block on the project level" — a performance whose
-// project names one lands there instead of wherever gh would send it.
-enum prBranched = prScript("/home/u/src/proj-p1", "tree", "tree-17", "rituals");
-static assert(prBranched.text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-p1'\n"
-    ~ "git push -q -u origin HEAD\n"
-    ~ "gh pr create --base 'rituals' --title 'tree: tree-17' --body 'Performed by ground.'\n");
+// Ground opens no pull request and writes no commit. "making a PR at the end
+// of each DONE was a mistake" — a ritual that wants either says so in a rite,
+// where the gh invocation is visible in the pbt rather than built in here.
+static assert(!__traits(compiles, { import ritual : prScript; }));
+static assert(!__traits(compiles, { import ritual : commitScript; }));

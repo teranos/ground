@@ -326,28 +326,22 @@ static assert(validateRituals(sandParsed) == "ritual probeRitual: probe needs ro
 enum sandCounted = countPbt(sandShapeInput);
 static assert(sandCounted.totalProjects == 1);
 
-// "you set a branch on the block on the project level"
-enum branchInput = `
+// `branch:` was a project field that named the base of the pull request ground
+// opened on Done. Ground opens none — "i want NO pr to be created if i did not
+// set it" — so a ritual that wants one says --base in the rite that runs gh.
+enum noBranchInput = `
 rites walk {
   one { eval: "true" }
 }
 
 project {
-  path:   "/sbvh-nl/grove"
-  branch: "rituals"
+  path: "/sbvh-nl/grove"
 
   ritual worker {
     walk
   }
 }
 `;
-enum branchParsed = parsePbt(branchInput);
-static assert(branchParsed.rituals[0].projectBranch == "rituals");
-
-// Absent, the PR keeps going wherever gh sends it.
-static assert(sandParsed.rituals[0].projectBranch.length == 0);
-
-// The flat list carries it, because prScript is built where the walk is and
-// not where the pbt is.
+enum noBranchParsed = parsePbt(noBranchInput);
 import ritual : flatten;
-static assert(flatten(branchParsed, 0).branch == "rituals");
+static assert(flatten(noBranchParsed, 0).count == 1);

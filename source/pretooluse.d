@@ -94,7 +94,6 @@ private bool inLivePerformance(const(char)[] cwd) {
 
 // --- PreToolUse handler ---
 
-// TODO: extract `agent_id`, `agent_type` — gate subagent tool calls differently from main session
 // TODO: extract `permission_mode` — adjust decisions based on current mode (plan, auto, etc.)
 int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;

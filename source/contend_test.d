@@ -1,7 +1,7 @@
 module contend_test;
 
-// Two drivers, one position. `advance` is called from stop.d, watch.d:370,
-// drive.d:86 and subagent.d, and nothing coordinated them.
+// Two drivers, one position. `advance` is called from stop.d, watch.d and
+// drive.d, and nothing coordinated them.
 // Brandon: "fix 79"
 
 import proto : parsePbt;

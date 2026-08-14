@@ -313,9 +313,9 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         if (rdb !is null) {
             auto found = readPositionAt(rdb, cwd);
 
-            // SubagentStart was the only writer of the session, and it does
-            // not fire for `claude -w`. The agent's own start is where the
-            // performance learns who is carrying it.
+            // The agent's own start is where the performance learns who is
+            // carrying it: this hook runs inside the background session that
+            // was spawned for the tree.
             if (found.valid && found.p.state == RitualState.Live
                 && found.p.agentSession.length == 0 && sessionId.length > 0) {
                 found.p = bindSession(found.p, sessionId);

@@ -28,6 +28,7 @@ enum STDIN_CAP = 262144;
 int handleStopFailure(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import core.stdc.stdlib : getenv;
     import core.stdc.time : time;
+    import core.stdc.errno : errno;
     import exec : emitError;
 
     auto home = getenv("HOME\0".ptr);
@@ -55,8 +56,10 @@ int handleStopFailure(const(char)[] input, const(char)[] cwd, const(char)[] sess
 
     int fd = open(&pathBuf[0], O_WRONLY | O_CREAT | O_APPEND, octal!644);
     if (fd < 0) {
+        // open answers -1 for every failure, so the fd says nothing. errno is
+        // the whole of why, and this is the only place it is still readable.
         emitError("stopfailure.open", "could not open the record to append to",
-                  0, fd, cast(string) sessionId, "StopFailure", "", "", "");
+                  errno(), -1, cast(string) sessionId, "StopFailure", "", "", "");
         return 0;
     }
 

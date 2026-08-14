@@ -303,11 +303,14 @@ private void riteSpeaks(DB, R)(DB db, const Position p, const Position moved,
 struct Brief {
     char[1024] buf = 0;
     size_t len;
+    // The tail is what a cut takes — the eval, the msg, the mic — and the agent
+    // acts on the half that arrived. Kept readable, but never silently.
+    bool over;
     const(char)[] text() const return { return buf[0 .. len]; }
 }
 
 private void put(ref Brief b, const(char)[] s) {
-    foreach (c; s) { if (b.len < b.buf.length) b.buf[b.len++] = c; }
+    foreach (c; s) { if (b.len < b.buf.length) b.buf[b.len++] = c; else b.over = true; }
 }
 
 private void putNum(ref Brief b, size_t v) {
@@ -317,6 +320,10 @@ private void putNum(ref Brief b, size_t v) {
     while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
     foreach (i; 0 .. n) b.put(d[n - 1 - i .. n - i]);
 }
+
+// Reported where a briefing is used, since the text still reads as an
+// instruction and nothing about it looks partial.
+bool briefTruncated(const Brief b) { return b.over; }
 
 // A held rite reads the same as a fresh one: holding is not a failure, and an
 // agent told it failed goes looking for something to fix.
@@ -382,12 +389,18 @@ Brief briefing(const Position p, const Flattened f) {
 struct SpawnScript {
     char[8192] buf = 0;
     size_t len;
-    const(char)[] text() const return { return buf[0 .. len]; }
-    void add(const(char)[] t) { foreach (c; t) { if (len < buf.length) buf[len++] = c; } }
+    bool over;
+    // A script that did not fit is a different script: the closing quote is
+    // gone and sh reads the rest as its own words. Empty is the refusal every
+    // caller of reapScript already understands.
+    const(char)[] text() const return { return over ? null : buf[0 .. len]; }
+    void add(const(char)[] t) {
+        foreach (c; t) { if (len < buf.length) buf[len++] = c; else over = true; }
+    }
 }
 
 package void put(ref SpawnScript s, const(char)[] t) {
-    foreach (c; t) { if (s.len < s.buf.length) s.buf[s.len++] = c; }
+    foreach (c; t) { if (s.len < s.buf.length) s.buf[s.len++] = c; else s.over = true; }
 }
 
 private void putQuoted(ref SpawnScript s, const(char)[] v) {
@@ -395,28 +408,9 @@ private void putQuoted(ref SpawnScript s, const(char)[] v) {
     foreach (c; v) {
         if (c == '\'') s.put(`'\''`);
         else if (s.len < s.buf.length) s.buf[s.len++] = c;
+        else s.over = true;
     }
     s.put("'");
-}
-
-// Ground commits, not the agent: a record the agent writes is a record the
-// agent can skip. The staged-and-quiet line means a rite that changed nothing
-// leaves no commit, so a walk over an unchanged tree is not empty commits.
-SpawnScript commitScript(const(char)[] tree, const(char)[] ritual, const(char)[] rite) {
-    SpawnScript s;
-    s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
-    s.putQuoted(tree);
-    s.put("\ngit add -A\n");
-    s.put("git diff --cached --quiet && exit 0\n");
-    s.put("git commit -q -m ");
-
-    SpawnScript msg;
-    msg.put(ritual);
-    msg.put(": ");
-    msg.put(rite);
-    s.putQuoted(msg.text());
-    s.put("\n");
-    return s;
 }
 
 // An ending ends the agent. The pid ground forked is the wrapper's, whose
@@ -430,35 +424,9 @@ SpawnScript reapScript(const(char)[] performanceId) {
     SpawnScript pat;
     pat.put("claude -w ");
     pat.put(performanceId);
+    if (pat.over) s.over = true;
     s.putQuoted(pat.text());
     s.put(" || true\n");
-    return s;
-}
-
-// What a performance ends in. Only on Done — a halt is not something to
-// merge, and its branch is left where it stopped.
-SpawnScript prScript(const(char)[] tree, const(char)[] ritual, const(char)[] id,
-                     const(char)[] branch = "") {
-    SpawnScript s;
-    s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
-    s.putQuoted(tree);
-    s.put("\ngit push -q -u origin HEAD\n");
-    s.put("gh pr create ");
-    // Silence leaves gh to `gh-merge-base` if the branch has one configured,
-    // and to the repository's default branch if it does not.
-    if (branch.length > 0) {
-        s.put("--base ");
-        s.putQuoted(branch);
-        s.put(" ");
-    }
-    s.put("--title ");
-
-    SpawnScript title;
-    title.put(ritual);
-    title.put(": ");
-    title.put(id);
-    s.putQuoted(title.text());
-    s.put(" --body 'Performed by ground.'\n");
     return s;
 }
 

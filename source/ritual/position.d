@@ -42,6 +42,9 @@ struct Position {
     size_t riteCount;
     size_t gotos;          // jumps taken, against MAX_GOTOS
     size_t throws;         // times this rite threw the mic back
+    // The walk's own count, cleared by nothing. `throws` is the rite's and the
+    // advance wipes it, so a finished row could not say it had ever waited.
+    size_t holds;
     long rev;              // bumped on every write, so a stale one can be told
     // "there can only be 1 mic per ritual performance"
     // "something is always holding the mic"
@@ -125,6 +128,7 @@ Position step(Position p, Verdict v) {
         break;
     case Verdict.Hold:
         p.states[p.current] = RiteState.Ran;
+        p.holds++;
         break;
     case Verdict.Halt:
         p.states[p.current] = RiteState.Halted;

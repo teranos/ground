@@ -154,10 +154,7 @@ struct FlatRite {
 struct Flattened {
     FlatRite[MAX_RITES] rites;
     size_t count;
-    // "you set a branch on the block on the project level" — carried here
-    // because prScript is built where the walk is, not where the pbt is.
-    string branch;
-    // Same reason: spawnScript is built from the walk, not from the pbt.
+    // spawnScript is built from the walk, not from the pbt.
     string system;
     // Per performance, a full run of a ritual. The project says how long its
     // loops may go; MAX_GOTOS is what a project that says nothing gets.
@@ -168,7 +165,6 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
     Flattened f;
     if (ritualIdx >= r.ritualCount) return f;
     auto rit = r.rituals[ritualIdx];
-    f.branch = rit.projectBranch;
     f.system = rit.system;
 
     // Matched on name as well as path: four blocks share `/sbvh-nl/grove`, and

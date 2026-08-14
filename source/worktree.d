@@ -13,8 +13,30 @@ struct Path {
     const(char)[] text() const return { return buf[0 .. len]; }
 }
 
-private void put(ref Path p, const(char)[] s) {
-    foreach (c; s) { if (p.len < p.buf.length) p.buf[p.len++] = c; }
+// A truncated path is not a shorter path, it is a different one, and it reads
+// as valid all the way to git. Overflow answers like the empty case does.
+private bool put(ref Path p, const(char)[] s) {
+    if (s.length > p.buf.length - p.len) return false;
+    foreach (c; s) p.buf[p.len++] = c;
+    return true;
+}
+
+// popen is /bin/sh, so an interpolated value is sh source until it is quoted.
+// `'\''` closes the quote, emits a literal one, and reopens. That is total over
+// any byte string, so no value is refused for what it contains — only for size.
+bool addQuoted(char[] buf, ref size_t n, const(char)[] s) {
+    bool one(char c) {
+        if (n >= buf.length - 1) return false;
+        buf[n++] = c;
+        return true;
+    }
+    if (!one('\'')) return false;
+    foreach (c; s) {
+        if (c == '\'') {
+            if (!one('\'') || !one('\\') || !one('\'') || !one('\'')) return false;
+        } else if (!one(c)) return false;
+    }
+    return one('\'');
 }
 
 // A sibling of the repo, so `git worktree list` names something a person can
@@ -28,9 +50,10 @@ Path worktreePath(const(char)[] cwd, const(char)[] name) {
     while (root.length > 1 && root[$ - 1] == '/') root = root[0 .. $ - 1];
     if (root.length == 0) return p;
 
-    p.put(root);
-    p.put("-");
-    p.put(name);
+    if (!p.put(root) || !p.put("-") || !p.put(name)) {
+        Path refused;
+        return refused;
+    }
     return p;
 }
 
@@ -66,13 +89,24 @@ int handleWorktreeCreate(const(char)[] input, const(char)[] cwd) {
 
     __gshared char[1200] cmd = 0;
     size_t n;
-    void add(const(char)[] s) { foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; } }
-    add("git -C '");
-    add(cwd);
-    add("' worktree add '");
-    add(path.text());
-    add("' 2>&1");
+    bool ok = true;
+    void add(const(char)[] s) {
+        foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; else ok = false; }
+    }
+    add("git -C ");
+    ok = addQuoted(cmd[], n, cwd) && ok;
+    add(" worktree add ");
+    ok = addQuoted(cmd[], n, path.text()) && ok;
+    add(" 2>&1");
     cmd[n] = 0;
+
+    // A command that did not fit is a different command. sh would still run it.
+    if (!ok) {
+        emitError("worktree.cmd", "the git command did not fit, so it was not run",
+                  0, 1, "", "worktree", "", "", "");
+        fputs("ground: WorktreeCreate could not build a command that fits\n", stderr);
+        return 1;
+    }
 
     auto pipe = popen(&cmd[0], "r");
     if (pipe is null) {
@@ -174,13 +208,22 @@ bool removeWorktree(const(char)[] repo, const(char)[] tree) {
 
     __gshared char[1400] cmd = 0;
     size_t n;
-    void add(const(char)[] s) { foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; } }
-    add("git -C '");
-    add(repo);
-    add("' worktree remove --force '");
-    add(tree);
-    add("' 2>&1");
+    bool ok = true;
+    void add(const(char)[] s) {
+        foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; else ok = false; }
+    }
+    add("git -C ");
+    ok = addQuoted(cmd[], n, repo) && ok;
+    add(" worktree remove --force ");
+    ok = addQuoted(cmd[], n, tree) && ok;
+    add(" 2>&1");
     cmd[n] = 0;
+
+    if (!ok) {
+        emitError("worktree.remove.cmd", "the git command did not fit, so it was not run",
+                  0, 1, "", "worktree", "", "", "");
+        return false;
+    }
 
     auto pipe = popen(&cmd[0], "r");
     if (pipe is null) {

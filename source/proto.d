@@ -168,8 +168,6 @@ struct ParsedRitual {
     // The block this ritual was declared in. Empty is the unnamed one.
     string projectName;
     string projectPath;
-    // "you set a branch on the block on the project level"
-    string projectBranch;
     // "define a CLAUDE.md inline in a ritual" — appended to what the agent
     // already is, so a ritual says what this performer additionally knows.
     string system;
@@ -770,7 +768,6 @@ private bool isNameStart(ref string s, size_t pos) {
 void parseProject(ref string input, ref size_t pos, ref ParseResult result,
                   string projectName = "") {
     string projectPath;
-    string projectBranch;
     size_t projectMaxGoto;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
@@ -818,7 +815,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             expect(input, pos, '{');
             assert(result.ritualCount < result.rituals.length, "Ritual overflow");
-            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath, projectBranch, projectName);
+            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath, projectName);
             result.ritualCount++;
         } else if (wm.base == "scope") {
             skipWS(input, pos);
@@ -862,7 +859,6 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             auto val = readValue(input, pos);
             switch (key) {
                 case "path": projectPath = val; break;
-                case "branch": projectBranch = val; break;
                 case "max_goto": projectMaxGoto = cast(size_t) parseInt(val); break;
                 case "files":
                     if (val is null) {
@@ -1204,12 +1200,11 @@ void parseQntx(ref string input, ref size_t pos, ref ParseResult result) {
 // A ritual body holds only references — never definitions — so a name
 // followed by a block is unambiguous: it is that reference, with values.
 ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string projectPath,
-                         string projectBranch = "", string projectName = "") {
+                         string projectName = "") {
     ParsedRitual r;
     r.name = name;
     r.projectName = projectName;
     r.projectPath = projectPath;
-    r.projectBranch = projectBranch;
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;
