@@ -80,6 +80,13 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
     fputs("\n", stdout);
 }
 
+// updatedInput replaces the whole tool_input object, so it may only be sent to
+// a tool whose entire input is the command. Monitor also carries a `command`,
+// beside description/timeout_ms/persistent, and the Bash answer dropped those.
+bool takesUpdatedInput(const(char)[] toolName) {
+    return toolName == "Bash";
+}
+
 // Called only where ground would otherwise leave the decision to a human, so
 // the common allow and deny paths pay nothing for it.
 private bool inLivePerformance(const(char)[] cwd) {
@@ -127,7 +134,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         // Hard deny: binary files in git add
         {
             import binary : checkGitAddForBinary;
-            auto binaryFile = checkGitAddForBinary(command, cwd);
+            import controls : allScopes;
+            auto binaryFile = checkGitAddForBinary(allScopes, command, cwd);
             if (binaryFile !is null) {
                 import db : openDb, attestEvent, sqlite3_close;
                 auto db = openDb();
@@ -278,8 +286,23 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             // to someone who has walked away. The rewrites above still applied.
             if (finalDecision == "ask" && inLivePerformance(cwd)) finalDecision = "allow";
 
-            writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
-                hasBg, maxTmo);
+            if (takesUpdatedInput(toolName)) {
+                writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
+                    hasBg, maxTmo);
+                return 0;
+            }
+
+            // The rewrite cannot be delivered here, so it is said rather than
+            // dropped: a silently unamended command is the failure this hook
+            // exists to prevent.
+            if (finalCommand.slice() != command) {
+                if (allMessages.len > 0) allMessages.put(" | ");
+                allMessages.put("ground would have amended this command, and ");
+                allMessages.put(toolName);
+                allMessages.put(" cannot take an amendment. Run it as: ");
+                allMessages.put(finalCommand.slice());
+            }
+            writeContextResponse(allMessages.slice(), advisoryDecision(finalDecision));
             return 0;
         }
 
@@ -324,7 +347,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                             prof.put("us total="); putInt(prof, tPerm-t0);
                             prof.put("us exit=perm-allow");
                             emitProfile(prof);
-                            writeResponse(command, "", "allow");
+                            if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
+                            else writeContextResponse("", "allow");
                             return 0;
                         }
                     }
@@ -353,7 +377,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         // Saying nothing is what let Claude Code ask. Inside a performance
         // there is nobody to ask, so ground answers instead.
-        if (inLivePerformance(cwd)) writeResponse(command, "", "allow");
+        if (inLivePerformance(cwd)) {
+            if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
+            else writeContextResponse("", "allow");
+        }
         return 0;
     }
 

@@ -31,9 +31,28 @@ bool isBinaryFile(const(char)[] path, const(char)[] cwd) {
     return false;
 }
 
+// Whether the no-binary-files gate stands where this command is being run.
+// pbt can take the gate away and never grant it, so silence leaves it on.
+bool binaryGateApplies(S)(const S[] scopes, const(char)[] cwd) {
+    import hooks : scopeMatches;
+
+    // A repo holding documents rather than source says so by name.
+    foreach (ref sc; scopes) {
+        if (!scopeMatches(sc, cwd)) continue;
+        foreach (ref c; sc.controls)
+            if (c.name == "binaries-are-content") return false;
+    }
+    return true;
+}
+
 // Scan git add arguments for binary files. Returns first binary path found, or null.
-const(char)[] checkGitAddForBinary(const(char)[] command, const(char)[] cwd) {
-    import matcher : strip;
+// The exemption is asked per segment, against the cwd in force at that segment.
+const(char)[] checkGitAddForBinary(S)(const S[] scopes, const(char)[] command, const(char)[] cwd) {
+    import matcher : strip, extractLeadingCd;
+
+    // Deciding once for the whole command let `cd elsewhere && git add` carry
+    // an exempt shell's permission into a repo that never had it.
+    const(char)[] effCwd = cwd;
 
     size_t start = 0;
     size_t i = 0;
@@ -48,7 +67,13 @@ const(char)[] checkGitAddForBinary(const(char)[] command, const(char)[] cwd) {
 
         if (isSep) {
             auto seg = strip(command[start .. i]);
-            if (seg.length > 8 && seg[0 .. 8] == "git add ") {
+
+            // A `cd` segment moves the shell, so later segments answer to the
+            // target rather than to where the command was typed.
+            auto cdTarget = extractLeadingCd(seg);
+            if (cdTarget.length > 0) effCwd = cdTarget;
+
+            if (seg.length > 8 && seg[0 .. 8] == "git add " && binaryGateApplies(scopes, effCwd)) {
                 auto args = seg[8 .. $];
                 size_t pos = 0;
                 while (pos < args.length) {
@@ -73,7 +98,10 @@ const(char)[] checkGitAddForBinary(const(char)[] command, const(char)[] cwd) {
                     if (arg.length == 0) continue;
                     if (arg[0] == '-') continue;
 
-                    if (isBinaryFile(arg, cwd)) return arg;
+                    // effCwd, not cwd: a relative path names a file in the
+                    // directory the segment runs in. Resolving it against the
+                    // parent shell's opened nothing and read "not binary".
+                    if (isBinaryFile(arg, effCwd)) return arg;
                 }
             }
             start = i + (atEnd ? 1 : skip);
