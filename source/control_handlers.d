@@ -437,8 +437,30 @@ bool containsUnanalyzableShell(const(char)[] command) {
     static immutable string[] markers = [
         "$(", "while ", "until ", "for ", "if [", "case ", "<<",
     ];
-    foreach (m; markers)
-        if (contains(command, m)) return true;
+
+    // Quoted text is an argument, not shell. Scanning through it rejected
+    // commit messages for containing the English words "for" and "while".
+    for (size_t i = 0; i < command.length; i++) {
+        if (command[i] == '\'' || command[i] == '"') {
+            char q = command[i];
+            size_t j = i + 1;
+            while (j < command.length && command[j] != q) {
+                // Double quotes still interpolate, so $( is live even inside.
+                if (q == '"' && command[j] == '$' && j + 1 < command.length
+                    && command[j + 1] == '(') return true;
+                j++;
+            }
+            // Unterminated: the rest is not quoted, so keep analysing it.
+            if (j >= command.length) continue;
+            i = j;
+            continue;
+        }
+
+        foreach (m; markers) {
+            if (i + m.length > command.length) continue;
+            if (command[i .. i + m.length] == m) return true;
+        }
+    }
     return false;
 }
 
