@@ -46,8 +46,8 @@ enum located = buildRiteScript("/home/u/src/proj-probe", "make test", [], []);
 static assert(located.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-probe' || exit 125\nmake test\n");
 
-// Reaching the tree is not the condition. Silence about catch means 1
-// (proto.d:1205), so a cd that failed with 1 read as "not yet" — measured:
+// Reaching the tree is not the condition. Silence about catch means 1, set in
+// `parseRites`, so a cd that failed with 1 read as "not yet" — measured:
 // a performance recorded "the fruit is still hanging" when the tree was gone.
 unittest {
     auto r = runRite(buildRiteScript("/no/such/tree/anywhere", "true", [], []).text());
@@ -61,7 +61,7 @@ unittest {
 
 import rite : hasUnresolved;
 
-// envSubst returns an unknown ${key} unchanged (matcher.d:862). In a msg that
+// envSubst returns an unknown ${key} unchanged. In a msg that
 // is a cosmetic defect. In a rite it is a command with a hole in it.
 static assert(hasUnresolved("curl -sf ${api}/api/plugins"));
 static assert(!hasUnresolved("curl -sf https://api.example.invalid/api/plugins"));

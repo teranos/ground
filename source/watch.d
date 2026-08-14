@@ -72,9 +72,9 @@ module watch;
 //   [ ] PostToolUseDeferred writers (the `gh pr review` nudge today; future
 //       similar) → write to immediate with after-gate instead of polling
 //       deferred queue at Stop. Shrinks stop.d's deferred-section.
-//   [ ] Session-scoped deferred (stop.d:271-284) → session-keyed immediate
-//       removes the need for stop.d to read the deferred queue.
-//   [ ] Project-scoped deferred (stop.d:286-301, main/master-only) → either
+//   [ ] Session-scoped deferred (`readDeferredMessage`) → session-keyed
+//       immediate removes the need to read the deferred queue at Stop.
+//   [ ] Project-scoped deferred (`readProjectDeferredMessage`) → either
 //       (a) project-keyed immediate (path stays in row contexts, watcher
 //       does cwd-suffix match like QNTX rows), or (b) drop the main/master
 //       gate as part of the move.

@@ -295,7 +295,7 @@ Control control(string name, Cmd c, Trigger t, Defer d) {
 }
 
 // Groups controls by scope and decision. A control can live in one — written
-// at top level it is wrapped in a scope with path "/" (proto.d:518).
+// at top level `parsePbt` wraps it in a scope with path "/".
 // Empty path = fires everywhere. Non-empty = cwd must contain the path.
 // "!" prefix inverts: "!/QNTX" means cwd must NOT contain "/QNTX".
 // Decision: "allow" auto-approves, "ask" shows the permission prompt.

@@ -141,7 +141,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // Exec dispatch — two safety checks alongside the control-cmd match:
     //
     //   Scope-cmd: scope-level cmd is not propagated to Control.cmd for
-    //   non-strop controls (proto.d:219-228), so postToolUseMatch alone
+    //   non-strop controls (`buildScopes`), so postToolUseMatch alone
     //   would let a control with no cmd of its own fire on every tool
     //   call in the scope. Enforce sc.cmds explicitly here.
     //

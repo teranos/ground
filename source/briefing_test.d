@@ -43,7 +43,7 @@ enum held = step(step(fresh, Verdict.Advance), Verdict.Hold);
 static assert(briefing(held, flat).text() == second.text());
 
 // Holding is not being thrown back. The watcher runs the same rite every 15
-// seconds (watch.d:375) and the agent never learns of it, so the count is
+// seconds (`handleWatch`) and the agent never learns of it, so the count is
 // stamped where the Stop actually goes back, not where the rite is evaluated.
 import ritual : threw;
 
