@@ -73,8 +73,18 @@ int handleDrive(int argc, const(char)** argv) {
             if (found.valid && found.p.id.length > 0) {
                 import rite : runRite;
                 import ritual.run : reapScript;
-                auto reap = reapScript(found.p.id);
-                if (reap.text().length > 0) runRite(reap.text(), "ritual-reap", "");
+                import exec : emitError;
+                auto reap = reapScript(found.p.worktree);
+                if (reap.text().length > 0) {
+                    // The result was discarded here, so a reap that ended
+                    // nothing read exactly like one that ended the agent.
+                    auto done = runRite(reap.text(), "ritual-reap", "");
+                    if (!done.ran || done.code != 0)
+                        emitError("ritual.reap", "the performance ended and its agent did not",
+                                  0, done.code, cast(string) found.p.parent,
+                                  cast(string) found.p.ritual, "",
+                                  cast(string) found.p.worktree, cast(string) done.output());
+                }
             }
             return 0;
         }

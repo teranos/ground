@@ -35,21 +35,22 @@ static assert(repoRoot(parsed, "/home/u/src/other") == "/home/u/src/other");
 enum s = spawnScript("/home/u/src/proj", "probe-17", "Performing ritual probe.");
 static assert(s.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj'\n"
-    ~ "claude -w 'probe-17' --bg 'Performing ritual probe.'\n");
+    ~ "claude -w 'probe-17' --bg --permission-mode dontAsk 'Performing ritual probe.'\n");
 
 // --bg and not -p. Print mode is one shot and detached, reachable by nothing
 // but pkill; a background session is in `claude agents`, where it can be
 // peeked at, replied to, attached to, and stopped without a signal.
 enum bg = spawnScript("/r", "p-1", "go");
 static assert(bg.text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\nclaude -w 'p-1' --bg 'go'\n");
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "claude -w 'p-1' --bg --permission-mode dontAsk 'go'\n");
 
 // "define a CLAUDE.md inline in a ritual" — appended, not replacing, because
 // a CLAUDE.md adds to what an agent already is. Measured working under --bg.
 enum sys = spawnScript("/r", "p-1", "go", "You are a Specialist in Targeted Advertisement Campaigns.");
 static assert(sys.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "claude -w 'p-1' --bg "
+    ~ "claude -w 'p-1' --bg --permission-mode dontAsk "
     ~ "--append-system-prompt 'You are a Specialist in Targeted Advertisement Campaigns.' "
     ~ "'go'\n");
 
@@ -61,7 +62,7 @@ static assert(spawnScript("/r", "p-1", "go", "").text() == bg.text());
 enum q = spawnScript("/r", "p-1", "say 'hi' now");
 static assert(q.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "claude -w 'p-1' --bg 'say '\\''hi'\\'' now'\n");
+    ~ "claude -w 'p-1' --bg --permission-mode dontAsk 'say '\\''hi'\\'' now'\n");
 
 // A prompt too big for the buffer used to lose its closing quote, and sh got a
 // different command than the one built. Overflow refuses instead — the same

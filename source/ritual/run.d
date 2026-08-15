@@ -6,9 +6,6 @@ import ritual.resolve : Flattened, indexOfRite;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
 import receiver : Receiver;
-
-// The walker's name on the lease. Each caller of `advance` is its own process.
-extern (C) int getpid();
 import db : ZBuf;
 
 // Who an error raised inside a rite is owed to. Routed to whichever of the
@@ -72,30 +69,6 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     a.after = p;
     if (p.state != RitualState.Live) return a;
     if (p.current >= f.count) return a;
-
-    // One thing runs a rite. `rev` only decides whose write lands, and that is
-    // after both have already run it — one trigger, two GitHub runs.
-    __gshared char[24] meBuf = 0;
-    size_t meLen;
-    {
-        auto v = getpid();
-        char[12] d = 0;
-        size_t n;
-        if (v == 0) d[n++] = '0';
-        while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
-        foreach (i; 0 .. n) meBuf[meLen++] = d[n - 1 - i];
-    }
-    auto me = cast(const(char)[]) meBuf[0 .. meLen];
-    {
-        import ritual.store : claimWalk;
-        if (!claimWalk(db, p.id, me, unixSeconds, p.rev)) return a;
-    }
-    // Every return below has run the rite or decided not to. Releasing at one
-    // site rather than seven is the difference between a lease and a leak.
-    scope (exit) {
-        import ritual.store : releaseWalk;
-        releaseWalk(db, p.id, me);
-    }
 
     auto r = f.rites[p.current];
     auto prepared = prepareRite(r, p.worktree,
@@ -463,20 +436,27 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
     s.put("'");
 }
 
-// An ending ends the agent. The pid ground forked is the wrapper's, whose
-// child is the script, whose child is the agent — so the id is the handle,
-// and it appears in the agent's command line and nowhere else.
-SpawnScript reapScript(const(char)[] performanceId) {
+// An ending ends the agent. `claude stop <id>` is the documented one, and it
+// keeps the worktree — a signal drops the agent mid-turn and needs ground to
+// win a race with whatever restarts it.
+SpawnScript reapScript(const(char)[] worktree) {
     SpawnScript s;
-    if (performanceId.length == 0) return s;
-    s.put("#!/usr/bin/env bash\nset -euo pipefail\npkill -f ");
+    if (worktree.length == 0) return s;
+    s.put("#!/usr/bin/env bash\nset -euo pipefail\n");
 
-    SpawnScript pat;
-    pat.put("claude -w ");
-    pat.put(performanceId);
-    if (pat.over) s.over = true;
-    s.putQuoted(pat.text());
-    s.put(" || true\n");
+    // The `--cwd` flag filters by where a session was started, and ground's
+    // spawn script cds to the repo first — so it answers [] for a worktree.
+    // The `cwd` field in the JSON is the tree. Select on the field.
+    s.put("out=$(claude agents --json)\n");
+    s.put("ids=$(printf '%s' \"$out\" | jq -r --arg t ");
+    s.putQuoted(worktree);
+    s.put(" '.[] | select(.kind==\"background\" and .cwd==$t) | .id')\n");
+
+    // Nothing to end is not a failure. Anything else is, and says so.
+    s.put("[ -n \"$ids\" ] || exit 0\n");
+    s.put("for id in $ids; do\n");
+    s.put("  claude stop \"$id\"\n");
+    s.put("done\n");
     return s;
 }
 
@@ -488,6 +468,11 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
     s.put("\nclaude -w ");
     s.putQuoted(treeName);
     s.put(" --bg ");
+
+    // "permission should just never block". There is nobody at this session to
+    // ask, and one asked anyway sits blocked until the machine runs out of
+    // memory — measured as sixteen of them, the oldest five days old.
+    s.put("--permission-mode dontAsk ");
     // Appended rather than replacing: what a ritual declares is what this
     // agent additionally is, the way a CLAUDE.md is.
     if (system.length > 0) {

@@ -212,8 +212,17 @@ int handleAbort(int argc, const(char)** argv) {
     {
         import rite : runRite;
         import ritual.run : reapScript;
-        auto reap = reapScript(p.id);
-        if (reap.text().length > 0) runRite(reap.text(), "ritual-reap", "");
+        import exec : emitError;
+        auto reap = reapScript(p.worktree);
+        if (reap.text().length > 0) {
+            // An abort that leaves the agent running has aborted nothing.
+            auto done = runRite(reap.text(), "ritual-reap", "");
+            if (!done.ran || done.code != 0)
+                emitError("ritual.reap", "the performance was aborted and its agent did not stop",
+                          0, done.code, cast(string) p.parent,
+                          cast(string) p.ritual, "",
+                          cast(string) p.worktree, cast(string) done.output());
+        }
     }
     if (!ok) {
         fputs("ground abort: could not write the position\n", stderr);

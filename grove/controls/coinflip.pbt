@@ -25,8 +25,11 @@ rites toss {
     dispatch: "sbvh-nl/grove long-coin.yml"
     to:       parent
   }
+  # Longer than the driver's 15s poll, so FLIP1's run concludes while the walk
+  # is still inside this rite — which is the only way to see CI reach an agent
+  # that has already moved on.
   SLEEP1 {
-    run: "sleep 2"
+    run: "sleep 30"
     to:  parent
   }
   FLIP2 {
