@@ -17,6 +17,7 @@ extern (C) {
     int waitpid(int pid, int* wstatus, int options);
     int kill(int pid, int sig);
     int getpid();
+    int setsid();
 
     struct pollfd {
         int fd;
@@ -303,6 +304,17 @@ void dispatchExec(
     // in the parent — that's the key the parent-side marker was written
     // with. clearInflightMarker uses it to unlink on every terminal path.
     int myPid = getpid();
+
+    // The wrapper inherited ground's stdout and stderr — the pipe Claude Code
+    // reads the hook on. Holding it open makes the tool call wait for the whole
+    // exec: a `git push` blocked for the length of a deploy.
+    setsid();
+    {
+        import core.stdc.stdio : freopen, stdin, stdout, stderr;
+        freopen("/dev/null\0".ptr, "r\0".ptr, stdin);
+        freopen("/dev/null\0".ptr, "w\0".ptr, stdout);
+        freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
+    }
 
     auto scriptPid = fork();
     if (scriptPid < 0) {

@@ -10,7 +10,7 @@ import std.array : array;
 import std.path : baseName, absolutePath, buildNormalizedPath;
 import std.process : executeShell;
 import std.stdio : stderr;
-import std.string : indexOf, splitLines;
+import std.string : indexOf, splitLines, strip;
 
 import filelist : renderFileList;
 
@@ -53,6 +53,23 @@ void main() {
             sand ~= pulled;
             stderr.writefln("wind: + %s", dir);
         }
+    }
+
+    // --- Phase 1c: fold in directories an `include` names ---
+    // A directory that is not a repo still holds pbt worth compiling. Naming it
+    // as a project to get it read is what broke the git-tracked rule.
+    foreach (dir; extractIncludes(sand)) {
+        auto norm = buildNormalizedPath(absolutePath(dir));
+        if (norm in seenDirs) continue;
+        if (!exists(norm) || !isDir(norm)) {
+            stderr.writefln("wind: include not found %s", norm);
+            continue;
+        }
+        seenDirs[norm] = true;
+        auto pulled = readPbtDir(norm);
+        if (pulled.length == 0) continue;
+        sand ~= pulled;
+        stderr.writefln("wind: include %s", norm);
     }
 
     // --- Phase 2: extract project paths, walk dirs, append files ---
@@ -213,6 +230,23 @@ string findPathInBlock(string input, size_t startPos) {
     return null;
 }
 
+/// `include "/abs/path"` — fold another directory's pbt in. Not a declaration:
+/// it adds no project, so the rule that a project path is a git-tracked repo
+/// stays intact and repoRoot is untouched.
+string[] extractIncludes(string input) {
+    string[] dirs;
+    foreach (line; input.splitLines()) {
+        auto t = line.strip();
+        if (t.length < 7 || t[0 .. 7] != "include") continue;
+        auto q1 = t.indexOf('"');
+        if (q1 < 0) continue;
+        auto q2 = t.indexOf('"', q1 + 1);
+        if (q2 <= q1) continue;
+        dirs ~= t[q1 + 1 .. q2].idup;
+    }
+    return dirs;
+}
+
 /// Extracts project paths from pbt input.
 ProjectInfo[] extractProjectPaths(string input) {
     ProjectInfo[] projects;
@@ -235,6 +269,13 @@ ProjectInfo[] extractProjectPaths(string input) {
         auto word = input[wordStart .. pos];
         auto dot = word.indexOf('.');
         auto base = dot >= 0 ? word[0 .. dot] : word;
+
+        // `include` has no block. Scanning on to the next `{` would swallow
+        // whatever declaration follows it.
+        if (base == "include") {
+            while (pos < input.length && input[pos] != '\n') pos++;
+            continue;
+        }
 
         while (pos < input.length && input[pos] != '{') pos++;
         if (pos >= input.length) break;

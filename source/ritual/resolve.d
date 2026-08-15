@@ -133,6 +133,9 @@ struct FlatRite {
     string eval;
     // Run before the agent has the mic, once per entry into the rite.
     string run;
+    // "<owner>/<repo> <workflow>", and the fragment whose lines become -f.
+    string dispatch;
+    string inputs;
     string msg;
     string mic;
     int pass;
@@ -191,11 +194,19 @@ Flattened flatten(PR)(const PR r, size_t ritualIdx) {
                 fr.name = src.name;
                 fr.eval = src.eval;
                 fr.run = src.run;
+                fr.dispatch = src.dispatch;
+                fr.inputs = src.inputs;
                 fr.msg = src.msg;
                 fr.mic = src.mic;
                 fr.pass = src.pass;
                 fr.catches = src.catches;
                 fr.catchCount = src.catchCount;
+                // A run still going answers 75, and Hold is what "not yet"
+                // already means to the walk.
+                if (src.dispatch.length > 0 && fr.catchCount < fr.catches.length) {
+                    import dispatch : DISPATCH_HOLD;
+                    fr.catches[fr.catchCount++] = DISPATCH_HOLD;
+                }
                 fr.goto_ = src.goto_;
                 fr.to = src.to;
                 fr.wait = src.wait;

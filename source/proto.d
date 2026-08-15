@@ -122,6 +122,13 @@ struct ParsedRite {
     // "a different rite that runs a tool unconditionally". Fires once when the
     // rite is entered, before the agent has the mic. A non-zero halts.
     string run;
+    // "dispatch could be its own thing, its own abstraction" — "<owner>/<repo>
+    // <workflow>". Both halves of the rite: sending is the doing, and the run's
+    // conclusion is the answer.
+    string dispatch;
+    // A shell fragment run in the worktree. Each line it prints becomes one -f,
+    // which is the only part of a dispatch ground cannot know for itself.
+    string inputs;
     // A field this rite named that no rite has. Carried so the refusal can
     // say which one, which betterC forbids building at the parse site.
     string badKey;
@@ -604,8 +611,14 @@ ParseResult parsePbt(string input) {
             assert(result.ritesCount < result.rites.length, "Rites group overflow");
             result.rites[result.ritesCount] = parseRites(input, pos, groupName);
             result.ritesCount++;
+        } else if (wm.base == "include") {
+            // A directive to wind, not a declaration. By the time ground parses
+            // sand the directory has already been folded in, so all that is
+            // left is to step over the line rather than trip on it.
+            skipWS(input, pos);
+            cast(void) readValue(input, pos);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'qntx', 'attestation', or 'rites'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'qntx', 'attestation', 'rites', or 'include'");
         }
     }
     return result;
@@ -1407,6 +1420,8 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
         switch (key) {
             case "eval": r.eval = val; break;
             case "run":  r.run = val; break;
+            case "dispatch": r.dispatch = val; break;
+            case "inputs":   r.inputs = val; break;
             // Recorded, not asserted: betterC has no GC, so the message that
             // names the rite and the field is built in validateRituals.
             case "cmd":  r.badKey = "cmd"; break;

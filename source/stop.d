@@ -193,104 +193,35 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             return 0;
         }
 
+        // Stop does not walk. `ground drive` is forked for every performance
+        // and walking is its whole job; this ran the same rite a second time,
+        // which for a `dispatch:` rite meant a second workflow run.
         if (found.valid && found.p.state == RitualState.Live) {
             static immutable ritualsParsed = allParsed;
             foreach (i; 0 .. ritualsParsed.ritualCount) {
                 if (ritualsParsed.rituals[i].name != found.p.ritual) continue;
 
                 auto flat = flatten(ritualsParsed, i);
-                auto res = advance(db, sessionId, found.p, flat, cast(long) time(null));
-                if (!res.ran) break;
 
-                // The bucket did not take it. Stamped while the rite is in
-                // that state, cleared when it finally takes one — being
-                // thrown back lasts until the rite passes, it is not a flash.
-                import ritual : writePositionIf, threw;
+                // "make the message a property of the mic" — and this is the
+                // only place the agent's last message can be read.
+                import ritual : writePositionIf;
                 import mic : wordsHash, freshWords;
-                auto now = cast(long) time(null);
-                auto back = res.after;
-
-                // "make the message a property of the mic"
                 auto said = extractLastAssistantMessage(input);
                 auto spoken = said is null ? 0 : wordsHash(said);
-                auto fresh = freshWords(spoken, found.p.said);
-                back.said = fresh ? spoken : found.p.said;
-                if (res.verdict == Verdict.Hold) {
-                    back = threw(back);
-                    back.thrownAt = now;
-                } else {
-                    back.thrownAt = 0;
-                }
-
-                // Conditional on the revision advance just claimed. An
-                // unconditional write here put a stale driver's count back.
-                if (res.applied && writePositionIf(db, back, back.rev))
-                    back.rev = back.rev + 1;
-
-                __gshared ZBuf rmsg;
-                rmsg.reset();
-
-                if (res.verdict == Verdict.Halt) {
-                    // The number and what the command said, on screen. A rite
-                    // the ritual cannot read is not a finding about the world.
-                    rmsg.put("Ritual ");
-                    rmsg.put(found.p.ritual);
-                    rmsg.put(" halted on ");
-                    rmsg.put(flat.rites[found.p.current].name);
-                    rmsg.put(" with exit ");
-                    putInt(rmsg, res.code);
-                    if (res.output.length > 0) {
-                        rmsg.put(": ");
-                        rmsg.put(res.output);
-                    }
-                } else {
-                    // What just happened, then where that leaves it. Without
-                    // the first half an agent is told to do the next thing
-                    // and never learns whether the last thing counted.
-                    if (res.verdict == Verdict.Advance) {
-                        rmsg.put(flat.rites[found.p.current].name);
-                        rmsg.put(" passed. ");
-                    }
-                    rmsg.put(briefing(back, flat).text());
-                }
-
-                // What the rite answered and what the agent said about it, to
-                // the session that started the performance. This block used to
-                // return before last_assistant_message was ever read.
-                {
-                    import ritual.delivery : deliver;
-                    import notification : riteLine;
-                    import sentences : firstTwoSentences;
-
-                    auto line = riteLine(found.p.ritual, flat.rites[found.p.current].name,
-                                         res.verdict,
-                                         fresh ? firstTwoSentences(said) : "",
-                                         found.p.id,
-                                         flat.rites[found.p.current].mic);
-
-                    // The note id is the key. Without the revision, a rite
-                    // asked twice writes the id it was already delivered
-                    // under, and is never shown again.
-                    __gshared ZBuf key;
-                    key.reset();
-                    key.put("rite:");
-                    key.put(found.p.id);
-                    key.put(":");
-                    key.put(flat.rites[found.p.current].name);
-                    key.put(":");
-                    putInt(key, back.rev);
-                    // The rite says where its verdict goes. Silence is silence:
-                    // a rite naming no receiver reports to nobody.
-                    deliver(db, back, flat.rites[found.p.current].to,
-                            key.slice(), line.text(), true);
+                auto back = found.p;
+                if (freshWords(spoken, found.p.said)) {
+                    back.said = spoken;
+                    cast(void) writePositionIf(db, back, back.rev);
                 }
 
                 sqlite3_close(db);
 
                 // A rite's block is the one place the agent is meant to keep
                 // going rather than stop. Everything else keeps the old shape.
-                writeStopContinue(rmsg.slice());
-                notifyLoomHook(cwd, sessionId, rmsg.slice());
+                auto brief = briefing(found.p, flat);
+                writeStopContinue(brief.text());
+                notifyLoomHook(cwd, sessionId, brief.text());
                 return 0;
             }
         }

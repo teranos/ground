@@ -138,8 +138,24 @@ PreparedRite prepareCmd(const(char)[] cmd, const(char)[] cwd,
     return p;
 }
 
+// A dispatch is both halves of the rite, so it stands where the eval would.
+// The built script is __gshared because PreparedRite holds slices of what it
+// was given, and a local would be gone before the caller read them.
 PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
                             const(char[])[] keys = [], const(char[])[] values = []) {
+    static if (__traits(hasMember, R, "dispatch")) {
+        if (r.dispatch.length > 0) {
+            import dispatch : dispatchScript, DispatchScript;
+            __gshared DispatchScript d;
+            d = dispatchScript(r.dispatch, r.inputs);
+            if (!d.ok) {
+                PreparedRite bad;
+                bad.cmd = r.dispatch;
+                return bad;
+            }
+            return prepareCmd(d.text(), cwd, keys, values);
+        }
+    }
     return prepareCmd(r.eval, cwd, keys, values);
 }
 

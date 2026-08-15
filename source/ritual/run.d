@@ -6,6 +6,9 @@ import ritual.resolve : Flattened, indexOfRite;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
 import receiver : Receiver;
+
+// The walker's name on the lease. Each caller of `advance` is its own process.
+extern (C) int getpid();
 import db : ZBuf;
 
 // Who an error raised inside a rite is owed to. Routed to whichever of the
@@ -70,13 +73,48 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (p.state != RitualState.Live) return a;
     if (p.current >= f.count) return a;
 
+    // One thing runs a rite. `rev` only decides whose write lands, and that is
+    // after both have already run it — one trigger, two GitHub runs.
+    __gshared char[24] meBuf = 0;
+    size_t meLen;
+    {
+        auto v = getpid();
+        char[12] d = 0;
+        size_t n;
+        if (v == 0) d[n++] = '0';
+        while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach (i; 0 .. n) meBuf[meLen++] = d[n - 1 - i];
+    }
+    auto me = cast(const(char)[]) meBuf[0 .. meLen];
+    {
+        import ritual.store : claimWalk;
+        if (!claimWalk(db, p.id, me, unixSeconds, p.rev)) return a;
+    }
+    // Every return below has run the rite or decided not to. Releasing at one
+    // site rather than seven is the difference between a lease and a leak.
+    scope (exit) {
+        import ritual.store : releaseWalk;
+        releaseWalk(db, p.id, me);
+    }
+
     auto r = f.rites[p.current];
     auto prepared = prepareRite(r, p.worktree,
                                 r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
+    // A placeholder no project env resolves will not resolve by being asked
+    // again. "Did not run" left the driver retrying every two seconds — 93,866
+    // identical rows overnight, because nothing in that path gave up.
     if (!prepared.ready) {
+        import ritual.store : writePositionIf;
+        a.ran = true;
+        a.verdict = Verdict.Halt;
         riteError(p, sessionId, "ritual.rite.unresolved",
                   "the rite still holds a placeholder no project env resolves",
                   0, r.name, prepared.cmd, "");
+        auto stopped = step(p, Verdict.Halt);
+        attestRite(db, sessionId, p, r.name, a.verdict, 0, "", unixSeconds);
+        cast(void) writePositionIf(db, stopped, p.rev);
+        a.applied = true;
+        a.after = stopped;
         return a;
     }
 
@@ -85,7 +123,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         import ritual.position : takeMic;
         import ritual.store : writePositionIf;
         import mic : holder;
-        auto held = takeMic(p, holder(r.wait), unixSeconds);
+        auto held = takeMic(p, holder(r.dispatch.length > 0 ? 1 : r.wait), unixSeconds);
         // Declared with a glyph and a colour and never once written. It says a
         // rite is running and nothing reads it to decide anything: ground does
         // not refuse to act on what this row says.
@@ -145,7 +183,8 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     }
 
     // A rite with a run and no eval asked nothing, so there is no code to read.
-    if (r.eval.length == 0) {
+    // A dispatch is an eval — the run's conclusion is the answer.
+    if (r.eval.length == 0 && r.dispatch.length == 0) {
         a.ran = true;
         a.verdict = Verdict.Advance;
     } else {
@@ -205,7 +244,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     // A run-only rite already spoke, above, under its own key. Saying it again
     // here is the same words twice to the same session.
-    auto said = r.eval.length > 0 ? a.output : null;
+    auto said = (r.eval.length > 0 || r.dispatch.length > 0) ? a.output : null;
     auto words = wordsHash(said);
     bool fresh = freshWords(words, spoken);
 
@@ -267,7 +306,9 @@ private void riteSpeaks(DB, R)(DB db, const Position p, const Position moved,
 
     // A waiting rite keeps the `ci:` namespace the gutter reads, and its key is
     // the one 46 was proven on.
-    bool isCi = r.wait > 0;
+    // A dispatch is CI by construction, so saying `wait:` beside it would be
+    // the rite declaring what the field it already used means.
+    bool isCi = r.wait > 0 || r.dispatch.length > 0;
 
     __gshared ZBuf key;
     key.reset();
@@ -365,12 +406,21 @@ Brief briefing(const Position p, const Flattened f) {
         b.put("x");
         b.putNum(p.throws);
     }
-    // The rite declares its own pass code. Saying 0 when the rite passes on 1
-    // tells the agent the inverse of the condition, and it acts on that.
-    b.put(". It is met when this exits ");
-    b.putNum(cast(size_t) r.pass);
-    b.put(": ");
-    b.put(r.eval);
+    // > I cannot make rite WEB exit 0 — it has no eval.
+    // Ground sends the job and reads the run, so there is no condition for an
+    // agent to meet. A rite that passes is not interesting; one that fails is.
+    if (r.dispatch.length > 0) {
+        b.put(". Ground is running this rite itself: it dispatches ");
+        b.put(r.dispatch);
+        b.put(" and the run's own result is the answer. Nothing is asked of you while it passes. If it fails, say what failed and why");
+    } else {
+        // The rite declares its own pass code. Saying 0 when the rite passes on
+        // 1 tells the agent the inverse of the condition, and it acts on that.
+        b.put(". It is met when this exits ");
+        b.putNum(cast(size_t) r.pass);
+        b.put(": ");
+        b.put(r.eval);
+    }
     if (r.msg.length > 0) {
         b.put(". ");
         b.put(r.msg);

@@ -185,6 +185,44 @@ int parsePid(const(char)[] text) {
 // session's own Stop, which will not happen again.
 bool orphaned(int ppid) { return ppid <= 1; }
 
+// One watcher per tree. `killSessionWatcher` kills by session id, and a watcher
+// on a ritual tree takes its id from `claimSession` when stdin carries none, so
+// the kill misses any that claimed something else.
+private const(char)[] treeKey(const(char)[] cwd) {
+    size_t start;
+    foreach (i, c; cwd) if (c == '/') start = i + 1;
+    return cwd[start .. $];
+}
+
+// True when this process may watch that tree. False when a live one already is.
+bool claimTree(const(char)[] cwd, int myPid) {
+    __gshared char[512] pathBuf = 0;
+    auto pLen = buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid");
+    if (pLen == 0) return true;
+
+    auto rf = fopen(&pathBuf[0], "r");
+    if (rf !is null) {
+        char[16] pidBuf = 0;
+        auto n = fread(&pidBuf[0], 1, 15, rf);
+        fclose(rf);
+        auto held = parsePid(pidBuf[0 .. n]);
+        // Signal 0 tests for existence without delivering anything.
+        if (held > 0 && held != myPid && kill(held, 0) == 0) return false;
+    }
+
+    auto wf = fopen(&pathBuf[0], "w");
+    if (wf is null) return true;
+    fprintf(wf, "%d\n", myPid);
+    fclose(wf);
+    return true;
+}
+
+void releaseTree(const(char)[] cwd) {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid") == 0) return;
+    remove(&pathBuf[0]);
+}
+
 // --- Called by Stop handler (has session ID) ---
 
 // Kill the previous watcher for THIS session only.
@@ -324,6 +362,9 @@ int handleWatch(int argc, const(char)** argv) {
     import main : argLen;
     auto cwd = argv[2][0 .. argLen(argv[2])];
 
+    // A second watcher on a tree is a second walker: it calls `advance` too.
+    if (!claimTree(cwd, getpid())) return 0;
+
     // The model's mark. The operator is not reached from here — exit 0 renders
     // systemMessage but sends stdout to the debug log, so a second watcher for
     // the screen was built, measured, and deleted. MessageDisplay carries it.
@@ -370,39 +411,9 @@ int handleWatch(int argc, const(char)** argv) {
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
 
-            // Advancing here rather than at Stop is the point: an agent can be
-            // inside the agentic loop for an hour without Claude finishing its
-            // response, and the rite may have been met twenty minutes ago.
-            {
-                import ritual : readPositionAt, advance, briefing, flatten, RitualState;
-                import rite : Verdict;
-                import controls : allParsed;
-                import immediate : writeNote;
-                import core.stdc.time : time;
-
-                auto here = readPositionAt(db, cwd);
-                if (here.valid && here.p.state == RitualState.Live) {
-                    static immutable ritualsParsed = allParsed;
-                    foreach (ri; 0 .. ritualsParsed.ritualCount) {
-                        if (ritualsParsed.rituals[ri].name != here.p.ritual) continue;
-
-                        auto flat = flatten(ritualsParsed, ri);
-                        auto res = advance(db, sessionId, here.p, flat, cast(long) time(null));
-                        if (!res.ran) break;
-
-                        // A held rite waits on the world, so asking again in
-                        // two seconds is noise.
-                        if (res.verdict == Verdict.Hold) nextSleep = 15;
-
-                        if (res.after.current != here.p.current
-                            || res.after.state != RitualState.Live) {
-                            writeNote(db, sessionId, "ritual-moved",
-                                      briefing(res.after, flat).text());
-                        }
-                        break;
-                    }
-                }
-            }
+            // The watcher does not walk. `ground drive` was built for exactly
+            // the case this block was added for — an agent inside the agentic
+            // loop for an hour — and two of them ran every rite twice.
 
             while (true) {
                 auto imm = readImmediateMessage(db, cwd, sessionId, mark);
@@ -462,6 +473,7 @@ int handleWatch(int argc, const(char)** argv) {
             // No new messages this cycle. If we accumulated anything, deliver now.
             if (batchLen > 0) {
                 removePid(sessionId, pidPrefix);
+                releaseTree(cwd);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
                 return 2;
@@ -473,6 +485,7 @@ int handleWatch(int argc, const(char)** argv) {
         // loop runs until the machine reboots.
         if (orphaned(getppid())) {
             removePid(sessionId, pidPrefix);
+            releaseTree(cwd);
             return 0;
         }
 

@@ -287,6 +287,12 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "ritual_position", "said", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "acted_at", "INTEGER NOT NULL DEFAULT 0");
 
+    // Who is running the current rite, and since when. `rev` decides whose
+    // write lands, which is after both have already run the rite — measured as
+    // one trigger producing two GitHub runs.
+    ensureColumn(db, "ritual_position", "walker", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "ritual_position", "walker_at", "INTEGER NOT NULL DEFAULT 0");
+
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";
     sqlite3_exec(db, idxRitualRepo.ptr, null, null, null);
