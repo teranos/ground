@@ -31,9 +31,12 @@ static assert(!contains(r.text(), "claude -w"),
 static assert(!contains(r.text(), "pkill"),
     "a signal drops the agent mid-turn and races whatever restarts it");
 
-// The tree is what identifies the agent — `claude agents --json --cwd` answers
-// with the short id that `claude stop` takes.
-static assert(contains(r.text(), "claude agents --json --cwd"));
+// The tree is what identifies the agent. `--cwd` filters by where a session
+// was started, and the spawn script cds to the repo first, so it answers []
+// for every worktree. The selection is on the cwd field in the JSON.
+static assert(contains(r.text(), "claude agents --json"));
+static assert(!contains(r.text(), "--cwd"));
+static assert(contains(r.text(), ".cwd==$t"));
 static assert(contains(r.text(), "'/Users/u/src/ground-coinflip-1786828839'"));
 
 // Nothing to reap without a tree, and an empty pattern would match everything.
