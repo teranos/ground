@@ -1,0 +1,30 @@
+name: long-coin
+
+# Fifteen seconds, then a coin. Half of its runs fail, so a rite waiting on it
+# has to survive a real red and not only a slow green.
+# Dispatched by a rite, never by a push. Nothing watches it on a willow walk,
+# and a job that fails half the time should not fire on its own.
+on:
+  workflow_dispatch:
+
+jobs:
+  coinflip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: wait
+        run: sleep 15
+      - name: flip
+        run: |
+          # A thick coin: one in a hundred it lands on its side. Neither face,
+          # and it stays there until the job is cancelled out from under it.
+          if [ $((RANDOM % 100)) -eq 0 ]; then
+            echo "the coin is standing on its edge"
+            sleep 3600
+          fi
+          if [ $((RANDOM % 2)) -eq 0 ]; then
+            echo "heads"
+            exit 0
+          fi
+          echo "tails"
+          exit 1

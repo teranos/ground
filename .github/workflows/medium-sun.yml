@@ -1,0 +1,42 @@
+name: medium-sun
+
+# The judge. The rite that pushed this commit never checked which flares are
+# burning — it only checked that something was written. DONKI is the only place
+# the answer is known, and the key to ask lives here and not in the worktree.
+on:
+  push:
+    paths: ['SUN.md']
+
+jobs:
+  sun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: is the sun exactly it
+        env:
+          NASA_API_KEY: ${{ secrets.NASA_API_KEY }}
+        run: |
+          # Every push runs this, including ones from other rituals and from
+          # master. A branch with no SUN.md has nothing to be wrong about.
+          if [ ! -f SUN.md ]; then echo "no SUN.md on this ref"; exit 0; fi
+          if [ -z "$NASA_API_KEY" ]; then echo "no NASA_API_KEY in this repo"; exit 1; fi
+
+          # 90 days, not 7: measured 2026-08-10, DONKI's most recent flare was
+          # 2026-07-30, so a seven-day window is empty and there is nothing to
+          # be right about.
+          from=$(date -u -d '90 days ago' +%F)
+          to=$(date -u +%F)
+          # catalog is pinned so a moving default cannot change the answer.
+          curl -sS --fail-with-body \
+            "https://api.nasa.gov/DONKI/FLR?startDate=$from&endDate=$to&catalog=M2M_CATALOG&api_key=$NASA_API_KEY" \
+            > flares.json
+          jq -r '.[-10:][] | "\(.flrID) \(.classType)"' flares.json > want.txt
+
+          # What is wrong is said without saying what would be right. The agent
+          # has to find that out where the answer actually lives.
+          if ! diff -q want.txt SUN.md >/dev/null 2>&1; then
+            echo "rejected: SUN.md has $(wc -l < SUN.md) lines, DONKI's last ten are $(wc -l < want.txt)"
+            diff want.txt SUN.md | head -20 | sed 's/^/rejected: /'
+            exit 1
+          fi
+          echo "accepted"
