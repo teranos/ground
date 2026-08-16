@@ -93,7 +93,8 @@ enum QUOTA_HIGH_SEC = 10;
 // The whole of what a pbt used to carry in bash. A workflow_dispatch run lands
 // on the default branch rather than the commit that triggered it, so there is
 // no sha to find it by — the id is whatever appeared that was not there before.
-DispatchScript dispatchScript(const(char)[] target, const(char)[] inputs) {
+DispatchScript dispatchScript(const(char)[] target, const(char)[] inputs,
+                              const(char)[] token = "") {
     DispatchScript s;
     auto t = dispatchTarget(target);
     if (!t.ok) {
@@ -118,28 +119,32 @@ DispatchScript dispatchScript(const(char)[] target, const(char)[] inputs) {
 
     s.putThrottle();
 
+    // The run has to carry a name ground chose, or newest-first is a guess.
+    if (token.length > 0) {
+        s.put("set -- -f ground=");
+        s.putQ(token);
+        s.put("\n");
+    } else {
+        s.put("set --\n");
+    }
+
     // The fragment is the one part ground cannot know: the value is made at
     // performance time, and params are literals from the pbt.
     if (inputs.length > 0) {
         // Positional parameters, not an array: `hasUnresolved` refuses any `${`
         // in a rite, and an array expansion cannot be written without one.
-        s.put("set --\n");
         s.put("while IFS= read -r kv; do\n");
         s.put("  if [ -n \"$kv\" ]; then set -- \"$@\" -f \"$kv\"; fi\n");
         s.put("done <<< \"$(");
         s.put(inputs);
         s.put(")\"\n");
-        s.put("gh_throttle\n");
-        s.put("if ! out=$(gh workflow run \"$flow\" -R \"$repo\" \"$@\" 2>&1); then\n");
-    } else {
-        s.put("gh_throttle\n");
-        s.put("if ! out=$(gh workflow run \"$flow\" -R \"$repo\" 2>&1); then\n");
     }
+    s.put("gh_throttle\n");
+    s.put("if ! out=$(gh workflow run \"$flow\" -R \"$repo\" \"$@\" 2>&1); then\n");
     s.put("  printf '%s\\n' \"$out\"\n");
     s.put("  if halt_if_unreachable \"$out\"; then exit ");
     s.putNum(RITE_UNREACHED);
     s.put("; fi\n  exit 1\nfi\n");
-
 
     // The rite sent the job. That is the whole of it.
     s.put("exit 0\n");

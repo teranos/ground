@@ -62,6 +62,20 @@ static assert(!hasBraces(s.text()));
 // A target that does not split is a script ground must not run.
 static assert(!dispatchScript("long-coin.yml", "").ok);
 
+// A workflow_dispatch answers 204 with no body, so the run has to carry a name
+// ground chose or newest-first is a guess.
+enum k = dispatchScript("sbvh-nl/grove long-coin.yml", "", "coinflip-8ir:FLIP1");
+static assert(k.ok);
+static assert(contains(k.text(), "-f ground='coinflip-8ir:FLIP1'"));
+
+// The token is <performance>:<rite>, so ground rebuilds it rather than reading
+// it back out of the rite's stdout and into the line you read.
+static assert(!contains(k.text(), "printf 'ground="));
+
+// No token, no input — a workflow that does not declare it refuses the whole
+// dispatch, and every pbt on disk predates this.
+static assert(!contains(s.text(), "-f ground="));
+
 private bool hasBraces(const(char)[] c) {
     foreach (i; 0 .. c.length)
         if (i + 1 < c.length && c[i] == '$' && c[i + 1] == '{') return true;

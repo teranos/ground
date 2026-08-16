@@ -30,14 +30,32 @@ import rite : Verdict;
 
 static assert(riteLine("willow", "APPLE", Verdict.Hold, "Took the APPLE out. Six left.").text()
     == "willow APPLE held · Took the APPLE out. Six left.");
+// "its technically correct, and i want to keep it, but its too positive"
 static assert(riteLine("willow", "APPLE", Verdict.Advance, "Done.").text()
-    == "willow APPLE passed · Done.");
+    == "willow APPLE passed through · Done.");
 static assert(riteLine("willow", "APPLE", Verdict.Halt, "I cannot find it.").text()
     == "willow APPLE halted · I cannot find it.");
 
 // An agent that said nothing gets a line about the rite alone. The separator
 // would otherwise promise something after it.
 static assert(riteLine("willow", "APPLE", Verdict.Hold, "").text() == "willow APPLE held");
+
+// A dispatch is not a check, so `ci all checks passed ✓` was never true of one.
+import notification : verdictWord;
+static assert(verdictWord(0, true) == "dispatched");
+static assert(verdictWord(0, false) == "passed through");
+static assert(verdictWord(1, true) == "held");
+static assert(verdictWord(2, true) == "halted");
+
+// "shouldnt dispatch rites say what happened, which is dispatched workflow.yml"
+static assert(riteLine("coinflip", "FLIP1", Verdict.Advance, "", "", "",
+                       "sbvh-nl/grove long-coin.yml").text()
+    == "coinflip FLIP1 dispatched sbvh-nl/grove long-coin.yml");
+
+// gh could not send it, so nothing was dispatched and the act is not claimed.
+static assert(riteLine("coinflip", "FLIP1", Verdict.Halt, "", "", "",
+                       "sbvh-nl/grove long-coin.yml").text()
+    == "coinflip FLIP1 halted");
 
 // --- What the handler decides, against a real store ---
 

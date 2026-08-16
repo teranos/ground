@@ -30,14 +30,20 @@ private void putNum(ref Notice n, int v) {
     foreach (k; 0 .. i) n.put(d[i - 1 - k .. i - k]);
 }
 
-private immutable string[3] VERDICT_SAID = ["passed", "held", "halted"];
+// "a rite was passed through"
+immutable string[3] VERDICT_SAID = ["passed through", "held", "halted"];
+
+// "shouldnt dispatch rites say what happened, which is dispatched workflow.yml"
+const(char)[] verdictWord(size_t verdict, bool dispatched) {
+    return dispatched && verdict == 0 ? "dispatched" : VERDICT_SAID[verdict];
+}
 
 // One rite, as it happens: what it answered, then what the agent said about
 // it. The verdict leads because it is the part that reads as blocking,
 // passing or stopped without being parsed.
 Notice riteLine(V)(const(char)[] ritual, const(char)[] rite, V verdict,
                    const(char)[] said, const(char)[] performance = "",
-                   const(char)[] mic = "") {
+                   const(char)[] mic = "", const(char)[] dispatch = "") {
     Notice n;
     n.put(ritual);
     // Several performances of one ritual walk at once, and every line saying
@@ -50,7 +56,11 @@ Notice riteLine(V)(const(char)[] ritual, const(char)[] rite, V verdict,
     n.put(" ");
     n.put(rite);
     n.put(" ");
-    n.put(VERDICT_SAID[cast(size_t) verdict]);
+    n.put(verdictWord(cast(size_t) verdict, dispatch.length > 0));
+    if (dispatch.length > 0 && cast(size_t) verdict == 0) {
+        n.put(" ");
+        n.put(dispatch);
+    }
     // "the rite never speaks? even though its holding the mic?"
     if (mic.length > 0) {
         n.put(" · ");

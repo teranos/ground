@@ -124,7 +124,8 @@ int handleDrive(int argc, const(char)** argv) {
 
                 auto rite = flat.rites[found.p.current].name;
                 auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id,
-                                     flat.rites[found.p.current].mic);
+                                     flat.rites[found.p.current].mic,
+                                     flat.rites[found.p.current].dispatch);
 
                 // The note id is the key, so the revision keeps a rite asked
                 // twice from writing the id it was already delivered under.

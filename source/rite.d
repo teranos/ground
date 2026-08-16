@@ -142,12 +142,13 @@ PreparedRite prepareCmd(const(char)[] cmd, const(char)[] cwd,
 // The built script is __gshared because PreparedRite holds slices of what it
 // was given, and a local would be gone before the caller read them.
 PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
-                            const(char[])[] keys = [], const(char[])[] values = []) {
+                            const(char[])[] keys = [], const(char[])[] values = [],
+                            const(char)[] token = "") {
     static if (__traits(hasMember, R, "dispatch")) {
         if (r.dispatch.length > 0) {
             import dispatch : dispatchScript, DispatchScript;
             __gshared DispatchScript d;
-            d = dispatchScript(r.dispatch, r.inputs);
+            d = dispatchScript(r.dispatch, r.inputs, token);
             if (!d.ok) {
                 PreparedRite bad;
                 bad.cmd = r.dispatch;

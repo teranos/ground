@@ -1,7 +1,7 @@
 module ritual.run;
 
 import rite : Verdict;
-import ritual.position : Position, RitualState, RiteState, MAX_GOTOS, step, jump;
+import ritual.position : Position, RitualState, RiteState, step, jump;
 import ritual.resolve : Flattened, indexOfRite;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
@@ -71,8 +71,15 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (p.current >= f.count) return a;
 
     auto r = f.rites[p.current];
+    // The name the run carries back, so it is found rather than guessed at.
+    __gshared ZBuf token;
+    token.reset();
+    token.put(p.id);
+    token.put(":");
+    token.put(r.name);
     auto prepared = prepareRite(r, p.worktree,
-                                r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
+                                r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount],
+                                token.slice());
     // A placeholder no project env resolves will not resolve by being asked
     // again. "Did not run" left the driver retrying every two seconds — 93,866
     // identical rows overnight, because nothing in that path gave up.
@@ -259,7 +266,7 @@ private immutable string[3] CI_SAID =
 
 // What every other rite is. `wait:` says a rite is slow, not that it is CI, and
 // a PR comment signed `ci all checks passed ✓` is the record lying.
-private immutable string[3] RITE_SAID = ["passed", "held", "halted"];
+import notification : VERDICT_SAID, verdictWord;
 
 private void putRev(ref ZBuf b, long v) {
     char[20] d = 0;
@@ -302,9 +309,16 @@ private void riteSpeaks(DB, R)(DB db, const Position p, const Position moved,
     said.put(" ");
     said.put(p.branch);
     said.put(" ");
-    if (isCi) said.put(CI_SAID[cast(size_t) v]);
+    // A dispatch is not a check, so CI_SAID was never true of one.
+    if (r.dispatch.length > 0) {
+        said.put(r.name);
+        said.put(" ");
+        said.put(verdictWord(cast(size_t) v, true));
+        if (cast(size_t) v == 0) { said.put(" "); said.put(r.dispatch); }
+    }
+    else if (isCi) said.put(CI_SAID[cast(size_t) v]);
     else if (part.length > 0) { said.put(r.name); said.put(" "); said.put(part); }
-    else { said.put(r.name); said.put(" "); said.put(RITE_SAID[cast(size_t) v]); }
+    else { said.put(r.name); said.put(" "); said.put(VERDICT_SAID[cast(size_t) v]); }
     if (output.length > 0) {
         said.put("\n");
         said.put(output);
