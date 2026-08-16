@@ -36,7 +36,7 @@ enum WNOHANG = 1;
 
 // Default script timeout in seconds when handler_params doesn't specify.
 // Long enough for realistic deploy scripts; short enough to catch hangs.
-enum DEFAULT_TIMEOUT_SEC = 300;
+enum DEFAULT_TIMEOUT_SEC = 500;
 
 // Under the ERROR AXIOM: every failure path constructs a GroundError and
 // calls deliverError. This helper packages the boilerplate. When called,
