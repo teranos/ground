@@ -3,12 +3,13 @@ module watch;
 // ground watch <cwd>
 //
 // Immediate delivery via asyncRewake. Polls the db every 2 seconds for
-// immediate: attestations matching the project. Batches all pending messages,
-// debounces (5s quiet window), writes to stderr and exits 2. Claude Code's
+// immediate: attestations matching the project, writes what is pending to
+// stderr and exits 2 — no timer, nothing held back. Claude Code's
 // asyncRewake shows stderr as a system reminder and wakes the session.
 //
-// Spawned by the Stop hook: {"command":"ground watch $PWD","asyncRewake":true}
-// Each Stop fires a new watcher. Claude Code does NOT deduplicate async hooks
+// Spawned by PostToolUse, Stop and SessionStart:
+// {"command":"ground watch $PWD","asyncRewake":true}
+// Claude Code does NOT deduplicate async hooks
 // (confirmed by docs), so we handle it ourselves via PID files.
 //
 // Session identity:
@@ -18,12 +19,6 @@ module watch;
 //   file (atomic rename) to learn its session ID and writes its PID.
 //   Killing is keyed by session — watchers from different sessions never
 //   interfere with each other.
-//
-// Debounce:
-//   When messages are found, the watcher waits 5s before checking again.
-//   If more messages arrive during the wait, the timer resets. Delivery
-//   happens only after a full 5s with no new messages. This batches
-//   burst events (e.g. QNTX restart with 7 plugins) into one notification.
 //
 // Two keying models, both flow through this watcher:
 //
@@ -43,8 +38,7 @@ module watch;
 //   checkCIStatus(repo, branch) which calls `gh -R <repo> --branch <branch>`
 //   and returns a CIQuery (see deferred.d), not a string. Four outcomes:
 //     InProgress  — not terminal, retry next cycle at the adaptive interval
-//     Terminal    — deliver it; "failure" is urgent and bypasses the debounce,
-//                   anything else takes the normal 5s debounce
+//     Terminal    — deliver it
 //     NoWorkflow  — gh answered and there is genuinely no run; mark delivered
 //                   so the row doesn't loop forever
 //     Unavailable — gh could not be run or exited non-zero; DELIVERED, not
@@ -405,9 +399,6 @@ int handleWatch(int argc, const(char)** argv) {
     while (true) {
         auto db = openDb();
         if (db !is null) {
-            bool foundNew = false;
-            bool urgent = false;
-
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
 
@@ -449,12 +440,9 @@ int handleWatch(int argc, const(char)** argv) {
                     // "I could not find out" is the honest answer to "what
                     // happened to my CI" — silently discarding the row is not.
                     imm.message = ci.text;
-                    if (contains(ci.text, "failure"))
-                        urgent = true;
                 }
 
                 markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
-                foundNew = true;
 
                 // Append to batch: "ground: <message>\n"
                 if (batchLen > 0 && batchLen < batchBuf.length) batchBuf[batchLen++] = '\n';
@@ -464,13 +452,8 @@ int handleWatch(int argc, const(char)** argv) {
 
             sqlite3_close(db);
 
-            if (foundNew && !urgent) {
-                // Debounce: new messages arrived, wait 5s for more before delivering.
-                sleep(5);
-                continue;
-            }
-
-            // No new messages this cycle. If we accumulated anything, deliver now.
+            // "nothing can wait, and everything is urgent, at the same level
+            // of predictable urgency"
             if (batchLen > 0) {
                 removePid(sessionId, pidPrefix);
                 releaseTree(cwd);

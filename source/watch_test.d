@@ -24,3 +24,21 @@ static assert(parsePid("-1") == 0);
 // parent is claude, so ppid 1 means nobody is left to be woken.
 static assert(orphaned(1));
 static assert(!orphaned(3787));
+
+// "nothing can wait, and everything is urgent, at the same level of
+// predictable urgency"
+private enum watchSource = import("source/watch.d");
+static assert(!contains(watchSource, "bool urgent"));
+static assert(!contains(watchSource, "urgent = true"));
+static assert(!contains(watchSource, "sleep(5)"));
+
+private bool contains(const(char)[] hay, const(char)[] needle) {
+    if (needle.length > hay.length) return false;
+    foreach (i; 0 .. hay.length - needle.length + 1) {
+        bool hit = true;
+        foreach (j; 0 .. needle.length)
+            if (hay[i + j] != needle[j]) { hit = false; break; }
+        if (hit) return true;
+    }
+    return false;
+}
