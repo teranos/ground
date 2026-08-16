@@ -76,6 +76,16 @@ static assert(!contains(k.text(), "printf 'ground="));
 // dispatch, and every pbt on disk predates this.
 static assert(!contains(s.text(), "-f ground="));
 
+// "the fucking mic is TAKEN" — the outcome has to find the agent, and the
+// token is the only thing carried far enough to name the performance.
+import dispatch : performanceOf;
+static assert(performanceOf("coinflip-1786888445:FLIP1") == "coinflip-1786888445");
+static assert(performanceOf("q-deploy-1786845074:WEB") == "q-deploy-1786845074");
+
+// A token is <performance>:<rite>. Without the rite it names no performance.
+static assert(performanceOf("coinflip-1786888445") == "");
+static assert(performanceOf("") == "");
+
 private bool hasBraces(const(char)[] c) {
     foreach (i; 0 .. c.length)
         if (i + 1 < c.length && c[i] == '$' && c[i + 1] == '{') return true;

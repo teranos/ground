@@ -19,7 +19,7 @@ module immediate;
 //   Multiple messages with the same name (e.g. repeated lifecycle events) are
 //   each delivered — delivery is keyed on the message's unique ID, not its name.
 //
-// See watch.d for the watcher lifecycle, claim files, and debounce.
+// See watch.d for the watcher lifecycle and claim files.
 
 import matcher : indexOf;
 import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
@@ -287,6 +287,21 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     sqlite3_finalize(stmt);
     return ImmediateMsg(null, null, null, null, null, null, null, null, 0, 0, 0);
+}
+
+// Not yet, rather than not at all. A reader that stopped at a row it could not
+// resolve never reached anything behind it, so one waiting run held back every
+// message written after it.
+void parkImmediate(sqlite3* db, const(char)[] msgId, long untilUnix) {
+    if (msgId.length == 0) return;
+    enum sql = "UPDATE attestations SET attributes = json_set(attributes, '$.after', ?2) WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, msgId.ptr, cast(int) msgId.length, SQLITE_TRANSIENT);
+    import db : sqlite3_bind_int64;
+    sqlite3_bind_int64(stmt, 2, untilUnix);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 // Mark a specific immediate message as delivered for this session.
@@ -1001,9 +1016,8 @@ bool writeExecResult(sqlite3* db,
 // after its last batch.
 //
 // Grace is the watcher's worst-case gap between a row landing and being read:
-// the adaptive poll tops out at 30s (adaptive.d) plus the 5s debounce
-// (watch.d). 60s clears that with room, so anything older means nobody is
-// reading — not that we asked too early.
+// the adaptive poll tops out at 30s (adaptive.d). 60s clears that twice over,
+// so anything older means nobody is reading — not that we asked too early.
 //
 // Scoped to exec-result deliberately. The watcher parks an in_progress
 // ci-status row for the entire CI duration by design, so age carries no
@@ -1443,8 +1457,8 @@ unittest {
 
 unittest {
     // ci-status is deliberately out of scope. The watcher parks an in_progress
-    // run for the whole CI duration by design (watch.d: `break` on in_progress),
-    // so age says nothing about pipeline health for that row type.
+    // run for the whole CI duration by design (watch.d calls parkImmediate and
+    // moves on), so age says nothing about pipeline health for that row type.
     import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);

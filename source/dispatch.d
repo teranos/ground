@@ -28,6 +28,20 @@ Target dispatchTarget(const(char)[] s) {
     return t;
 }
 
+// The performance a token belongs to. It is what carries far enough to find
+// the agent when the run concludes, long after the rite is behind the walk.
+const(char)[] performanceOf(const(char)[] token) {
+    size_t cut;
+    bool found;
+    foreach (i, c; token) {
+        if (c != ':') continue;
+        cut = i;
+        found = true;
+    }
+    if (!found || cut == 0) return "";
+    return token[0 .. cut];
+}
+
 struct DispatchScript {
     char[2048] buf = 0;
     size_t len;

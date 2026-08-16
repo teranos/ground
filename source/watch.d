@@ -129,6 +129,10 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
+// How long a dispatched run may take to appear in the listing before its
+// absence is reported as an absence.
+enum DISPATCH_APPEAR_SEC = 60;
+
 const(char)[] getHome() {
     import core.stdc.stdlib : getenv;
     auto h = getenv("HOME");
@@ -425,11 +429,14 @@ int handleWatch(int argc, const(char)** argv) {
                     import deferred : CIQuery;
                     auto ci = checkCIStatus(imm.repo, imm.branch);
                     if (ci.kind == CIQuery.InProgress) {
-                        // Adaptive backoff: stay quiet during the unlikely-done
-                        // window, poll actively in the likely-done window.
-                        auto elapsed = cast(long) time(null) - imm.pushTime;
-                        nextSleep = pickAdaptiveSleep(elapsed, imm.p50, imm.p90);
-                        break; // not terminal yet, try again next cycle
+                        // Parked, not stopped: breaking here held back every
+                        // message written after this row.
+                        import immediate : parkImmediate;
+                        auto now = cast(long) time(null);
+                        auto wait = pickAdaptiveSleep(now - imm.pushTime, imm.p50, imm.p90);
+                        nextSleep = wait;
+                        parkImmediate(db, imm.msgId, now + wait);
+                        continue;
                     }
                     if (ci.kind == CIQuery.NoWorkflow) {
                         // gh answered and there is genuinely no run to report.
@@ -454,16 +461,28 @@ int handleWatch(int argc, const(char)** argv) {
                     }
                     auto run = checkRunByToken(imm.repo, imm.token);
                     if (run.kind == CIQuery.InProgress) {
-                        auto elapsed = cast(long) time(null) - imm.pushTime;
-                        nextSleep = pickAdaptiveSleep(elapsed, imm.p50, imm.p90);
-                        break;
-                    }
-                    // gh answered and no run carries that name.
-                    if (run.kind == CIQuery.NoWorkflow) {
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                        import immediate : parkImmediate;
+                        auto now = cast(long) time(null);
+                        auto wait = pickAdaptiveSleep(now - imm.pushTime, imm.p50, imm.p90);
+                        nextSleep = wait;
+                        parkImmediate(db, imm.msgId, now + wait);
                         continue;
                     }
-                    imm.message = run.text;
+                    // A run does not appear in the listing the instant it is
+                    // dispatched, and "not there yet" is not "not coming".
+                    if (run.kind == CIQuery.NoWorkflow) {
+                        import immediate : parkImmediate;
+                        auto now = cast(long) time(null);
+                        if (now - imm.pushTime < DISPATCH_APPEAR_SEC) {
+                            nextSleep = 2;
+                            parkImmediate(db, imm.msgId, now + 2);
+                            continue;
+                        }
+                        // Long past appearing. Say so rather than drop it.
+                        imm.message = "no run carries the name ground gave it";
+                    }
+                    else imm.message = run.text;
+
                 }
 
                 markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
