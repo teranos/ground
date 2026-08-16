@@ -41,6 +41,8 @@ struct ImmediateMsg {
     const(char)[] repo;
     const(char)[] branch;
     const(char)[] sha;
+    // What a dispatched run carries in its name, so it is found and not guessed.
+    const(char)[] token;
     // Push timestamp (unix) + historical CI duration percentiles for adaptive
     // polling. 0 when unavailable (no history, legacy rows).
     long pushTime;
@@ -68,7 +70,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return ImmediateMsg(null, null, null, null, null, null, null, 0, 0, 0);
+        return ImmediateMsg(null, null, null, null, null, null, null, null, 0, 0, 0);
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, mark.ptr, cast(int) mark.length, SQLITE_TRANSIENT);
 
@@ -226,6 +228,18 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             }
         }
 
+        // The run's own name, which is how a dispatch is told from every other
+        // run on the branch.
+        __gshared char[160] tokenBuf = 0;
+        size_t tokenLen = 0;
+        auto tokIdx = indexOf(attrs, `"token":"`);
+        if (tokIdx >= 0) {
+            size_t tp = cast(size_t) tokIdx + 9;
+            while (tp < attrLen && attrs[tp] != '"' && tokenLen < tokenBuf.length) {
+                tokenBuf[tokenLen++] = attrs[tp++];
+            }
+        }
+
         // Numeric extras for adaptive polling (push_time, p50, p90).
         long pushTime, p50, p90;
         {
@@ -264,6 +278,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             repoBuf[0 .. repoLen],
             branchBuf[0 .. branchLen],
             shaBuf[0 .. shaLen],
+            tokenBuf[0 .. tokenLen],
             pushTime,
             p50,
             p90,
@@ -271,7 +286,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
     }
 
     sqlite3_finalize(stmt);
-    return ImmediateMsg(null, null, null, null, null, null, null, 0, 0, 0);
+    return ImmediateMsg(null, null, null, null, null, null, null, null, 0, 0, 0);
 }
 
 // Mark a specific immediate message as delivered for this session.
@@ -624,6 +639,105 @@ unittest {
 
     // No session, nobody to tell.
     assert(!writeNote(testDb, "", "worktree", "orphan"));
+    sqlite3_close(testDb);
+}
+
+// A dispatch sends a job and the walk moves on, so this row is the only record
+// that an outcome is owed. Written the instant the job is accepted, resolved by
+// the watcher against the run's own name.
+bool writeDispatchStatus(sqlite3* db, const(char)[] sessionId,
+                         const(char)[] repo, const(char)[] token, int delaySec) {
+    import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
+
+    if (sessionId.length == 0 || repo.length == 0 || token.length == 0) return false;
+
+    __gshared ZBuf idBuf;
+    idBuf.reset();
+    idBuf.put("immediate:dispatch:");
+    idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(token);
+
+    __gshared ZBuf ctxBuf;
+    ctxBuf.reset();
+    ctxBuf.put(`["session:`);
+    ctxBuf.put(sessionId);
+    ctxBuf.put(`"]`);
+
+    void putLong(ref ZBuf buf, long v) {
+        char[20] tbuf = 0;
+        int tlen = 0;
+        if (v == 0) { tbuf[0] = '0'; tlen = 1; }
+        else {
+            while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
+            foreach (i; 0 .. tlen / 2) { auto t = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = t; }
+        }
+        buf.put(tbuf[0 .. tlen]);
+    }
+
+    auto now = cast(long) time(null);
+
+    __gshared ZBuf attrBuf;
+    attrBuf.reset();
+    attrBuf.put(`{"detail":"Watching the run...","repo":"`);
+    foreach (c; repo) { if (c != '"' && c != '\\') attrBuf.putChar(c); }
+    attrBuf.put(`","token":"`);
+    foreach (c; token) { if (c != '"' && c != '\\') attrBuf.putChar(c); }
+    attrBuf.put(`","push_time":`); putLong(attrBuf, now);
+    attrBuf.put(`,"after":`);      putLong(attrBuf, now + delaySec);
+    attrBuf.put(`}`);
+
+    auto ts = formatTimestamp();
+
+    __gshared ZBuf srcBuf;
+    srcBuf.reset();
+    srcBuf.put("ground ");
+    srcBuf.put(versionString());
+
+    enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+
+    foreach (attempt; 0 .. 10) {
+        sqlite3_stmt* stmt;
+        auto prep = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+        if (prep == SQLITE_BUSY) { usleep(50_000); continue; }
+        if (prep != SQLITE_OK) return false;
+
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, `["dispatch"]`.ptr, 12, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, `["immediate:dispatch"]`.ptr, 22, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+
+        auto step = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (step == SQLITE_DONE) return true;
+        if (step == SQLITE_BUSY) { usleep(50_000); continue; }
+        return false;
+    }
+    return false;
+}
+
+unittest {
+    // A dispatched run is owed an outcome, and nothing recorded that one was
+    // outstanding — so the walk moved on and the run concluded unobserved.
+    import db : sqlite3_open, applySchema, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:\0".ptr, &testDb) == SQLITE_OK);
+    assert(applySchema(testDb));
+
+    assert(writeDispatchStatus(testDb, "sess-d", "sbvh-nl/grove",
+                               "coinflip-1:FLIP1", 0));
+
+    auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-d");
+    assert(msg.message !is null, "an outstanding run must be readable at once");
+    assert(msg.name == "dispatch");
+    assert(msg.repo == "sbvh-nl/grove");
+    assert(msg.token == "coinflip-1:FLIP1", "the token is how the run is found");
+
     sqlite3_close(testDb);
 }
 

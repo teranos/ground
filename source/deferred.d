@@ -713,6 +713,51 @@ CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
     return interpretCIOutput(status, outBuf[0 .. n]);
 }
 
+// A dispatched run lands on the default branch, not on the commit that caused
+// it, so branch and sha find nothing. The run carries the name ground gave it,
+// and that is what it is found by.
+CIStatus checkRunByToken(const(char)[] repo, const(char)[] token) {
+    __gshared ZBuf ghCmd;
+    ghCmd.reset();
+    ghCmd.put("gh -R ");
+    ghCmd.put(repo);
+    ghCmd.put(` run list --limit 40 --json conclusion,name,event,databaseId --jq 'first(.[] | select(.name | endswith("`);
+    ghCmd.put(token);
+    ghCmd.put(`")) | "\(if (.conclusion // "") == "" then "in_progress" else .conclusion end) \(.name) (\(.event))")' 2>&1`);
+
+    auto pipe = popen(ghCmd.ptr(), "r");
+    if (pipe is null)
+        return CIStatus(CIQuery.Unavailable, "run status unknown: could not run gh");
+
+    __gshared char[CI_TEXT_CAP] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    auto status = pclose(pipe);
+
+    // A red without its log says a thing broke and nothing about what.
+    size_t head = 0;
+    while (head < n && outBuf[head] != '\n') head++;
+    if (status == 0 && head > 0 && wantsTail(outBuf[0 .. head])) {
+        __gshared ZBuf logCmd;
+        logCmd.reset();
+        logCmd.put("gh -R ");
+        logCmd.put(repo);
+        logCmd.put(` run view "$(gh -R `);
+        logCmd.put(repo);
+        logCmd.put(` run list --limit 40 --json databaseId,name --jq 'first(.[] | select(.name | endswith("`);
+        logCmd.put(token);
+        logCmd.put(`")) | .databaseId)')" --log-failed 2>&1 | tail -`);
+        logCmd.put(CI_TAIL_LINES);
+        auto lp = popen(logCmd.ptr(), "r");
+        if (lp !is null) {
+            if (n < outBuf.length - 1 && outBuf[n - 1] != '\n') outBuf[n++] = '\n';
+            n += fread(&outBuf[n], 1, outBuf.length - 1 - n, lp);
+            pclose(lp);
+        }
+    }
+
+    return interpretCIOutput(status, outBuf[0 .. n]);
+}
+
 // --- Defer write/read cycle tests ---
 
 unittest {

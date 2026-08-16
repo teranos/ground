@@ -171,6 +171,16 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         a.code = run.code;
         a.output = run.output();
         a.verdict = run.code == 0 ? Verdict.Advance : Verdict.Halt;
+
+        // The walk leaves this rite behind, so this row is the only thing that
+        // remembers a run is still owed.
+        if (a.verdict == Verdict.Advance) {
+            import immediate : writeDispatchStatus;
+            import dispatch : dispatchTarget;
+            auto t = dispatchTarget(r.dispatch);
+            if (t.ok && p.parent.length > 0)
+                cast(void) writeDispatchStatus(db, p.parent, t.repo, token.slice(), 0);
+        }
     }
     // A rite with a run and no eval asked nothing, so there is no code to read.
     else if (r.eval.length == 0) {

@@ -442,6 +442,30 @@ int handleWatch(int argc, const(char)** argv) {
                     imm.message = ci.text;
                 }
 
+                // A dispatch is over, but the run it sent is not. This row is
+                // the only record that an outcome is still owed.
+                if (imm.name == "dispatch") {
+                    import deferred : checkRunByToken, CIQuery;
+                    import adaptive : pickAdaptiveSleep;
+                    import core.stdc.time : time;
+                    if (imm.repo.length == 0 || imm.token.length == 0) {
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                        continue;
+                    }
+                    auto run = checkRunByToken(imm.repo, imm.token);
+                    if (run.kind == CIQuery.InProgress) {
+                        auto elapsed = cast(long) time(null) - imm.pushTime;
+                        nextSleep = pickAdaptiveSleep(elapsed, imm.p50, imm.p90);
+                        break;
+                    }
+                    // gh answered and no run carries that name.
+                    if (run.kind == CIQuery.NoWorkflow) {
+                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                        continue;
+                    }
+                    imm.message = run.text;
+                }
+
                 markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
 
                 // Append to batch: "ground: <message>\n"
