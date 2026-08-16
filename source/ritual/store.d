@@ -14,8 +14,10 @@ bool writePosition(DB)(DB db, const Position p) {
 
     enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, mic, mic_at, said, holds) "
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) ON CONFLICT(id) DO UPDATE SET "
+        // session and agent_pid are absent on purpose: bindAgent owns them, and
+        // a whole-row update from a stale copy erased them.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
-        ~ "session=?10, agent=?11, gotos=?12, parent=?13, agent_pid=?14, thrown_at=?15, throws=?16, "
+        ~ "agent=?11, gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
         ~ "mic=?17, mic_at=?18, said=?19, holds=?20, rev=rev+1, updated_at=CURRENT_TIMESTAMP\0";
 
     sqlite3_stmt* stmt;
@@ -189,8 +191,9 @@ bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
     // and a guarded UPDATE would refuse it for having no revision to match.
     enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds) "
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17 + 1, ?18, ?19, ?20, ?21) ON CONFLICT(id) DO UPDATE SET "
+        // session and agent_pid are absent on purpose: bindAgent owns them.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
-        ~ "session=?10, agent=?11, gotos=?12, parent=?13, agent_pid=?14, thrown_at=?15, throws=?16, "
+        ~ "agent=?11, gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
         ~ "mic=?18, mic_at=?19, said=?20, holds=?21, rev=rev+1, updated_at=CURRENT_TIMESTAMP WHERE ritual_position.rev=?17\0";
 
     sqlite3_stmt* stmt;
@@ -230,6 +233,27 @@ bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
 // The agent did something. Stamped per tool call, so blue on the line means
 // work is happening rather than a colour asserting it. An UPDATE and not a
 // read: this runs on every tool call in every session, live performance or no.
+// Who is carrying this performance. Two columns, written where they are known
+// and nowhere else — a whole-row write from any other caller carried a stale
+// copy and erased them seconds after they were made.
+void bindAgent(DB)(DB db, const(char)[] worktree, const(char)[] sessionId, long pid) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+                sqlite3_bind_text, sqlite3_bind_int64, sqlite3_stmt,
+                SQLITE_OK, SQLITE_TRANSIENT;
+
+    if (worktree.length == 0 || sessionId.length == 0) return;
+    enum sql = "UPDATE ritual_position SET session = ?2, agent_pid = ?3 "
+        ~ "WHERE worktree = ?1 AND state = 'live'\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, worktree.ptr, cast(int) worktree.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, sessionId.ptr, cast(int) sessionId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, pid);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
 void stampActed(DB)(DB db, const(char)[] sessionId, long unixSeconds) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
                 sqlite3_bind_text, sqlite3_bind_int64, sqlite3_stmt,

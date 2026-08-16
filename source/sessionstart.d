@@ -318,14 +318,14 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             // was spawned for the tree.
             if (found.valid && found.p.state == RitualState.Live
                 && found.p.agentSession.length == 0 && sessionId.length > 0) {
-                found.p = bindSession(found.p, sessionId);
-
                 // This hook runs inside the agent, so its parent is the agent.
                 // Nothing else knows the pid: with --bg the process belongs to
-                // the background host, and asking costs a frame the line lacks.
+                // the background host.
                 import watch : getppid;
+                import ritual.store : bindAgent;
+                bindAgent(rdb, found.p.worktree, sessionId, getppid());
+                found.p = bindSession(found.p, sessionId);
                 found.p.agentPid = getppid();
-                writePosition(rdb, found.p);
             }
 
             sqlite3_close(rdb);
