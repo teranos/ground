@@ -213,6 +213,28 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 if (freshWords(spoken, found.p.said)) {
                     back.said = spoken;
                     cast(void) writePositionIf(db, back, back.rev);
+
+                    // The hash is all that survives this function, so the words
+                    // go out from here or from nowhere.
+                    import sentences : firstTwoSentences;
+                    import notification : riteLine;
+                    import ritual.delivery : deliver;
+                    import rite : Verdict;
+                    auto rite = flat.rites[found.p.current];
+                    auto words = firstTwoSentences(said);
+                    if (words.length > 0) {
+                        __gshared ZBuf saidKey;
+                        saidKey.reset();
+                        saidKey.put("rite:");
+                        saidKey.put(found.p.id);
+                        saidKey.put(":");
+                        saidKey.put(rite.name);
+                        saidKey.put(":said:");
+                        putInt(saidKey, spoken < 0 ? -spoken : spoken);
+                        auto line = riteLine(found.p.ritual, rite.name, Verdict.Hold,
+                                             words, found.p.id, "", rite.dispatch);
+                        deliver(db, found.p, rite.to, saidKey.slice(), line.text(), true);
+                    }
                 }
 
                 sqlite3_close(db);
