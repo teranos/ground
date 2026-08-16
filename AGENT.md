@@ -1,8 +1,29 @@
 # AGENT
 
-An Agent is a background session. Anthropic's names for it are **background
-session** and **agent view** (`claude agents`), as opposed to an **interactive
-session**. `spawnScript` starts one with `claude -w <tree> --bg <prompt>`.
+An Agent is a session ground starts to carry a performance. There are two
+implementations of one idea, and both stay — "we dont lose --bg agent, but what
+we do do is create another implementation alongside it".
+
+A **--bg agent** is a background session. Anthropic's names for it are
+**background session** and **agent view** (`claude agents`), as opposed to an
+**interactive session**. `spawnScript` starts one with
+`claude -w <tree> --bg <prompt>`. The daemon owns it, which is what gives it a
+row in agent view, a peek panel, and `claude stop <id>`. Ground can watch it
+and cannot address it: every channel to it is a hook, and a hook only speaks
+when the agent next pauses.
+
+A **stream-json agent** is a child on pipes. The driver forks
+`claude --output-format stream-json --verbose --input-format stream-json` and
+keeps both ends, so it speaks the control protocol the official SDK speaks.
+Nobody else owns it, which is what costs it the agent view row and the peek
+panel, and what buys the one thing the other cannot do: it can be interrupted
+mid-sentence.
+
+[INTERRUPT.md](INTERRUPT.md) is why the second one exists — "INTERRUPT happens
+to be the reason for wanting its existence, it's because I want the true
+unwavering reading of the original 90d". Not a migration and not a replacement.
+The rows below are the `--bg` agent's record; where the stream-json agent needs
+its own answer to one of them, that answer is a numbered row in INTERRUPT.md.
 
 A subagent is a different thing and ground does not build on it. See
 [SUBAGENT.md](SUBAGENT.md).
