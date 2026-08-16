@@ -40,6 +40,15 @@ static assert(riteLine("willow", "APPLE", Verdict.Halt, "I cannot find it.").tex
 // would otherwise promise something after it.
 static assert(riteLine("willow", "APPLE", Verdict.Hold, "").text() == "willow APPLE held");
 
+// The agent speaking is not a verdict. Wiring 82c through riteLine stamped
+// `held` on it, which a dispatch rite can never be.
+import notification : agentLine;
+static assert(agentLine("willow", "APPLE", "Took the APPLE out.").text()
+    == "willow APPLE · Took the APPLE out.");
+
+// Nothing said, nothing to carry — the separator would promise words.
+static assert(agentLine("willow", "APPLE", "").text() == "");
+
 // A dispatch is not a check, so `ci all checks passed ✓` was never true of one.
 import notification : verdictWord;
 static assert(verdictWord(0, true) == "dispatched");

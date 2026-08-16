@@ -217,9 +217,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     // The hash is all that survives this function, so the words
                     // go out from here or from nowhere.
                     import sentences : firstTwoSentences;
-                    import notification : riteLine;
+                    import notification : agentLine;
                     import ritual.delivery : deliver;
-                    import rite : Verdict;
                     auto rite = flat.rites[found.p.current];
                     auto words = firstTwoSentences(said);
                     if (words.length > 0) {
@@ -231,8 +230,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         saidKey.put(rite.name);
                         saidKey.put(":said:");
                         putInt(saidKey, spoken < 0 ? -spoken : spoken);
-                        auto line = riteLine(found.p.ritual, rite.name, Verdict.Hold,
-                                             words, found.p.id, "", rite.dispatch);
+                        auto line = agentLine(found.p.ritual, rite.name, words, found.p.id);
                         deliver(db, found.p, rite.to, saidKey.slice(), line.text(), true);
                     }
                 }

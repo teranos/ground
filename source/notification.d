@@ -38,6 +38,25 @@ const(char)[] verdictWord(size_t verdict, bool dispatched) {
     return dispatched && verdict == 0 ? "dispatched" : VERDICT_SAID[verdict];
 }
 
+// The agent's own words, on the rite it was standing on. No verdict: it is
+// the agent talking, not the rite answering.
+Notice agentLine(const(char)[] ritual, const(char)[] rite, const(char)[] said,
+                 const(char)[] performance = "") {
+    Notice n;
+    if (said.length == 0) return n;
+    n.put(ritual);
+    if (performance.length > 0) {
+        import ritual : shortId;
+        auto h = shortId(performance);
+        if (h.len > 0) { n.put("-"); n.put(h.text()); }
+    }
+    n.put(" ");
+    n.put(rite);
+    n.put(" · ");
+    n.put(said);
+    return n;
+}
+
 // One rite, as it happens: what it answered, then what the agent said about
 // it. The verdict leads because it is the part that reads as blocking,
 // passing or stopped without being parsed.
