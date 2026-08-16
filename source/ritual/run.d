@@ -162,9 +162,18 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         }
     }
 
+    // "A DISPATCH ISNT A QUESTION BEING ASKED" — so no code is read as an
+    // answer. It sent the job or it did not.
+    if (r.dispatch.length > 0) {
+        auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
+        if (!run.ran) return a;
+        a.ran = true;
+        a.code = run.code;
+        a.output = run.output();
+        a.verdict = run.code == 0 ? Verdict.Advance : Verdict.Halt;
+    }
     // A rite with a run and no eval asked nothing, so there is no code to read.
-    // A dispatch is an eval — the run's conclusion is the answer.
-    if (r.eval.length == 0 && r.dispatch.length == 0) {
+    else if (r.eval.length == 0) {
         a.ran = true;
         a.verdict = Verdict.Advance;
     } else {
@@ -232,11 +241,23 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     // that read the row before another one moved it has run a rite whose
     // verdict is about a position that no longer exists.
     {
-        import ritual.store : writePositionIf;
+        import ritual.store : writePositionIf, byPerformanceId;
         a.applied = writePositionIf(db, moved, p.rev);
+
+        // A lost revision is bookkeeping that did not land, not a rite that did
+        // not happen. Returning here left the walk standing on a dispatch that
+        // had already sent its job, and the next cycle sent it again.
+        foreach (attempt; 0 .. 8) {
+            if (a.applied) break;
+            auto now = byPerformanceId(db, p.id);
+            // Somebody walked it on. Their outcome is the one that stands.
+            if (!now.valid || now.p.current != p.current) break;
+            moved.rev = now.p.rev;
+            a.applied = writePositionIf(db, moved, now.p.rev);
+        }
     }
     if (!a.applied) return a;
-    moved.rev = p.rev + 1;
+    moved.rev = moved.rev + 1;
 
     attestRite(db, sessionId, p, r.name, a.verdict, a.code, a.output, unixSeconds);
 

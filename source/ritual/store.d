@@ -320,6 +320,14 @@ private Restored stateHere(DB)(DB db, const(char)[] cwd, const(char)[] want) {
     return readOne(db, byId, idBuf[0 .. idLen]);
 }
 
+// The rite already ran, so a write that lost its revision needs the current
+// one — not a second run of the rite.
+Restored byPerformanceId(DB)(DB db, const(char)[] id) {
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds "
+        ~ "FROM ritual_position WHERE id = ?1\0";
+    return readOne(db, sql, id);
+}
+
 private void copyText(const(char)* src, char* dst, size_t cap, ref size_t len) {
     len = 0;
     if (src is null) return;

@@ -266,6 +266,15 @@ string validateRituals(PR)(const PR r) {
         }
     }
 
+    // "DISPATCH AND EVAL ARE DIFFERENT THIGNS"
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto rr = r.rites[i].rites[j];
+            if (rr.dispatch.length == 0 || rr.eval.length == 0) continue;
+            return "rite " ~ rr.name ~ ": dispatch is not asked, so it cannot carry an eval";
+        }
+    }
+
     // A goto naming nothing is a jump into the dark.
     foreach (i; 0 .. r.ritesCount) {
         foreach (j; 0 .. r.rites[i].riteCount) {

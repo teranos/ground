@@ -271,6 +271,13 @@ rites a { one { eval: "true"  goto: nowhere } }
 `;
 static assert(validateRituals(parsePbt(badGotoInput)) == "goto names no rite: nowhere");
 
+// "DISPATCH AND EVAL ARE DIFFERENT THIGNS" / "THEY ARENT EVEN IN THE SAME
+// CATEGORY" — an eval is a question, a dispatch is not asked at all.
+enum bothInput = `
+rites a { one { dispatch: "o/r w.yml"  eval: "true" } }
+`;
+static assert(validateRituals(parsePbt(bothInput)) == "rite one: dispatch is not asked, so it cannot carry an eval");
+
 // A declared param nobody supplies expands to empty, and an empty grep
 // pattern matches anything — a false pass, which is the one outcome
 // worth failing the build over.
