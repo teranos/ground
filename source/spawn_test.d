@@ -81,22 +81,7 @@ static assert(huge.text().length == 0);
 enum snug = spawnScript("/r", "p-1", rep!(k1000, 7));
 static assert(snug.text().length > 0);
 
-// --- The ending ends the agent ---
-// Measured 2026-08-07: eight `claude -w` processes still editing worktrees of
-// performances that had ended, the oldest an hour past its abort.
-
-import ritual : reapScript;
-
-// The wrapper's child is the script and its child is the agent, so the pid
-// ground forked does not reach it. The performance id does: it is in the
-// agent's own command line and nowhere else.
-enum reap = reapScript("willow-1786133819");
-static assert(reap.text() ==
-    "#!/usr/bin/env bash\nset -euo pipefail\n"
-    ~ "pkill -f 'claude -w willow-1786133819' || true\n");
-
-// No id, nothing to reap — a bare pattern would match every agent running.
-static assert(reapScript("").text() == "");
+// The ending ends the agent — reap_test.d, which selects on the tree.
 
 // Ground opens no pull request and writes no commit. "making a PR at the end
 // of each DONE was a mistake" — a ritual that wants either says so in a rite,
