@@ -39,6 +39,14 @@ static assert(contains(s.text(), "exit 125"));
 // Two rungs, and both say so out loud — the rite's stdout is what `to: parent`
 // carries back. rate_limit is exempt from the quota, so asking is free.
 static assert(contains(s.text(), "gh api rate_limit --jq"));
+
+// A probe that could not run has measured nothing, and nothing is not 0%. It
+// was `|| echo 0`, so an unreachable quota read as free and the throttle waved
+// through the calls the quota is spent on.
+static assert(!contains(s.text(), "echo 0"));
+static assert(!contains(s.text(), "pct=0"));
+static assert(contains(s.text(), "could not read the quota"));
+static assert(contains(s.text(), "rate_limit answered"));
 static assert(contains(s.text(), "waiting 10s"));
 static assert(contains(s.text(), "waiting 2s"));
 static assert(contains(s.text(), "gh_throttle\nif ! out=$(gh workflow run"));

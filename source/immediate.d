@@ -155,8 +155,17 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         if (detIdx < 0) continue;
         size_t mPos = cast(size_t) detIdx + 10;
         size_t mLen = 0;
-        while (mPos + mLen < attrLen && mLen < msgBuf.length && attrs[mPos + mLen] != '"')
+        // The closing quote is the first one that is not part of an escape.
+        // Stopping at the `"` inside `\"` cut every message at the first quote
+        // its command contained, and took the reason after it with them.
+        while (mPos + mLen < attrLen && mLen < msgBuf.length) {
+            if (attrs[mPos + mLen] == '\\' && mPos + mLen + 1 < attrLen) {
+                mLen += 2;
+                continue;
+            }
+            if (attrs[mPos + mLen] == '"') break;
             mLen++;
+        }
 
         // Copy into static buffers
         size_t nLen = nameEnd - nameStart;
@@ -1471,6 +1480,29 @@ unittest {
 
     assert(countStaleExecForSession(testDb, "sess-ci") == 0,
            "a long-parked ci-status row is not a pipeline failure");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // A rite's command carries quotes and the reason it failed sits after
+    // them, so reading that stopped at the first quote handed the operator a
+    // command cut mid-word and no reason at all.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    enum cmd = `test -z "$(git status --porcelain)" || exit 1`;
+    enum why = "goto taken 16 times, and max_goto for this project is 16";
+    assert(writeExecResult(testDb, "sess-quote", "KEEP", "exit 1", cmd, why));
+
+    auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-quote");
+    assert(msg.message !is null, "an exec result must be deliverable");
+    assert(indexOf(msg.message, cmd) >= 0, "the command must arrive whole");
+    assert(indexOf(msg.message, why) >= 0, "the reason must arrive at all");
 
     sqlite3_close(testDb);
 }

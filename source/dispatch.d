@@ -61,8 +61,20 @@ private void putQ(ref DispatchScript s, const(char)[] t) {
 // rate_limit endpoint is itself exempt, so asking costs nothing.
 private void putThrottle(ref DispatchScript s) {
     s.put("gh_throttle() {\n");
-    s.put("  pct=$(gh api rate_limit --jq '(.rate.used * 100 / .rate.limit) | floor' 2>/dev/null || echo 0)\n");
-    s.put("  case \"$pct\" in ''|*[!0-9]*) pct=0 ;; esac\n");
+    s.put("  if ! pct=$(gh api rate_limit --jq '(.rate.used * 100 / .rate.limit) | floor' 2>&1); then\n");
+    s.put("    printf 'could not read the quota: %s\\n' \"$pct\"\n");
+    s.put("    exit ");
+    s.putNum(RITE_UNREACHED);
+    s.put("\n  fi\n");
+
+    // A probe that could not run has measured nothing, and nothing is not 0%.
+    // Reading it as 0 is the throttle waving through exactly the calls the
+    // quota is spent on, which is what 90e exists to stop.
+    s.put("  case \"$pct\" in ''|*[!0-9]*)\n");
+    s.put("    printf 'rate_limit answered %s\\n' \"$pct\"\n");
+    s.put("    exit ");
+    s.putNum(RITE_UNREACHED);
+    s.put("\n  ;; esac\n");
     s.put("  if [ \"$pct\" -ge ");
     s.putNum(QUOTA_HIGH_PCT);
     s.put(" ]; then\n");
