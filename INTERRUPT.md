@@ -1,6 +1,6 @@
 # INTERRUPT
 
-90d — The mic is taken from the agent and CI speaks, now, whether or not it is
+The mic is taken from the agent and CI speaks, now, whether or not it is
 looking.
 
 "BY ANY MEANS"
@@ -140,3 +140,21 @@ async def interruptible_task():
 
 asyncio.run(interruptible_task())
 ```
+
+## Run and observed
+
+**The wire is one line.**
+`{"type":"control_request","request_id":"req_1_deadbeef","request":{"subtype":"interrupt"}}`
+written to the CLI's stdin. Nothing else — no handshake before it, no pty, no keypress, no tmux.
+Read from the SDK source, then sent by hand and answered.
+
+**It lands mid-sentence.** Sent eight seconds into a 3000-word essay. The CLI answered
+`control_response` `subtype: success` with `still_queued: []`, wrote `[Request interrupted by user]`
+into the transcript as a user turn, and closed the turn with `terminal_reason:
+"aborted_streaming"`, `subtype: "error_during_execution"`, `is_error: true`.
+
+**The session survives it.** The process stayed alive and waiting for the next line until I killed
+it. The mic is taken and handed back, not broken.
+
+**The invocation.** `claude --output-format stream-json --verbose --input-format stream-json`. No
+`--print` — the SDK doesn't pass one.
