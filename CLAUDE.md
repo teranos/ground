@@ -37,6 +37,6 @@ any layer emits when something goes wrong.
 
 *The ERROR is a sacred first-class citizen, never collapsed, dropped,
 swallowed or suppressed; they land in front of the user, contextually,
-at the exact point of interaction.*
+at the exact point of interaction as it happens.*
 
 [ERROR.md](ERROR.md)
