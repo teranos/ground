@@ -238,6 +238,15 @@ RiteNames riteNames(const Flattened f) {
     return n;
 }
 
+// "RITE_B does not start until RITE_A has completely finished" — a ritual is a
+// list of rites-block references, and this is where one ends. flatten keeps
+// `group` on every rite, so the boundary survives the flattening.
+bool lastOfBlock(const Flattened f, size_t i) {
+    if (i >= f.count) return false;
+    if (i + 1 == f.count) return true;
+    return f.rites[i].group != f.rites[i + 1].group;
+}
+
 long indexOfRite(const Flattened f, const(char)[] name) {
     foreach (i; 0 .. f.count)
         if (f.rites[i].name == name) return cast(long) i;

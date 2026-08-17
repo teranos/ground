@@ -313,6 +313,29 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
     return ImmediateMsg(null, null, null, null, null, null, null, null, 0, 0, 0);
 }
 
+// How many runs this performance sent that nothing has answered yet. The token
+// is <performance>:<rite>, so the performance is a prefix of it.
+long outstandingDispatch(sqlite3* db, const(char)[] performanceId) {
+    if (performanceId.length == 0) return 0;
+
+    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') = 'immediate:dispatch' AND json_extract(a.attributes,'$.token') LIKE ?1 AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id)\0";
+
+    __gshared ZBuf pattern;
+    pattern.reset();
+    pattern.put(performanceId);
+    pattern.put(":%");
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, pattern.ptr(), cast(int) pattern.len, SQLITE_TRANSIENT);
+
+    long n = 0;
+    import db : sqlite3_column_int64, SQLITE_ROW;
+    if (sqlite3_step(stmt) == SQLITE_ROW) n = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return n;
+}
+
 // Not yet, rather than not at all. A reader that stopped at a row it could not
 // resolve never reached anything behind it, so one waiting run held back every
 // message written after it.
@@ -774,6 +797,33 @@ bool writeDispatchStatus(sqlite3* db, const(char)[] sessionId,
         return false;
     }
     return false;
+}
+
+unittest {
+    // "a dispatch gates a rites block from finishing until it results
+    // something, a result" — what is owed is what has a row and no receipt.
+    import db : sqlite3_open, applySchema, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:\0".ptr, &testDb) == SQLITE_OK);
+    assert(applySchema(testDb));
+
+    assert(outstandingDispatch(testDb, "coinflip-1") == 0, "nothing sent, nothing owed");
+
+    assert(writeDispatchStatus(testDb, "sess-b", "sbvh-nl/grove", "coinflip-1:T1FLIP1", 0));
+    assert(writeDispatchStatus(testDb, "sess-b", "sbvh-nl/grove", "coinflip-1:T1FLIP2", 0));
+    assert(outstandingDispatch(testDb, "coinflip-1") == 2, "two sent, two owed");
+
+    // Another performance's runs are not this one's business.
+    assert(writeDispatchStatus(testDb, "sess-b", "sbvh-nl/grove", "moon-9:FLIP", 0));
+    assert(outstandingDispatch(testDb, "coinflip-1") == 2);
+
+    // A delivered outcome is no longer owed.
+    auto first = readImmediateMessage(testDb, "/tmp/anywhere", "sess-b");
+    assert(first.message !is null);
+    assert(markImmediateDelivered(testDb, first.msgId, first.projectContext, "sess-b"));
+    assert(outstandingDispatch(testDb, "coinflip-1") == 1, "one answered, one still owed");
+
+    sqlite3_close(testDb);
 }
 
 unittest {

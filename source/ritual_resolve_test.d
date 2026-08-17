@@ -58,3 +58,14 @@ static assert(flat.rites[1].pass == 0);
 static assert(indexOfRite(flat, "ci") == 2);
 static assert(indexOfRite(flat, "parity") == 0);
 static assert(indexOfRite(flat, "nowhere") == -1);
+
+// "a RITUAL is not finished until each of its rites blocks finished" — the
+// boundary the gate sits on. `parity` is one rite, `live` is two.
+import ritual.resolve : lastOfBlock;
+
+static assert(lastOfBlock(flat, 0));
+static assert(!lastOfBlock(flat, 1));
+static assert(lastOfBlock(flat, 2));
+
+// Past the end is not a boundary, it is off the walk.
+static assert(!lastOfBlock(flat, 3));

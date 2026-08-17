@@ -8,7 +8,7 @@ scope {
   cmd:   "echo ftcasfl-fair"
 
   control {
-    name: "coinflip-fair"
+    name: "coinflip-fair-multi-rites"
 
     ritual {
       system: "You were performed by a control, not by a person. Ground runs the rite and reads the run itself. While it passes there is nothing for you to say. When it fails, name what failed and what the logs give, and nothing beyond that."
@@ -16,6 +16,7 @@ scope {
       tree: "empty"
 
       toss { rig: "none" }
+      toss2 { rig: "none" }
     }
   }
 }
@@ -59,25 +60,34 @@ scope {
 rites toss {
   params: [rig]
 
-  FLIP1 {
+  T1FLIP1 {
     dispatch: "sbvh-nl/grove long-coin.yml"
     inputs:   `echo "rig=$rig"`
     to:       parent
   }
-  # Longer than the driver's 15s poll, so FLIP1's run concludes while the walk
-  # is still inside this rite — which is the only way to see CI reach an agent
-  # that has already moved on.
   SLEEP1 {
     run: "sleep 30"
     to:  parent
   }
-  FLIP2 {
+  T1FLIP2 {
     dispatch: "sbvh-nl/grove long-coin.yml"
     inputs:   `echo "rig=$rig"`
     to:       parent
   }
   SLEEP2 {
-    run: "sleep 3"
+    run: "sleep 2"
+    to:  parent
+  }
+}
+
+rites toss2 {
+
+  T2FLIP1 {
+    dispatch: "sbvh-nl/grove long-coin.yml"
+    to:       parent
+  }
+  SLEEP1 {
+    run: "sleep 2"
     to:  parent
   }
 }

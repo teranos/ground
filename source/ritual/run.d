@@ -71,6 +71,17 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (p.current >= f.count) return a;
 
     auto r = f.rites[p.current];
+
+    // "a dispatch gates a rites block from finishing until it results
+    // something, a result" — the block waits, so nothing inside it runs.
+    // Before the rite, or a `run:` re-fires on every cycle spent waiting.
+    {
+        import ritual.resolve : lastOfBlock;
+        import immediate : outstandingDispatch;
+        if (lastOfBlock(f, p.current) && outstandingDispatch(db, p.id) > 0)
+            return a;
+    }
+
     // The name the run carries back, so it is found rather than guessed at.
     __gshared ZBuf token;
     token.reset();
