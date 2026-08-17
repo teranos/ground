@@ -7,6 +7,7 @@ Read source/immediate.d for immediate delivery — attestation format for extern
 Read source/watch.d for the asyncRewake watcher — how immediate messages reach running sessions.
 Read source/exec.d for exec dispatch — fork+pipe+wrapper, stdout/stderr capture, timeout.
 Read source/errors.d for the GroundError primitive and deliverError fallback chain (db → breadcrumb → stderr).
+Read grove/controls/*.pbt for the rituals — each carries its agent's `system:`, so nothing else has to describe them.
 Read README.md for project overview.
 Read COUNTDOWN.md for project status.
 
