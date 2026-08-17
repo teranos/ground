@@ -59,6 +59,35 @@ bool hasUnresolved(const(char)[] cmd) {
     return false;
 }
 
+// "ground uses those exit codes, becaue not all failures are the same failure".
+// A rite writing its own code empties the mechanism ground runs on. Refused at
+// CTFE, the way an unresolved ${key} is.
+bool launders(const(char)[] cmd) {
+    foreach (i; 0 .. cmd.length) {
+        if (cmd[i] != '|' || i + 1 >= cmd.length || cmd[i + 1] != '|') continue;
+
+        // Past the bar and whatever spacing the author chose. `exit` needs no
+        // code read: 0, 33 and 55 are the same act.
+        auto j = i + 2;
+        while (j < cmd.length && (cmd[j] == ' ' || cmd[j] == '\t')) j++;
+        if (word(cmd, j, "true") || word(cmd, j, ":") || word(cmd, j, "exit"))
+            return true;
+    }
+    return false;
+}
+
+// True when the token at `at` is exactly `w` — `truely` is not `true`, and a
+// closing paren ends it as surely as a space does.
+private bool word(const(char)[] cmd, size_t at, const(char)[] w) {
+    if (at + w.length > cmd.length) return false;
+    if (cmd[at .. at + w.length] != w) return false;
+    auto end = at + w.length;
+    if (end == cmd.length) return true;
+    auto c = cmd[end];
+    return c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '&'
+        || c == '|' || c == ')' || c == '`' || c == '"' || c == '\'';
+}
+
 // Why a rite never reached a process. Not an exit code — nothing exited.
 enum RunFailure { None, Mkstemp, Write, Chmod, Popen, Pclose }
 

@@ -9,7 +9,7 @@ import ritual.resolve : flatten, indexOfRite;
 
 private enum parsed = parsePbt(import("controls/ground.pbt"));
 
-static assert(validateRituals(parsed) == "", validateRituals(parsed));
+static assert(validateRituals(parsed).text() == "", validateRituals(parsed).text());
 
 private enum idx = () {
     foreach (i; 0 .. parsed.ritualCount)

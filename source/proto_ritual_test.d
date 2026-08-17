@@ -49,8 +49,38 @@ rites parity {
   }
 }
 `;
-static assert(validateRituals(parsePbt(oldWordInput))
+static assert(validateRituals(parsePbt(oldWordInput)).text()
     == "rite parity: `cmd` is a control's word. A rite evaluates: use `eval`");
+
+// "ground uses those exit codes, becaue not all failures are the same failure"
+// — so a rite that writes its own code is refused where a bad `cmd` is.
+enum launderInput = `
+rites ship {
+  OPEN {
+    run: "gh pr create --fill || true"
+  }
+}
+`;
+static assert(validateRituals(parsePbt(launderInput)).text()
+    == "rite OPEN: `run` writes its own exit code. Let the tool answer, and say what its codes mean");
+
+enum launderEval = `
+rites ship {
+  CHECK {
+    eval: "curl -sf https://x.invalid || exit 0"
+  }
+}
+`;
+static assert(validateRituals(parsePbt(launderEval)).text()
+    == "rite CHECK: `eval` writes its own exit code. Let the tool answer, and say what its codes mean");
+
+// A rite that leaves its tool to answer passes.
+enum cleanInput = `
+rites ship {
+  CHECK { eval: "git log --oneline HEAD | grep -q ." }
+}
+`;
+static assert(validateRituals(parsePbt(cleanInput)).text() == "");
 
 // "obviously i would want rites to be able to accept a parameter"
 enum paramsInput = `
@@ -183,7 +213,7 @@ static assert(systemParsed.rituals[0].system
 // A field does not consume the group that follows it.
 static assert(systemParsed.rituals[0].refCount == 1);
 static assert(systemParsed.rituals[0].refs[0].name == "page");
-static assert(validateRituals(systemParsed) == "");
+static assert(validateRituals(systemParsed).text() == "");
 
 // A ritual that says nothing carries nothing, and the spawn is unchanged.
 static assert(ritualParsed.rituals[0].system == "");
@@ -201,7 +231,7 @@ project {
   }
 }
 `;
-static assert(validateRituals(parsePbt(badFieldInput))
+static assert(validateRituals(parsePbt(badFieldInput)).text()
     == "ritual campaign: unknown field `sytsem`");
 
 // A code cannot both advance and hold.
@@ -210,7 +240,7 @@ rites bad {
   both { eval: "true"  pass: 1  catch: [1, 7] }
 }
 `;
-static assert(validateRituals(parsePbt(overlapInput)) == "rite both: 1 is both pass and catch");
+static assert(validateRituals(parsePbt(overlapInput)).text() == "rite both: 1 is both pass and catch");
 
 // "why cant the ritual block be literally inside project for this purpose?"
 // "a ritual is LIVE its active RIGHT NOW, a rite isnt."
@@ -255,7 +285,7 @@ static assert(ritualParsed.rituals[0].refs[0].keys[0] == "row");
 static assert(ritualParsed.rituals[0].refs[0].values[0] == "watchers");
 
 // The example above is well-formed and must validate clean.
-static assert(validateRituals(ritualParsed) == "");
+static assert(validateRituals(ritualParsed).text() == "");
 
 // "ok" — rite names unique across every group, so a goto target and a
 // position report both name one thing.
@@ -263,20 +293,20 @@ enum dupInput = `
 rites a { shared { eval: "true" } }
 rites b { shared { eval: "true" } }
 `;
-static assert(validateRituals(parsePbt(dupInput)) == "duplicate rite name: shared");
+static assert(validateRituals(parsePbt(dupInput)).text() == "duplicate rite name: shared");
 
 // A goto that names nothing is a jump into the dark.
 enum badGotoInput = `
 rites a { one { eval: "true"  goto: nowhere } }
 `;
-static assert(validateRituals(parsePbt(badGotoInput)) == "goto names no rite: nowhere");
+static assert(validateRituals(parsePbt(badGotoInput)).text() == "goto names no rite: nowhere");
 
 // "DISPATCH AND EVAL ARE DIFFERENT THIGNS" / "THEY ARENT EVEN IN THE SAME
 // CATEGORY" — an eval is a question, a dispatch is not asked at all.
 enum bothInput = `
 rites a { one { dispatch: "o/r w.yml"  eval: "true" } }
 `;
-static assert(validateRituals(parsePbt(bothInput)) == "rite one: dispatch is not asked, so it cannot carry an eval");
+static assert(validateRituals(parsePbt(bothInput)).text() == "rite one: dispatch is not asked, so it cannot carry an eval");
 
 // A declared param nobody supplies expands to empty, and an empty grep
 // pattern matches anything — a false pass, which is the one outcome
@@ -294,7 +324,7 @@ project {
   }
 }
 `;
-static assert(validateRituals(parsePbt(missingParamInput)) == "ritual r: parity needs row");
+static assert(validateRituals(parsePbt(missingParamInput)).text() == "ritual r: parity needs row");
 
 // A ritual naming a group that does not exist.
 enum badRefInput = `
@@ -305,7 +335,7 @@ project {
   }
 }
 `;
-static assert(validateRituals(parsePbt(badRefInput)) == "ritual r: no rites named absent");
+static assert(validateRituals(parsePbt(badRefInput)).text() == "ritual r: no rites named absent");
 
 // A real file put through the sand exposed a parse failure these inputs
 // did not: the group's closing brace sits on its own line before a blank.
@@ -325,7 +355,7 @@ project {
 enum sandParsed = parsePbt(sandShapeInput);
 static assert(sandParsed.ritesCount == 1);
 static assert(sandParsed.ritualCount == 1);
-static assert(validateRituals(sandParsed) == "ritual probeRitual: probe needs row");
+static assert(validateRituals(sandParsed).text() == "ritual probeRitual: probe needs row");
 
 // Pass 1 sizes the arrays pass 2 fills, and it is a separate walk over the
 // same text. A block it does not recognise consumes nothing, so the next

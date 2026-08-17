@@ -213,10 +213,31 @@ struct ParseResult {
     size_t stropPoolLen;
 }
 
-// Everything a ritual can be wrong about before it runs. Returns "" when
-// clean, else one message — a string rather than an assert, because an
-// assert at CTFE cannot be caught by a static assert.
-string validateRituals(PR)(const PR r) {
+// What is wrong with a ritual, in a buffer rather than a concatenation. `~`
+// allocates, and this project has no GC, so a message built with it compiles
+// only while nothing emits this function as runtime code.
+struct Wrong {
+    char[192] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void say(ref Wrong w, const(char)[] s) {
+    foreach (c; s) { if (w.len < w.buf.length) w.buf[w.len++] = c; }
+}
+
+private Wrong wrong(const(char)[] a, const(char)[] b = "", const(char)[] c = "",
+                    const(char)[] d = "", const(char)[] e = "",
+                    const(char)[] f = "") {
+    Wrong w;
+    w.say(a); w.say(b); w.say(c); w.say(d); w.say(e); w.say(f);
+    return w;
+}
+
+// Everything a ritual can be wrong about before it runs. Empty when clean,
+// else one message — a value rather than an assert, because an assert at CTFE
+// cannot be caught by a static assert.
+Wrong validateRituals(PR)(const PR r) {
     // A duplicate name makes a goto ambiguous and a position report a lie.
     foreach (i; 0 .. r.ritesCount) {
         foreach (j; 0 .. r.rites[i].riteCount) {
@@ -225,7 +246,7 @@ string validateRituals(PR)(const PR r) {
                 foreach (n; 0 .. r.rites[m].riteCount) {
                     if (m == i && n == j) continue;
                     if (r.rites[m].rites[n].name == name)
-                        return "duplicate rite name: " ~ name;
+                        return wrong("duplicate rite name: ", name);
                 }
             }
         }
@@ -234,8 +255,7 @@ string validateRituals(PR)(const PR r) {
     // A field no ritual has.
     foreach (i; 0 .. r.ritualCount) {
         if (r.rituals[i].badKey.length > 0)
-            return "ritual " ~ r.rituals[i].name
-                ~ ": unknown field `" ~ r.rituals[i].badKey ~ "`";
+            return wrong("ritual ", r.rituals[i].name, ": unknown field ", r.rituals[i].badKey);
     }
 
     // A field no rite has. `cmd` gets its own line because it is a real word
@@ -245,10 +265,23 @@ string validateRituals(PR)(const PR r) {
             auto bad = r.rites[i].rites[j].badKey;
             if (bad.length == 0) continue;
             if (bad == "cmd")
-                return "rite " ~ r.rites[i].rites[j].name
-                    ~ ": `cmd` is a control's word. A rite evaluates: use `eval`";
-            return "rite " ~ r.rites[i].rites[j].name
-                ~ ": unknown field `" ~ bad ~ "`";
+                return wrong("rite ", r.rites[i].rites[j].name, ": `cmd` is a control s word. A rite evaluates: use `eval`");
+            return wrong("rite ", r.rites[i].rites[j].name, ": unknown field ", bad);
+        }
+    }
+
+    // "|| TRUE || EXIT 1 || EXIT 22 || EXIT WHATEVER SHOUDL NOT BE A THING IN
+    // GROUND" — a rite that stamps its own code leaves ground one event where
+    // the tool gave several.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            import rite : launders;
+            enum tail = " writes its own exit code. Let the tool answer";
+            auto rt = r.rites[i].rites[j];
+            if (launders(rt.eval))
+                return wrong("rite ", rt.name, ": `eval`", tail);
+            if (launders(rt.run))
+                return wrong("rite ", rt.name, ": `run`", tail);
         }
     }
 
@@ -259,8 +292,8 @@ string validateRituals(PR)(const PR r) {
                 if (r.rites[i].rites[j].catches[c] == r.rites[i].rites[j].pass) {
                     auto n = r.rites[i].rites[j].pass == 0 ? "0" :
                              r.rites[i].rites[j].pass == 1 ? "1" : "that code";
-                    return "rite " ~ r.rites[i].rites[j].name
-                        ~ ": " ~ n ~ " is both pass and catch";
+                    return wrong("rite ", r.rites[i].rites[j].name,
+                                 ": ", n, " is both pass and catch");
                 }
             }
         }
@@ -271,7 +304,8 @@ string validateRituals(PR)(const PR r) {
         foreach (j; 0 .. r.rites[i].riteCount) {
             auto rr = r.rites[i].rites[j];
             if (rr.dispatch.length == 0 || rr.eval.length == 0) continue;
-            return "rite " ~ rr.name ~ ": dispatch is not asked, so it cannot carry an eval";
+            return wrong("rite ", rr.name,
+                         ": dispatch is not asked, so it cannot carry an eval");
         }
     }
 
@@ -284,7 +318,7 @@ string validateRituals(PR)(const PR r) {
             foreach (m; 0 .. r.ritesCount)
                 foreach (n; 0 .. r.rites[m].riteCount)
                     if (r.rites[m].rites[n].name == target) found = true;
-            if (!found) return "goto names no rite: " ~ target;
+            if (!found) return wrong("goto names no rite: ", target);
         }
     }
 
@@ -297,7 +331,8 @@ string validateRituals(PR)(const PR r) {
 
             // A ritual performing a group that does not exist.
             if (gi < 0)
-                return "ritual " ~ r.rituals[i].name ~ ": no rites named " ~ refName;
+                return wrong("ritual ", r.rituals[i].name,
+                             ": no rites named ", refName);
 
             // An unsupplied param expands to empty, and an empty grep
             // pattern matches anything — a false pass.
@@ -307,12 +342,13 @@ string validateRituals(PR)(const PR r) {
                 foreach (v; 0 .. r.rituals[i].refs[j].valueCount)
                     if (r.rituals[i].refs[j].keys[v] == need) supplied = true;
                 if (!supplied)
-                    return "ritual " ~ r.rituals[i].name ~ ": " ~ refName ~ " needs " ~ need;
+                    return wrong("ritual ", r.rituals[i].name, ": ",
+                                 refName, " needs ", need);
             }
         }
     }
 
-    return "";
+    return Wrong();
 }
 
 // --- Flat file list extraction (CTFE) ---

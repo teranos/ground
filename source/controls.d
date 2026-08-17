@@ -81,8 +81,8 @@ static immutable projectFiles = _projFiles.files[0 .. _projFiles.len];
 import proto : ParsedRites, ParsedRitual, validateRituals;
 static immutable allRites = allParsed.rites[0 .. allParsed.ritesCount];
 static immutable allRituals = allParsed.rituals[0 .. allParsed.ritualCount];
-private static immutable _ritualCheck = validateRituals(allParsed);
-static assert(_ritualCheck == "", _ritualCheck);
+private enum _ritualCheck = validateRituals(allParsed).text();
+static assert(_ritualCheck.length == 0, _ritualCheck);
 
 // QNTX nodes and attestations — built at CTFE from qntx/attestation blocks
 import proto : ParsedQntxNode, ParsedAttestation;

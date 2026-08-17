@@ -73,6 +73,41 @@ static assert(!hasUnresolved(`make parity | grep "$row *YES *YES"`));
 static assert(!hasUnresolved("echo $HOME"));
 static assert(!hasUnresolved("awk '{print $1}'"));
 
+// --- What a rite may not do to its own exit code ---
+// "ground uses those exit codes, becaue not all failures are the same failure"
+
+import rite : launders;
+
+// A code the author wrote is not a code the tool produced, and everything
+// ground does with a rite reads the code.
+static assert(launders(`gh pr create --fill || true`));
+static assert(launders(`curl -sf ${api}/health || exit 0`));
+
+// The number is not the point. Any code the author picks is a code the tool
+// did not produce.
+static assert(launders(`curl -sf ${api}/health || exit 33`));
+static assert(launders(`curl -sf ${api}/health || exit 55`));
+static assert(launders(`curl -sf ${api}/health || exit 1`));
+
+// `:` is `true` spelled shorter and does the same damage.
+static assert(launders(`make build || :`));
+
+// Spacing is the author's, not a signal.
+static assert(launders(`cmd||true`));
+static assert(launders(`cmd ||  exit 0`));
+
+// A tool left to answer for itself is what every rite should look like.
+static assert(!launders(`git log --oneline HEAD | grep -q .`));
+static assert(!launders(`test -f WILLOW.md`));
+
+// Nowhere means nowhere. Inside a substitution it still suppresses the tool,
+// and quoting it does not make it not there.
+static assert(launders(`test "$(grep -cF "  - " WILLOW.md || true)" = "0"`));
+static assert(launders(`gh pr create --fill 2>&1 || true`));
+
+// A command with no `||` in it is untouched.
+static assert(!launders(`grep -qxF "  - TRUE" WILLOW.md`));
+
 // A ${key} no project env resolves leaves the rite unready, and an unready
 // rite has no script to run.
 import rite : prepareRite;
