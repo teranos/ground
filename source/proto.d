@@ -255,7 +255,8 @@ Wrong validateRituals(PR)(const PR r) {
     // A field no ritual has.
     foreach (i; 0 .. r.ritualCount) {
         if (r.rituals[i].badKey.length > 0)
-            return wrong("ritual ", r.rituals[i].name, ": unknown field ", r.rituals[i].badKey);
+            return wrong("ritual ", r.rituals[i].name, ": unknown field `",
+                         r.rituals[i].badKey, "`");
     }
 
     // A field no rite has. `cmd` gets its own line because it is a real word
@@ -265,8 +266,9 @@ Wrong validateRituals(PR)(const PR r) {
             auto bad = r.rites[i].rites[j].badKey;
             if (bad.length == 0) continue;
             if (bad == "cmd")
-                return wrong("rite ", r.rites[i].rites[j].name, ": `cmd` is a control s word. A rite evaluates: use `eval`");
-            return wrong("rite ", r.rites[i].rites[j].name, ": unknown field ", bad);
+                return wrong("rite ", r.rites[i].rites[j].name, ": `cmd` is a control's word. A rite evaluates: use `eval`");
+            return wrong("rite ", r.rites[i].rites[j].name, ": unknown field `",
+                         bad, "`");
         }
     }
 

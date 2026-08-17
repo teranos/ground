@@ -62,7 +62,7 @@ rites ship {
 }
 `;
 static assert(validateRituals(parsePbt(launderInput)).text()
-    == "rite OPEN: `run` writes its own exit code. Let the tool answer, and say what its codes mean");
+    == "rite OPEN: `run` writes its own exit code. Let the tool answer");
 
 enum launderEval = `
 rites ship {
@@ -72,7 +72,7 @@ rites ship {
 }
 `;
 static assert(validateRituals(parsePbt(launderEval)).text()
-    == "rite CHECK: `eval` writes its own exit code. Let the tool answer, and say what its codes mean");
+    == "rite CHECK: `eval` writes its own exit code. Let the tool answer");
 
 // A rite that leaves its tool to answer passes.
 enum cleanInput = `
