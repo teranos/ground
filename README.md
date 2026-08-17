@@ -93,6 +93,7 @@ Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hook
 - **omitLine** — drop a whole command segment
 - **clamp** — raise a numeric flag value to a floor
 - **strop** — validate the shape of an extracted flag value, deny on mismatch
+- **substitute_for_read** — name the utilities that mean "I was trying to read a file"; ground reads it and hands the contents over instead of running the command
 
 Rewrites (arg/omit/omitLine/clamp) are silent — the command runs corrected and Claude receives a message explaining why. Strop denies with a message computed from the extracted value. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
 
