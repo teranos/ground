@@ -7,8 +7,8 @@ permission {
 
 permission {
 
-  deny: ["sed *", "awk *"]
-  msg: "Use Edit tool instead of sed/awk"
+  deny: ["sed *", "awk *", "perl *"]
+  msg: "Use Edit tool instead of sed/awk/perl"
 }
 
 permission {
