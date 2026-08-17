@@ -12,7 +12,7 @@ rites orchard {
   JACKFRUIT { eval: `grep -qxF "  - JACKFRUIT" WILLOW.md`  pass: 1  catch: 0  to: parent  msg: "Take the JACKFRUIT out of WILLOW.md." }
 
   CHECKWILLOW {
-    eval:  `test "$(grep -cF "  - " WILLOW.md || true)" = "0"`
+    eval:  `test "$(grep -cF "  - " WILLOW.md)" = "0"`
     catch: 1
     goto:  START
     to:    parent

@@ -13,7 +13,7 @@ rites law {
   RED {
     eval: `
       files=$(git diff --name-only main...HEAD -- 'source/*_test.d')
-      test -n "$files" || exit 1
+      test -n "$files"
       ldc2 -c -o- -betterC -I=source -J=. $files && exit 1
       exit 0
     `
@@ -47,8 +47,8 @@ rites law {
   # already written, and a rite that can never pass again is a stuck walk.
   SEALED {
     eval: `
-      test -z "$(git status --porcelain)" || exit 1
-      test -n "$(git log --oneline origin/main..HEAD)" || exit 1
+      test -z "$(git status --porcelain)"
+      git log --oneline HEAD --not --remotes | grep -q .
     `
     catch: 1
     to:    parent
@@ -60,7 +60,9 @@ rites law {
   RAISED {
     run: `
       git push -q -u origin HEAD
-      gh pr create --base main --fill --head "$(git rev-parse --abbrev-ref HEAD)" 2>&1 || true
+      if ! gh pr view --json url >/dev/null; then
+        gh pr create --base main --fill --head "$(git rev-parse --abbrev-ref HEAD)"
+      fi
       gh pr view --json url --jq .url
     `
     to:  parent

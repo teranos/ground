@@ -17,8 +17,8 @@ rites daylight {
   # blind to an untracked file and a never-added SUN.md read as a clean tree.
   KEEP {
     eval: `
-      test -z "$(git status --porcelain)" || exit 1
-      test -n "$(git log --oneline origin/master..HEAD)" || exit 1
+      test -z "$(git status --porcelain)"
+      git log --oneline HEAD --not --remotes | grep -q .
     `
     catch: 1
     goto:  SUN
@@ -37,7 +37,9 @@ rites daylight {
   # exit 1, which is not a failure of the rite.
   OPEN {
     run: `
-      gh pr create --fill --head "$(git rev-parse --abbrev-ref HEAD)" 2>&1 || true
+      if ! gh pr view --json url >/dev/null; then
+        gh pr create --fill --head "$(git rev-parse --abbrev-ref HEAD)"
+      fi
       gh pr view --json url --jq .url
     `
     to:  parent

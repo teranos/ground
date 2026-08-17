@@ -14,8 +14,8 @@ rites page {
   # in the worktree, and the worktree was deleted on Done with the file in it.
   KEPT {
     eval: `
-      test -z "$(git status --porcelain)" || exit 1
-      test -n "$(git log --oneline origin/chapters..HEAD)" || exit 1
+      test -z "$(git status --porcelain)"
+      git log --oneline HEAD --not --remotes | grep -q .
     `
     catch: 1
     goto:  CHAPTER
@@ -28,7 +28,9 @@ rites page {
   BOUND {
     run: `
       git push -q -u origin HEAD
-      gh pr create --base chapters --fill --head "$(git rev-parse --abbrev-ref HEAD)" 2>&1 || true
+      if ! gh pr view --json url >/dev/null; then
+        gh pr create --base chapters --fill --head "$(git rev-parse --abbrev-ref HEAD)"
+      fi
       gh pr view --json url,baseRefName --jq '"\(.url) -> \(.baseRefName)"'
     `
     to:  parent

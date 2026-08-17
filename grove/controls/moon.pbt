@@ -18,8 +18,8 @@ rites sky {
   # this LAND pushes a branch with nothing on it.
   HOLD {
     eval: `
-      test -z "$(git status --porcelain)" || exit 1
-      test -n "$(git log --oneline origin/master..HEAD)" || exit 1
+      test -z "$(git status --porcelain)"
+      git log --oneline HEAD --not --remotes | grep -q .
     `
     catch: 1
     goto:  MOON
