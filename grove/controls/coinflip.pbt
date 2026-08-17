@@ -61,7 +61,7 @@ rites toss {
   params: [rig]
 
   T1FLIP1 {
-    dispatch: "sbvh-nl/grove long-coin.yml"
+    dispatch: "teranos/ground long-coin.yml"
     inputs:   `echo "rig=$rig"`
     to:       parent
   }
@@ -70,7 +70,7 @@ rites toss {
     to:  parent
   }
   T1FLIP2 {
-    dispatch: "sbvh-nl/grove long-coin.yml"
+    dispatch: "teranos/ground long-coin.yml"
     inputs:   `echo "rig=$rig"`
     to:       parent
   }
@@ -83,7 +83,7 @@ rites toss {
 rites toss2 {
 
   T2FLIP1 {
-    dispatch: "sbvh-nl/grove long-coin.yml"
+    dispatch: "teranos/ground long-coin.yml"
     to:       parent
   }
   SLEEP1 {
