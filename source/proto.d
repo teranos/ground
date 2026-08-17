@@ -47,6 +47,8 @@ struct ParsedControl {
     string filepath, msg, mcpArg, pushedPath, exec;
     string[8] contents;
     ubyte contentCount;
+    string[8] substituteForRead;
+    ubyte substituteForReadCount;
     string[8] userprompts;
     ubyte userpromptCount;
     bool bg;
@@ -234,20 +236,65 @@ private Wrong wrong(const(char)[] a, const(char)[] b = "", const(char)[] c = "",
     return w;
 }
 
+// What is worth saying about a ritual that is not worth refusing it for. All
+// of them, not the first: a warning you fix one at a time is a build you run
+// once per warning.
+struct Warns {
+    char[1024] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void say(ref Warns w, const(char)[] s) {
+    foreach (c; s) { if (w.len < w.buf.length) w.buf[w.len++] = c; }
+}
+
+// A value handed to a block that declares no such param goes nowhere. The
+// rite still runs, so this is informational — "make this a warn, but still let
+// it pass, like informational warn, that its not used".
+Warns warnRituals(PR)(const PR r) {
+    Warns w;
+    foreach (i; 0 .. r.ritualCount) {
+        foreach (j; 0 .. r.rituals[i].refCount) {
+            auto refName = r.rituals[i].refs[j].name;
+            ptrdiff_t gi = -1;
+            foreach (m; 0 .. r.ritesCount)
+                if (r.rites[m].name == refName) gi = m;
+            if (gi < 0) continue;
+
+            foreach (v; 0 .. r.rituals[i].refs[j].valueCount) {
+                auto key = r.rituals[i].refs[j].keys[v];
+                bool declared = false;
+                foreach (p; 0 .. r.rites[gi].paramCount)
+                    if (r.rites[gi].params[p] == key) declared = true;
+                if (declared) continue;
+
+                w.say("ritual ");
+                w.say(r.rituals[i].name);
+                w.say(": ");
+                w.say(refName);
+                w.say(" declares no param `");
+                w.say(key);
+                w.say("`, so the value is unused\n");
+            }
+        }
+    }
+    return w;
+}
+
 // Everything a ritual can be wrong about before it runs. Empty when clean,
 // else one message — a value rather than an assert, because an assert at CTFE
 // cannot be caught by a static assert.
 Wrong validateRituals(PR)(const PR r) {
-    // A duplicate name makes a goto ambiguous and a position report a lie.
+    // "within a rites block, rite should be unique, yes. but in my mental
+    // image, you can have a same name rite in multiple RITES"
     foreach (i; 0 .. r.ritesCount) {
         foreach (j; 0 .. r.rites[i].riteCount) {
             auto name = r.rites[i].rites[j].name;
-            foreach (m; 0 .. r.ritesCount) {
-                foreach (n; 0 .. r.rites[m].riteCount) {
-                    if (m == i && n == j) continue;
-                    if (r.rites[m].rites[n].name == name)
-                        return wrong("duplicate rite name: ", name);
-                }
+            foreach (n; 0 .. r.rites[i].riteCount) {
+                if (n == j) continue;
+                if (r.rites[i].rites[n].name == name)
+                    return wrong("duplicate rite name: ", name);
             }
         }
     }
@@ -474,6 +521,10 @@ ScopeSet buildScopes(
             if (pc.contentCount > 0) {
                 c.content._buf = pc.contents;
                 c.content.len = pc.contentCount;
+            }
+            if (pc.substituteForReadCount > 0) {
+                c.substituteForRead._buf = pc.substituteForRead;
+                c.substituteForRead.len = pc.substituteForReadCount;
             }
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
@@ -1128,6 +1179,21 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
                     }
                 } else {
                     c.userprompts[0] = val; c.userpromptCount = 1;
+                }
+                break;
+            case "substitute_for_read":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.substituteForReadCount < 8);
+                        c.substituteForRead[c.substituteForReadCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.substituteForRead[0] = val; c.substituteForReadCount = 1;
                 }
                 break;
             case "msg":             c.msg = val; break;

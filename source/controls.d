@@ -84,6 +84,12 @@ static immutable allRituals = allParsed.rituals[0 .. allParsed.ritualCount];
 private enum _ritualCheck = validateRituals(allParsed).text();
 static assert(_ritualCheck.length == 0, _ritualCheck);
 
+// Informational, and the build carries on. pragma(msg) is how a CTFE value
+// reaches a person without failing the compile.
+import proto : warnRituals;
+private enum _ritualWarn = warnRituals(allParsed).text();
+static if (_ritualWarn.length > 0) pragma(msg, "ground: " ~ _ritualWarn);
+
 // QNTX nodes and attestations — built at CTFE from qntx/attestation blocks
 import proto : ParsedQntxNode, ParsedAttestation;
 static immutable qntxNodes = allParsed.qntxNodes[0 .. allParsed.qntxNodeCount];

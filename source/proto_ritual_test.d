@@ -82,6 +82,33 @@ rites ship {
 `;
 static assert(validateRituals(parsePbt(cleanInput)).text() == "");
 
+// "make this a warn, but still let it pass, like informational warn, that its
+// not used" — a value handed to a block that declares no such param.
+import proto : warnRituals;
+
+enum unusedValueInput = `
+rites toss2 { FLIP1 { eval: "true" } }
+
+project {
+  path: "/src/proj"
+  ritual r { toss2 { rig: "none" } }
+}
+`;
+static assert(validateRituals(parsePbt(unusedValueInput)).text() == "");
+static assert(warnRituals(parsePbt(unusedValueInput)).text()
+    == "ritual r: toss2 declares no param `rig`, so the value is unused\n");
+
+// A param the block does declare is not a warning.
+enum usedValueInput = `
+rites toss { params: [rig]  FLIP1 { eval: "true" } }
+
+project {
+  path: "/src/proj"
+  ritual r { toss { rig: "none" } }
+}
+`;
+static assert(warnRituals(parsePbt(usedValueInput)).text() == "");
+
 // "obviously i would want rites to be able to accept a parameter"
 enum paramsInput = `
 rites parity {
@@ -289,11 +316,20 @@ static assert(validateRituals(ritualParsed).text() == "");
 
 // "ok" — rite names unique across every group, so a goto target and a
 // position report both name one thing.
+// "within a rites block, rite should be unique, yes"
 enum dupInput = `
-rites a { shared { eval: "true" } }
-rites b { shared { eval: "true" } }
+rites a { shared { eval: "true" }  shared { eval: "true" } }
 `;
 static assert(validateRituals(parsePbt(dupInput)).text() == "duplicate rite name: shared");
+
+// "but in my mental image, you can have a same name rite in multiple RITES"
+// — a block copied with yyp, only the block renamed, is the authoring this
+// grammar is for.
+enum sameNameTwoBlocks = `
+rites toss  { FLIP1 { eval: "true" }  SLEEP1 { eval: "true" } }
+rites toss2 { FLIP1 { eval: "true" }  SLEEP1 { eval: "true" } }
+`;
+static assert(validateRituals(parsePbt(sameNameTwoBlocks)).text() == "");
 
 // A goto that names nothing is a jump into the dark.
 enum badGotoInput = `
