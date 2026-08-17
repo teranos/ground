@@ -1,11 +1,25 @@
 name: long-coin
 
 # Fifteen seconds, then a coin. Half of its runs fail, so a rite waiting on it
-# has to survive a real red and not only a slow green.
-# Dispatched by a rite, never by a push. Nothing watches it on a willow walk,
-# and a job that fails half the time should not fire on its own.
+# has to survive a real red and not only a slow green. Dispatched by a rite and
+# never by a push: a job that fails half the time should not fire on its own.
+
+# A workflow_dispatch returns no run id, so the only way to know which run is
+# yours is for it to carry a name you chose.
+run-name: long-coin ${{ inputs.ground }}
+
 on:
   workflow_dispatch:
+    inputs:
+      ground:
+        description: the performance and rite that dispatched this
+        type: string
+        default: ''
+      rig:
+        description: which face both sides carry
+        type: choice
+        default: none
+        options: [none, heads, tails]
 
 jobs:
   coinflip:
@@ -14,11 +28,25 @@ jobs:
     steps:
       - name: wait
         run: sleep 15
-      - name: flip
+
+      # Coins with the same face on both sides. Half of a real coin's runs are
+      # green, so building the path a red takes means waiting on chance.
+      - name: rigged tails
+        if: ${{ inputs.rig == 'tails' }}
         run: |
-          # A thick coin: one in a hundred it lands on its side. Neither face,
-          # and it stays there until the job is cancelled out from under it.
-          if [ $((RANDOM % 100)) -eq 0 ]; then
+          echo "tails"
+          exit 1
+      - name: rigged heads
+        if: ${{ inputs.rig == 'heads' }}
+        run: echo "heads"
+
+      # Skipped when a rig is named, or the honest coin would overrule it.
+      - name: flip
+        if: ${{ inputs.rig == '' || inputs.rig == 'none' }}
+        run: |
+          # One in a thousand it lands on its side: neither face, and it stays
+          # there until the job is cancelled out from under it.
+          if [ $((RANDOM % 1000)) -eq 0 ]; then
             echo "the coin is standing on its edge"
             sleep 3600
           fi
