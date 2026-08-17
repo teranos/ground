@@ -158,6 +158,39 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             }
         }
 
+        // A command that was reaching for a file gets the file. A deny takes
+        // the method away and leaves the goal unmet, and an agent handed that
+        // stops reading rather than reading properly.
+        {
+            import substitute : readTargets, handOver;
+            import controls : allScopes;
+            import matcher : effectiveCwd;
+
+            foreach (ref sc; allScopes) {
+                foreach (ref ctrl; sc.controls) {
+                    auto utils = ctrl.substituteForRead.values();
+                    if (utils.length == 0) continue;
+
+                    auto eff = effectiveCwd(command, cwd);
+                    auto targets = readTargets(command, utils);
+                    if (targets.count == 0) continue;
+
+                    __gshared ZBuf handed;
+                    handed.reset();
+                    handed.put("ground read the file for you instead of running that. ");
+                    handed.put("You were reaching for a file; here it is.\n\n");
+
+                    bool any = false;
+                    foreach (i; 0 .. targets.count)
+                        if (handOver(handed, targets.paths[i], eff)) any = true;
+                    if (!any) continue;
+
+                    writeDenyResponse(handed.slice());
+                    return 0;
+                }
+            }
+        }
+
         tBinary = usecNow();
 
         // Bash — check controls. checkAllCommands tracks effective

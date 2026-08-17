@@ -121,6 +121,14 @@ struct Content {
     string value() const { return len > 0 ? _buf[0] : ""; }
 }
 
+// The utilities that mean "I was trying to read a file". Ground reads it and
+// hands it over instead of running the command.
+struct SubstituteForRead {
+    string[8] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
+}
+
 struct Bg {
     bool value;
 }
@@ -221,6 +229,7 @@ struct Control {
     Msg msg;
     McpArg mcpArg;
     Content content;
+    SubstituteForRead substituteForRead;
     Bg bg;
     Tmo tmo;
     Defer defer;
