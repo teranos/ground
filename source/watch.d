@@ -133,6 +133,19 @@ extern (C) {
 // absence is reported as an absence.
 enum DISPATCH_APPEAR_SEC = 60;
 
+// The receipt is what makes delivery once rather than forever: without it the
+// next read returns the same row, and the loop that reads it does not end. So
+// a receipt that did not land stops the drain and says so.
+private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
+                     const(char)[] sessionId, const(char)[] mark) {
+    if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) return true;
+    import exec : emitError;
+    emitError("watch.receipt",
+              "the delivery receipt did not land, so this message would be handed over without end",
+              0, 1, "", "watch", "", "", cast(string) msgId);
+    return false;
+}
+
 const(char)[] getHome() {
     import core.stdc.stdlib : getenv;
     auto h = getenv("HOME");
@@ -410,6 +423,8 @@ int handleWatch(int argc, const(char)** argv) {
             // the case this block was added for — an agent inside the agentic
             // loop for an hour — and two of them ran every rite twice.
 
+            bool stuck = false;
+
             while (true) {
                 auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
@@ -423,7 +438,10 @@ int handleWatch(int argc, const(char)** argv) {
                     import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.branch.length == 0) {
                         // Row predates the repo-keyed format — drop it.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                            stuck = true;
+                            break;
+                        }
                         continue;
                     }
                     import deferred : CIQuery;
@@ -440,7 +458,10 @@ int handleWatch(int argc, const(char)** argv) {
                     }
                     if (ci.kind == CIQuery.NoWorkflow) {
                         // gh answered and there is genuinely no run to report.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                            stuck = true;
+                            break;
+                        }
                         continue;
                     }
                     // Unavailable falls through and is DELIVERED, not dropped.
@@ -456,7 +477,10 @@ int handleWatch(int argc, const(char)** argv) {
                     import adaptive : pickAdaptiveSleep;
                     import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.token.length == 0) {
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                            stuck = true;
+                            break;
+                        }
                         continue;
                     }
                     auto run = checkRunByToken(imm.repo, imm.token);
@@ -485,7 +509,13 @@ int handleWatch(int argc, const(char)** argv) {
 
                 }
 
-                markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, mark);
+                // The receipt comes before the batch on purpose: a message
+                // written to stderr without one is delivered again on the next
+                // pass, and the operator reads it twice.
+                if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                    stuck = true;
+                    break;
+                }
 
                 // Append to batch: "ground: <message>\n"
                 if (batchLen > 0 && batchLen < batchBuf.length) batchBuf[batchLen++] = '\n';
@@ -503,6 +533,15 @@ int handleWatch(int argc, const(char)** argv) {
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
                 return 2;
+            }
+
+            // A receipt that cannot be written is not something to retry every
+            // two seconds. This watcher stops; the next hook spawns another,
+            // and if the db is still broken that one says so once as well.
+            if (stuck) {
+                removePid(sessionId, pidPrefix);
+                releaseTree(cwd);
+                return 1;
             }
         }
 

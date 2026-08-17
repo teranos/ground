@@ -368,9 +368,18 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import control_handlers : ciDelay;
                         auto cdb = openDb();
                         if (cdb !is null) {
-                            writeCIStatus(cdb, sessionId, info.repo, info.branch, info.sha, ciDelay(cwd));
+                            // ciFired said the push would be reported on, so a
+                            // row that never landed read as CI being watched.
+                            ciFired = writeCIStatus(cdb, sessionId, info.repo,
+                                                    info.branch, info.sha, ciDelay(cwd));
                             sqlite3_close(cdb);
-                            ciFired = true;
+                            if (!ciFired) {
+                                import exec : emitError;
+                                emitError("push.ci",
+                                          "the push landed and nothing recorded that its CI is owed a result",
+                                          0, 1, cast(string) sessionId, "push", "",
+                                          "", cast(string) info.repo);
+                            }
                         }
                     }
                 }

@@ -30,6 +30,21 @@ import core.stdc.time : time;
 
 extern (C) uint usleep(uint);
 
+// What goes between the quotes of a JSON string. Dropping a character instead
+// of escaping it hands over a command that cannot be pasted; passing a newline
+// through raw makes the row invalid JSON, which every json_extract then misses.
+void putJsonString(ref ZBuf buf, const(char)[] s) {
+    foreach (c; s) {
+        if (c == '"') buf.put(`\"`);
+        else if (c == '\\') buf.put(`\\`);
+        else if (c == '\n') buf.put(`\n`);
+        else if (c == '\r') buf.put(`\r`);
+        else if (c == '\t') buf.put(`\t`);
+        else if (c < 0x20) continue;
+        else buf.putChar(c);
+    }
+}
+
 struct ImmediateMsg {
     const(char)[] msgId;
     const(char)[] name;
@@ -313,9 +328,13 @@ void parkImmediate(sqlite3* db, const(char)[] msgId, long untilUnix) {
     sqlite3_finalize(stmt);
 }
 
-// Mark a specific immediate message as delivered for this session.
-void markImmediateDelivered(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
+// Mark a specific immediate message as delivered for this session. Returns
+// true when the receipt is on disk. A receipt that does not land redelivers
+// the same message on every pass, so the caller is owed the answer.
+bool markImmediateDelivered(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
                             const(char)[] sessionId, const(char)[] mark = "delivered:") {
+    import db : SQLITE_BUSY, SQLITE_DONE;
+
     __gshared ZBuf predBuf;
     predBuf.reset();
     predBuf.put(mark);
@@ -356,20 +375,32 @@ void markImmediateDelivered(sqlite3* db, const(char)[] msgId, const(char)[] proj
     enum emptyAttrs = `{}` ~ "\0";
     enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return;
-    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, emptyAttrs.ptr, cast(int) emptyAttrs.length - 1, SQLITE_TRANSIENT);
+    // Same retry shape as writeNote: contention with another hook process is
+    // ordinary here, and giving up on the first SQLITE_BUSY is what loses the
+    // receipt.
+    foreach (attempt; 0 .. 10) {
+        sqlite3_stmt* stmt;
+        auto prep = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+        if (prep == SQLITE_BUSY) { usleep(50_000); continue; }
+        if (prep != SQLITE_OK) return false;
 
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, subjects.ptr(), cast(int) subjects.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, predicates.ptr(), cast(int) predicates.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, contexts.ptr(), cast(int) contexts.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, actors.ptr(), cast(int) actors.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, source.ptr(), cast(int) source.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, emptyAttrs.ptr, cast(int) emptyAttrs.length - 1, SQLITE_TRANSIENT);
+
+        auto step = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (step == SQLITE_DONE) return true;
+        if (step == SQLITE_BUSY) { usleep(50_000); continue; }
+        return false;
+    }
+    return false;
 }
 
 // Write a clippy-reminder immediate message for THIS session.
@@ -463,12 +494,12 @@ void deleteClippyReminder(sqlite3* db, const(char)[] sessionId) {
 // so the watcher can query the right CI run regardless of cwd.
 // Deterministic ID per session — repeated pushes overwrite (INSERT OR REPLACE).
 // Also clears delivered: receipts so new pushes re-deliver.
-void writeCIStatus(sqlite3* db, const(char)[] sessionId,
+bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
                    const(char)[] repo, const(char)[] branch, const(char)[] sha,
                    int delaySec) {
     import db : formatTimestamp, versionString;
 
-    if (sessionId.length == 0) return;
+    if (sessionId.length == 0) return false;
 
     // Build deterministic ID: "immediate:ci-status:<sessionId>"
     __gshared ZBuf idBuf;
@@ -490,23 +521,11 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
     __gshared ZBuf attrBuf;
     attrBuf.reset();
     attrBuf.put(`{"detail":"Checking CI...","repo":"`);
-    foreach (c; repo) {
-        if (c == '"') attrBuf.put(`\"`);
-        else if (c == '\\') attrBuf.put(`\\`);
-        else attrBuf.putChar(c);
-    }
+    putJsonString(attrBuf, repo);
     attrBuf.put(`","branch":"`);
-    foreach (c; branch) {
-        if (c == '"') attrBuf.put(`\"`);
-        else if (c == '\\') attrBuf.put(`\\`);
-        else attrBuf.putChar(c);
-    }
+    putJsonString(attrBuf, branch);
     attrBuf.put(`","sha":"`);
-    foreach (c; sha) {
-        if (c == '"') attrBuf.put(`\"`);
-        else if (c == '\\') attrBuf.put(`\\`);
-        else attrBuf.putChar(c);
-    }
+    putJsonString(attrBuf, sha);
     // Adaptive-poll inputs: push timestamp + historical p50/p90 of CI duration.
     // Fetched ONCE at write time so the watcher doesn't need to call gh again.
     import deferred : getCIPercentiles;
@@ -540,19 +559,33 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
     srcBuf.put(versionString());
 
     enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return;
-    sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, `["ci"]`.ptr, 6, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, predBuf.ptr(), cast(int) predBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+
+    // A push whose row never lands is a push whose CI is never reported, and
+    // the caller stamped ciFired either way. Same retry shape as writeNote.
+    bool wrote = false;
+    foreach (attempt; 0 .. 10) {
+        import db : SQLITE_BUSY, SQLITE_DONE;
+        sqlite3_stmt* stmt;
+        auto prep = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+        if (prep == SQLITE_BUSY) { usleep(50_000); continue; }
+        if (prep != SQLITE_OK) return false;
+
+        sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, `["ci"]`.ptr, 6, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, predBuf.ptr(), cast(int) predBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+
+        auto step = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if (step == SQLITE_DONE) { wrote = true; break; }
+        if (step == SQLITE_BUSY) { usleep(50_000); continue; }
+        return false;
+    }
+    if (!wrote) return false;
 
     // Clear delivered: receipts so all sessions re-deliver
     __gshared ZBuf delPred;
@@ -563,10 +596,11 @@ void writeCIStatus(sqlite3* db, const(char)[] sessionId,
     enum delSql = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') = ?1\0";
     sqlite3_stmt* delStmt;
     if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) != SQLITE_OK)
-        return;
+        return false;
     sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
     sqlite3_step(delStmt);
     sqlite3_finalize(delStmt);
+    return true;
 }
 
 // Announce that a control's script was launched, written by the parent the
@@ -604,10 +638,7 @@ bool writeNote(sqlite3* db,
     __gshared ZBuf attrBuf;
     attrBuf.reset();
     attrBuf.put(`{"detail":"`);
-    foreach (c; detail) {
-        if (c == '"' || c == '\\') continue;
-        attrBuf.putChar(c);
-    }
+    putJsonString(attrBuf, detail);
     attrBuf.put(`","after":0}`);
 
     __gshared ZBuf ctxBuf;
@@ -704,9 +735,9 @@ bool writeDispatchStatus(sqlite3* db, const(char)[] sessionId,
     __gshared ZBuf attrBuf;
     attrBuf.reset();
     attrBuf.put(`{"detail":"Watching the run...","repo":"`);
-    foreach (c; repo) { if (c != '"' && c != '\\') attrBuf.putChar(c); }
+    putJsonString(attrBuf, repo);
     attrBuf.put(`","token":"`);
-    foreach (c; token) { if (c != '"' && c != '\\') attrBuf.putChar(c); }
+    putJsonString(attrBuf, token);
     attrBuf.put(`","push_time":`); putLong(attrBuf, now);
     attrBuf.put(`,"after":`);      putLong(attrBuf, now + delaySec);
     attrBuf.put(`}`);
@@ -794,10 +825,7 @@ bool writeExecStarted(sqlite3* db,
     __gshared ZBuf attrBuf;
     attrBuf.reset();
     attrBuf.put(`{"detail":"exec `);
-    foreach (c; controlName) {
-        if (c == '"' || c == '\\') continue;
-        attrBuf.putChar(c);
-    }
+    putJsonString(attrBuf, controlName);
     attrBuf.put(`: started","after":0}`);
 
     __gshared ZBuf ctxBuf;
@@ -926,17 +954,7 @@ bool writeExecResult(sqlite3* db,
         buf.put(tbuf[0 .. tlen]);
     }
 
-    void putEscaped(ref ZBuf buf, const(char)[] s) {
-        foreach (c; s) {
-            if (c == '"') buf.put(`\"`);
-            else if (c == '\\') buf.put(`\\`);
-            else if (c == '\n') buf.put(`\n`);
-            else if (c == '\r') buf.put(`\r`);
-            else if (c == '\t') buf.put(`\t`);
-            else if (c < 0x20) continue;
-            else buf.putChar(c);
-        }
-    }
+    alias putEscaped = putJsonString;
 
     __gshared ZBuf idBuf;
     idBuf.reset();
@@ -1480,6 +1498,57 @@ unittest {
 
     assert(countStaleExecForSession(testDb, "sess-ci") == 0,
            "a long-parked ci-status row is not a pipeline failure");
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // A note carries whatever the agent said, which is a rite's own command
+    // often enough. Dropping its quotes hands over something that cannot be
+    // pasted, and a raw newline makes the row invalid JSON.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, SQLITE_ROW, sqlite3_close,
+                sqlite3_column_int64;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    enum said = "grep -qxF \"  - CHERRY\" WILLOW.md\nStill hanging: MANGO.";
+    assert(writeNote(testDb, "sess-esc", "k", said));
+
+    auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-esc");
+    assert(msg.message == said, "a note arrives as it was said");
+
+    enum validSql = "SELECT json_valid(attributes) FROM attestations WHERE id LIKE 'immediate:note:%'\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(testDb, validSql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 1, "and the row it lands in is JSON");
+    sqlite3_finalize(stmt);
+
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // A receipt that does not land redelivers the same message on every pass,
+    // for as long as the session lives. It returned void, so no caller could
+    // tell that from a receipt that landed.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    assert(writeNote(testDb, "sess-receipt", "k", "something happened"));
+    auto one = readImmediateMessage(testDb, "/tmp/anywhere", "sess-receipt");
+    assert(one.message !is null);
+
+    assert(markImmediateDelivered(testDb, one.msgId, one.projectContext, "sess-receipt"),
+           "a receipt that landed says so");
+    assert(readImmediateMessage(testDb, "/tmp/anywhere", "sess-receipt").message is null,
+           "and the message is not offered again");
 
     sqlite3_close(testDb);
 }

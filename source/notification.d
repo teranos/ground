@@ -215,7 +215,10 @@ Notice drainSaid(DB)(DB db, const(char)[] sessionId) {
     foreach (i; 0 .. 32) {
         auto imm = readImmediateMessage(db, "", sessionId, NOTICE_MARK);
         if (imm.message is null) break;
-        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, NOTICE_MARK);
+        // No receipt, no drain: the next pass reads the same record back and
+        // the notice repeats.
+        if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, NOTICE_MARK))
+            break;
         if (out_.len > 0) out_.put("\n");
         out_.put(imm.message);
     }

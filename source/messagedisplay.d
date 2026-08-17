@@ -76,7 +76,10 @@ int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] s
     foreach (i; 0 .. 16) {
         auto imm = readImmediateMessage(db, cwd, sessionId, SCREEN_MARK);
         if (imm.message is null) break;
-        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK);
+        // Bounded at 16, so a receipt that never lands draws the same line
+        // sixteen times rather than forever. Still the same defect.
+        if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK))
+            break;
         marked(lines, imm.msgId, imm.message);
     }
     if (lines.len > 0) lines.put("\n");
