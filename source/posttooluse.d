@@ -71,7 +71,6 @@ bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] file
 }
 
 // TODO: extract `tool_response` — the actual result the tool returned (ground only reads tool_input today)
-// TODO: extract `agent_id`, `agent_type` — distinguish subagent tool calls from main session
 int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
     auto t0 = usecNow();
@@ -93,6 +92,48 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
+
+    // Blue is "the agent is doing something", so it is stamped where the agent
+    // does something. Collet read this off the attestation table before, which
+    // was accurate and cost 2s a frame against a 1s repaint.
+    if (sessionId.length > 0) {
+        import core.stdc.time : time;
+        import db : openDb, sqlite3_close;
+        import ritual : stampActed;
+
+        auto adb = openDb();
+        if (adb !is null) {
+            stampActed(adb, sessionId, cast(long) time(null));
+            sqlite3_close(adb);
+        }
+    }
+
+    // The fallback address. PreToolUse claims the session before the row is
+    // created; this catches a performance whose claim was missed and is still
+    // Live, which is every case except a ritual that finished inside the call.
+    if (command !is null && sessionId.length > 0) {
+        import ritual : ritualStarted, readPosition, writePosition, RitualState;
+        import controls : allParsed;
+        import db : openDb, sqlite3_close;
+
+        auto started = ritualStarted(command);
+        if (started.length > 0) {
+            static immutable parsed = allParsed;
+            foreach (i; 0 .. parsed.ritualCount) {
+                if (parsed.rituals[i].name != started) continue;
+                auto db = openDb();
+                if (db is null) break;
+                auto found = readPosition(db, parsed.rituals[i].projectPath);
+                if (found.valid && found.p.state == RitualState.Live
+                    && found.p.parent.length == 0) {
+                    found.p.parent = sessionId;
+                    writePosition(db, found.p);
+                }
+                sqlite3_close(db);
+                break;
+            }
+        }
+    }
     auto detail = command !is null ? command : (filePath !is null ? filePath : cast(const(char)[])"PostToolUse");
 
     auto tParse = usecNow();
@@ -100,7 +141,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // Exec dispatch — two safety checks alongside the control-cmd match:
     //
     //   Scope-cmd: scope-level cmd is not propagated to Control.cmd for
-    //   non-strop controls (proto.d:219-228), so postToolUseMatch alone
+    //   non-strop controls (`buildScopes`), so postToolUseMatch alone
     //   would let a control with no cmd of its own fire on every tool
     //   call in the scope. Enforce sc.cmds explicitly here.
     //
@@ -114,8 +155,12 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         import exec : dispatchExec;
         import db : openDb, execFireExists, attestExecFire, sqlite3_close;
         auto edb = openDb();
+        // Where the command ran, not where the session sits. `cd X && git push`
+        // is work done in X, and a scope naming X was skipped before this.
+        import matcher : effectiveCwd;
+        auto where = effectiveCwd(detail, cwd);
         foreach (ref sc; postToolUseScopes) {
-            if (!scopeMatches(sc, cwd)) continue;
+            if (!scopeMatches(sc, where)) continue;
             if (sc.cmdCount > 0) {
                 bool scopeCmdMatched = false;
                 foreach (i; 0 .. sc.cmdCount) {
@@ -124,6 +169,19 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 if (!scopeCmdMatched) continue;
             }
             foreach (ref c; sc.controls) {
+                // A control that performs a ritual. Same gate as exec, and the
+                // same once-per-tool-call guard: a push is one push.
+                if (c.ritual.length > 0) {
+                    if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
+                    if (edb !is null && toolUseId.length > 0
+                        && execFireExists(edb, c.name, sessionId, toolUseId))
+                        continue;
+                    if (edb !is null && toolUseId.length > 0)
+                        attestExecFire(edb, c.name, cwd, sessionId, toolUseId);
+                    import ritual : performFromControl;
+                    cast(void) performFromControl(c.ritual, sessionId);
+                    continue;
+                }
                 if (c.exec.length == 0) continue;
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
                 if (c.pushedPath.value.length > 0) {
@@ -310,9 +368,18 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import control_handlers : ciDelay;
                         auto cdb = openDb();
                         if (cdb !is null) {
-                            writeCIStatus(cdb, sessionId, info.repo, info.branch, info.sha, ciDelay(cwd));
+                            // ciFired said the push would be reported on, so a
+                            // row that never landed read as CI being watched.
+                            ciFired = writeCIStatus(cdb, sessionId, info.repo,
+                                                    info.branch, info.sha, ciDelay(cwd));
                             sqlite3_close(cdb);
-                            ciFired = true;
+                            if (!ciFired) {
+                                import exec : emitError;
+                                emitError("push.ci",
+                                          "the push landed and nothing recorded that its CI is owed a result",
+                                          0, 1, cast(string) sessionId, "push", "",
+                                          "", cast(string) info.repo);
+                            }
                         }
                     }
                 }

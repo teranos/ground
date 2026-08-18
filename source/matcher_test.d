@@ -3,7 +3,25 @@ module matcher_test;
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
                  wildcardContains, containsExact, extractLeadingCd,
-                 maxCommentRun;
+                 maxCommentRun, effectiveCwd;
+
+// --- where a command actually ran ---
+// PostToolUse matched scopes against the session cwd alone, so a control
+// scoped to a repo never fired for work done by cd-ing into it.
+
+// Nothing to move to: the session cwd stands.
+static assert(effectiveCwd("echo hi", "/home/u/proj") == "/home/u/proj");
+static assert(effectiveCwd("", "/home/u/proj") == "/home/u/proj");
+
+// A leading cd is where the rest of the command ran.
+static assert(effectiveCwd("cd /srv/app; echo hi", "/home/u/proj") == "/srv/app");
+static assert(effectiveCwd("cd /srv/app && echo hi", "/home/u/proj") == "/srv/app");
+
+// The last one wins, the way the shell leaves you.
+static assert(effectiveCwd("cd /a && echo x && cd /b && echo y", "/home/u") == "/b");
+
+// A quoted path still resolves.
+static assert(effectiveCwd(`cd "/srv/my app" && echo hi`, "/home/u") == "/srv/my app");
 import controls : allScopes;
 
 // CTFE predicate — is a named control present in the built scopes?

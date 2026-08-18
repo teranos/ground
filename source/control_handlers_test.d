@@ -44,6 +44,22 @@ static assert(containsUnanalyzableShell("cat <<EOF\ndata\nEOF"));
 // until — true.
 static assert(containsUnanalyzableShell("until ping -c1 host; do sleep 1; done"));
 
+// A quoted argument is data, not shell. A commit message is the case that
+// found this: ordinary English carries "for ", "while " and "case " constantly,
+// and scanning through the quotes rejected the message for its prose.
+static assert(!containsUnanalyzableShell(`git commit -m "for the whole command"`));
+static assert(!containsUnanalyzableShell(`git commit -m "a while later, in case"`));
+static assert(!containsUnanalyzableShell("git commit -m 'until it lands'"));
+
+// Single quotes suppress substitution, so $( inside them is data too.
+static assert(!containsUnanalyzableShell(`echo 'costs $(five)'`));
+
+// Double quotes do not. $( still interpolates there, so it still counts.
+static assert(containsUnanalyzableShell(`echo "today is $(date)"`));
+
+// An unbalanced quote must not swallow the rest of the command.
+static assert(containsUnanalyzableShell(`echo "unclosed && for i in *; do x; done`));
+
 // --- countAndChains ---
 // Number of top-level "&&" separators in the command. Used to enforce a
 // "deep chain" threshold — pbt controls treat count >= N as too deep.

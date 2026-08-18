@@ -89,6 +89,25 @@ void writeStopResponse(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
+// "the agent carries on" — verbatim, and `continue` is the field that says so.
+// Blocking alone left the agent doing one Edit every 605 seconds.
+void writeStopContinue(const(char)[] reason) {
+    fputs(`{"decision":"block","continue":true,"reason":"`, stdout);
+    writeJsonString(reason);
+    fputs(`"}`, stdout);
+    fputs("\n", stdout);
+}
+
+// https://code.claude.com/docs/en/hooks — `continue`, `stopReason`
+void writeStopEnded(V)(const(char)[] ritual, V state) {
+    import ritual : RitualState;
+    fputs(`{"continue":false,"stopReason":"Ritual `, stdout);
+    writeJsonString(ritual);
+    fputs(state == RitualState.Aborted ? ` was aborted.` : ` ended.`, stdout);
+    fputs(` This performance is over."}`, stdout);
+    fputs("\n", stdout);
+}
+
 // cwd/sessionId stashed by handleStop so writeStopResponse callers don't need them
 __gshared const(char)[] g_cwd;
 __gshared const(char)[] g_sessionId;
@@ -96,6 +115,18 @@ __gshared const(char)[] g_sessionId;
 void writeStopResponseAndNotify(const(char)[] reason) {
     writeStopResponse(reason);
     notifyLoomHook(g_cwd, g_sessionId, reason);
+}
+
+// A live performance with a rite still to meet.
+bool ritualPending(const(char)[] cwd) {
+    import db : openDb, sqlite3_close;
+    import ritual : readPositionAt, RitualState;
+
+    auto db = openDb();
+    if (db is null) return false;
+    auto found = readPositionAt(db, cwd);
+    sqlite3_close(db);
+    return found.valid && found.p.state == RitualState.Live;
 }
 
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
@@ -113,31 +144,21 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // ERROR AXIOM: catch wrapper processes that died before delivering,
     // and check the delivery pipeline itself is alive. Stop runs both since
-    // it's the natural end-of-turn sync point.
+    // it fires when Claude finishes responding, after the agentic loop.
     if (sessionId !is null) {
         import errors : scanVanishedWrappers, immediateBacklogMessage;
         scanVanishedWrappers(cast(string) sessionId);
-        // If the watch daemon is dead and rows are pending, block Stop
-        // with the backlog message. Point of interaction: user sees the
-        // failure at end-of-turn instead of silently missing exec output.
-        // The killSessionWatcher/writeWatchClaim above still ran, and the
-        // asyncRewake config still spawns a new watch — blocking Stop
-        // doesn't prevent recovery on the next turn.
-        //
-        // TODO (CC .163): swap block-with-reason for hookSpecificOutput.
-        //   additionalContext. Same visibility, doesn't hijack the turn or
-        //   surface as "hook error" in the transcript. Ship after bumping
-        //   the minimum Claude Code version to .163.
-        auto backlog = immediateBacklogMessage(cast(string) sessionId);
-        if (backlog.length > 0) {
-            writeStopResponseAndNotify(backlog);
-            return 0;
-        }
+        // This used to block the Stop with a count of undelivered rows. It
+        // ran every turn, said nothing about what was owed, and the session
+        // had no action that could clear it — "nothing is ever stuck".
+        cast(void) immediateBacklogMessage(cast(string) sessionId);
     }
 
     auto hookActive = extractBool(input, `"stop_hook_active"`);
 
-    if (hookActive)
+    // A rite holds the door until it is met, which it can only do if it is
+    // asked every time. The guard is right for advisory controls.
+    if (hookActive && !ritualPending(cwd))
         return 0;
 
     auto t1 = usecNow();
@@ -153,6 +174,77 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto tb0 = usecNow();
         branch = getBranch(cwd);
         branchUs = usecNow() - tb0;
+    }
+
+    // A live performance in this directory is the reason the turn is
+    // happening, so it is answered before the advisory controls.
+    {
+        import ritual : readPositionAt, advance, briefing, flatten, RitualState;
+        import rite : Verdict;
+        import controls : allParsed;
+        import core.stdc.time : time;
+
+        auto found = readPositionAt(db, cwd);
+
+        // "ground should take responsibility"
+        if (found.valid && found.p.state != RitualState.Live) {
+            sqlite3_close(db);
+            writeStopEnded(found.p.ritual, found.p.state);
+            return 0;
+        }
+
+        // Stop does not walk. `ground drive` is forked for every performance
+        // and walking is its whole job; this ran the same rite a second time,
+        // which for a `dispatch:` rite meant a second workflow run.
+        if (found.valid && found.p.state == RitualState.Live) {
+            static immutable ritualsParsed = allParsed;
+            foreach (i; 0 .. ritualsParsed.ritualCount) {
+                if (ritualsParsed.rituals[i].name != found.p.ritual) continue;
+
+                auto flat = flatten(ritualsParsed, i);
+
+                // "make the message a property of the mic" — and this is the
+                // only place the agent's last message can be read.
+                import ritual : writePositionIf;
+                import mic : wordsHash, freshWords;
+                auto said = extractLastAssistantMessage(input);
+                auto spoken = said is null ? 0 : wordsHash(said);
+                auto back = found.p;
+                if (freshWords(spoken, found.p.said)) {
+                    back.said = spoken;
+                    cast(void) writePositionIf(db, back, back.rev);
+
+                    // The hash is all that survives this function, so the words
+                    // go out from here or from nowhere.
+                    import sentences : firstTwoSentences;
+                    import notification : agentLine;
+                    import ritual.delivery : deliver;
+                    auto rite = flat.rites[found.p.current];
+                    auto words = firstTwoSentences(said);
+                    if (words.length > 0) {
+                        __gshared ZBuf saidKey;
+                        saidKey.reset();
+                        saidKey.put("rite:");
+                        saidKey.put(found.p.id);
+                        saidKey.put(":");
+                        saidKey.put(rite.name);
+                        saidKey.put(":said:");
+                        putInt(saidKey, spoken < 0 ? -spoken : spoken);
+                        auto line = agentLine(found.p.ritual, rite.name, words, found.p.id);
+                        deliver(db, found.p, rite.to, saidKey.slice(), line.text(), true);
+                    }
+                }
+
+                sqlite3_close(db);
+
+                // A rite's block is the one place the agent is meant to keep
+                // going rather than stop. Everything else keeps the old shape.
+                auto brief = briefing(found.p, flat);
+                writeStopContinue(brief.text());
+                notifyLoomHook(cwd, sessionId, brief.text());
+                return 0;
+            }
+        }
     }
 
     auto t3 = usecNow();
@@ -346,7 +438,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             struct Budget { string event; long thresholdUs; }
             static immutable budgets = [
                 Budget("PreToolUse",       50_000),
-                Budget("PostToolUse",     300_000),
+                Budget("PostToolUse",     400_000),
                 Budget("UserPromptSubmit", 50_000),
                 Budget("Stop",            300_000),
                 Budget("SessionStart",  2_000_000),

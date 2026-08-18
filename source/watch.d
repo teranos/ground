@@ -3,12 +3,13 @@ module watch;
 // ground watch <cwd>
 //
 // Immediate delivery via asyncRewake. Polls the db every 2 seconds for
-// immediate: attestations matching the project. Batches all pending messages,
-// debounces (5s quiet window), writes to stderr and exits 2. Claude Code's
+// immediate: attestations matching the project, writes what is pending to
+// stderr and exits 2 — no timer, nothing held back. Claude Code's
 // asyncRewake shows stderr as a system reminder and wakes the session.
 //
-// Spawned by the Stop hook: {"command":"ground watch $PWD","asyncRewake":true}
-// Each Stop fires a new watcher. Claude Code does NOT deduplicate async hooks
+// Spawned by PostToolUse, Stop and SessionStart:
+// {"command":"ground watch $PWD","asyncRewake":true}
+// Claude Code does NOT deduplicate async hooks
 // (confirmed by docs), so we handle it ourselves via PID files.
 //
 // Session identity:
@@ -18,12 +19,6 @@ module watch;
 //   file (atomic rename) to learn its session ID and writes its PID.
 //   Killing is keyed by session — watchers from different sessions never
 //   interfere with each other.
-//
-// Debounce:
-//   When messages are found, the watcher waits 5s before checking again.
-//   If more messages arrive during the wait, the timer resets. Delivery
-//   happens only after a full 5s with no new messages. This batches
-//   burst events (e.g. QNTX restart with 7 plugins) into one notification.
 //
 // Two keying models, both flow through this watcher:
 //
@@ -43,8 +38,7 @@ module watch;
 //   checkCIStatus(repo, branch) which calls `gh -R <repo> --branch <branch>`
 //   and returns a CIQuery (see deferred.d), not a string. Four outcomes:
 //     InProgress  — not terminal, retry next cycle at the adaptive interval
-//     Terminal    — deliver it; "failure" is urgent and bypasses the debounce,
-//                   anything else takes the normal 5s debounce
+//     Terminal    — deliver it
 //     NoWorkflow  — gh answered and there is genuinely no run; mark delivered
 //                   so the row doesn't loop forever
 //     Unavailable — gh could not be run or exited non-zero; DELIVERED, not
@@ -72,9 +66,9 @@ module watch;
 //   [ ] PostToolUseDeferred writers (the `gh pr review` nudge today; future
 //       similar) → write to immediate with after-gate instead of polling
 //       deferred queue at Stop. Shrinks stop.d's deferred-section.
-//   [ ] Session-scoped deferred (stop.d:271-284) → session-keyed immediate
-//       removes the need for stop.d to read the deferred queue.
-//   [ ] Project-scoped deferred (stop.d:286-301, main/master-only) → either
+//   [ ] Session-scoped deferred (`readDeferredMessage`) → session-keyed
+//       immediate removes the need to read the deferred queue at Stop.
+//   [ ] Project-scoped deferred (`readProjectDeferredMessage`) → either
 //       (a) project-keyed immediate (path stays in row contexts, watcher
 //       does cwd-suffix match like QNTX rows), or (b) drop the main/master
 //       gate as part of the move.
@@ -123,6 +117,7 @@ import core.stdc.stdio : stderr, fputs, fwrite, FILE;
 extern (C) {
     uint sleep(uint seconds);
     int getpid();
+    int getppid();
     int kill(int pid, int sig);
     FILE* fopen(const(char)* path, const(char)* mode);
     int fclose(FILE* f);
@@ -132,6 +127,23 @@ extern (C) {
     int remove(const(char)* path);
     FILE* popen(const(char)* command, const(char)* mode);
     int pclose(FILE* stream);
+}
+
+// How long a dispatched run may take to appear in the listing before its
+// absence is reported as an absence.
+enum DISPATCH_APPEAR_SEC = 60;
+
+// The receipt is what makes delivery once rather than forever: without it the
+// next read returns the same row, and the loop that reads it does not end. So
+// a receipt that did not land stops the drain and says so.
+private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
+                     const(char)[] sessionId, const(char)[] mark) {
+    if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) return true;
+    import exec : emitError;
+    emitError("watch.receipt",
+              "the delivery receipt did not land, so this message would be handed over without end",
+              0, 1, "", "watch", "", "", cast(string) msgId);
+    return false;
 }
 
 const(char)[] getHome() {
@@ -168,6 +180,60 @@ const(char)[] cwdLeaf(const(char)[] path) {
     return path[last .. $];
 }
 
+// Everything a pid file can hold that is not a live pid reaches the caller
+// as 0, and 0 is never signalled: kill(0, SIGTERM) hits the whole group.
+int parsePid(const(char)[] text) {
+    int pid = 0;
+    foreach (c; text) {
+        if (c < '0' || c > '9') break;
+        pid = pid * 10 + (c - '0');
+    }
+    return pid;
+}
+
+// A watcher's parent is claude. ppid 1 means the session it would wake is
+// gone, and nothing will ever kill it — killSessionWatcher runs from that
+// session's own Stop, which will not happen again.
+bool orphaned(int ppid) { return ppid <= 1; }
+
+// One watcher per tree. `killSessionWatcher` kills by session id, and a watcher
+// on a ritual tree takes its id from `claimSession` when stdin carries none, so
+// the kill misses any that claimed something else.
+private const(char)[] treeKey(const(char)[] cwd) {
+    size_t start;
+    foreach (i, c; cwd) if (c == '/') start = i + 1;
+    return cwd[start .. $];
+}
+
+// True when this process may watch that tree. False when a live one already is.
+bool claimTree(const(char)[] cwd, int myPid) {
+    __gshared char[512] pathBuf = 0;
+    auto pLen = buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid");
+    if (pLen == 0) return true;
+
+    auto rf = fopen(&pathBuf[0], "r");
+    if (rf !is null) {
+        char[16] pidBuf = 0;
+        auto n = fread(&pidBuf[0], 1, 15, rf);
+        fclose(rf);
+        auto held = parsePid(pidBuf[0 .. n]);
+        // Signal 0 tests for existence without delivering anything.
+        if (held > 0 && held != myPid && kill(held, 0) == 0) return false;
+    }
+
+    auto wf = fopen(&pathBuf[0], "w");
+    if (wf is null) return true;
+    fprintf(wf, "%d\n", myPid);
+    fclose(wf);
+    return true;
+}
+
+void releaseTree(const(char)[] cwd) {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid") == 0) return;
+    remove(&pathBuf[0]);
+}
+
 // --- Called by Stop handler (has session ID) ---
 
 // Kill the previous watcher for THIS session only.
@@ -183,14 +249,13 @@ void killSessionWatcher(const(char)[] sessionId) {
     auto n = fread(&pidBuf[0], 1, 15, rf);
     fclose(rf);
 
-    int oldPid = 0;
-    foreach (i; 0 .. n) {
-        if (pidBuf[i] >= '0' && pidBuf[i] <= '9')
-            oldPid = oldPid * 10 + (pidBuf[i] - '0');
-        else break;
-    }
+    auto oldPid = parsePid(pidBuf[0 .. n]);
     if (oldPid > 0)
         kill(oldPid, 15); // SIGTERM
+
+    // The file outlives the watcher it named. Left in place it accumulates,
+    // and the number it holds is eventually handed to something else.
+    remove(&pathBuf[0]);
 }
 
 // Write a claim file so the new watcher knows its session ID.
@@ -279,9 +344,9 @@ const(char)[] claimSession(const(char)[] cwd) {
 // honest signal is undelivered work — see immediate.countStaleExecForSession.
 
 // Write our PID to the session-keyed PID file.
-void writePid(const(char)[] sessionId) {
+void writePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
     __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-", sessionId, ".pid");
+    auto pLen = buildGroundPath(pathBuf, prefix, sessionId, ".pid");
     if (pLen == 0) return;
 
     auto wf = fopen(&pathBuf[0], "w");
@@ -289,6 +354,14 @@ void writePid(const(char)[] sessionId) {
         fprintf(wf, "%d\n", getpid());
         fclose(wf);
     }
+}
+
+// The watcher unlinks its own file on the way out. Left behind, the number
+// it holds is eventually reissued and killSessionWatcher signals a stranger.
+void removePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, prefix, sessionId, ".pid") == 0) return;
+    remove(&pathBuf[0]);
 }
 
 int handleWatch(int argc, const(char)** argv) {
@@ -300,13 +373,40 @@ int handleWatch(int argc, const(char)** argv) {
     import main : argLen;
     auto cwd = argv[2][0 .. argLen(argv[2])];
 
-    auto sessionId = claimSession(cwd);
+    // A second watcher on a tree is a second walker: it calls `advance` too.
+    if (!claimTree(cwd, getpid())) return 0;
+
+    // The model's mark. The operator is not reached from here — exit 0 renders
+    // systemMessage but sends stdout to the debug log, so a second watcher for
+    // the screen was built, measured, and deleted. MessageDisplay carries it.
+    enum mark = "delivered:";
+
+    // Two watchers cannot share the claim mechanism: the glob is not
+    // session-scoped and the rename is a mutex, so the second one steals the
+    // first one's session. Stdin carries session_id if it is piped at all.
+    const(char)[] sessionId = null;
+    {
+        import main : readStdin;
+        import parse : extractJsonString;
+        auto input = readStdin();
+        if (input !is null) {
+            __gshared char[128] sidBuf = 0;
+            sessionId = extractJsonString(input, `"session_id"`, &sidBuf[0], sidBuf.length);
+        }
+    }
+
+    if (sessionId is null) sessionId = claimSession(cwd);
     if (sessionId is null) {
-        fputs("ground watch: no claim file found\n", stderr);
+        // asyncRewake surfaces stderr on exit 2 only, so this line reached
+        // nobody for as long as it has existed.
+        import exec : emitError;
+        emitError("watch.claim", "no claim file to take, so this watcher has no session",
+                  0, 1, "", "watch", "", "", "");
         return 1;
     }
 
-    writePid(sessionId);
+    enum pidPrefix = "watch-";
+    writePid(sessionId, pidPrefix);
 
     __gshared char[4096] batchBuf = 0;
     size_t batchLen = 0;
@@ -316,14 +416,17 @@ int handleWatch(int argc, const(char)** argv) {
     while (true) {
         auto db = openDb();
         if (db !is null) {
-            bool foundNew = false;
-            bool urgent = false;
-
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
 
+            // The watcher does not walk. `ground drive` was built for exactly
+            // the case this block was added for — an agent inside the agentic
+            // loop for an hour — and two of them ran every rite twice.
+
+            bool stuck = false;
+
             while (true) {
-                auto imm = readImmediateMessage(db, cwd, sessionId);
+                auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
 
                 // Late-binding: ci-status resolves live. Uses the repo + branch
@@ -335,33 +438,84 @@ int handleWatch(int argc, const(char)** argv) {
                     import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.branch.length == 0) {
                         // Row predates the repo-keyed format — drop it.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                            stuck = true;
+                            break;
+                        }
                         continue;
                     }
                     import deferred : CIQuery;
                     auto ci = checkCIStatus(imm.repo, imm.branch);
                     if (ci.kind == CIQuery.InProgress) {
-                        // Adaptive backoff: stay quiet during the unlikely-done
-                        // window, poll actively in the likely-done window.
-                        auto elapsed = cast(long) time(null) - imm.pushTime;
-                        nextSleep = pickAdaptiveSleep(elapsed, imm.p50, imm.p90);
-                        break; // not terminal yet, try again next cycle
+                        // Parked, not stopped: breaking here held back every
+                        // message written after this row.
+                        import immediate : parkImmediate;
+                        auto now = cast(long) time(null);
+                        auto wait = pickAdaptiveSleep(now - imm.pushTime, imm.p50, imm.p90);
+                        nextSleep = wait;
+                        parkImmediate(db, imm.msgId, now + wait);
+                        continue;
                     }
                     if (ci.kind == CIQuery.NoWorkflow) {
                         // gh answered and there is genuinely no run to report.
-                        markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
+                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                            stuck = true;
+                            break;
+                        }
                         continue;
                     }
                     // Unavailable falls through and is DELIVERED, not dropped.
                     // "I could not find out" is the honest answer to "what
                     // happened to my CI" — silently discarding the row is not.
                     imm.message = ci.text;
-                    if (contains(ci.text, "failure"))
-                        urgent = true;
                 }
 
-                markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId);
-                foundNew = true;
+                // A dispatch is over, but the run it sent is not. This row is
+                // the only record that an outcome is still owed.
+                if (imm.name == "dispatch") {
+                    import deferred : checkRunByToken, CIQuery;
+                    import adaptive : pickAdaptiveSleep;
+                    import core.stdc.time : time;
+                    if (imm.repo.length == 0 || imm.token.length == 0) {
+                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                            stuck = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    auto run = checkRunByToken(imm.repo, imm.token);
+                    if (run.kind == CIQuery.InProgress) {
+                        import immediate : parkImmediate;
+                        auto now = cast(long) time(null);
+                        auto wait = pickAdaptiveSleep(now - imm.pushTime, imm.p50, imm.p90);
+                        nextSleep = wait;
+                        parkImmediate(db, imm.msgId, now + wait);
+                        continue;
+                    }
+                    // A run does not appear in the listing the instant it is
+                    // dispatched, and "not there yet" is not "not coming".
+                    if (run.kind == CIQuery.NoWorkflow) {
+                        import immediate : parkImmediate;
+                        auto now = cast(long) time(null);
+                        if (now - imm.pushTime < DISPATCH_APPEAR_SEC) {
+                            nextSleep = 2;
+                            parkImmediate(db, imm.msgId, now + 2);
+                            continue;
+                        }
+                        // Long past appearing. Say so rather than drop it.
+                        imm.message = "no run carries the name ground gave it";
+                    }
+                    else imm.message = run.text;
+
+                }
+
+                // The receipt comes before the batch on purpose: a message
+                // written to stderr without one is delivered again on the next
+                // pass, and the operator reads it twice.
+                if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                    stuck = true;
+                    break;
+                }
 
                 // Append to batch: "ground: <message>\n"
                 if (batchLen > 0 && batchLen < batchBuf.length) batchBuf[batchLen++] = '\n';
@@ -371,19 +525,35 @@ int handleWatch(int argc, const(char)** argv) {
 
             sqlite3_close(db);
 
-            if (foundNew && !urgent) {
-                // Debounce: new messages arrived, wait 5s for more before delivering.
-                sleep(5);
-                continue;
-            }
-
-            // No new messages this cycle. If we accumulated anything, deliver now.
+            // "nothing can wait, and everything is urgent, at the same level
+            // of predictable urgency"
             if (batchLen > 0) {
+                removePid(sessionId, pidPrefix);
+                releaseTree(cwd);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
                 return 2;
             }
+
+            // A receipt that cannot be written is not something to retry every
+            // two seconds. This watcher stops; the next hook spawns another,
+            // and if the db is still broken that one says so once as well.
+            if (stuck) {
+                removePid(sessionId, pidPrefix);
+                releaseTree(cwd);
+                return 1;
+            }
         }
+
+        // The session that spawned this watcher is gone, and only that
+        // session's Stop ever calls killSessionWatcher. Without this the
+        // loop runs until the machine reboots.
+        if (orphaned(getppid())) {
+            removePid(sessionId, pidPrefix);
+            releaseTree(cwd);
+            return 0;
+        }
+
         sleep(nextSleep);
     }
 }

@@ -2,6 +2,7 @@ module hooks;
 
 enum HookEvent {
     SessionStart,       // scoped controls via sessionstart(), optional check functions, arch context
+                        // TODO: watchPaths (arms FileChanged), initialUserMessage, sessionTitle, reloadSkills
     MessageDisplay,     // TODO (CC .152): fires as assistant text is displayed; hook can transform or
                         //   hide it. use case: redact secrets from assistant output, warn on risky
                         //   commands about to be shown, format ground errors distinctively
@@ -9,28 +10,26 @@ enum HookEvent {
     PreToolUse,         // command amendment, file-path controls, scoped decisions
                         // TODO: updatedInput for non-Bash tools (file_path, pattern, offset, etc.)
     PermissionRequest,  // TODO: auto-allow/deny permission dialogs
-    PermissionDenied,   // TODO: fires when auto mode classifier denies a tool call
+    PermissionDenied,   // TODO: fires when auto mode classifier denies a tool call; retry:true lets the model retry
     PostToolUse,        // attested, response captured, CI nudge on git push, review nudge
                         //   cmd and filepath matching for advisory context
                         // TODO: tool-name filtering — restrict controls to specific tools (e.g. Edit only, not Read)
                         // TODO: decision:block with reason — corrective feedback after tool runs
                         // TODO: exit 2 — stderr fed back to Claude as feedback
-                        // TODO: suppressOutput:true — hide stdout from verbose mode
+                        // TODO: suppressOutput:true hides stdout; updatedToolOutput rewrites the result
     PostToolUseFailure, // trigger-matched hints on failure (e.g. wrong directory)
-    Notification,       // TODO: cross-session awareness — session A completes a 4+ min task, idle_prompt
-                        //   fires; combine with session B's next Notification to surface the result
+    Notification,       // a halted performance, said once per session. No decision control:
+                        //   exit 2 shows stderr to the user and is the only reply it accepts
+                        //   fires on permission_prompt, idle_prompt, agent_needs_input, agent_completed
     SubagentStart,      // TODO: agent-type scoped controls — inject context or adjust decisions per type
                         //   payload: agent_type, agent_id, session_id, cwd
                         //   time-scoped modes could auto-approve agent spawning during event windows
-    SubagentStop,       // attested (full payload incl. last_assistant_message, agent_transcript_path)
-                        //   stop_hook_active:false — Claude Code may ignore responses
-                        //   payload: agent_id, agent_type, agent_transcript_path, last_assistant_message
-                        //   TODO: read agent_transcript_path for quality checks on subagent output
-                        //   TODO: verify what response fields are honored
+    SubagentStop,       // attested only — no handler
+                        //   payload: agent_id, agent_type, last_assistant_message
     Stop,               // deferred messages, lazy-verify, CI nudge
                         //   stop_hook_active:false = first stop, controls run.
                         //   stop_hook_active:true = re-stop after prior block, skip to avoid loop.
-    StopFailure,        // TODO: fires when turn ends due to API error — retry logic, error logging
+    StopFailure,        // recorded raw by stopfailure.d. Cannot block, so nothing here retries the turn
     TeammateIdle,       // TODO: quality gates before teammate stops — exit 2 to continue, continue:false to halt
     TaskCreated,        // TODO: fires when a task is being created
                         //   payload: task_id, task_subject, task_description, teammate_name, team_name
@@ -120,6 +119,14 @@ struct Content {
     ubyte len;
     const(string)[] values() const return { return _buf[0 .. len]; }
     string value() const { return len > 0 ? _buf[0] : ""; }
+}
+
+// The utilities that mean "I was trying to read a file". Ground reads it and
+// hands it over instead of running the command.
+struct SubstituteForRead {
+    string[8] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
 }
 
 struct Bg {
@@ -222,6 +229,7 @@ struct Control {
     Msg msg;
     McpArg mcpArg;
     Content content;
+    SubstituteForRead substituteForRead;
     Bg bg;
     Tmo tmo;
     Defer defer;
@@ -232,6 +240,7 @@ struct Control {
     string[8] envValues;
     ubyte envCount;
     string exec;
+    string ritual; // the ritual this control performs, by name. Empty = none.
     size_t stropIdx; // 0 = no strop; else 1-based index into controls.globalStropPool.
     int interval; // minimum seconds between fires (0 = no limit)
     int commentRun; // fire at this many consecutive comment lines (0 = off)
@@ -295,7 +304,8 @@ Control control(string name, Cmd c, Trigger t, Defer d) {
     Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.trigger = t; ctrl.defer = d; return ctrl;
 }
 
-// Groups controls by scope and decision.
+// Groups controls by scope and decision. A control can live in one — written
+// at top level `parsePbt` wraps it in a scope with path "/".
 // Empty path = fires everywhere. Non-empty = cwd must contain the path.
 // "!" prefix inverts: "!/QNTX" means cwd must NOT contain "/QNTX".
 // Decision: "allow" auto-approves, "ask" shows the permission prompt.

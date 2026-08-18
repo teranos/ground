@@ -517,26 +517,72 @@ struct CIStatus {
 }
 
 // Interpret gh's exit status and stdout. Pure — the shelling out lives in
+// Room for the verdict plus the failing log under it. 520 held one line.
+enum CI_TEXT_CAP = 4096;
+
+// How many lines of a red run's log come home. Enough to carry the compiler
+// error and the line naming what failed.
+enum CI_TAIL_LINES = "5";
+
 // checkCIStatus, the judgement lives here where it can be tested.
 CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
-    if (exitStatus != 0)
-        return CIStatus(CIQuery.Unavailable, "CI status unknown: gh exited non-zero");
+    // Whatever gh or jq said, said. Ground's account of a failure it never
+    // read is not the failure.
+    if (exitStatus != 0) {
+        __gshared char[520] failBuf = 0;
+        size_t fp = 0;
+        foreach (c; output) { if (fp < failBuf.length - 1) failBuf[fp++] = c; }
+        while (fp > 0 && failBuf[fp - 1] == '\n') fp--;
+        // It said nothing, so the status is the only thing observed.
+        if (fp == 0) {
+            foreach (c; "exit ") failBuf[fp++] = c;
+            auto v = exitStatus;
+            char[12] d = 0;
+            int dl = 0;
+            if (v == 0) d[dl++] = '0';
+            while (v > 0 && dl < 11) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+            foreach_reverse (i; 0 .. dl) failBuf[fp++] = d[i];
+        }
+        return CIStatus(CIQuery.Unavailable, cast(string) failBuf[0 .. fp]);
+    }
 
     auto n = output.length;
-    if (n > 0 && output[n - 1] == '\n') n--;
+    while (n > 0 && output[n - 1] == '\n') n--;
     if (n == 0) return CIStatus(CIQuery.NoWorkflow, null);
 
-    auto line = output[0 .. n];
+    auto all = output[0 .. n];
+
+    // The verdict is the first line. Anything under it is gh's failing log,
+    // which must not be read as part of the conclusion.
+    size_t e = 0;
+    while (e < n && all[e] != '\n') e++;
+    auto line = all[0 .. e];
 
     import matcher : contains;
     if (contains(line, "in_progress"))
         return CIStatus(CIQuery.InProgress, null);
 
-    __gshared char[520] resultBuf = 0;
+    // gh's own field, blank. The line is the evidence; ground has nothing to
+    // add to it and no business describing it.
+    if (line[0] == ' ')
+        return CIStatus(CIQuery.Unavailable, line);
+
+    __gshared char[CI_TEXT_CAP] resultBuf = 0;
     enum prefix = "CI: ";
-    foreach (i, c; prefix) resultBuf[i] = c;
-    foreach (i; 0 .. n) resultBuf[prefix.length + i] = line[i];
-    return CIStatus(CIQuery.Terminal, resultBuf[0 .. prefix.length + n]);
+    size_t p = 0;
+    foreach (c; prefix) resultBuf[p++] = c;
+    foreach (i; 0 .. n) { if (p < resultBuf.length) resultBuf[p++] = all[i]; }
+    return CIStatus(CIQuery.Terminal, resultBuf[0 .. p]);
+}
+
+// "can we return more lines of the ci error or outcome back? like last 5"
+// Green resolves in silence; a red conclusion owes the log that produced it.
+bool wantsTail(const(char)[] line) {
+    import matcher : contains;
+    return contains(line, "failure")
+        || contains(line, "cancelled")
+        || contains(line, "timed_out")
+        || contains(line, "startup_failure");
 }
 
 unittest {
@@ -549,6 +595,14 @@ unittest {
 }
 
 unittest {
+    // What gh and jq say, said. Not ground's account of it.
+    auto r = interpretCIOutput(256, "jq: error: syntax error, unexpected INVALID_CHARACTER\n");
+    assert(r.kind == CIQuery.Unavailable);
+    import matcher : contains;
+    assert(contains(r.text, "jq: error: syntax error"), "the tool's own words reach the user");
+}
+
+unittest {
     // gh succeeded and listed nothing: the repo genuinely has no matching run.
     auto r = interpretCIOutput(0, "");
     assert(r.kind == CIQuery.NoWorkflow);
@@ -558,6 +612,29 @@ unittest {
     // Run exists but hasn't finished — park it, don't deliver.
     auto r = interpretCIOutput(0, "in_progress Branch Latest (push)\n");
     assert(r.kind == CIQuery.InProgress);
+}
+
+unittest {
+    // "can we return more lines of the ci error or outcome back? like last 5"
+    assert(wantsTail("failure Nix (push)"));
+    assert(wantsTail("cancelled Nix (push)"));
+    assert(wantsTail("timed_out Nix (push)"));
+    assert(!wantsTail("success Nix (push)"), "green says nothing more");
+    assert(!wantsTail("in_progress Nix (push)"));
+}
+
+unittest {
+    // A red conclusion with gh's failing log under it. The job name alone
+    // says a thing broke and nothing about what.
+    enum out_ = "failure Nix (push)\n"
+        ~ "ats/wasm/engine.go:29:12: pattern ats.wasm: no matching files found\n"
+        ~ "FAIL github.com/teranos/QNTX/server [setup failed]\n";
+    auto r = interpretCIOutput(0, out_);
+    assert(r.kind == CIQuery.Terminal);
+    import matcher : contains;
+    assert(contains(r.text, "failure Nix (push)"), "the verdict");
+    assert(contains(r.text, "no matching files found"), "and what it was");
+    assert(contains(r.text, "[setup failed]"));
 }
 
 unittest {
@@ -574,6 +651,13 @@ unittest {
     assert(r.text == "CI: failure Rust (push)");
 }
 
+unittest {
+    // Delivered three times on 2026-08-09 as "CI:  CI (pull_request)".
+    auto r = interpretCIOutput(0, " CI (pull_request)\n");
+    assert(r.kind == CIQuery.Unavailable, "a line with no conclusion states nothing");
+    assert(r.text.length > 0, "and it says so out loud");
+}
+
 // Query live CI status for a repo + branch. Returns a human-readable summary.
 // Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
 CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
@@ -583,18 +667,93 @@ CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
     ghCmd.put(repo);
     ghCmd.put(" run list --branch ");
     ghCmd.put(branch);
-    ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(.conclusion // "in_progress") \(.name) (\(.event))" end'`);
+    // `//` substitutes on null only, and gh sends "" for a run that has not
+    // concluded, so the field arrived blank and the line read as a result.
+    ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(if (.conclusion // "") == "" then "in_progress" else .conclusion end) \(.name) (\(.event))" end'`);
+
+    // Without this, gh's and jq's own errors go nowhere and every failure is
+    // reported in ground's words instead of theirs.
+    ghCmd.put(" 2>&1");
 
     auto pipe = popen(ghCmd.ptr(), "r");
     if (pipe is null)
         return CIStatus(CIQuery.Unavailable, "CI status unknown: could not run gh");
 
-    __gshared char[512] outBuf = 0;
+    __gshared char[CI_TEXT_CAP] outBuf = 0;
     auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
     // pclose carries gh's exit status. Discarding it was what made a gh
     // failure indistinguishable from "this repo has no CI" — both arrive
     // here as zero bytes.
     auto status = pclose(pipe);
+
+    // A red conclusion without its log says a thing broke and nothing about
+    // what. Second call rather than one compound command, so the predicate
+    // that decides it is the one under test.
+    size_t head = 0;
+    while (head < n && outBuf[head] != '\n') head++;
+    if (status == 0 && head > 0 && wantsTail(outBuf[0 .. head])) {
+        __gshared ZBuf logCmd;
+        logCmd.reset();
+        logCmd.put("gh -R ");
+        logCmd.put(repo);
+        logCmd.put(` run view "$(gh -R `);
+        logCmd.put(repo);
+        logCmd.put(" run list --branch ");
+        logCmd.put(branch);
+        logCmd.put(` --limit 1 --json databaseId --jq '.[0].databaseId')" --log-failed 2>&1 | tail -`);
+        logCmd.put(CI_TAIL_LINES);
+        auto lp = popen(logCmd.ptr(), "r");
+        if (lp !is null) {
+            if (n < outBuf.length - 1 && outBuf[n - 1] != '\n') outBuf[n++] = '\n';
+            n += fread(&outBuf[n], 1, outBuf.length - 1 - n, lp);
+            pclose(lp);
+        }
+    }
+
+    return interpretCIOutput(status, outBuf[0 .. n]);
+}
+
+// A dispatched run lands on the default branch, not on the commit that caused
+// it, so branch and sha find nothing. The run carries the name ground gave it,
+// and that is what it is found by.
+CIStatus checkRunByToken(const(char)[] repo, const(char)[] token) {
+    __gshared ZBuf ghCmd;
+    ghCmd.reset();
+    ghCmd.put("gh -R ");
+    ghCmd.put(repo);
+    ghCmd.put(` run list --limit 40 --json conclusion,name,event,databaseId --jq 'first(.[] | select(.name | endswith("`);
+    ghCmd.put(token);
+    ghCmd.put(`")) | "\(if (.conclusion // "") == "" then "in_progress" else .conclusion end) \(.name) (\(.event))")' 2>&1`);
+
+    auto pipe = popen(ghCmd.ptr(), "r");
+    if (pipe is null)
+        return CIStatus(CIQuery.Unavailable, "run status unknown: could not run gh");
+
+    __gshared char[CI_TEXT_CAP] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    auto status = pclose(pipe);
+
+    // A red without its log says a thing broke and nothing about what.
+    size_t head = 0;
+    while (head < n && outBuf[head] != '\n') head++;
+    if (status == 0 && head > 0 && wantsTail(outBuf[0 .. head])) {
+        __gshared ZBuf logCmd;
+        logCmd.reset();
+        logCmd.put("gh -R ");
+        logCmd.put(repo);
+        logCmd.put(` run view "$(gh -R `);
+        logCmd.put(repo);
+        logCmd.put(` run list --limit 40 --json databaseId,name --jq 'first(.[] | select(.name | endswith("`);
+        logCmd.put(token);
+        logCmd.put(`")) | .databaseId)')" --log-failed 2>&1 | tail -`);
+        logCmd.put(CI_TAIL_LINES);
+        auto lp = popen(logCmd.ptr(), "r");
+        if (lp !is null) {
+            if (n < outBuf.length - 1 && outBuf[n - 1] != '\n') outBuf[n++] = '\n';
+            n += fread(&outBuf[n], 1, outBuf.length - 1 - n, lp);
+            pclose(lp);
+        }
+    }
 
     return interpretCIOutput(status, outBuf[0 .. n]);
 }

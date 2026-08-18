@@ -45,10 +45,25 @@ PbtCounts countPbt(string input) {
             if (r.maxPermsPerScope < 1) r.maxPermsPerScope = 1;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            // A named block, like `rites` below: the name is consumed here or
+            // the next readWord lands on a brace.
+            if (pos < input.length && input[pos] != '{') {
+                readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
             r.totalProjects++;
             countProject(input, pos, r);
         } else if (wm.base == "qntx" || wm.base == "attestation") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
+        } else if (wm.base == "rites") {
+            // Named block. Rites are sized by their own fixed arrays, so
+            // nothing is counted — but it must be consumed, or the next
+            // readWord lands on a brace.
+            skipWS(input, pos);
+            readWord(input, pos);
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
@@ -98,6 +113,10 @@ void countScope(ref string input, ref size_t pos, ref PbtCounts r) {
             perms++;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            if (pos < input.length && input[pos] != '{') {
+                readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
             hasChildren = true;
             r.totalProjects++;
@@ -159,6 +178,13 @@ void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
             expect(input, pos, '{');
             skipBlock(input, pos);
             r.totalEnvs++;
+        } else if (wm.base == "ritual") {
+            // Named block, same as rites — consumed, not counted.
+            skipWS(input, pos);
+            readWord(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
         } else {
             // Field: key: value
             skipWS(input, pos);

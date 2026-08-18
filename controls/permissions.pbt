@@ -5,10 +5,15 @@ permission {
   allow: ["find *", "grep *"]
 }
 
-permission {
+# The file that was being read gets Read into Claude as it tries to use one of
+# these. Replaces a deny, which took the method away without giving the file.
+scope {
+  event: "PreToolUse"
 
-  deny: ["sed *", "awk *"]
-  msg: "Use Edit tool instead of sed/awk"
+  control {
+    name:                "ReadReplacements"
+    substitute_for_read: ["sed", "awk", "perl"]
+  }
 }
 
 permission {

@@ -1,6 +1,7 @@
 module proto;
 
 import hooks;
+import receiver : Receiver, parseReceiver;
 import strop : parseStropBlock, Strop, MAX_STROP_POOL;
 
 // TODO: pbt variable/template support — define a message once, reference it in multiple controls.
@@ -31,6 +32,10 @@ struct ParsedPermission {
 
 struct ParsedControl {
     string name;
+    // The ritual this control performs. An inline body is registered like any
+    // other ritual; the index is 1-based so 0 means it named one instead.
+    string ritual;
+    size_t inlineRitualIdx;
     string event; // only used for top-level controls (without enclosing scope)
     string mode;  // chmod-style mode (r/w/x/m/a), parsed from control.w syntax
     string[8] cmds;
@@ -42,6 +47,8 @@ struct ParsedControl {
     string filepath, msg, mcpArg, pushedPath, exec;
     string[8] contents;
     ubyte contentCount;
+    string[8] substituteForRead;
+    ubyte substituteForReadCount;
     string[8] userprompts;
     ubyte userpromptCount;
     bool bg;
@@ -79,7 +86,13 @@ struct ParsedScope {
 }
 
 struct ParsedProject {
+    // Several blocks can share a path, and the name is what tells them apart.
+    // Empty is the unnamed block, which wins when a word resolves to both.
+    string name;
     string path;
+    // Per performance, a full run of a ritual. Zero means the project said
+    // nothing and MAX_GOTOS stands.
+    size_t maxGoto;
     string[1024] files;
     size_t fileCount;
 }
@@ -102,7 +115,88 @@ struct ParsedAttestation {
     string attributes; // raw JSON
 }
 
+// A rite is a command and a verdict. `cmd` is the only required field.
+struct ParsedRite {
+    string name;
+    // "to me its eval" — the operation. `pass`, `catch`, `goto`, `to`, `wait`
+    // and `mic` are what the writer changes its default behaviour with.
+    string eval;
+    // "a different rite that runs a tool unconditionally". Fires once when the
+    // rite is entered, before the agent has the mic. A non-zero halts.
+    string run;
+    // "dispatch could be its own thing, its own abstraction" — "<owner>/<repo>
+    // <workflow>". Both halves of the rite: sending is the doing, and the run's
+    // conclusion is the answer.
+    string dispatch;
+    // A shell fragment run in the worktree. Each line it prints becomes one -f,
+    // which is the only part of a dispatch ground cannot know for itself.
+    string inputs;
+    // A field this rite named that no rite has. Carried so the refusal can
+    // say which one, which betterC forbids building at the parse site.
+    string badKey;
+    string msg;
+    // "mic makes sure it also gets to us"
+    // "nothing / msg / mic / msg+mic are all possible"
+    string mic;
+    int pass;
+    int[8] catches;
+    size_t catchCount;
+    string goto_;
+    // Seconds ground holds after throwing the Stop back, not before. Neither
+    // side has it for that long, which is the one window a throw-back is
+    // visible in — the throw itself has no duration to see.
+    int grace = 2;
+    // Seconds ground sleeps before running the rite at all, so the first look
+    // is taken after whatever the turn left in flight has settled. Nothing
+    // shortens it — there is no answer yet to shorten it with.
+    int wait = 0;
+    // Where this rite's verdict goes. Silence is silence: a rite that names
+    // no receiver reports to nobody, which is the only honest default when
+    // the alternative is guessing that somebody wanted to hear it.
+    Receiver to = Receiver.None;
+}
+
+// A rites group is material — it is never invoked, only referenced.
+struct ParsedRites {
+    string name;
+    string[8] params;
+    size_t paramCount;
+    ParsedRite[32] rites;
+    size_t riteCount;
+}
+
+// A reference from a ritual to a rites group. A bare name carries nothing;
+// a name with a block carries values for that group's params.
+struct ParsedRiteRef {
+    string name;
+    string[8] keys;
+    string[8] values;
+    size_t valueCount;
+}
+
+// A ritual is the only thing that can be invoked, and it lives inside the
+// project whose env its rites read.
+struct ParsedRitual {
+    string name;
+    // The block this ritual was declared in. Empty is the unnamed one.
+    string projectName;
+    string projectPath;
+    // "define a CLAUDE.md inline in a ritual" — appended to what the agent
+    // already is, so a ritual says what this performer additionally knows.
+    string system;
+    // What kind of worktree it performs in. "empty" is an orphan onto the
+    // empty tree, for a ritual with nothing to inspect.
+    string tree;
+    string badKey;
+    ParsedRiteRef[16] refs;
+    size_t refCount;
+}
+
 struct ParseResult {
+    ParsedRites[32] rites;
+    size_t ritesCount;
+    ParsedRitual[16] rituals;
+    size_t ritualCount;
     ParsedScope[pbtCounts.totalScopes + 1] scopes;
     size_t scopeCount;
     ParsedControl[pbtCounts.totalControls + 1] ctrlPool;
@@ -119,6 +213,191 @@ struct ParseResult {
     size_t attestationCount;
     Strop[MAX_STROP_POOL] stropPool;
     size_t stropPoolLen;
+}
+
+// What is wrong with a ritual, in a buffer rather than a concatenation. `~`
+// allocates, and this project has no GC, so a message built with it compiles
+// only while nothing emits this function as runtime code.
+struct Wrong {
+    char[192] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void say(ref Wrong w, const(char)[] s) {
+    foreach (c; s) { if (w.len < w.buf.length) w.buf[w.len++] = c; }
+}
+
+private Wrong wrong(const(char)[] a, const(char)[] b = "", const(char)[] c = "",
+                    const(char)[] d = "", const(char)[] e = "",
+                    const(char)[] f = "") {
+    Wrong w;
+    w.say(a); w.say(b); w.say(c); w.say(d); w.say(e); w.say(f);
+    return w;
+}
+
+// What is worth saying about a ritual that is not worth refusing it for. All
+// of them, not the first: a warning you fix one at a time is a build you run
+// once per warning.
+struct Warns {
+    char[1024] buf = 0;
+    size_t len;
+    const(char)[] text() const return { return buf[0 .. len]; }
+}
+
+private void say(ref Warns w, const(char)[] s) {
+    foreach (c; s) { if (w.len < w.buf.length) w.buf[w.len++] = c; }
+}
+
+// A value handed to a block that declares no such param goes nowhere. The
+// rite still runs, so this is informational — "make this a warn, but still let
+// it pass, like informational warn, that its not used".
+Warns warnRituals(PR)(const PR r) {
+    Warns w;
+    foreach (i; 0 .. r.ritualCount) {
+        foreach (j; 0 .. r.rituals[i].refCount) {
+            auto refName = r.rituals[i].refs[j].name;
+            ptrdiff_t gi = -1;
+            foreach (m; 0 .. r.ritesCount)
+                if (r.rites[m].name == refName) gi = m;
+            if (gi < 0) continue;
+
+            foreach (v; 0 .. r.rituals[i].refs[j].valueCount) {
+                auto key = r.rituals[i].refs[j].keys[v];
+                bool declared = false;
+                foreach (p; 0 .. r.rites[gi].paramCount)
+                    if (r.rites[gi].params[p] == key) declared = true;
+                if (declared) continue;
+
+                w.say("ritual ");
+                w.say(r.rituals[i].name);
+                w.say(": ");
+                w.say(refName);
+                w.say(" declares no param `");
+                w.say(key);
+                w.say("`, so the value is unused\n");
+            }
+        }
+    }
+    return w;
+}
+
+// Everything a ritual can be wrong about before it runs. Empty when clean,
+// else one message — a value rather than an assert, because an assert at CTFE
+// cannot be caught by a static assert.
+Wrong validateRituals(PR)(const PR r) {
+    // "within a rites block, rite should be unique, yes. but in my mental
+    // image, you can have a same name rite in multiple RITES"
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto name = r.rites[i].rites[j].name;
+            foreach (n; 0 .. r.rites[i].riteCount) {
+                if (n == j) continue;
+                if (r.rites[i].rites[n].name == name)
+                    return wrong("duplicate rite name: ", name);
+            }
+        }
+    }
+
+    // A field no ritual has.
+    foreach (i; 0 .. r.ritualCount) {
+        if (r.rituals[i].badKey.length > 0)
+            return wrong("ritual ", r.rituals[i].name, ": unknown field `",
+                         r.rituals[i].badKey, "`");
+    }
+
+    // A field no rite has. `cmd` gets its own line because it is a real word
+    // elsewhere in the grammar, pointing the other way.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto bad = r.rites[i].rites[j].badKey;
+            if (bad.length == 0) continue;
+            if (bad == "cmd")
+                return wrong("rite ", r.rites[i].rites[j].name, ": `cmd` is a control's word. A rite evaluates: use `eval`");
+            return wrong("rite ", r.rites[i].rites[j].name, ": unknown field `",
+                         bad, "`");
+        }
+    }
+
+    // "|| TRUE || EXIT 1 || EXIT 22 || EXIT WHATEVER SHOUDL NOT BE A THING IN
+    // GROUND" — a rite that stamps its own code leaves ground one event where
+    // the tool gave several.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            import rite : launders;
+            enum tail = " writes its own exit code. Let the tool answer";
+            auto rt = r.rites[i].rites[j];
+            if (launders(rt.eval))
+                return wrong("rite ", rt.name, ": `eval`", tail);
+            if (launders(rt.run))
+                return wrong("rite ", rt.name, ": `run`", tail);
+        }
+    }
+
+    // A code that both advances and holds makes the rite mean two things.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            foreach (c; 0 .. r.rites[i].rites[j].catchCount) {
+                if (r.rites[i].rites[j].catches[c] == r.rites[i].rites[j].pass) {
+                    auto n = r.rites[i].rites[j].pass == 0 ? "0" :
+                             r.rites[i].rites[j].pass == 1 ? "1" : "that code";
+                    return wrong("rite ", r.rites[i].rites[j].name,
+                                 ": ", n, " is both pass and catch");
+                }
+            }
+        }
+    }
+
+    // "DISPATCH AND EVAL ARE DIFFERENT THIGNS"
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto rr = r.rites[i].rites[j];
+            if (rr.dispatch.length == 0 || rr.eval.length == 0) continue;
+            return wrong("rite ", rr.name,
+                         ": dispatch is not asked, so it cannot carry an eval");
+        }
+    }
+
+    // A goto naming nothing is a jump into the dark.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto target = r.rites[i].rites[j].goto_;
+            if (target.length == 0) continue;
+            bool found = false;
+            foreach (m; 0 .. r.ritesCount)
+                foreach (n; 0 .. r.rites[m].riteCount)
+                    if (r.rites[m].rites[n].name == target) found = true;
+            if (!found) return wrong("goto names no rite: ", target);
+        }
+    }
+
+    foreach (i; 0 .. r.ritualCount) {
+        foreach (j; 0 .. r.rituals[i].refCount) {
+            auto refName = r.rituals[i].refs[j].name;
+            ptrdiff_t gi = -1;
+            foreach (m; 0 .. r.ritesCount)
+                if (r.rites[m].name == refName) gi = m;
+
+            // A ritual performing a group that does not exist.
+            if (gi < 0)
+                return wrong("ritual ", r.rituals[i].name,
+                             ": no rites named ", refName);
+
+            // An unsupplied param expands to empty, and an empty grep
+            // pattern matches anything — a false pass.
+            foreach (p; 0 .. r.rites[gi].paramCount) {
+                auto need = r.rites[gi].params[p];
+                bool supplied = false;
+                foreach (v; 0 .. r.rituals[i].refs[j].valueCount)
+                    if (r.rituals[i].refs[j].keys[v] == need) supplied = true;
+                if (!supplied)
+                    return wrong("ritual ", r.rituals[i].name, ": ",
+                                 refName, " needs ", need);
+            }
+        }
+    }
+
+    return Wrong();
 }
 
 // --- Flat file list extraction (CTFE) ---
@@ -243,6 +522,10 @@ ScopeSet buildScopes(
                 c.content._buf = pc.contents;
                 c.content.len = pc.contentCount;
             }
+            if (pc.substituteForReadCount > 0) {
+                c.substituteForRead._buf = pc.substituteForRead;
+                c.substituteForRead.len = pc.substituteForReadCount;
+            }
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
 
@@ -270,6 +553,7 @@ ScopeSet buildScopes(
             }
 
             c.exec = pc.exec;
+            c.ritual = pc.ritual;
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
                 auto dfn = resolveDeliver(pc.deliverHandler);
@@ -400,8 +684,15 @@ ParseResult parsePbt(string input) {
             result.scopeCount++;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            // `project { }` and `project <name> { }` both. A word before the
+            // brace names the block; several blocks may share one path.
+            string projectName;
+            if (isNameStart(input, pos)) {
+                projectName = readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
-            parseProject(input, pos, result);
+            parseProject(input, pos, result, projectName);
         } else if (wm.base == "qntx") {
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -410,8 +701,22 @@ ParseResult parsePbt(string input) {
             skipWS(input, pos);
             expect(input, pos, '{');
             parseAttestation(input, pos, result);
+        } else if (wm.base == "rites") {
+            skipWS(input, pos);
+            auto groupName = readWord(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(result.ritesCount < result.rites.length, "Rites group overflow");
+            result.rites[result.ritesCount] = parseRites(input, pos, groupName);
+            result.ritesCount++;
+        } else if (wm.base == "include") {
+            // A directive to wind, not a declaration. By the time ground parses
+            // sand the directory has already been folded in, so all that is
+            // left is to step over the line rather than trip on it.
+            skipWS(input, pos);
+            cast(void) readValue(input, pos);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'qntx', or 'attestation'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'qntx', 'attestation', 'rites', or 'include'");
         }
     }
     return result;
@@ -443,6 +748,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
                 sc.controlEnd = result.ctrlPoolLen;
                 sc.permEnd = result.permPoolLen;
             }
+            bindInlineRituals(result, sc);
             if (!hasChildren || sc.controlCount > 0 || sc.permissionCount > 0) {
                 assert(result.scopeCount < result.scopes.length,
                     "Scope overflow — pbtCounts.totalScopes too small");
@@ -481,9 +787,14 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             result.permPoolLen++;
         } else if (wm.base == "project") {
             skipWS(input, pos);
+            string projectName;
+            if (isNameStart(input, pos)) {
+                projectName = readWord(input, pos);
+                skipWS(input, pos);
+            }
             expect(input, pos, '{');
             hasChildren = true;
-            parseProject(input, pos, result);
+            parseProject(input, pos, result, projectName);
         } else {
             skipWS(input, pos);
             expect(input, pos, ':');
@@ -565,8 +876,19 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
     assert(0, "Unterminated scope block");
 }
 
-void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
+// `project { }` and `project <name> { }` both. A word before the brace names
+// the block, and several blocks may share one path.
+private bool isNameStart(ref string s, size_t pos) {
+    if (pos >= s.length) return false;
+    auto c = s[pos];
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '_' || c == '-';
+}
+
+void parseProject(ref string input, ref size_t pos, ref ParseResult result,
+                  string projectName = "") {
     string projectPath;
+    size_t projectMaxGoto;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
     string[1024] files;
@@ -583,7 +905,9 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
         if (input[pos] == '}') {
             pos++;
             assert(result.projectCount < result.projects.length);
+            result.projects[result.projectCount].name = projectName;
             result.projects[result.projectCount].path = projectPath;
+            result.projects[result.projectCount].maxGoto = projectMaxGoto;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
@@ -605,6 +929,14 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             skipWS(input, pos);
             expect(input, pos, '{');
             parseEnvBlock(input, pos, envKeys, envValues, envCount);
+        } else if (wm.base == "ritual") {
+            skipWS(input, pos);
+            auto ritualName = readWord(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(result.ritualCount < result.rituals.length, "Ritual overflow");
+            result.rituals[result.ritualCount] = parseRitual(input, pos, ritualName, projectPath, projectName);
+            result.ritualCount++;
         } else if (wm.base == "scope") {
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -647,6 +979,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result) {
             auto val = readValue(input, pos);
             switch (key) {
                 case "path": projectPath = val; break;
+                case "max_goto": projectMaxGoto = cast(size_t) parseInt(val); break;
                 case "files":
                     if (val is null) {
                         // List syntax: files: ["a", "b", ...]
@@ -735,6 +1068,26 @@ void parseControlEnvBlock(ref string input, ref size_t pos,
     assert(0, "Unterminated control env block");
 }
 
+// An inline ritual has no project block, so the scope it fired under is the
+// only thing left that says where it performs and what it is called.
+private void bindInlineRituals(ref ParseResult result, ref ParsedScope sc) {
+    foreach (ci; sc.controlStart .. sc.controlEnd) {
+        auto idx = result.ctrlPool[ci].inlineRitualIdx;
+        if (idx == 0) continue;
+
+        assert(sc.pathCount == 1,
+            "a control carrying `ritual { }` needs a scope with exactly one path");
+        assert(sc.paths[0].length > 0 && sc.paths[0][0] != '!',
+            "a control carrying `ritual { }` cannot sit in a scope whose path is negated");
+
+        auto name = result.ctrlPool[ci].name;
+        assert(name.length > 0, "a control carrying `ritual { }` needs a name to perform it under");
+        result.rituals[idx - 1].name = name;
+        result.rituals[idx - 1].projectPath = sc.paths[0];
+        result.ctrlPool[ci].ritual = name;
+    }
+}
+
 public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseResult result) {
     ParsedControl c;
     while (pos < input.length) {
@@ -753,6 +1106,23 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
             result.stropPool[result.stropPoolLen] = s;
             c.stropIdx = result.stropPoolLen + 1;
             result.stropPoolLen++;
+            continue;
+        }
+
+        // `ritual: "name"` performs one declared elsewhere. `ritual { }` carries
+        // its own, and takes the control's name and the scope's path at close.
+        if (key == "ritual") {
+            if (pos < input.length && input[pos] == '{') {
+                expect(input, pos, '{');
+                assert(result.ritualCount < result.rituals.length, "Ritual overflow");
+                result.rituals[result.ritualCount] = parseRitual(input, pos, "", "");
+                c.inlineRitualIdx = result.ritualCount + 1;
+                result.ritualCount++;
+                continue;
+            }
+            expect(input, pos, ':');
+            skipWS(input, pos);
+            c.ritual = readValue(input, pos);
             continue;
         }
 
@@ -809,6 +1179,21 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
                     }
                 } else {
                     c.userprompts[0] = val; c.userpromptCount = 1;
+                }
+                break;
+            case "substitute_for_read":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.substituteForReadCount < 8);
+                        c.substituteForRead[c.substituteForReadCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.substituteForRead[0] = val; c.substituteForReadCount = 1;
                 }
                 break;
             case "msg":             c.msg = val; break;
@@ -982,6 +1367,192 @@ void parseQntx(ref string input, ref size_t pos, ref ParseResult result) {
         }
     }
     assert(0, "Unterminated qntx block");
+}
+
+// A ritual body holds only references — never definitions — so a name
+// followed by a block is unambiguous: it is that reference, with values.
+ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string projectPath,
+                         string projectName = "") {
+    ParsedRitual r;
+    r.name = name;
+    r.projectName = projectName;
+    r.projectPath = projectPath;
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return r; }
+
+        auto refName = readWord(input, pos);
+
+        // A word followed by a colon is a field on the ritual. A bare word is
+        // a rites group. Nothing else can appear here.
+        {
+            auto save = pos;
+            skipWS(input, pos);
+            if (pos < input.length && input[pos] == ':') {
+                pos++;
+                skipWS(input, pos);
+                auto val = readValue(input, pos);
+                if (refName == "system") r.system = val;
+                else if (refName == "tree") r.tree = val;
+                else r.badKey = refName;
+                continue;
+            }
+            pos = save;
+        }
+
+        assert(r.refCount < r.refs.length, "Ritual reference overflow");
+        ParsedRiteRef rr;
+        rr.name = refName;
+
+        skipWS(input, pos);
+        if (pos < input.length && input[pos] == '{') {
+            pos++;
+            while (pos < input.length) {
+                skipWS(input, pos);
+                if (pos >= input.length) break;
+                if (input[pos] == '#') { skipLine(input, pos); continue; }
+                if (input[pos] == '}') { pos++; break; }
+
+                auto k = readWord(input, pos);
+                skipWS(input, pos);
+                expect(input, pos, ':');
+                skipWS(input, pos);
+                assert(rr.valueCount < rr.keys.length, "Ritual value overflow");
+                rr.keys[rr.valueCount] = k;
+                rr.values[rr.valueCount] = readValue(input, pos);
+                rr.valueCount++;
+            }
+        }
+
+        r.refs[r.refCount] = rr;
+        r.refCount++;
+    }
+    assert(0, "Unterminated ritual block");
+}
+
+// Inside a rites group every word is a rite name, so nothing here is
+// reserved. The verb set is closed instead, one level down.
+ParsedRites parseRites(ref string input, ref size_t pos, string groupName) {
+    ParsedRites g;
+    g.name = groupName;
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return g; }
+
+        auto name = readWord(input, pos);
+        skipWS(input, pos);
+
+        // `params:` is the one word here that is not a rite. A colon
+        // after it is what says so — a rite is always followed by `{`.
+        if (pos < input.length && input[pos] == ':') {
+            pos++;
+            skipWS(input, pos);
+            assert(name == "params", "Unknown rites field");
+            expect(input, pos, '[');
+            while (pos < input.length) {
+                skipWS(input, pos);
+                if (pos < input.length && input[pos] == ']') { pos++; break; }
+                // readWord runs past `]` and `,`, which are terminators here.
+                auto start = pos;
+                while (pos < input.length && input[pos] != ']' && input[pos] != ','
+                        && input[pos] != ' ' && input[pos] != '\t'
+                        && input[pos] != '\n' && input[pos] != '\r')
+                    pos++;
+                assert(pos > start, "Empty param name");
+                assert(g.paramCount < g.params.length, "Param overflow");
+                g.params[g.paramCount] = input[start .. pos];
+                g.paramCount++;
+                skipWS(input, pos);
+                if (pos < input.length && input[pos] == ',') pos++;
+            }
+            continue;
+        }
+
+        expect(input, pos, '{');
+        assert(g.riteCount < g.rites.length, "Rite overflow in group");
+        auto rite = parseRite(input, pos, name);
+        // Silence about catch means 1 — the honest no. A rite that catches
+        // nothing would halt on the very code that means "not yet".
+        if (rite.catchCount == 0) {
+            rite.catches[0] = 1;
+            rite.catchCount = 1;
+        }
+        g.rites[g.riteCount] = rite;
+        g.riteCount++;
+    }
+    assert(0, "Unterminated rites block");
+}
+
+ParsedRite parseRite(ref string input, ref size_t pos, string name) {
+    ParsedRite r;
+    r.name = name;
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return r; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+
+        // `catch` takes one code or a list of them; readValue returns null
+        // for a list and leaves pos past the opening bracket.
+        if (key == "catch") {
+            auto val = readValue(input, pos);
+            if (val is null) {
+                while (pos < input.length) {
+                    skipWS(input, pos);
+                    if (pos < input.length && input[pos] == ']') { pos++; break; }
+                    auto start = pos;
+                    while (pos < input.length && input[pos] != ']' && input[pos] != ','
+                            && input[pos] != ' ' && input[pos] != '\t'
+                            && input[pos] != '\n' && input[pos] != '\r')
+                        pos++;
+                    assert(pos > start, "Empty catch code");
+                    assert(r.catchCount < r.catches.length, "Catch overflow");
+                    r.catches[r.catchCount] = parseInt(input[start .. pos]);
+                    r.catchCount++;
+                    skipWS(input, pos);
+                    if (pos < input.length && input[pos] == ',') pos++;
+                }
+            } else {
+                assert(r.catchCount < r.catches.length, "Catch overflow");
+                r.catches[r.catchCount] = parseInt(val);
+                r.catchCount++;
+            }
+            continue;
+        }
+
+        auto val = readValue(input, pos);
+        switch (key) {
+            case "eval": r.eval = val; break;
+            case "run":  r.run = val; break;
+            case "dispatch": r.dispatch = val; break;
+            case "inputs":   r.inputs = val; break;
+            // Recorded, not asserted: betterC has no GC, so the message that
+            // names the rite and the field is built in validateRituals.
+            case "cmd":  r.badKey = "cmd"; break;
+            case "msg":  r.msg = val; break;
+            case "mic":  r.mic = val; break;
+            case "goto": r.goto_ = val; break;
+            case "pass": r.pass = parseInt(val); break;
+            case "grace": r.grace = parseInt(val); break;
+            case "wait": r.wait = parseInt(val); break;
+            case "to":
+                r.to = parseReceiver(val);
+                assert(r.to != Receiver.None,
+                       "to: names no receiver — parent, human or host");
+                break;
+            default: r.badKey = key; break;
+        }
+    }
+    assert(0, "Unterminated rite block");
 }
 
 ParsedQntxNode parseQntxNode(ref string input, ref size_t pos) {

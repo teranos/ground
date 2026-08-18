@@ -80,9 +80,27 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
     fputs("\n", stdout);
 }
 
+// updatedInput replaces the whole tool_input object, so it may only be sent to
+// a tool whose entire input is the command. Monitor also carries a `command`,
+// beside description/timeout_ms/persistent, and the Bash answer dropped those.
+bool takesUpdatedInput(const(char)[] toolName) {
+    return toolName == "Bash";
+}
+
+// Called only where ground would otherwise leave the decision to a human, so
+// the common allow and deny paths pay nothing for it.
+private bool inLivePerformance(const(char)[] cwd) {
+    import ritual : performanceAnswers, readPositionAt;
+    import db : openDb, sqlite3_close;
+    auto pdb = openDb();
+    if (pdb is null) return false;
+    auto perf = readPositionAt(pdb, cwd);
+    sqlite3_close(pdb);
+    return performanceAnswers(perf.valid, perf.p.state);
+}
+
 // --- PreToolUse handler ---
 
-// TODO: extract `agent_id`, `agent_type` — gate subagent tool calls differently from main session
 // TODO: extract `permission_mode` — adjust decisions based on current mode (plan, auto, etc.)
 int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
@@ -103,10 +121,21 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         g_sessionId = sessionId;
         g_input = input;
 
+        // Who is owed the news, before there is a row to write it on. Bound
+        // at PostToolUse this raced the performance: a ritual that finished
+        // inside the Bash call was already Done and never got an address.
+        {
+            import ritual : ritualStarted;
+            import ritual.intent : writeIntent;
+            auto starting = ritualStarted(command);
+            if (starting.length > 0) writeIntent(starting, sessionId);
+        }
+
         // Hard deny: binary files in git add
         {
             import binary : checkGitAddForBinary;
-            auto binaryFile = checkGitAddForBinary(command, cwd);
+            import controls : allScopes;
+            auto binaryFile = checkGitAddForBinary(allScopes, command, cwd);
             if (binaryFile !is null) {
                 import db : openDb, attestEvent, sqlite3_close;
                 auto db = openDb();
@@ -126,6 +155,39 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 denyMsg.put(". Binary files must not be committed.");
                 writeDenyResponse(denyMsg.slice());
                 return 0;
+            }
+        }
+
+        // A command that was reaching for a file gets the file. A deny takes
+        // the method away and leaves the goal unmet, and an agent handed that
+        // stops reading rather than reading properly.
+        {
+            import substitute : readTargets, handOver;
+            import controls : allScopes;
+            import matcher : effectiveCwd;
+
+            foreach (ref sc; allScopes) {
+                foreach (ref ctrl; sc.controls) {
+                    auto utils = ctrl.substituteForRead.values();
+                    if (utils.length == 0) continue;
+
+                    auto eff = effectiveCwd(command, cwd);
+                    auto targets = readTargets(command, utils);
+                    if (targets.count == 0) continue;
+
+                    __gshared ZBuf handed;
+                    handed.reset();
+                    handed.put("ground read the file for you instead of running that. ");
+                    handed.put("You were reaching for a file; here it is.\n\n");
+
+                    bool any = false;
+                    foreach (i; 0 .. targets.count)
+                        if (handOver(handed, targets.paths[i], eff)) any = true;
+                    if (!any) continue;
+
+                    writeDenyResponse(handed.slice());
+                    return 0;
+                }
             }
         }
 
@@ -253,8 +315,27 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 return 0;
             }
 
-            writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
-                hasBg, maxTmo);
+            // A deny is ground answering; an ask is ground handing the question
+            // to someone who has walked away. The rewrites above still applied.
+            if (finalDecision == "ask" && inLivePerformance(cwd)) finalDecision = "allow";
+
+            if (takesUpdatedInput(toolName)) {
+                writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
+                    hasBg, maxTmo);
+                return 0;
+            }
+
+            // The rewrite cannot be delivered here, so it is said rather than
+            // dropped: a silently unamended command is the failure this hook
+            // exists to prevent.
+            if (finalCommand.slice() != command) {
+                if (allMessages.len > 0) allMessages.put(" | ");
+                allMessages.put("ground would have amended this command, and ");
+                allMessages.put(toolName);
+                allMessages.put(" cannot take an amendment. Run it as: ");
+                allMessages.put(finalCommand.slice());
+            }
+            writeContextResponse(allMessages.slice(), advisoryDecision(finalDecision));
             return 0;
         }
 
@@ -299,7 +380,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                             prof.put("us total="); putInt(prof, tPerm-t0);
                             prof.put("us exit=perm-allow");
                             emitProfile(prof);
-                            writeResponse(command, "", "allow");
+                            if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
+                            else writeContextResponse("", "allow");
                             return 0;
                         }
                     }
@@ -324,6 +406,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             prof.put("us total="); putInt(prof, tPerm-t0);
             prof.put("us exit=bash-none");
             emitProfile(prof);
+        }
+
+        // Saying nothing is what let Claude Code ask. Inside a performance
+        // there is nobody to ask, so ground answers instead.
+        if (inLivePerformance(cwd)) {
+            if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
+            else writeContextResponse("", "allow");
         }
         return 0;
     }
@@ -510,6 +599,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             writeContextResponse(fileMsgBuf.slice(), advisoryDecision(fileDecision));
             return 0;
         }
+    }
+
+    // Every non-Bash tool lands here — a Write among them, which is what
+    // `chapter-1786287252` was stopped on for 34 minutes before it was killed.
+    if (inLivePerformance(cwd)) {
+        writeContextResponse("allowed by the live performance", "allow");
+        return 0;
     }
 
     auto tEnd = usecNow();

@@ -61,6 +61,16 @@
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v ground >/dev/null && exec ground"
+          }
+        ]
+      }
     ]
   }
 }

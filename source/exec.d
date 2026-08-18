@@ -17,6 +17,7 @@ extern (C) {
     int waitpid(int pid, int* wstatus, int options);
     int kill(int pid, int sig);
     int getpid();
+    int setsid();
 
     struct pollfd {
         int fd;
@@ -35,13 +36,13 @@ enum WNOHANG = 1;
 
 // Default script timeout in seconds when handler_params doesn't specify.
 // Long enough for realistic deploy scripts; short enough to catch hangs.
-enum DEFAULT_TIMEOUT_SEC = 300;
+enum DEFAULT_TIMEOUT_SEC = 500;
 
 // Under the ERROR AXIOM: every failure path constructs a GroundError and
 // calls deliverError. This helper packages the boilerplate. When called,
 // SOMETHING lands in front of the user — via db, breadcrumb, or stderr.
 // Never a silent return.
-private void emitError(
+void emitError(
     string origin, string message,
     int errnoVal, int exitCode,
     string sessionId, string controlName, string toolUseId,
@@ -303,6 +304,17 @@ void dispatchExec(
     // in the parent — that's the key the parent-side marker was written
     // with. clearInflightMarker uses it to unlink on every terminal path.
     int myPid = getpid();
+
+    // The wrapper inherited ground's stdout and stderr — the pipe Claude Code
+    // reads the hook on. Holding it open makes the tool call wait for the whole
+    // exec: a `git push` blocked for the length of a deploy.
+    setsid();
+    {
+        import core.stdc.stdio : freopen, stdin, stdout, stderr;
+        freopen("/dev/null\0".ptr, "r\0".ptr, stdin);
+        freopen("/dev/null\0".ptr, "w\0".ptr, stdout);
+        freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
+    }
 
     auto scriptPid = fork();
     if (scriptPid < 0) {
