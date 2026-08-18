@@ -115,11 +115,16 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     tParse = usecNow();
 
-    if (command !is null) {
-        // Make sessionId available to check handlers (e.g. commitNotRequested)
+    // Every check handler gets the session, not only the ones reached through a
+    // Bash command. A file-path control asking which session it is in was told
+    // "none", and a handler that cannot bound its query denies what it cannot check.
+    {
         import control_handlers : g_sessionId, g_input;
         g_sessionId = sessionId;
         g_input = input;
+    }
+
+    if (command !is null) {
 
         // Who is owed the news, before there is a row to write it on. Bound
         // at PostToolUse this raced the performance: a ritual that finished

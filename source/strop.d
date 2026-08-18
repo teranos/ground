@@ -57,6 +57,7 @@ enum PartKind {
     Digits,
     Any,     // rest of line, bounded from the cursor
     Line,    // rest of line, bounded across the WHOLE line
+    Until,   // up to a delimiter, crossing newlines. literal = the delimiter
     Oneof,
     Newline,  // exactly one '\n' — unspellable as a literal, pbt has no escapes
     End,      // zero-width, matches only at end of input
@@ -194,6 +195,47 @@ MatchResult matchLine(size_t max, string input, size_t pos) {
     return MatchResult(true, end - pos, end);
 }
 
+// Consume up to, but not including, the first occurrence of `stop`. Crossing
+// newlines is the point: any() and line() stop at '\n', and a quoted span is
+// free to run across as many lines as it likes.
+MatchResult matchUntil(size_t max, string stop, string input, size_t pos) {
+    if (stop.length == 0) return MatchResult(false, 0, pos);
+    size_t i = pos;
+    while (i + stop.length <= input.length) {
+        if (input[i .. i + stop.length] == stop) {
+            size_t count = i - pos;
+            // A span longer than the bound fails at the bound, not at the
+            // delimiter — that is where it stopped being acceptable.
+            if (count > max) return MatchResult(false, 0, pos + max);
+            return MatchResult(true, count, i);
+        }
+        i++;
+    }
+    // Never closed, so there is nothing to have matched.
+    return MatchResult(false, 0, input.length);
+}
+
+unittest {
+    // until() reaches a delimiter, which no existing primitive can do: any()
+    // and line() both stop at '\n', and the quote they have to reach is often
+    // on a later line. It consumes up to but not including the stop.
+    assert(matchUntil(400, `"`, `hello" tail`, 0).ok);
+    assert(matchUntil(400, `"`, `hello" tail`, 0).consumed == 5);
+
+    // Crosses newlines. This is the whole reason it exists.
+    assert(matchUntil(400, `"`, "a\nb\"", 0).consumed == 3);
+
+    // No delimiter at all is a failure, not a match to end of input.
+    assert(!matchUntil(400, `"`, "no quote here", 0).ok);
+
+    // The bound is on what it consumed, not on where the delimiter sits.
+    assert(!matchUntil(2, `"`, `hello"`, 0).ok);
+
+    // Empty interior is legal.
+    assert(matchUntil(400, `"`, `"`, 0).ok);
+    assert(matchUntil(400, `"`, `"`, 0).consumed == 0);
+}
+
 MatchResult matchSequence(const Part[] parts, string input, size_t pos,
                           const(WordList)[] pool = null) {
     size_t cursor = pos;
@@ -277,6 +319,9 @@ MatchResult matchSequence(const Part[] parts, string input, size_t pos,
                 break;
             case PartKind.Line:
                 r = matchLine(p.max, input, cursor);
+                break;
+            case PartKind.Until:
+                r = matchUntil(p.max, p.literal, input, cursor);
                 break;
             case PartKind.Newline:
                 r = (cursor < input.length && input[cursor] == '\n')
@@ -403,6 +448,20 @@ unittest {
     assert(matchSequence(seq.items, "aba", 0).consumed == 2, "partial body not taken");
 }
 
+unittest {
+    // until() has to be reachable from pbt, not just from D. Parsed shape:
+    // until(max: N, stop: "X").
+    string src = `flag: "-m"
+      sequence [ literal("A") until(max: 40, stop: "Z") literal("Z") end() ]
+    }`;
+    size_t pos = 0;
+    auto s = parseStropBlock(src, pos);
+
+    assert(matchStrop(s, "AbcZ").ok);
+    assert(matchStrop(s, "Ab\ncZ").ok, "crosses newlines");
+    assert(!matchStrop(s, "Abc").ok, "never closed");
+}
+
 MatchResult matchStrop(const Strop s, string input) {
     MatchResult best;
     foreach (i; 0 .. s.sequenceCount) {
@@ -442,6 +501,12 @@ Part any(size_t max) {
 
 Part line(size_t max) {
     Part p; p.kind = PartKind.Line; p.max = max; return p;
+}
+
+// The delimiter rides in `literal`, since a Part already carries one and a
+// second string would cost every Part in every sequence of every strop.
+Part until(size_t max, string stop) {
+    Part p; p.kind = PartKind.Until; p.max = max; p.literal = stop; return p;
 }
 
 Part repeat(size_t min, size_t max, ubyte bodyLen) {
@@ -770,6 +835,26 @@ Part parsePart(ref string input, ref size_t pos, ref Strop owner) {
             skipWS(input, pos);
             size_t m = parseUint(input, pos);
             p = line(m);
+            break;
+        }
+        case "until": {
+            // until(max: N, stop: "X")
+            auto maxKey = readWord(input, pos);
+            assert(maxKey == "max", "until expects max:");
+            skipWS(input, pos);
+            expect(input, pos, ':');
+            skipWS(input, pos);
+            size_t m = parseUint(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, ',');
+            skipWS(input, pos);
+            auto stopKey = readWord(input, pos);
+            assert(stopKey == "stop", "until expects stop:");
+            skipWS(input, pos);
+            expect(input, pos, ':');
+            skipWS(input, pos);
+            string stopVal = readValue(input, pos);
+            p = until(m, stopVal);
             break;
         }
         case "oneof": {

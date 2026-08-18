@@ -19,6 +19,9 @@ CheckFn resolveCheck(string name) {
         case "commitNotRequested": return &control_handlers.commitNotRequested;
         case "mergeNotRequested": return &control_handlers.mergeNotRequested;
         case "killNotRequested": return &control_handlers.killNotRequested;
+        case "quoteProvenance": return &control_handlers.quoteProvenance;
+        case "quoteStandsAlone": return &control_handlers.quoteStandsAlone;
+        case "quoteChronology": return &control_handlers.quoteChronology;
         case "strikethrough": return &control_handlers.strikethroughCheck;
         case "unanalyzableBash": return &control_handlers.unanalyzableBash;
         case "deepAndChain": return &control_handlers.deepAndChain;
