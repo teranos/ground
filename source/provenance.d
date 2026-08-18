@@ -53,6 +53,47 @@ unittest {
     assert(firstOutOfOrder(none[]) == -1);
 }
 
+// Attestation attributes are stored as JSON, where a backslash and a quote mark
+// each take two characters there and one here. A span compared raw against that
+// text cannot match if it carries either, so a sourced quote reads as unsourced.
+ptrdiff_t jsonEscapeInto(const(char)[] s, char[] dst) {
+    size_t o = 0;
+    foreach (c; s) {
+        if (c == '\\' || c == '"') {
+            if (o + 2 > dst.length) return -1;
+            dst[o++] = '\\';
+            dst[o++] = c;
+        } else {
+            if (o + 1 > dst.length) return -1;
+            dst[o++] = c;
+        }
+    }
+    return cast(ptrdiff_t) o;
+}
+
+unittest {
+    char[32] buf;
+
+    // Ordinary text is itself.
+    auto n = jsonEscapeInto("plain", buf[]);
+    assert(n == 5 && buf[0 .. 5] == "plain");
+
+    // The two characters JSON spends twice.
+    n = jsonEscapeInto(`a\|b`, buf[]);
+    assert(n == 5 && buf[0 .. 5] == `a\\|b`);
+
+    n = jsonEscapeInto(`say "hi"`, buf[]);
+    assert(n == 10 && buf[0 .. 10] == `say \"hi\"`);
+
+    // Nothing to say is said in nothing.
+    assert(jsonEscapeInto("", buf[]) == 0);
+
+    // A span too long to encode is not truncated into a different span.
+    char[3] tiny;
+    assert(jsonEscapeInto("abcd", tiny[]) == -1);
+    assert(jsonEscapeInto(`\\`, tiny[]) == -1);
+}
+
 private bool isWs(char c) {
     return c == ' ' || c == '\t' || c == '\r';
 }

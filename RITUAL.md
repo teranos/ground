@@ -190,7 +190,6 @@ command running right now. No glyph carries any of this.
 | D | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
 | D | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
 | ✓ | 28 | Collet knows where a performance is | collet | — | |
-| D | 29 | A state collet cannot render is a compile error | collet | "[kill] is now active because we can see the [ and ]" | |
 
 Not in the example above, and therefore not implementable from it:
 
@@ -243,9 +242,6 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 60 | Ground says it made one | "I dont like that its siltent" | |
 | x | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | |
 | ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | |
-| D | 66 | Who held the mic when each rite passed | "i want to be able to know if an agent went through the chain or ground" / "agent should be at [ ]" / "and if ground went through them it should be a different green" / "the agent [ and ] should have moved no further than apple" | |
-| D | 68 | The closing sentences are on screen when the ritual ends | "i never saw the two sentences" | |
-| D | 64 | A completed ritual marquees the agent's closing sentences after its rites | "when a ritual ends fully, when it is fully ended and completed ... turns into this: SOURSOP > LIME > JACKFRUIT > CHECKWILLOW > DONE \| Done. All fruits are picked." / "i meant sentences" / "i dont care who owns the last rite" / "the colors should do the work" / "and the brackets" | |
 | x | 63 | Ground commits, not the agent | "n, i dont trust the agent with it" then "we want to get rid of the auto commit" / "make commit be done by run:" / "the ritual could make itself complete itself by asking the agent to commit while its in ask" | |
 
 Known defects in the example:

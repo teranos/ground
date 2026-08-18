@@ -560,7 +560,7 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
 // source rather than trusting the writer to have looked.
 CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText;
-    import provenance : nextQuotedSpan;
+    import provenance : nextQuotedSpan, jsonEscapeInto;
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
                 sqlite3_finalize, sqlite3_close, sqlite3_stmt,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -606,10 +606,19 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         }
 
         // Matched with its quote marks attached, so prose ground saw once
-        // cannot graduate into a quote it never was.
+        // cannot graduate into a quote it never was. The span is encoded the
+        // way the store holds it, or a backslash matches nothing.
+        __gshared char[8192] esc;
+        auto escLen = jsonEscapeInto(text, esc[]);
+        if (escLen < 0) {
+            sqlite3_close(db);
+            return CheckResult(true,
+                "this quoted span is longer than ground can encode to search for, so its source was never looked for");
+        }
+
         quoted.reset();
         quoted.put("\\\"");
-        quoted.put(text);
+        quoted.put(cast(const(char)[]) esc[0 .. escLen]);
         quoted.put("\\\"");
 
         // The file itself is a source. A quote already standing in it predates
