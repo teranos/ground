@@ -43,7 +43,7 @@ const(char)[] performanceOf(const(char)[] token) {
 }
 
 struct DispatchScript {
-    char[2048] buf = 0;
+    char[4096] buf = 0;
     size_t len;
     bool ok = true;
     const(char)[] text() const return { return ok ? buf[0 .. len] : null; }
@@ -59,22 +59,40 @@ private void putQ(ref DispatchScript s, const(char)[] t) {
 
 // "+70% GLOBALQUOTA USE MEANS ADDING 10s BEFORE EVERY gh TOOL CALL". The
 // rate_limit endpoint is itself exempt, so asking costs nothing.
+// The one thing gh is still asked for, and only because it holds the
+// credential. A missing token says so rather than aborting on `set -u`.
+private void putToken(ref DispatchScript s) {
+    s.put("tok=''\n");
+    s.put("if env | grep -q '^GH_TOKEN='; then tok=$(env | grep -m1 '^GH_TOKEN=' | cut -d= -f2-); fi\n");
+    s.put("if [ -z \"$tok\" ] && env | grep -q '^GITHUB_TOKEN='; then tok=$(env | grep -m1 '^GITHUB_TOKEN=' | cut -d= -f2-); fi\n");
+    s.put("if [ -z \"$tok\" ] && command -v gh > /dev/null 2>&1; then tok=$(gh auth token); fi\n");
+    s.put("if [ -z \"$tok\" ]; then\n");
+    s.put("  printf 'no github token: set GH_TOKEN or run gh auth login\\n'\n");
+    s.put("  exit ");
+    s.putNum(RITE_UNREACHED);
+    s.put("\nfi\n");
+}
+
 private void putThrottle(ref DispatchScript s) {
     s.put("gh_throttle() {\n");
-    s.put("  if ! pct=$(gh api rate_limit --jq '(.rate.used * 100 / .rate.limit) | floor' 2>&1); then\n");
-    s.put("    printf 'could not read the quota: %s\\n' \"$pct\"\n");
+    s.put("  rl=$(curl -sS -m 20 -H \"Authorization: Bearer $tok\" ");
+    s.put("https://api.github.com/rate_limit 2>&1) || {\n");
+    s.put("    printf 'could not read the quota: %s\\n' \"$rl\"\n");
+    s.put("    exit ");
+    s.putNum(RITE_UNREACHED);
+    s.put("\n  }\n");
+
+    // used and limit out of the JSON without jq: the two numbers are the whole
+    // of what a throttle needs, and a dependency to read them is a dependency.
+    s.put("  used=$(printf '%s' \"$rl\" | tr ',' '\\n' | grep -m1 '\"used\"' | tr -cd '0-9')\n");
+    s.put("  lim=$(printf '%s' \"$rl\" | tr ',' '\\n' | grep -m1 '\"limit\"' | tr -cd '0-9')\n");
+    s.put("  if [ -z \"$used\" ] || [ -z \"$lim\" ] || [ \"$lim\" = 0 ]; then\n");
+    s.put("    printf 'rate_limit answered %s\\n' \"$rl\"\n");
     s.put("    exit ");
     s.putNum(RITE_UNREACHED);
     s.put("\n  fi\n");
+    s.put("  pct=$(( used * 100 / lim ))\n");
 
-    // A probe that could not run has measured nothing, and nothing is not 0%.
-    // Reading it as 0 is the throttle waving through exactly the calls the
-    // quota is spent on, which is what 90e exists to stop.
-    s.put("  case \"$pct\" in ''|*[!0-9]*)\n");
-    s.put("    printf 'rate_limit answered %s\\n' \"$pct\"\n");
-    s.put("    exit ");
-    s.putNum(RITE_UNREACHED);
-    s.put("\n  ;; esac\n");
     s.put("  if [ \"$pct\" -ge ");
     s.putNum(QUOTA_HIGH_PCT);
     s.put(" ]; then\n");
@@ -116,6 +134,11 @@ enum QUOTA_LOW_SEC  = 2;
 enum QUOTA_HIGH_PCT = 70;
 enum QUOTA_HIGH_SEC = 10;
 
+// A dispatch github could not answer is retried on a widening gap: one at N,
+// two at 2N, three at 3N, four at 4N. Ten attempts, the last at 30N.
+enum BACKOFF_SEC = 5;
+enum BACKOFF_ATTEMPTS = 10;
+
 // The whole of what a pbt used to carry in bash. A workflow_dispatch run lands
 // on the default branch rather than the commit that triggered it, so there is
 // no sha to find it by — the id is whatever appeared that was not there before.
@@ -134,46 +157,88 @@ DispatchScript dispatchScript(const(char)[] target, const(char)[] inputs,
     s.putQ(t.workflow);
     s.put("\n");
 
-    // A tool that could not run has not answered a question. 125 is the code
-    // for that, and a rite may not declare it as a catch, so it always halts.
-    s.put("halt_if_unreachable() {\n");
-    s.put("  case \"$1\" in\n");
-    s.put("    *'rate limit'*|*'HTTP 403'*|*'HTTP 5'*|*'connect'*) return 0 ;;\n");
-    s.put("  esac\n");
-    s.put("  return 1\n");
-    s.put("}\n");
-
+    s.putToken();
     s.putThrottle();
 
+    // The branch is stated, not resolved: gh asked graphql for it first, a
+    // round-trip ground never needed to make. Read through env rather than
+    // $GROUND_REF — under `set -u` an unset variable aborts.
+    s.put("ref=master\n");
+    s.put("if env | grep -q '^GROUND_REF='; then\n");
+    s.put("  ref=$(env | grep -m1 '^GROUND_REF=' | cut -d= -f2-)\n");
+    s.put("fi\n");
+
     // The run has to carry a name ground chose, or newest-first is a guess.
+    s.put("fields=''\n");
     if (token.length > 0) {
-        s.put("set -- -f ground=");
-        s.putQ(token);
-        s.put("\n");
-    } else {
-        s.put("set --\n");
+        s.put("fields='\"ground\":\"");
+        s.put(token);
+        s.put("\"'\n");
     }
 
-    // The fragment is the one part ground cannot know: the value is made at
-    // performance time, and params are literals from the pbt.
+    // Each line the fragment prints is one input. cut rather than parameter
+    // expansion, because a `${` in a rite is refused before it runs.
     if (inputs.length > 0) {
-        // Positional parameters, not an array: `hasUnresolved` refuses any `${`
-        // in a rite, and an array expansion cannot be written without one.
         s.put("while IFS= read -r kv; do\n");
-        s.put("  if [ -n \"$kv\" ]; then set -- \"$@\" -f \"$kv\"; fi\n");
+        s.put("  [ -n \"$kv\" ] || continue\n");
+        s.put("  k=$(printf '%s' \"$kv\" | cut -d= -f1)\n");
+        s.put("  v=$(printf '%s' \"$kv\" | cut -d= -f2-)\n");
+        s.put("  if [ -n \"$fields\" ]; then fields=\"$fields,\"; fi\n");
+        s.put("  fields=\"$fields\\\"$k\\\":\\\"$v\\\"\"\n");
         s.put("done <<< \"$(");
         s.put(inputs);
         s.put(")\"\n");
     }
-    s.put("gh_throttle\n");
-    s.put("if ! out=$(gh workflow run \"$flow\" -R \"$repo\" \"$@\" 2>&1); then\n");
-    s.put("  printf '%s\\n' \"$out\"\n");
-    s.put("  if halt_if_unreachable \"$out\"; then exit ");
-    s.putNum(RITE_UNREACHED);
-    s.put("; fi\n  exit 1\nfi\n");
+    s.put("json=\"{\\\"ref\\\":\\\"$ref\\\",\\\"inputs\\\":{$fields}}\"\n");
 
-    // The rite sent the job. That is the whole of it.
-    s.put("exit 0\n");
+    // "1 retry in N seconds / 2 consecutive retries in N+N / 3 consecutive
+    // retries in N+N+N / 4 consecutive retries in N+N+N+N" — ten attempts.
+    s.put("n=");
+    s.putNum(BACKOFF_SEC);
+    s.put("\nattempt=0\n");
+    s.put("while : ; do\n");
+    s.put("  gh_throttle\n");
+
+    // curl reports the status as a number rather than as text to match on, and
+    // its exit codes say which way it failed: 7 connect, 28 timeout, 35 TLS.
+    s.put("  code=$(curl -sS -m 30 -o /tmp/ground-dispatch.$$ -w '%{http_code}' ");
+    s.put("-X POST -H \"Authorization: Bearer $tok\" ");
+    s.put("-H 'Accept: application/vnd.github+json' -d \"$json\" ");
+    s.put("\"https://api.github.com/repos/$repo/actions/workflows/$flow/dispatches\")\n");
+    s.put("  rc=$?\n");
+    s.put("  body=$(cat /tmp/ground-dispatch.$$ 2>/dev/null); rm -f /tmp/ground-dispatch.$$\n");
+    s.put("  if [ \"$rc\" = 0 ] && [ \"$code\" = 204 ]; then exit 0; fi\n");
+
+    // A status github did answer, that is not 5xx or 429, is a refusal rather
+    // than an outage. Asking it ten times would get the same refusal ten times.
+    s.put("  if [ \"$rc\" = 0 ]; then\n");
+    s.put("    case \"$code\" in\n");
+    s.put("      5*|429) : ;;\n");
+    s.put("      *) printf 'github answered %s: %s\\n' \"$code\" \"$body\"; exit 1 ;;\n");
+    s.put("    esac\n");
+    s.put("    printf 'github answered %s, retrying\\n' \"$code\"\n");
+    s.put("  else\n");
+    s.put("    printf 'curl could not reach github (exit %s), retrying\\n' \"$rc\"\n");
+    s.put("  fi\n");
+
+    s.put("  attempt=$((attempt+1))\n");
+    s.put("  if [ \"$attempt\" -ge ");
+    s.putNum(BACKOFF_ATTEMPTS);
+    s.put(" ]; then\n");
+    s.put("    printf 'github did not accept the dispatch in %s attempts\\n' \"$attempt\"\n");
+    s.put("    exit ");
+    s.putNum(RITE_UNREACHED);
+    s.put("\n  fi\n");
+
+    // 1 gap at N, 2 at 2N, 3 at 3N, 4 at 4N.
+    s.put("  case \"$attempt\" in\n");
+    s.put("    1) m=1 ;;\n");
+    s.put("    2|3) m=2 ;;\n");
+    s.put("    4|5|6) m=3 ;;\n");
+    s.put("    *) m=4 ;;\n");
+    s.put("  esac\n");
+    s.put("  sleep $((n*m))\n");
+    s.put("done\n");
     return s;
 }
 
