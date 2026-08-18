@@ -1,7 +1,7 @@
 module ritual;
 
-// Five concerns, one import. Callers say `import ritual : x` and do not need
-// to know which file x lives in.
+// One import. Callers say `import ritual : x` and do not need to know which
+// file x lives in.
 public import ritual.position;  // where a performance is, and what it has been
 public import ritual.resolve;   // name to ritual, ritual to rites, path to disk
 public import ritual.store;     // the row

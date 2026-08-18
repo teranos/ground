@@ -601,8 +601,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         }
     }
 
-    // Every non-Bash tool lands here — a Write among them, which is what
-    // `chapter-1786287252` was stopped on for 34 minutes before it was killed.
+    // Every non-Bash tool lands here — a Write among them, which is what a
+    // performance with nobody at its session gets stopped on.
     if (inLivePerformance(cwd)) {
         writeContextResponse("allowed by the live performance", "allow");
         return 0;

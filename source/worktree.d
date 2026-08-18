@@ -275,9 +275,8 @@ int handleWorktreeRemove(const(char)[] input, const(char)[] cwd) {
     return 0;
 }
 
-// A tree ground made for a performance is ground's to remove. Nothing else
-// will: no WorktreeRemove fires for one ground created, measured on a probe
-// tree that is still on disk.
+// A tree ground made for a performance is ground's to remove. WorktreeRemove
+// fires for a tree a person made.
 bool removeWorktree(const(char)[] repo, const(char)[] tree) {
     import exec : emitError;
     if (repo.length == 0 || tree.length == 0) return false;

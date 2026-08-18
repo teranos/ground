@@ -33,9 +33,9 @@ static assert(blocking(Mic.Ci, 400, 20, 0));
 // cannot be said to be late.
 static assert(!blocking(Mic.Ci, 4000, 0, 0));
 
-// "and that is before the faulty commit from yours" — willow-kkp stapled one
-// complaint to six rites, because the words attached were the agent's most
-// recent, not what it said while holding.
+// "and that is before the faulty commit from yours" — one complaint gets
+// stapled to six rites when the words attached are the agent's most recent
+// rather than what it said while holding.
 static assert(wordsHash("I plucked a CHERRY.") != wordsHash("I plucked a MANGO."));
 static assert(wordsHash("") == 0);
 

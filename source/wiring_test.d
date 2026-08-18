@@ -1,8 +1,7 @@
 module wiring_test;
 
-// The suite tests values. `sentences.d` still splits sentences perfectly — into
-// nothing, because on 2026-08-15 I deleted its only caller while removing the
-// walking from `stop.d`, and every test stayed green.
+// The suite tests values, so a function with no caller passes every test it
+// has. This asserts the wiring: the call site exists in the source.
 
 private enum stopSource = import("source/stop.d");
 private enum runSource  = import("source/ritual/run.d");

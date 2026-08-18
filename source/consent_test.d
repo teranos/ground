@@ -19,6 +19,6 @@ static assert(!performanceAnswers(true, RitualState.Aborted));
 // No row is no performance. A directory that is not one gets the normal path.
 static assert(!performanceAnswers(false, RitualState.Live));
 
-// The enumeration is gone. `chapter-1786287252` sat on a Write that no list
-// of shell commands could ever have named, and was aborted by hand.
+// The tree is the boundary. Inside a live performance ground answers every
+// tool call itself, so nothing can name a command it forgot to permit.
 static assert(!__traits(compiles, { import ritual : consented; }));

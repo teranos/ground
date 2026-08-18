@@ -652,7 +652,7 @@ unittest {
 }
 
 unittest {
-    // Delivered three times on 2026-08-09 as "CI:  CI (pull_request)".
+    // A line with no conclusion delivers as "CI:  CI (pull_request)".
     auto r = interpretCIOutput(0, " CI (pull_request)\n");
     assert(r.kind == CIQuery.Unavailable, "a line with no conclusion states nothing");
     assert(r.text.length > 0, "and it says so out loud");

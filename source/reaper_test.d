@@ -1,8 +1,7 @@
 module reaper_test;
 
-// An ending ends the agent too. Measured 2026-08-07: eleven `claude -w`
-// processes against three live performances — eight against ended ones, the
-// oldest an hour past its abort, still editing a worktree and committing.
+// An ending ends the agent too. Without it an agent outlives its abort and
+// keeps editing a worktree and committing.
 
 import ritual : Position, RitualState, owesKill;
 

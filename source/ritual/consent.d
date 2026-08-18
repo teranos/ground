@@ -7,6 +7,5 @@ bool performanceAnswers(bool valid, RitualState state) {
     return valid && state == RitualState.Live;
 }
 
-// This was a list of four shell commands until 2026-08-13. `chapter-1786287252`
-// sat on a permission prompt for a Write, which no list of commands can name,
-// and ended `aborted` — the one ending a person causes.
+// The tree is the boundary. A performance has its own worktree and branch, so
+// ground answers every tool call inside it and a prompt reaches nobody.

@@ -61,9 +61,8 @@ import ritual : preparePerformance, Staged, RitualState;
 
 private enum root = "/home/u/src/grove";
 
-// The caller holds the buffers. Measured on the first live fire: with them
-// local to preparePerformance, the row was written with an empty id and an
-// empty worktree — every slice pointing at a dead stack frame.
+// The caller holds the buffers. Local to preparePerformance, every slice
+// points at a dead stack frame and the row is written empty.
 unittest {
     Staged st;
     auto p = preparePerformance(parsed, cast(size_t) idx, root, 1000, st);

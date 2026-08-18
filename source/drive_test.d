@@ -1,8 +1,8 @@
 module drive_test;
 
 // What the driver does about a tree that is not there.
-// Measured 2026-08-07: a performance recorded START as "hold, code 1" with
-// the output "cd: …/grove-willow-1786122289: No such file or directory".
+// A rite run before the tree exists records "hold, code 1" with the output
+// "cd: …: No such file or directory" — a verdict about a question never asked.
 
 import ritual.drive : TreeVerdict, treeVerdict;
 

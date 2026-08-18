@@ -760,20 +760,9 @@ void attestEventAt(
 }
 
 unittest {
-    // Claude Code runs tool calls in parallel, so several hooks of the same type
-    // stamping one second is the normal case, not an edge.
-    //
-    // Measured 2026-07-28 against the live store: four parallel Bash calls
-    // produced three rows. probe-charlie shared a second with another probe and
-    // was discarded, PreToolUse and PostToolUse both. The id was
-    // ground:payload:<Event>:<ts> and the insert is INSERT OR IGNORE, so the
-    // second event could not land.
-    //
-    // The cost is not a missing row. Controls answer questions like "was this
-    // file Read this session" from these rows, and a control reading a record
-    // with holes in it states a false answer as a measured fact. One defect,
-    // both halves of the ERROR AXIOM: the swallowed write, and the false ERROR
-    // built on the silence it left.
+    // Tool calls run in parallel, so several hooks of the same type stamping
+    // one second is the normal case. The id carries the pid; without it the
+    // second event cannot land.
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
     assert(applySchema(db), "test runs against the product schema, not a copy of it");

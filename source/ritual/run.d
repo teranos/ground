@@ -9,8 +9,8 @@ import receiver : Receiver;
 import db : ZBuf;
 
 // Who an error raised inside a rite is owed to. Routed to whichever of the
-// four callers of `advance` happened to drive until 2026-08-10, so a rite that
-// failed under the watcher told the watcher's session and nobody else.
+// four callers of `advance` happened to drive, a rite that failed under the
+// watcher tells the watcher's session and nobody else.
 struct Owed {
     const(char)[][3] who;
     size_t count;
@@ -124,9 +124,8 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         p.rev = p.rev + 1;
     }
 
-    // Measured 2026-08-10 on `sun`: one review comment reached the agent 19
-    // times, because the delivery key carries `rev` and a held rite re-enters
-    // with a new one. A verdict is still an event; its words are not.
+    // The delivery key carries `rev` and a held rite re-enters with a new one.
+    // A verdict is an event; its words are not.
     import mic : wordsHash, freshWords;
     long spoken = 0;
 
@@ -283,8 +282,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     attestRite(db, sessionId, p, r.name, a.verdict, a.code, a.output, unixSeconds);
 
     // "the outcome is what is spoken back into the mic to both the agent and
-    // parent". Gated on `wait > 0 && to != None` until 2026-08-10, so a rite
-    // that was not slow CI and named no receiver was answered into nothing.
+    // parent". Every rite that printed something speaks it, to its causer.
     if (fresh) riteSpeaks(db, p, moved, r, a.verdict, said, "");
 
     // "we want to get rid of the auto commit" / "make commit be done by run:".
@@ -527,7 +525,7 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
 
     // "permission should just never block". There is nobody at this session to
     // ask, and one asked anyway sits blocked until the machine runs out of
-    // memory — measured as sixteen of them, the oldest five days old.
+    // memory.
     s.put("--permission-mode dontAsk ");
     // Appended rather than replacing: what a ritual declares is what this
     // agent additionally is, the way a CLAUDE.md is.

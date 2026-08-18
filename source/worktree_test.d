@@ -26,8 +26,7 @@ static assert(!emptyTreeCmd("/r", "", "p1").ok);
 static assert(!emptyTreeCmd("/r", "/r-p1", "").ok);
 
 // `git worktree add <path>` is run without -b, so git names the branch after
-// the path's last segment. Measured: headBranch grove-moon-1786212018 for the
-// tree at /Users/s.b.vanhouten/SBVH/sbvh-nl/grove-moon-1786212018.
+// the path's last segment.
 static assert(branchOf("/home/u/src/proj-probe") == "proj-probe");
 static assert(branchOf("/proj-probe") == "proj-probe");
 static assert(branchOf("") == "");

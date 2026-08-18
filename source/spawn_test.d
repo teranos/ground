@@ -46,7 +46,7 @@ static assert(bg.text() ==
     ~ "claude -w 'p-1' --bg --permission-mode dontAsk 'go'\n");
 
 // "define a CLAUDE.md inline in a ritual" — appended, not replacing, because
-// a CLAUDE.md adds to what an agent already is. Measured working under --bg.
+// a CLAUDE.md adds to what an agent already is.
 enum sys = spawnScript("/r", "p-1", "go", "You are a Specialist in Targeted Advertisement Campaigns.");
 static assert(sys.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"

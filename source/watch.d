@@ -97,9 +97,7 @@ module watch;
 //       a stale pid file, and B's pid file names a watcher running in A's cwd.
 //       A watcher holding a dead session's claim can never be reached again,
 //       because killSessionWatcher is only ever called by that session's own
-//       Stop. Measured 2026-07-27: ten live `ground watch` processes, six
-//       orphaned at ppid 1, oldest 20 days. Nothing unlinks watch-*.pid, so
-//       130+ pid files had accumulated since May.
+//       Stop, so orphans accumulate at ppid 1. Nothing unlinks watch-*.pid.
 //
 //       Root cause is one discarded argument: asyncRewake spawns
 //       `ground watch $PWD` from static settings.json, so the session id the
