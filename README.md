@@ -95,7 +95,9 @@ Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hook
 - **strop** — validate the shape of an extracted flag value, deny on mismatch
 - **substitute_for_read** — name the utilities that mean "I was trying to read a file"; ground reads it and hands the contents over instead of running the command
 
-Rewrites (arg/omit/omitLine/clamp) are silent — the command runs corrected and Claude receives a message explaining why. Strop denies with a message computed from the extracted value. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
+- **substitute_for_cmd** — name the command the author meant; ground replaces the matched segment whole and runs that instead
+
+Rewrites (arg/omit/omitLine/clamp/substitute_for_cmd) are silent — the command runs corrected and Claude receives a message explaining why. Strop denies with a message computed from the extracted value. Unmatched commands pass through unchanged. Keyword controls on UserPromptSubmit inject context when the user mentions a topic.
 
 Controls are defined in `controls/*.pbt` and compiled into the binary. The binary is the config. A repo declared with `project { path: "..." }` contributes its own `controls/*.pbt` the same way — the pbt governing a repo lives beside the code it governs.
 
