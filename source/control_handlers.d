@@ -599,6 +599,13 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
         ~ ") LIMIT 1\0";
 
+    // Rank 3 of the authority list in CLAUDE.md, which the session-bound query
+    // above cannot see. Words typed in an earlier session are still words the
+    // user typed, and refusing them called a real quote an invention.
+    enum recordedSql = "SELECT 1 FROM attestations WHERE "
+        ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND "
+        ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
+
     auto src = extractFilePath(input);
 
     __gshared ZBuf quoted;
@@ -648,9 +655,20 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         bool found = sqlite3_step(stmt) == SQLITE_ROW;
         sqlite3_finalize(stmt);
 
+        // Ranked, not widened: this session answers first, and only what it
+        // cannot answer is asked of the whole record.
+        if (!found) {
+            sqlite3_stmt* any;
+            if (sqlite3_prepare_v2(db, recordedSql.ptr, -1, &any, null) == SQLITE_OK) {
+                sqlite3_bind_text(any, 1, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+                found = sqlite3_step(any) == SQLITE_ROW;
+                sqlite3_finalize(any);
+            }
+        }
+
         if (!found) {
             observed.reset();
-            observed.put("no prompt you submitted contains this quoted span: \"");
+            observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span: \"");
             observed.put(text.length > 200 ? text[0 .. 200] : text);
             observed.put("\"");
             sqlite3_close(db);
