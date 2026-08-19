@@ -19,7 +19,12 @@ enum MINUTE = 45;
 // What collet was looking at when the capture was taken. Everything here is
 // read off the reference bytes, so the test says what the row must produce
 // rather than what the code happens to produce.
-enum head = Head(CWD, "ref-test", "Opus 5", Counts(0, 0, 1), 12);
+// HOME is whatever the payload's cwd sits under; the capture was taken at the
+// project root, so the path rule never reaches the tilde branch here.
+enum HOME = jsonString(payload, "project_dir");
+
+enum head = Head(CWD, CWD, HOME, "ref-test", "Opus 5",
+                 "default", Counts(0, 0, 1), 12);
 
 char[128] drawn() {
     char[128] buf = '.';
@@ -44,7 +49,8 @@ const(char)[] lineOne(const(char)[] all) {
 // different names from the same code.
 enum other = import("captures/quiet/out.bytes");
 enum otherCwd = jsonString(import("captures/quiet/in.json"), "cwd");
-enum otherHead = Head(otherCwd, null, null, Counts(0, 0, 0), -1);
+enum otherHead = Head(otherCwd, otherCwd, otherCwd, null, null,
+                      "default", Counts(0, 0, 0), -1);
 
 char[128] drawnOther() {
     char[128] buf = '.';

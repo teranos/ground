@@ -3,7 +3,7 @@ module row;
 // Line one of the row, segment by segment, against captures/grove/out.bytes.
 
 import clock : clockInto;
-import json : baseName;
+import path : pathInto;
 import status : statusInto, Counts;
 
 // Unconditional in both captures, at the same offset, with no space before it
@@ -14,6 +14,7 @@ enum BLUE    = "\033[34m";
 enum MAGENTA = "\033[35m";
 enum RED     = "\033[31m";
 enum GREEN   = "\033[32m";
+enum YELLOW  = "\033[33m";
 enum DIM     = "\033[2m";
 enum RESET   = "\033[0m";
 
@@ -24,10 +25,20 @@ enum BRANCH_MARK = "⎇ ";
 // itself stays a function of its inputs and can be checked against a capture.
 struct Head {
     const(char)[] cwd;
+    const(char)[] projectDir;
+    const(char)[] home;
     const(char)[] branch;
     const(char)[] model;
+    const(char)[] style;
     Counts counts;
     int percent = -1;
+}
+
+// Green under fifty, yellow to seventy-nine, red past it.
+const(char)[] percentColour(int rounded) {
+    if (rounded <= 49) return GREEN;
+    if (rounded <= 79) return YELLOW;
+    return RED;
 }
 
 size_t rowOneInto(int hour, int minute, Head h, char[] dest) {
@@ -41,10 +52,9 @@ size_t rowOneInto(int hour, int minute, Head h, char[] dest) {
 
     // The repository is the last element of the working directory: `grove` in
     // one capture, `ground` in the other, both blue.
-    auto repo = baseName(h.cwd);
-    if (repo !is null) {
+    if (h.cwd.length > 0) {
         put(BLUE);
-        put(repo);
+        o += pathInto(h.cwd, h.projectDir, h.home, dest[o .. $]);
         put(RESET);
     }
 
@@ -62,16 +72,22 @@ size_t rowOneInto(int hour, int minute, Head h, char[] dest) {
 
     if (h.percent >= 0) {
         put(" ");
-        put(GREEN);
+        put(percentColour(h.percent));
         putInt(h.percent, dest, o);
         put("%");
         put(RESET);
     }
 
+    // A style other than the default rides with the model, so the row says
+    // which one is on rather than only which model is.
     if (h.model !is null) {
         put(" ");
         put(DIM);
         put(h.model);
+        if (h.style.length > 0 && h.style != "default") {
+            put("·");
+            put(h.style);
+        }
         put(RESET);
     }
 
