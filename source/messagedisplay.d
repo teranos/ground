@@ -63,6 +63,28 @@ void marked(B)(ref B out_, const(char)[] msgId, const(char)[] body_) {
     gutter(out_, first, rest, body_);
 }
 
+enum REWRITE_CONTROL = "inline-not-address";
+
+// The first rewrite of a session leaves a message for the next Stop, and a
+// marker so the second rewrite leaves nothing.
+private void noteRewriteOnce(const(char)[] cwd, const(char)[] sessionId) {
+    import db : attestationExists, attestControlFire;
+    import deferred : writeDeferredMessage;
+
+    auto db = openDb();
+    if (db is null) return;
+
+    if (!attestationExists(db, "GroundedMessageDisplay", REWRITE_CONTROL, sessionId)) {
+        writeDeferredMessage(db, REWRITE_CONTROL, cwd, sessionId,
+            "A file and line number you wrote was replaced by the lines it names, "
+            ~ "before it reached the screen. The reader never sees the address, so "
+            ~ "it tells them nothing — show the code instead.", 0);
+        attestControlFire(db, "GroundedMessageDisplay", REWRITE_CONTROL, cwd, sessionId);
+    }
+
+    sqlite3_close(db);
+}
+
 int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     if (sessionId.length == 0) return 0;
 
@@ -77,6 +99,10 @@ int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] s
     g_readRoot = cwd;
     Rewrite rw;
     if (delta !is null) rw = inlineRefs(delta, projectFiles, &readTracked);
+
+    // Told once, the way the other reminders are. A rewrite that announced
+    // itself on every chunk would be its own kind of noise.
+    if (rw.changed > 0) noteRewriteOnce(cwd, sessionId);
 
     __gshared ZBuf lines;
     lines.reset();
