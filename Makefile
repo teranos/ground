@@ -38,8 +38,10 @@ build: wind
 
 # ug is its own binary: no sqlite, no controls, no druntime. It is built by
 # ldc2 directly because dub builds one target and that target is ground.
-ug: ug/main.d ug/clock.d ug/row.d ug/json.d
-	ldc2 -betterC -of=ug/ug -I=ug ug/main.d ug/clock.d ug/row.d ug/json.d
+UG_SOURCES = ug/main.d ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d
+
+ug: $(UG_SOURCES)
+	ldc2 -betterC -of=ug/ug -I=ug $(UG_SOURCES)
 
 test: test-tools test-ug
 	dub test
@@ -55,7 +57,9 @@ test-ug:
 # -J=. lets row_test read captures/grove/out.bytes at CTFE, so parity is
 # asserted against collet's own output rather than a transcription of it.
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/json.d ug/json_test.d
-	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/row_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/git.d ug/git_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/status.d ug/status_test.d
+	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
 
 install: build
 	mkdir -p $(PREFIX)/bin

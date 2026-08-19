@@ -10,8 +10,10 @@ module main;
 import core.stdc.stdio : stdin, stdout, fread, fwrite, fputs;
 import core.stdc.time : time, time_t, localtime, tm;
 
-import row : rowOneInto;
-import json : jsonString;
+import row : rowOneInto, Head;
+import json : jsonString, jsonNumber;
+import git : readHead, branchOf, readPorcelain;
+import status : countPorcelain;
 
 // The session JSON, whole. A writer whose reader never read gets a broken
 // pipe, so it is read to the end whether or not every field is wanted.
@@ -33,8 +35,15 @@ extern (C) int main(int argc, char** argv) {
     time_t now = time(null);
     auto lt = localtime(&now);
 
+    Head h;
+    h.cwd = jsonString(input, "cwd");
+    h.branch = branchOf(readHead(h.cwd));
+    h.model = jsonString(input, "display_name");
+    h.percent = jsonNumber(input, "used_percentage");
+    h.counts = countPorcelain(readPorcelain(h.cwd));
+
     __gshared char[512] row = void;
-    auto n = rowOneInto(lt.tm_hour, lt.tm_min, jsonString(input, "cwd"), row[]);
+    auto n = rowOneInto(lt.tm_hour, lt.tm_min, h, row[]);
 
     fwrite(&row[0], 1, n, stdout);
     fputs("\n", stdout);
