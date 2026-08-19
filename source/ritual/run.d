@@ -2,7 +2,7 @@ module ritual.run;
 
 import rite : Verdict;
 import ritual.position : Position, RitualState, RiteState, step, jump;
-import ritual.resolve : Flattened, indexOfRite;
+import ritual.resolve : Flattened, indexOfRite, indexOfRiteFrom;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
 import receiver : Receiver;
@@ -206,9 +206,15 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         a.verdict = classify(run.code, r);
     }
 
+    // "no, it should have jumped over them" — a rite that asks nothing has no
+    // verdict to condition a jump on, so its goto is the whole of what it says.
+    bool asksNothing = r.eval.length == 0 && r.dispatch.length == 0;
+
     // A cycle that cannot be taken again is a halt, not a hold — holding
     // would leave the performance waiting on a jump it will never make.
-    bool wantsJump = a.verdict == Verdict.Hold && r.goto_.length > 0;
+    bool wantsJump = r.goto_.length > 0
+        && (a.verdict == Verdict.Hold
+            || (asksNothing && a.verdict == Verdict.Advance));
     if (wantsJump && p.gotos >= f.maxGoto) {
         a.verdict = Verdict.Halt;
         __gshared ZBuf spent;
@@ -236,7 +242,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     // goto is what a caught code does when the rite names somewhere to go.
     if (wantsJump) {
-        auto target = indexOfRite(f, r.goto_);
+        auto target = indexOfRiteFrom(f, r.group, r.goto_);
         if (target >= 0) {
             moved = jump(moved, cast(size_t) target);
             moved.gotos = p.gotos + 1;

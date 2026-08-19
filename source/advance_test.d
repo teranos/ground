@@ -461,6 +461,41 @@ unittest {
     sqlite3_close(db);
 }
 
+// --- A rite that asks nothing jumps where it names ---
+// "no, it should have jumped over them" — a rite with no eval has no verdict
+// to condition a jump on, so its goto is the only thing it says.
+
+enum hopSrc = `
+rites hop {
+  WAIT       { run: "true" }
+  TRAMPOLINE { goto: END }
+  HEDGE1 { }
+  HEDGE2 { }
+  END { }
+}
+
+project {
+  path: "/src/proj"
+  ritual jumper { hop }
+}
+`;
+enum hopFlat = flatten(parsePbt(hopSrc), 0);
+
+unittest {
+    auto db = memDb();
+    auto p = start("jumper", hopFlat.count);
+    p.id = "hop-1";
+    p.repo = "/src/proj";
+    p.worktree = "/tmp";
+    p.current = 1;
+
+    auto r = advance(db, "sess", p, hopFlat, 100);
+    assert(r.after.current == 4, "the trampoline lands on END, not on HEDGE1");
+    assert(r.after.gotos == 1, "a jump taken costs one");
+    assert(r.after.states[2] == RiteState.Never, "the hedges are stepped over");
+    sqlite3_close(db);
+}
+
 unittest {
     auto db = memDb();
     // SLOW keeps the `ci:` namespace and CI's own head line, which is what the
