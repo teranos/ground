@@ -18,6 +18,7 @@
 ground
 ground-test-application
 tools/wind
+ug/ug
 
 # Generated
 .version
