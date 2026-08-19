@@ -9,9 +9,6 @@ Spec: <https://code.claude.com/docs/en/statusline>
 > the same bytes, which is answerable because collet is stdin to stdout and
 > nothing else.
 
-> The clock is what stands in the way. Nine reads of the local time reach stdout,
-> and a frozen clock is what makes the comparison mean anything.
-
 #### 1.a2 ✓ — the capture is the reference
 
 "just snapshot what collet sees now, and use that"
