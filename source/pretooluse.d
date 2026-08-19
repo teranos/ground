@@ -87,6 +87,77 @@ bool takesUpdatedInput(const(char)[] toolName) {
     return toolName == "Bash";
 }
 
+// The three fields a tool writes with. file_path is deliberately absent.
+private static immutable string[3] WRITTEN_FIELDS = ["content", "new_string", "old_string"];
+
+// True when the whole tool_input was reissued with the home directory taken
+// out of it. False leaves the call exactly as it arrived.
+bool rewroteHome(const(char)[] input, const(char)[] toolName) {
+    import homedir : rewriteField, HOME_TOKEN;
+    import hooks : rewriteFrom, rewriteTo;
+    import controls : allParsed;
+    import parse : extractToolInputRegion;
+    import db : getenv;
+
+    if (toolName != "Write" && toolName != "Edit") return false;
+
+    auto region = extractToolInputRegion(input);
+    if (region is null) return false;
+
+    auto h = getenv("HOME\0".ptr);
+    size_t hl = 0;
+    if (h !is null) while (h[hl] != 0) hl++;
+    auto home = hl > 0 ? h[0 .. hl] : "";
+
+    // Two buffers, swapped between passes, so a pass that does not fit leaves
+    // the previous one intact.
+    __gshared char[131072] bufA = 0;
+    __gshared char[131072] bufB = 0;
+
+    const(char)[] current = region;
+    size_t found = 0;
+    bool inA = true;
+    const(char)[] why;
+
+    static immutable parsed = allParsed;
+
+    foreach (si; 0 .. parsed.scopeCount) {
+        auto sc = parsed.scopes[si];
+        foreach (ci; sc.controlStart .. sc.controlEnd) {
+            auto c = parsed.ctrlPool[ci];
+            foreach (pi; 0 .. c.rewriteCount) {
+                auto pair = c.rewrites[pi];
+                auto from = rewriteFrom(pair);
+                auto to = rewriteTo(pair);
+                if (from == HOME_TOKEN) from = home;
+                if (from.length == 0 || to.length == 0) continue;
+
+                foreach (key; WRITTEN_FIELDS) {
+                    auto dest = inA ? bufA[] : bufB[];
+                    auto r = rewriteField(current, key, from, to, dest);
+                    // Not fitting is not a rewrite. The call goes through as
+                    // it arrived rather than through a value cut short.
+                    if (!r.fit) return false;
+                    if (r.found == 0) continue;
+                    found += r.found;
+                    current = dest[0 .. r.len];
+                    inA = !inA;
+                    if (why.length == 0) why = c.msg;
+                }
+            }
+        }
+    }
+
+    if (found == 0) return false;
+
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":`, stdout);
+    fwrite(current.ptr, 1, current.length, stdout);
+    fputs(`,"additionalContext":"`, stdout);
+    writeJsonString(why);
+    fputs(`"}}` ~ "\n", stdout);
+    return true;
+}
+
 // Called only where ground would otherwise leave the decision to a human, so
 // the common allow and deny paths pay nothing for it.
 private bool inLivePerformance(const(char)[] cwd) {
@@ -609,6 +680,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             return 0;
         }
     }
+
+    // The author's home directory is rewritten out of what is about to be
+    // written. file_path is left alone: rewriting that sends the write to a
+    // path that does not exist.
+    if (rewroteHome(input, toolName)) return 0;
 
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.

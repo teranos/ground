@@ -135,6 +135,25 @@ struct SubstituteForCmd {
     string value;
 }
 
+// Strings that must not reach a file. Each entry is what to find and what to
+// put there instead, separated by a pipe, as matcher lists are.
+struct Rewrites {
+    string[32] _buf;
+    ubyte len;
+    const(string)[] values() const return { return _buf[0 .. len]; }
+}
+
+// The find side and the put side of one entry.
+const(char)[] rewriteFrom(const(char)[] pair) {
+    foreach (i, c; pair) if (c == '|') return pair[0 .. i];
+    return pair;
+}
+
+const(char)[] rewriteTo(const(char)[] pair) {
+    foreach (i, c; pair) if (c == '|') return pair[i + 1 .. $];
+    return "";
+}
+
 struct Bg {
     bool value;
 }
@@ -237,6 +256,7 @@ struct Control {
     Content content;
     SubstituteForRead substituteForRead;
     SubstituteForCmd substituteForCmd;
+    Rewrites rewrites;
     Bg bg;
     Tmo tmo;
     Defer defer;

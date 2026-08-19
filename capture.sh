@@ -15,7 +15,7 @@ NAME=${1:?name required}
 PAYLOAD=${2:?payload json required}
 TRIES=${3:-20}
 
-COLLET=/home/golem/SBVH/sbvh-nl/collet/bin/collet
+COLLET=${COLLET:-$HOME/SBVH/sbvh-nl/collet/bin/collet}
 ROOT=$(cd "$(dirname "$0")" && pwd)
 DIR="$ROOT/captures/$NAME"
 

@@ -4,7 +4,7 @@ import zbuf : ZBuf;
 import core.stdc.stdio : fread, fopen, fclose, FILE;
 
 // Extract last two path components from cwd.
-// "/home/golem/SBVH/teranos/tmp/ground" → "tmp/ground"
+// A path like $HOME/SBVH/teranos/tmp/ground becomes tmp/ground
 const(char)[] cwdTail(const(char)[] path) {
     if (path.length == 0) return "unknown";
     // Find last slash

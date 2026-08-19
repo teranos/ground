@@ -52,6 +52,8 @@ struct ParsedControl {
     string substituteForCmd;
     string[8] userprompts;
     ubyte userpromptCount;
+    string[32] rewrites;
+    ubyte rewriteCount;
     bool bg;
     int tmo;
     string checkHandler, delayHandler, deliverHandler;
@@ -516,6 +518,10 @@ ScopeSet buildScopes(
             if (pc.userpromptCount > 0) {
                 c.userprompt._buf = pc.userprompts;
                 c.userprompt.len = pc.userpromptCount;
+            }
+            if (pc.rewriteCount > 0) {
+                c.rewrites._buf = pc.rewrites;
+                c.rewrites.len = pc.rewriteCount;
             }
             c.msg = Msg(pc.msg);
             c.mcpArg = McpArg(pc.mcpArg);
@@ -1181,6 +1187,21 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
                     }
                 } else {
                     c.userprompts[0] = val; c.userpromptCount = 1;
+                }
+                break;
+            case "rewrite":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.rewriteCount < 32);
+                        c.rewrites[c.rewriteCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.rewrites[0] = val; c.rewriteCount = 1;
                 }
                 break;
             case "substitute_for_read":
