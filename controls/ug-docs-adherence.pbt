@@ -31,21 +31,18 @@ scope {
 
   control {
     name: "quotes-deserve-provenance"
-    filepath: "UNDERGROUND.md"
     check_handler: "quoteProvenance"
     msg: "A quoted span has no match in what the user typed."
   }
 
   control {
     name: "quotes-stand-alone"
-    filepath: "UNDERGROUND.md"
     check_handler: "quoteStandsAlone"
     msg: "A quoted span shares its line with other text."
   }
 
   control {
     name: "quotes-keep-chronology"
-    filepath: "UNDERGROUND.md"
     check_handler: "quoteChronology"
     msg: "Quoted spans appear in a different order than they were said."
   }

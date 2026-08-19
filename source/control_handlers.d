@@ -424,8 +424,8 @@ CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
 // A span with no prompt behind it has no said-time to compare, so it is
 // carried by provenance rather than judged here.
 CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
-    import parse : extractWrittenText;
-    import provenance : nextQuotedSpan, firstOutOfOrder;
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, firstOutOfOrder, onProseLine;
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
                 sqlite3_column_int64, sqlite3_finalize, sqlite3_close,
                 sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -455,11 +455,14 @@ CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
     size_t[MAX_SPANS] spanEnd;
     size_t n = 0;
 
+    auto src = extractFilePath(input);
+
     size_t from = 0;
     while (n < MAX_SPANS) {
         auto sp = nextQuotedSpan(written, from);
         if (!sp.ok) break;
         from = sp.end + 1;
+        if (!onProseLine(written, sp, src)) continue;
         auto text = written[sp.start .. sp.end];
         if (text.length == 0) continue;
 
@@ -499,12 +502,14 @@ CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
 // A quote sharing its line with commentary reads as part of the quote. This
 // refuses the line rather than trusting the reader to tell them apart.
 CheckResult quoteStandsAlone(const(char)[] cwd, const(char)[] input) {
-    import parse : extractWrittenText;
-    import provenance : nextQuotedSpan, standsAlone;
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, standsAlone, onProseLine, lineComment;
     import zbuf : ZBuf;
 
     auto written = extractWrittenText(input);
     if (written is null) return passes();
+
+    auto src = extractFilePath(input);
 
     __gshared ZBuf observed;
     size_t from = 0;
@@ -512,7 +517,8 @@ CheckResult quoteStandsAlone(const(char)[] cwd, const(char)[] input) {
         auto sp = nextQuotedSpan(written, from);
         if (!sp.ok) break;
         from = sp.end + 1;
-        if (standsAlone(written, sp)) continue;
+        if (!onProseLine(written, sp, src)) continue;
+        if (standsAlone(written, sp, lineComment(src))) continue;
 
         auto text = written[sp.start .. sp.end];
         observed.reset();
@@ -561,8 +567,8 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
 // every prompt the user has ever submitted, and denies the span that has no
 // source rather than trusting the writer to have looked.
 CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
-    import parse : extractWrittenText;
-    import provenance : nextQuotedSpan, jsonEscapeInto;
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine;
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
                 sqlite3_finalize, sqlite3_close, sqlite3_stmt,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -593,6 +599,8 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
         ~ ") LIMIT 1\0";
 
+    auto src = extractFilePath(input);
+
     __gshared ZBuf quoted;
     __gshared ZBuf observed;
     size_t from = 0;
@@ -600,6 +608,7 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         auto sp = nextQuotedSpan(written, from);
         if (!sp.ok) break;
         from = sp.end + 1;
+        if (!onProseLine(written, sp, src)) continue;
 
         auto text = written[sp.start .. sp.end];
         if (text.length == 0) {

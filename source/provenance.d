@@ -100,7 +100,7 @@ private bool isWs(char c) {
 
 // True when the span's own two lines carry nothing but the quote. A comment
 // marker is where the line begins, so it is the one prefix that is not company.
-bool standsAlone(const(char)[] s, Span sp) {
+bool standsAlone(const(char)[] s, Span sp, const(char)[] marker = "") {
     size_t open = sp.start - 1;
     size_t lineStart = open;
     while (lineStart > 0 && s[lineStart - 1] != '\n') lineStart--;
@@ -110,7 +110,7 @@ bool standsAlone(const(char)[] s, Span sp) {
     while (b < e && isWs(s[b])) b++;
     while (e > b && isWs(s[e - 1])) e--;
     auto prefix = s[b .. e];
-    if (prefix.length != 0 && prefix != "#" && prefix != "//") return false;
+    if (prefix.length != 0 && prefix != marker) return false;
 
     size_t j = sp.end + 1;
     while (j < s.length && s[j] != '\n') {
@@ -129,15 +129,236 @@ unittest {
     assert(!standsAlone(`x "a"`, Span(true, 3, 4)));
     assert(!standsAlone(`"a" x`, Span(true, 1, 2)));
 
-    // In a comment the line begins after the marker.
-    assert(standsAlone(`# "a"`, Span(true, 3, 4)));
-    assert(standsAlone(`// "a"`, Span(true, 4, 5)));
-    assert(!standsAlone(`# x "a"`, Span(true, 5, 6)));
+    // In a comment the line begins after the marker, and the marker is the
+    // one that language uses. A SQL comment is not company either.
+    assert(standsAlone(`# "a"`, Span(true, 3, 4), "#"));
+    assert(standsAlone(`// "a"`, Span(true, 4, 5), "//"));
+    assert(standsAlone(`-- "a"`, Span(true, 4, 5), "--"));
+    assert(!standsAlone(`# x "a"`, Span(true, 5, 6), "#"));
+
+    // A marker from another language is just text in front of the quote.
+    assert(!standsAlone(`# "a"`, Span(true, 3, 4), "//"));
 
     // The span crosses newlines; only its two edges are the line question.
     assert(standsAlone("\"a\nb\"", Span(true, 1, 4)));
     assert(!standsAlone("pre \"a\nb\"", Span(true, 5, 8)));
     assert(!standsAlone("\"a\nb\" post", Span(true, 1, 4)));
+}
+
+// What opens a comment, per language. A union of every marker is not a table:
+// `#` opens a comment in Python and an include in C, and accepting both denied
+// every `#include` ever written.
+
+static immutable string[] SLASH = [
+    ".d", ".rs", ".go", ".c", ".h", ".cc", ".cpp", ".hpp", ".java", ".js",
+    ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".swift", ".kt", ".cs", ".scala",
+    ".php", ".zig", ".dart", ".proto",
+];
+
+static immutable string[] HASH = [
+    ".py", ".sh", ".bash", ".fish", ".zsh", ".pbt", ".pl", ".pm", ".rb",
+    ".cr", ".yaml", ".yml", ".toml", ".nix", ".r", ".jl", ".ex", ".exs",
+];
+
+static immutable string[] DASHES = [".sql", ".lua", ".hs", ".elm", ".adb"];
+static immutable string[] SEMI = [".el", ".lisp", ".clj", ".cljs", ".scm"];
+static immutable string[] QUOTE = [".vim", ".vimrc"];
+static immutable string[] ANGLE = [".html", ".htm", ".xml", ".svg", ".vue"];
+static immutable string[] STAR = [".css", ".scss", ".less"];
+static immutable string[] PAREN = [".ml", ".mli"];
+static immutable string[] DOCS = [".md", ".txt", ".rst", ".adoc", ".org"];
+
+private const(char)[] extensionOf(const(char)[] path) {
+    size_t i = path.length;
+    while (i > 0) {
+        i--;
+        if (path[i] == '/') return "";
+        if (path[i] == '.') return path[i .. $];
+    }
+    return "";
+}
+
+private bool listed(const(char)[] ext, const(string)[] set) {
+    foreach (x; set) if (ext == x) return true;
+    return false;
+}
+
+// A document carries prose on every line, with no marker in front of it.
+bool isDocument(const(char)[] path) {
+    return listed(extensionOf(path), DOCS);
+}
+
+// What starts a comment that runs to end of line, or "" when the language has
+// none and when ground has no entry for it.
+const(char)[] lineComment(const(char)[] path) {
+    auto e = extensionOf(path);
+    if (listed(e, SLASH)) return "//";
+    if (listed(e, HASH)) return "#";
+    if (listed(e, DASHES)) return "--";
+    if (listed(e, SEMI)) return ";";
+    if (listed(e, QUOTE)) return `"`;
+    return "";
+}
+
+const(char)[] blockOpen(const(char)[] path) {
+    auto e = extensionOf(path);
+    if (listed(e, ANGLE)) return "<!--";
+    if (listed(e, PAREN)) return "(*";
+    if (listed(e, SLASH) || listed(e, STAR)) return "/*";
+    return "";
+}
+
+const(char)[] blockClose(const(char)[] path) {
+    auto o = blockOpen(path);
+    if (o == "<!--") return "-->";
+    if (o == "(*") return "*)";
+    if (o == "/*") return "*/";
+    return "";
+}
+
+private bool startsAt(const(char)[] s, size_t at, const(char)[] what) {
+    if (what.length == 0 || at + what.length > s.length) return false;
+    return s[at .. at + what.length] == what;
+}
+
+// Whether an unclosed block comment stands open at `at`. Nesting is not read:
+// no language in the table nests these, and a second open inside one is text.
+private bool insideBlock(const(char)[] s, size_t at, const(char)[] open, const(char)[] close) {
+    bool inside = false;
+    size_t i = 0;
+    while (i < at) {
+        if (!inside && startsAt(s, i, open)) { inside = true; i += open.length; continue; }
+        if (inside && startsAt(s, i, close)) { inside = false; i += close.length; continue; }
+        i++;
+    }
+    return inside;
+}
+
+// Whether the span begins somewhere prose is written. Every line of a document
+// is; in code it is a line opened by that language's marker, or anywhere
+// inside a block comment.
+bool onProseLine(const(char)[] s, Span sp, const(char)[] path) {
+    if (isDocument(path)) return true;
+    if (!sp.ok) return false;
+
+    auto marker = lineComment(path);
+    if (marker.length > 0) {
+        size_t lineStart = sp.start;
+        while (lineStart > 0 && s[lineStart - 1] != '\n') lineStart--;
+        while (lineStart < s.length && isWs(s[lineStart])) lineStart++;
+        if (startsAt(s, lineStart, marker)) return true;
+    }
+
+    auto open = blockOpen(path);
+    return open.length > 0 && insideBlock(s, sp.start, open, blockClose(path));
+}
+
+unittest {
+    // The marker is the language's, not a union of every language's. `#` opens
+    // a comment in Python and opens an include in C, and one table that
+    // accepted both denied every include ever written.
+    assert(lineComment("source/provenance.d") == "//");
+    assert(lineComment("src/execution.rs") == "//");
+    assert(lineComment("app/main.go") == "//");
+    assert(lineComment("src/parser.c") == "//");
+    assert(lineComment("src/parser.h") == "//");
+
+    assert(lineComment("Widget.java") == "//");
+    assert(lineComment("app.ts") == "//");
+    assert(lineComment("app.tsx") == "//");
+    assert(lineComment("app.js") == "//");
+
+    assert(lineComment("hooks/hook.py") == "#");
+    assert(lineComment("run.sh") == "#");
+    assert(lineComment("controls/x.pbt") == "#");
+    assert(lineComment("script.pl") == "#");
+    assert(lineComment("src/collet.cr") == "#");
+    assert(lineComment("am.toml") == "#");
+    assert(lineComment("flake.nix") == "#");
+    assert(lineComment("build.bash") == "#");
+    assert(lineComment("bench.fish") == "#");
+
+    assert(lineComment("engine.cpp") == "//");
+    assert(lineComment("index.php") == "//");
+
+    // HTML has no line comment. Without the block markers every attribute in
+    // every tag reads as a quoted span.
+    assert(lineComment("page.html") == "");
+    assert(blockOpen("page.html") == "<!--");
+    assert(blockClose("page.html") == "-->");
+
+    // Vimscript opens a comment with the same character a quote opens with.
+    assert(lineComment("plugin.vim") == `"`);
+
+    assert(lineComment("schema.sql") == "--");
+    assert(lineComment("plugin.lua") == "--");
+    assert(lineComment("init.el") == ";");
+
+    // A language ground has no entry for is one it cannot read prose out of,
+    // so it reads none rather than guessing at a marker.
+    assert(lineComment("thing.cobol") == "");
+    assert(lineComment("README") == "");
+}
+
+unittest {
+    assert(isDocument("UNDERGROUND.md"));
+    assert(isDocument("notes.txt"));
+    assert(!isDocument("source/provenance.d"));
+    assert(!isDocument("README"));
+}
+
+unittest {
+    // A string literal is code, and code is not a claim. The same bytes in a
+    // document are prose, because a document has no code in it.
+    enum code = `enum x = "abc";`;
+    assert(!onProseLine(code, nextQuotedSpan(code, 0), "a.d"));
+    assert(onProseLine(code, nextQuotedSpan(code, 0), "a.md"));
+
+    enum slashes = `// "abc"`;
+    assert(onProseLine(slashes, nextQuotedSpan(slashes, 0), "a.d"));
+
+    enum hash = `  # "abc"`;
+    assert(onProseLine(hash, nextQuotedSpan(hash, 0), "a.py"));
+
+    // The marker belongs to one language. Python's opens nothing in Rust.
+    assert(!onProseLine(hash, nextQuotedSpan(hash, 0), "a.rs"));
+
+    // A quote welded into a comment is on a prose line. Being checkable is
+    // what lets the standing-alone rule refuse it.
+    enum welded = `// x "abc"`;
+    assert(onProseLine(welded, nextQuotedSpan(welded, 0), "a.rs"));
+
+    // The line the span opens on is the question, not the first line of input.
+    enum second = "int y;\n// \"abc\"";
+    assert(onProseLine(second, nextQuotedSpan(second, 0), "a.c"));
+}
+
+unittest {
+    // The line that started all of this. `#` opens nothing in C, so the header
+    // is code and the include is written.
+    enum include = `#include "stdio.h"`;
+    assert(!onProseLine(include, nextQuotedSpan(include, 0), "a.c"));
+
+    // The same line in a shell script is a comment, and its quote is prose.
+    assert(onProseLine(include, nextQuotedSpan(include, 0), "a.sh"));
+}
+
+unittest {
+    // Inside a block comment is prose wherever it falls, including lines that
+    // carry no marker of their own.
+    enum block = "/* the note says\n   \"a\" here\n*/\nint x = 1;";
+    assert(onProseLine(block, nextQuotedSpan(block, 0), "a.c"));
+
+    // Past the close it is code again.
+    enum after = "/* note */\nchar* s = \"abc\";";
+    assert(!onProseLine(after, nextQuotedSpan(after, 0), "a.c"));
+
+    // OCaml and HTML carry their own forms.
+    enum ml = "(* the note says \"a\" *)";
+    assert(onProseLine(ml, nextQuotedSpan(ml, 0), "a.ml"));
+
+    enum html = "<a href=\"x\">";
+    assert(!onProseLine(html, nextQuotedSpan(html, 0), "a.html"));
 }
 
 unittest {
