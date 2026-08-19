@@ -65,34 +65,46 @@ void marked(B)(ref B out_, const(char)[] msgId, const(char)[] body_) {
 
 int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     if (sessionId.length == 0) return 0;
-    if (!firstChunk(input)) return 0;
-
-    auto db = openDb();
-    if (db is null) return 0;
-
-    __gshared ZBuf lines;
-    lines.reset();
-
-    foreach (i; 0 .. 16) {
-        auto imm = readImmediateMessage(db, cwd, sessionId, SCREEN_MARK);
-        if (imm.message is null) break;
-        // Bounded at 16, so a receipt that never lands draws the same line
-        // sixteen times rather than forever. Still the same defect.
-        if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK))
-            break;
-        marked(lines, imm.msgId, imm.message);
-    }
-    if (lines.len > 0) lines.put("\n");
-    sqlite3_close(db);
-
-    if (lines.len == 0) return 0;
 
     __gshared char[262144] deltaBuf = 0;
     auto delta = extractJsonString(input, `"delta"`, &deltaBuf[0], deltaBuf.length);
 
+    // An address is replaced by the lines it names, on every chunk. The
+    // immediate queue below is drained on the first one only, because it is
+    // drawn once above the message rather than through it.
+    import inlineref : inlineRefs, Rewrite, readTracked, g_readRoot;
+    import controls : projectFiles;
+    g_readRoot = cwd;
+    Rewrite rw;
+    if (delta !is null) rw = inlineRefs(delta, projectFiles, &readTracked);
+
+    __gshared ZBuf lines;
+    lines.reset();
+
+    if (firstChunk(input)) {
+        auto db = openDb();
+        if (db !is null) {
+            foreach (i; 0 .. 16) {
+                auto imm = readImmediateMessage(db, cwd, sessionId, SCREEN_MARK);
+                if (imm.message is null) break;
+                // Bounded at 16, so a receipt that never lands draws the same
+                // line sixteen times rather than forever. Still the same defect.
+                if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK))
+                    break;
+                marked(lines, imm.msgId, imm.message);
+            }
+            if (lines.len > 0) lines.put("\n");
+            sqlite3_close(db);
+        }
+    }
+
+    // Saying nothing leaves the chunk as it was. Emitting displayContent that
+    // merely repeats the delta would be a rewrite claiming to have happened.
+    if (lines.len == 0 && rw.changed == 0) return 0;
+
     fputs(`{"hookSpecificOutput":{"hookEventName":"MessageDisplay","displayContent":"`, stdout);
     writeJsonString(lines.slice());
-    if (delta !is null) writeJsonString(delta);
+    if (delta !is null) writeJsonString(rw.changed > 0 ? rw.text : delta);
     fputs(`"}}` ~ "\n", stdout);
     return 0;
 }
