@@ -30,6 +30,9 @@ result
 # Debug captures
 captured_hook_payload.json
 
+# Parity captures — one moment each, and they carry a session id
+captures/
+
 # User controls — shared pbt tracked, personal pbt in controls/local/ (gitignored)
 controls/*
 !controls/controls.d
