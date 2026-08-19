@@ -38,10 +38,14 @@ build: wind
 
 # ug is its own binary: no sqlite, no controls, no druntime. It is built by
 # ldc2 directly because dub builds one target and that target is ground.
-UG_SOURCES = ug/main.d ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d
+UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
+             ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
+             ug/sql.d ug/perf.d
 
+# sqlite3 is the one library ug links. ground owns every row it reads; ug only
+# ever issues SELECT.
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug $(UG_SOURCES)
+	ldc2 -betterC -of=ug/ug -I=ug $(UG_SOURCES) -L-lsqlite3 -L-L/usr/local/opt/sqlite/lib
 
 test: test-tools test-ug
 	dub test
@@ -53,12 +57,14 @@ test-tools:
 # Same shape for ug/*_test.d.
 test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/clock.d ug/clock_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug ug/frame.d ug/frame_test.d
 # -J=. lets row_test read captures/grove/out.bytes at CTFE, so parity is
 # asserted against collet's own output rather than a transcription of it.
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/json.d ug/json_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/git.d ug/git_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/status.d ug/status_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/perf_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/scan_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/sql.d ug/sql_test.d
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
 
 install: build
