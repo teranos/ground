@@ -535,8 +535,10 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
     auto path = extractFilePath(input);
     if (path is null || path.length == 0 || path.length > 1000) return false;
 
+    // Copied a character at a time. A slice assignment calls into druntime for
+    // _d_array_slice_copy, which -betterC does not link.
     __gshared char[1024] pathBuf = 0;
-    pathBuf[0 .. path.length] = path[];
+    foreach (i, c; path) pathBuf[i] = c;
     pathBuf[path.length] = 0;
 
     auto f = fopen(&pathBuf[0], "rb");

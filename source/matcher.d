@@ -589,6 +589,20 @@ Buf applyArg(const(Control)* c, const(char)[] segment) {
     return buf;
 }
 
+// Replaces the matched segment whole. Nothing of what was typed carries over,
+// because a flag meant for one command is not meant for a different one.
+Buf applySubstituteForCmd(const(Control)* c, const(char)[] segment) {
+    Buf buf;
+    // An empty substitute names no command, and running nothing is not what
+    // the author asked for.
+    if (c.substituteForCmd.value.length == 0) {
+        buf.put(segment);
+        return buf;
+    }
+    buf.put(c.substituteForCmd.value);
+    return buf;
+}
+
 // Strips the omit string from the segment and cleans up whitespace.
 Buf applyOmit(const(Control)* c, const(char)[] segment) {
     Buf buf;

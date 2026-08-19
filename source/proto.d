@@ -49,6 +49,7 @@ struct ParsedControl {
     ubyte contentCount;
     string[8] substituteForRead;
     ubyte substituteForReadCount;
+    string substituteForCmd;
     string[8] userprompts;
     ubyte userpromptCount;
     bool bg;
@@ -526,6 +527,7 @@ ScopeSet buildScopes(
                 c.substituteForRead._buf = pc.substituteForRead;
                 c.substituteForRead.len = pc.substituteForReadCount;
             }
+            c.substituteForCmd = SubstituteForCmd(pc.substituteForCmd);
             c.bg = Bg(pc.bg);
             c.tmo = Tmo(pc.tmo);
 
@@ -1196,6 +1198,7 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
                     c.substituteForRead[0] = val; c.substituteForReadCount = 1;
                 }
                 break;
+            case "substitute_for_cmd": c.substituteForCmd = val; break;
             case "msg":             c.msg = val; break;
             case "mcp_arg":         c.mcpArg = val; break;
             case "content":

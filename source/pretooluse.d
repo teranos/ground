@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
 import strop : stropDispatch;
 import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
@@ -247,7 +247,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.bg.value) hasBg = true;
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
-                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0;
+                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.substituteForCmd.value.length == 0;
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -273,7 +273,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     }
                 } else {
                     Buf amended;
-                    if (c.omitLine.value.length > 0)
+                    // First, because it replaces the segment whole — anything
+                    // the others would edit is gone either way.
+                    if (c.substituteForCmd.value.length > 0)
+                        amended = applySubstituteForCmd(c, m.segment);
+                    else if (c.omitLine.value.length > 0)
                         amended = applyOmitLine(m.segment, c.omitLine.value);
                     else if (c.omit.value.length > 0)
                         amended = applyOmit(c, m.segment);

@@ -129,6 +129,12 @@ struct SubstituteForRead {
     const(string)[] values() const return { return _buf[0 .. len]; }
 }
 
+// The command the author meant, run in place of the one that was typed. The
+// matched segment is replaced whole, so nothing of the original carries over.
+struct SubstituteForCmd {
+    string value;
+}
+
 struct Bg {
     bool value;
 }
@@ -230,6 +236,7 @@ struct Control {
     McpArg mcpArg;
     Content content;
     SubstituteForRead substituteForRead;
+    SubstituteForCmd substituteForCmd;
     Bg bg;
     Tmo tmo;
     Defer defer;
