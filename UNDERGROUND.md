@@ -1,5 +1,5 @@
 This document is governed by the ground control: controls/ug-docs-adherence.pbt
-Spec: https://code.claude.com/docs/en/statusline
+Spec: <https://code.claude.com/docs/en/statusline>
 
 ### 1.a — parity is the gate
 
@@ -12,15 +12,7 @@ Spec: https://code.claude.com/docs/en/statusline
 > The clock is what stands in the way. Nine reads of the local time reach stdout,
 > and a frozen clock is what makes the comparison mean anything.
 
-### 1.a1 ✓ — the clock is outside the comparison
-
-"lets say i dont care about the bytes that are about clock"
-
-> Nine clock reads reach stdout. Five of them are not spans at all but branches,
-> and the harness settles those with data it already owns — the stamps on
-> ritual_position and the deploy file — rather than by freezing time.
-
-### 1.a2 ✓ — the capture is the reference
+#### 1.a2 ✓ — the capture is the reference
 
 "just snapshot what collet sees now, and use that"
 
