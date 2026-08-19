@@ -18,9 +18,10 @@ Spec: <https://code.claude.com/docs/en/statusline>
 > bounds the tick, which brings the marquee, the blink and the scan back into
 > byte coverage.
 
-> ug is a binary separate from ground, still in -betterC. That was said in an
-> earlier session, and the store is searched one session at a time, so it stands
-> here unquoted.
+#### 1.a3 — ug is its own binary
+
+> Separate from ground, still in -betterC. Said in an earlier session, and the
+> store is searched one session at a time, so it stands here unquoted.
 
 ### 1.b ✓ — collet keeps rendering the whole time
 
