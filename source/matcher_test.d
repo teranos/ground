@@ -2,6 +2,7 @@ module matcher_test;
 
 import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
+                 applySubstituteForCmd,
                  wildcardContains, containsExact, extractLeadingCd,
                  maxCommentRun, effectiveCwd;
 
@@ -152,6 +153,34 @@ unittest {
     // Major Tom runs normal git — Ground Control lets it pass
     auto result = checkCommand("git status", OTHER);
     assert(result.control is null);
+}
+
+// --- substitute_for_cmd tests ---
+
+unittest {
+    // The whole matched segment becomes the substitute, not a flag within it.
+    import hooks : Control, SubstituteForCmd;
+    Control c;
+    c.substituteForCmd = SubstituteForCmd("make test");
+    auto amended = applySubstituteForCmd(&c, "dub test");
+    assert(amended.slice() == "make test");
+}
+
+unittest {
+    // Arguments the author did not ask to carry over do not survive.
+    import hooks : Control, SubstituteForCmd;
+    Control c;
+    c.substituteForCmd = SubstituteForCmd("make test");
+    auto amended = applySubstituteForCmd(&c, "dub test --build=unittest");
+    assert(amended.slice() == "make test");
+}
+
+unittest {
+    // An empty substitute is not a command, so the segment stands.
+    import hooks : Control, SubstituteForCmd;
+    Control c;
+    auto amended = applySubstituteForCmd(&c, "dub test");
+    assert(amended.slice() == "dub test");
 }
 
 // --- omit_line tests ---

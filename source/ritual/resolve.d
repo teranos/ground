@@ -252,3 +252,14 @@ long indexOfRite(const Flattened f, const(char)[] name) {
         if (f.rites[i].name == name) return cast(long) i;
     return -1;
 }
+
+// "if END is already in the same rites block, prefer that END over the END outside of its goto originating rites block"
+
+// A block gets copied whole and only the block renamed, so a name that came
+// with the copy belongs to the copy. Falling through to the whole walk is
+// what lets one block name a rite in another on purpose.
+long indexOfRiteFrom(const Flattened f, const(char)[] group, const(char)[] name) {
+    foreach (i; 0 .. f.count)
+        if (f.rites[i].group == group && f.rites[i].name == name) return cast(long) i;
+    return indexOfRite(f, name);
+}

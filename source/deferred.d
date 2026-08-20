@@ -660,57 +660,145 @@ unittest {
 
 // Query live CI status for a repo + branch. Returns a human-readable summary.
 // Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
+// How many runs of the branch are read. A push starts one workflow per file in
+// .github/workflows, and thirty covers several pushes of a dozen workflows.
+enum CI_RUNS_PAGE = "30";
+
+// The runs list is fifty objects of forty fields. Room for all of it, because
+// a truncated body is a body whose last run object cannot be closed.
+enum CI_JSON_CAP = 262144;
+
+// A shell prefix that leaves $tok holding a GitHub token, or empty. gh is
+// asked only because it holds the credential, the way dispatch.d asks it.
+private void putGhToken(ref ZBuf s) {
+    s.put("tok=''\n");
+    s.put("if env | grep -q '^GH_TOKEN='; then tok=$(env | grep -m1 '^GH_TOKEN=' | cut -d= -f2-); fi\n");
+    s.put("if [ -z \"$tok\" ] && env | grep -q '^GITHUB_TOKEN='; then tok=$(env | grep -m1 '^GITHUB_TOKEN=' | cut -d= -f2-); fi\n");
+    s.put("if [ -z \"$tok\" ] && command -v gh > /dev/null 2>&1; then tok=$(gh auth token 2>/dev/null); fi\n");
+}
+
+// Every run of the branch, and the worst verdict among the newest run of each
+// workflow.
+
+// Reading one run read whichever workflow finished last, so a red lint under a
+// green deploy was never seen and ground announced green four times over.
 CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
-    __gshared ZBuf ghCmd;
-    ghCmd.reset();
-    ghCmd.put("gh -R ");
-    ghCmd.put(repo);
-    ghCmd.put(" run list --branch ");
-    ghCmd.put(branch);
-    // `//` substitutes on null only, and gh sends "" for a run that has not
-    // concluded, so the field arrived blank and the line read as a result.
-    ghCmd.put(` --limit 1 --json conclusion,name,event --jq 'if length == 0 then empty else .[0] | "\(if (.conclusion // "") == "" then "in_progress" else .conclusion end) \(.name) (\(.event))" end'`);
+    __gshared ZBuf cmd;
+    cmd.reset();
+    putGhToken(cmd);
 
-    // Without this, gh's and jq's own errors go nowhere and every failure is
-    // reported in ground's words instead of theirs.
-    ghCmd.put(" 2>&1");
+    cmd.put(`url="https://api.github.com/repos/`);
+    cmd.put(repo);
+    cmd.put("/actions/runs?branch=");
+    cmd.put(branch);
+    cmd.put("&per_page=");
+    cmd.put(CI_RUNS_PAGE);
+    cmd.put("\"\n");
 
-    auto pipe = popen(ghCmd.ptr(), "r");
+    // An empty Bearer is refused where no header at all is served, so the
+    // header is sent only when there is something to put in it.
+    cmd.put("if [ -n \"$tok\" ]; then\n");
+    cmd.put("  curl -sS -m 20 -H \"Authorization: Bearer $tok\" \"$url\" 2>&1\n");
+    cmd.put("else\n");
+    cmd.put("  curl -sS -m 20 \"$url\" 2>&1\n");
+    cmd.put("fi\n");
+
+    auto pipe = popen(cmd.ptr(), "r");
     if (pipe is null)
-        return CIStatus(CIQuery.Unavailable, "CI status unknown: could not run gh");
+        return CIStatus(CIQuery.Unavailable, "CI status unknown: could not run curl");
 
-    __gshared char[CI_TEXT_CAP] outBuf = 0;
-    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    // pclose carries gh's exit status. Discarding it was what made a gh
-    // failure indistinguishable from "this repo has no CI" — both arrive
-    // here as zero bytes.
+    __gshared char[CI_JSON_CAP] json = 0;
+    auto n = fread(&json[0], 1, json.length - 1, pipe);
     auto status = pclose(pipe);
+    if (status != 0) return interpretCIOutput(status, json[0 .. n]);
+
+    auto body_ = json[0 .. n];
+
+    // curl without -f exits 0 on a 404, and the body is github's own message.
+    // An empty list still carries the key, so its absence is an error and not
+    // a branch that has never run anything.
+    import matcher : contains;
+    if (!contains(body_, `"workflow_runs"`)) {
+        __gshared char[520] why = 0;
+        size_t w = 0;
+        foreach (c; body_) { if (w < why.length - 1) why[w++] = c; }
+        while (w > 0 && why[w - 1] == '\n') w--;
+        if (w == 0) return CIStatus(CIQuery.Unavailable, "github answered nothing");
+        return CIStatus(CIQuery.Unavailable, cast(string) why[0 .. w]);
+    }
+
+    import ghruns : rollupRuns;
+    auto v = rollupRuns(body_);
+
+    if (v.workflows == 0) return CIStatus(CIQuery.NoWorkflow, null);
+
+    __gshared char[CI_TEXT_CAP] line = 0;
+    size_t p = 0;
+    void put(const(char)[] t) { foreach (c; t) if (p < line.length - 1) line[p++] = c; }
+
+    if (v.failedCount == 0 && v.running) return CIStatus(CIQuery.InProgress, null);
+
+    if (v.failedCount == 0) {
+        put("CI: success across ");
+        putCount(line, p, v.workflows);
+        put(v.workflows == 1 ? " workflow" : " workflows");
+        return CIStatus(CIQuery.Terminal, line[0 .. p]);
+    }
+
+    put("CI: ");
+    putCount(line, p, v.failedCount);
+    put(" of ");
+    putCount(line, p, v.workflows);
+    put(" workflows failed");
+
+    // Every one of them by name. A branch with four reds under one green was
+    // reported as the green, and naming only the first would keep three of
+    // them hidden.
+    foreach (i; 0 .. v.failedCount) {
+        auto f = v.failures[i];
+        put("\n  ");
+        put(f.conclusion);
+        put(" ");
+        put(f.name);
+        if (f.event.length > 0) { put(" ("); put(f.event); put(")"); }
+    }
 
     // A red conclusion without its log says a thing broke and nothing about
-    // what. Second call rather than one compound command, so the predicate
-    // that decides it is the one under test.
-    size_t head = 0;
-    while (head < n && outBuf[head] != '\n') head++;
-    if (status == 0 && head > 0 && wantsTail(outBuf[0 .. head])) {
+    // what. Each id is that run's own, so a log belongs to the failure above
+    // it rather than to whichever run happened to be newest.
+    foreach (i; 0 .. v.failedCount) {
+        auto f = v.failures[i];
+        if (f.id == 0) continue;
+        if (p + 512 >= line.length) break;
+
         __gshared ZBuf logCmd;
         logCmd.reset();
         logCmd.put("gh -R ");
         logCmd.put(repo);
-        logCmd.put(` run view "$(gh -R `);
-        logCmd.put(repo);
-        logCmd.put(" run list --branch ");
-        logCmd.put(branch);
-        logCmd.put(` --limit 1 --json databaseId --jq '.[0].databaseId')" --log-failed 2>&1 | tail -`);
+        logCmd.put(" run view ");
+        logCmd.putUint(cast(uint) f.id);
+        logCmd.put(" --log-failed 2>&1 | tail -");
         logCmd.put(CI_TAIL_LINES);
         auto lp = popen(logCmd.ptr(), "r");
-        if (lp !is null) {
-            if (n < outBuf.length - 1 && outBuf[n - 1] != '\n') outBuf[n++] = '\n';
-            n += fread(&outBuf[n], 1, outBuf.length - 1 - n, lp);
-            pclose(lp);
-        }
+        if (lp is null) continue;
+
+        if (p < line.length - 1) line[p++] = '\n';
+        put(f.name);
+        put(":\n");
+        p += fread(&line[p], 1, line.length - 1 - p, lp);
+        pclose(lp);
     }
 
-    return interpretCIOutput(status, outBuf[0 .. n]);
+    while (p > 0 && line[p - 1] == '\n') p--;
+    return CIStatus(CIQuery.Terminal, line[0 .. p]);
+}
+
+private void putCount(ref char[CI_TEXT_CAP] buf, ref size_t p, size_t v) {
+    char[20] d = 0;
+    size_t dl = 0;
+    if (v == 0) d[dl++] = '0';
+    while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+    foreach_reverse (i; 0 .. dl) if (p < buf.length - 1) buf[p++] = d[i];
 }
 
 // A dispatched run lands on the default branch, not on the commit that caused

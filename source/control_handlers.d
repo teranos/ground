@@ -420,6 +420,266 @@ CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
     return approvalVerdict(true, userSaid, null);
 }
 
+// Two sourced quotes in the wrong order tell a story neither of them told.
+// A span with no prompt behind it has no said-time to compare, so it is
+// carried by provenance rather than judged here.
+CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, firstOutOfOrder, onProseLine;
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
+                sqlite3_column_int64, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto written = extractWrittenText(input);
+    if (written is null) return passes();
+    if (g_sessionId.length == 0)
+        return CheckResult(true,
+            "denied: ground has no session id here, so it could not place these quotes in the record.");
+
+    auto db = openDb();
+    if (db is null)
+        return CheckResult(true,
+            "denied: ground could not open its database, so it could not check the order these were said in.");
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    enum saidSql = "SELECT MIN(rowid) FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND instr(json_extract(attributes, '$.prompt'), ?2) > 0\0";
+
+    enum MAX_SPANS = 64;
+    long[MAX_SPANS] said;
+    size_t[MAX_SPANS] spanStart;
+    size_t[MAX_SPANS] spanEnd;
+    size_t n = 0;
+
+    auto src = extractFilePath(input);
+
+    size_t from = 0;
+    while (n < MAX_SPANS) {
+        auto sp = nextQuotedSpan(written, from);
+        if (!sp.ok) break;
+        from = sp.end + 1;
+        if (!onProseLine(written, sp, src)) continue;
+        auto text = written[sp.start .. sp.end];
+        if (text.length == 0) continue;
+
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, saidSql.ptr, -1, &stmt, null) != SQLITE_OK) {
+            sqlite3_close(db);
+            return CheckResult(true,
+                "denied: ground could not query its database, so it could not check the order these were said in.");
+        }
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+        long at = 0;
+        if (sqlite3_step(stmt) == SQLITE_ROW) at = sqlite3_column_int64(stmt, 0);
+        sqlite3_finalize(stmt);
+
+        if (at > 0) {
+            said[n] = at;
+            spanStart[n] = sp.start;
+            spanEnd[n] = sp.end;
+            n++;
+        }
+    }
+    sqlite3_close(db);
+
+    auto bad = firstOutOfOrder(said[0 .. n]);
+    if (bad < 0) return passes();
+
+    auto text = written[spanStart[bad] .. spanEnd[bad]];
+    __gshared ZBuf observed;
+    observed.reset();
+    observed.put("this quoted span was said before the one above it: \"");
+    observed.put(text.length > 200 ? text[0 .. 200] : text);
+    observed.put("\"");
+    return CheckResult(true, cast(string) observed.slice());
+}
+
+// A quote sharing its line with commentary reads as part of the quote. This
+// refuses the line rather than trusting the reader to tell them apart.
+CheckResult quoteStandsAlone(const(char)[] cwd, const(char)[] input) {
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, standsAlone, onProseLine, lineComment;
+    import zbuf : ZBuf;
+
+    auto written = extractWrittenText(input);
+    if (written is null) return passes();
+
+    auto src = extractFilePath(input);
+
+    __gshared ZBuf observed;
+    size_t from = 0;
+    while (true) {
+        auto sp = nextQuotedSpan(written, from);
+        if (!sp.ok) break;
+        from = sp.end + 1;
+        if (!onProseLine(written, sp, src)) continue;
+        if (standsAlone(written, sp, lineComment(src))) continue;
+
+        auto text = written[sp.start .. sp.end];
+        observed.reset();
+        observed.put("this quoted span shares its line with other text: \"");
+        observed.put(text.length > 200 ? text[0 .. 200] : text);
+        observed.put("\"");
+        return CheckResult(true, cast(string) observed.slice());
+    }
+    return passes();
+}
+
+// True when the span already stands quoted in the file being written. Reading
+// the target costs one open of a file the writer is already touching, and it
+// is the only record of a quote that predates every attestation.
+bool spanStandsInFile(const(char)[] input, const(char)[] span) {
+    import parse : extractFilePath;
+    import core.stdc.stdio : fopen, fread, fclose;
+    import zbuf : ZBuf;
+
+    auto path = extractFilePath(input);
+    if (path is null || path.length == 0 || path.length > 1000) return false;
+
+    // Copied a character at a time. A slice assignment calls into druntime for
+    // _d_array_slice_copy, which -betterC does not link.
+    __gshared char[1024] pathBuf = 0;
+    foreach (i, c; path) pathBuf[i] = c;
+    pathBuf[path.length] = 0;
+
+    auto f = fopen(&pathBuf[0], "rb");
+    if (f is null) return false;
+
+    __gshared char[262144] fileBuf = 0;
+    auto n = fread(&fileBuf[0], 1, fileBuf.length, f);
+    fclose(f);
+    if (n == 0) return false;
+
+    __gshared ZBuf needle;
+    needle.reset();
+    needle.put("\"");
+    needle.put(span);
+    needle.put("\"");
+    return contains(fileBuf[0 .. n], needle.slice());
+}
+
+// A quoted span asserts the user said it. This checks the assertion against
+// every prompt the user has ever submitted, and denies the span that has no
+// source rather than trusting the writer to have looked.
+CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine;
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
+                sqlite3_finalize, sqlite3_close, sqlite3_stmt,
+                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto written = extractWrittenText(input);
+    if (written is null) return passes();
+
+    if (g_sessionId.length == 0)
+        return CheckResult(true,
+            "denied: ground has no session id here, so it could not bound the search to this session. Denying rather than asserting the quote has a source.");
+
+    auto db = openDb();
+    if (db is null)
+        return CheckResult(true,
+            "denied: ground could not open its database, so it could not check whether you typed this. Denying rather than asserting the quote has a source.");
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    // Two sources, both inside this session. What you typed, and what already
+    // stands quoted in a write that completed — a denied write never reaches
+    // PostToolUse, so it cannot launder its own span into the corpus.
+    enum sourceSql = "SELECT 1 FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND ("
+        ~ "(json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND instr(json_extract(attributes, '$.prompt'), ?2) > 0)"
+        ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
+        ~ ") LIMIT 1\0";
+
+    // Rank 3 of the authority list in CLAUDE.md, which the session-bound query
+    // above cannot see. Words typed in an earlier session are still words the
+    // user typed, and refusing them called a real quote an invention.
+    enum recordedSql = "SELECT 1 FROM attestations WHERE "
+        ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND "
+        ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
+
+    auto src = extractFilePath(input);
+
+    __gshared ZBuf quoted;
+    __gshared ZBuf observed;
+    size_t from = 0;
+    while (true) {
+        auto sp = nextQuotedSpan(written, from);
+        if (!sp.ok) break;
+        from = sp.end + 1;
+        if (!onProseLine(written, sp, src)) continue;
+
+        auto text = written[sp.start .. sp.end];
+        if (text.length == 0) {
+            sqlite3_close(db);
+            return CheckResult(true, "an empty quoted span asserts the user said nothing, which nothing can source");
+        }
+
+        // Matched with its quote marks attached, so prose ground saw once
+        // cannot graduate into a quote it never was. The span is encoded the
+        // way the store holds it, or a backslash matches nothing.
+        __gshared char[8192] esc;
+        auto escLen = jsonEscapeInto(text, esc[]);
+        if (escLen < 0) {
+            sqlite3_close(db);
+            return CheckResult(true,
+                "this quoted span is longer than ground can encode to search for, so its source was never looked for");
+        }
+
+        quoted.reset();
+        quoted.put("\\\"");
+        quoted.put(cast(const(char)[]) esc[0 .. escLen]);
+        quoted.put("\\\"");
+
+        // The file itself is a source. A quote already standing in it predates
+        // this session and is not something the writer invented now.
+        if (spanStandsInFile(input, text)) continue;
+
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sourceSql.ptr, -1, &stmt, null) != SQLITE_OK) {
+            sqlite3_close(db);
+            return CheckResult(true,
+                "denied: ground could not query its database, so it could not check whether you typed this.");
+        }
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, quoted.ptr(), cast(int) quoted.len, SQLITE_TRANSIENT);
+        bool found = sqlite3_step(stmt) == SQLITE_ROW;
+        sqlite3_finalize(stmt);
+
+        // Ranked, not widened: this session answers first, and only what it
+        // cannot answer is asked of the whole record.
+        if (!found) {
+            sqlite3_stmt* any;
+            if (sqlite3_prepare_v2(db, recordedSql.ptr, -1, &any, null) == SQLITE_OK) {
+                sqlite3_bind_text(any, 1, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+                found = sqlite3_step(any) == SQLITE_ROW;
+                sqlite3_finalize(any);
+            }
+        }
+
+        if (!found) {
+            observed.reset();
+            observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span: \"");
+            observed.put(text.length > 200 ? text[0 .. 200] : text);
+            observed.put("\"");
+            sqlite3_close(db);
+            return CheckResult(true, cast(string) observed.slice());
+        }
+    }
+
+    sqlite3_close(db);
+    return passes();
+}
+
 CheckResult strikethroughCheck(const(char)[] cwd, const(char)[] input) {
     import parse : extractNewString, extractToolName;
     auto toolName = extractToolName(input);

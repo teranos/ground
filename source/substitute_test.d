@@ -23,8 +23,8 @@ static assert(one("sed -n '780,830p' source/immediate.d", "source/immediate.d"))
 static assert(one("sed -n '90,140p' plugin/grpc/watchers.go", "plugin/grpc/watchers.go"));
 
 // The script is not always quoted, so "unquoted last token" cannot be the rule.
-static assert(one("sed -n 185,320p /Users/s.b.vanhouten/SBVH/teranos/ground/source/db.d",
-                  "/Users/s.b.vanhouten/SBVH/teranos/ground/source/db.d"));
+static assert(one("sed -n 185,320p /abs/teranos/ground/source/db.d",
+                  "/abs/teranos/ground/source/db.d"));
 
 // awk reading a file directly — four of nineteen did.
 static assert(one(`awk '/extractLeadingCd/{print NR": "$0}' source/matcher.d`,

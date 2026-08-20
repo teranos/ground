@@ -69,3 +69,40 @@ static assert(lastOfBlock(flat, 2));
 
 // Past the end is not a boundary, it is off the walk.
 static assert(!lastOfBlock(flat, 3));
+
+// "if END is already in the same rites block, prefer that END over the END outside of its goto originating rites block"
+
+// A block gets copied whole and only the block renamed, so a name that came
+// with the copy belongs to the copy.
+import ritual.resolve : indexOfRiteFrom;
+
+enum twinSrc = `
+rites first {
+  TRAMPOLINE1 { goto: END }
+  HEDGE1 { }
+  END { }
+}
+
+rites second {
+  TRAMPOLINE2 { goto: END }
+  HEDGE2 { }
+  END { }
+}
+
+project {
+  path: "/src/proj"
+
+  ritual jumper {
+    first
+    second
+  }
+}
+`;
+enum twin = flatten(parsePbt(twinSrc), 0);
+
+static assert(indexOfRiteFrom(twin, "first", "END") == 2);
+static assert(indexOfRiteFrom(twin, "second", "END") == 5, "block two lands in block two");
+
+// A name its own block does not carry is still found where it is.
+static assert(indexOfRiteFrom(twin, "second", "HEDGE1") == 1);
+static assert(indexOfRiteFrom(twin, "first", "nowhere") == -1);

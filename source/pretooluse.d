@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
 import strop : stropDispatch;
 import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
@@ -87,6 +87,77 @@ bool takesUpdatedInput(const(char)[] toolName) {
     return toolName == "Bash";
 }
 
+// The three fields a tool writes with. file_path is deliberately absent.
+private static immutable string[3] WRITTEN_FIELDS = ["content", "new_string", "old_string"];
+
+// True when the whole tool_input was reissued with the home directory taken
+// out of it. False leaves the call exactly as it arrived.
+bool rewroteHome(const(char)[] input, const(char)[] toolName) {
+    import homedir : rewriteField, HOME_TOKEN;
+    import hooks : rewriteFrom, rewriteTo;
+    import controls : allParsed;
+    import parse : extractToolInputRegion;
+    import db : getenv;
+
+    if (toolName != "Write" && toolName != "Edit") return false;
+
+    auto region = extractToolInputRegion(input);
+    if (region is null) return false;
+
+    auto h = getenv("HOME\0".ptr);
+    size_t hl = 0;
+    if (h !is null) while (h[hl] != 0) hl++;
+    auto home = hl > 0 ? h[0 .. hl] : "";
+
+    // Two buffers, swapped between passes, so a pass that does not fit leaves
+    // the previous one intact.
+    __gshared char[131072] bufA = 0;
+    __gshared char[131072] bufB = 0;
+
+    const(char)[] current = region;
+    size_t found = 0;
+    bool inA = true;
+    const(char)[] why;
+
+    static immutable parsed = allParsed;
+
+    foreach (si; 0 .. parsed.scopeCount) {
+        auto sc = parsed.scopes[si];
+        foreach (ci; sc.controlStart .. sc.controlEnd) {
+            auto c = parsed.ctrlPool[ci];
+            foreach (pi; 0 .. c.rewriteCount) {
+                auto pair = c.rewrites[pi];
+                auto from = rewriteFrom(pair);
+                auto to = rewriteTo(pair);
+                if (from == HOME_TOKEN) from = home;
+                if (from.length == 0 || to.length == 0) continue;
+
+                foreach (key; WRITTEN_FIELDS) {
+                    auto dest = inA ? bufA[] : bufB[];
+                    auto r = rewriteField(current, key, from, to, dest);
+                    // Not fitting is not a rewrite. The call goes through as
+                    // it arrived rather than through a value cut short.
+                    if (!r.fit) return false;
+                    if (r.found == 0) continue;
+                    found += r.found;
+                    current = dest[0 .. r.len];
+                    inA = !inA;
+                    if (why.length == 0) why = c.msg;
+                }
+            }
+        }
+    }
+
+    if (found == 0) return false;
+
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":`, stdout);
+    fwrite(current.ptr, 1, current.length, stdout);
+    fputs(`,"additionalContext":"`, stdout);
+    writeJsonString(why);
+    fputs(`"}}` ~ "\n", stdout);
+    return true;
+}
+
 // Called only where ground would otherwise leave the decision to a human, so
 // the common allow and deny paths pay nothing for it.
 private bool inLivePerformance(const(char)[] cwd) {
@@ -115,11 +186,16 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     tParse = usecNow();
 
-    if (command !is null) {
-        // Make sessionId available to check handlers (e.g. commitNotRequested)
+    // Every check handler gets the session, not only the ones reached through a
+    // Bash command. A file-path control asking which session it is in was told
+    // "none", and a handler that cannot bound its query denies what it cannot check.
+    {
         import control_handlers : g_sessionId, g_input;
         g_sessionId = sessionId;
         g_input = input;
+    }
+
+    if (command !is null) {
 
         // Who is owed the news, before there is a row to write it on. Bound
         // at PostToolUse this raced the performance: a ritual that finished
@@ -242,7 +318,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.bg.value) hasBg = true;
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
-                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0;
+                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.substituteForCmd.value.length == 0;
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -268,7 +344,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     }
                 } else {
                     Buf amended;
-                    if (c.omitLine.value.length > 0)
+                    // First, because it replaces the segment whole — anything
+                    // the others would edit is gone either way.
+                    if (c.substituteForCmd.value.length > 0)
+                        amended = applySubstituteForCmd(c, m.segment);
+                    else if (c.omitLine.value.length > 0)
                         amended = applyOmitLine(m.segment, c.omitLine.value);
                     else if (c.omit.value.length > 0)
                         amended = applyOmit(c, m.segment);
@@ -600,6 +680,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             return 0;
         }
     }
+
+    // The author's home directory is rewritten out of what is about to be
+    // written. file_path is left alone: rewriting that sends the write to a
+    // path that does not exist.
+    if (rewroteHome(input, toolName)) return 0;
 
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.

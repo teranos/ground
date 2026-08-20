@@ -63,36 +63,74 @@ void marked(B)(ref B out_, const(char)[] msgId, const(char)[] body_) {
     gutter(out_, first, rest, body_);
 }
 
-int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
-    if (sessionId.length == 0) return 0;
-    if (!firstChunk(input)) return 0;
+enum REWRITE_CONTROL = "inline-not-address";
+
+// The first rewrite of a session leaves a message for the next Stop, and a
+// marker so the second rewrite leaves nothing.
+private void noteRewriteOnce(const(char)[] cwd, const(char)[] sessionId) {
+    import db : attestationExists, attestControlFire;
+    import deferred : writeDeferredMessage;
 
     auto db = openDb();
-    if (db is null) return 0;
+    if (db is null) return;
 
-    __gshared ZBuf lines;
-    lines.reset();
-
-    foreach (i; 0 .. 16) {
-        auto imm = readImmediateMessage(db, cwd, sessionId, SCREEN_MARK);
-        if (imm.message is null) break;
-        // Bounded at 16, so a receipt that never lands draws the same line
-        // sixteen times rather than forever. Still the same defect.
-        if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK))
-            break;
-        marked(lines, imm.msgId, imm.message);
+    if (!attestationExists(db, "GroundedMessageDisplay", REWRITE_CONTROL, sessionId)) {
+        writeDeferredMessage(db, REWRITE_CONTROL, cwd, sessionId,
+            "A file and line number you wrote was replaced by the lines it names, "
+            ~ "before it reached the screen. The reader never sees the address, so "
+            ~ "it tells them nothing — show the code instead.", 0);
+        attestControlFire(db, "GroundedMessageDisplay", REWRITE_CONTROL, cwd, sessionId);
     }
-    if (lines.len > 0) lines.put("\n");
-    sqlite3_close(db);
 
-    if (lines.len == 0) return 0;
+    sqlite3_close(db);
+}
+
+int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
+    if (sessionId.length == 0) return 0;
 
     __gshared char[262144] deltaBuf = 0;
     auto delta = extractJsonString(input, `"delta"`, &deltaBuf[0], deltaBuf.length);
 
+    // An address is replaced by the lines it names, on every chunk. The
+    // immediate queue below is drained on the first one only, because it is
+    // drawn once above the message rather than through it.
+    import inlineref : inlineRefs, Rewrite, readTracked, g_readRoot;
+    import controls : projectFiles;
+    g_readRoot = cwd;
+    Rewrite rw;
+    if (delta !is null) rw = inlineRefs(delta, projectFiles, &readTracked);
+
+    // Told once, the way the other reminders are. A rewrite that announced
+    // itself on every chunk would be its own kind of noise.
+    if (rw.changed > 0) noteRewriteOnce(cwd, sessionId);
+
+    __gshared ZBuf lines;
+    lines.reset();
+
+    if (firstChunk(input)) {
+        auto db = openDb();
+        if (db !is null) {
+            foreach (i; 0 .. 16) {
+                auto imm = readImmediateMessage(db, cwd, sessionId, SCREEN_MARK);
+                if (imm.message is null) break;
+                // Bounded at 16, so a receipt that never lands draws the same
+                // line sixteen times rather than forever. Still the same defect.
+                if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK))
+                    break;
+                marked(lines, imm.msgId, imm.message);
+            }
+            if (lines.len > 0) lines.put("\n");
+            sqlite3_close(db);
+        }
+    }
+
+    // Saying nothing leaves the chunk as it was. Emitting displayContent that
+    // merely repeats the delta would be a rewrite claiming to have happened.
+    if (lines.len == 0 && rw.changed == 0) return 0;
+
     fputs(`{"hookSpecificOutput":{"hookEventName":"MessageDisplay","displayContent":"`, stdout);
     writeJsonString(lines.slice());
-    if (delta !is null) writeJsonString(delta);
+    if (delta !is null) writeJsonString(rw.changed > 0 ? rw.text : delta);
     fputs(`"}}` ~ "\n", stdout);
     return 0;
 }
