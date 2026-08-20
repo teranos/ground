@@ -87,6 +87,23 @@ bool takesUpdatedInput(const(char)[] toolName) {
     return toolName == "Bash";
 }
 
+// The commands a gate stands in front of. Every other Bash call would pay for
+// a corpus nothing is about to read.
+private static immutable string[6] GATED = [
+    "git commit", "git merge", "git checkout -b", "git switch -c", "gh pr", "kill",
+];
+
+// Whether this call is one whose decision depends on what the user said.
+bool needsCorpus(const(char)[] toolName, const(char)[] command) {
+    if (toolName == "Write" || toolName == "Edit") return true;
+    if (command is null) return false;
+
+    foreach (g; GATED)
+        if (contains(command, g)) return true;
+
+    return false;
+}
+
 // The two fields whose text lands in a file. file_path is deliberately absent,
 // and so is old_string: that one selects text already on disk rather than
 // authoring any, so rewriting it can only stop the edit from matching.
@@ -195,6 +212,23 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         import control_handlers : g_sessionId, g_input;
         g_sessionId = sessionId;
         g_input = input;
+    }
+
+    // A gate reads the corpus, and a message typed mid-turn is not in it until
+    // the transcript is walked.
+    if (needsCorpus(toolName, command)) {
+        import parse : extractTranscriptPath;
+        import queued : ingestTranscript;
+        import db : openDb, sqlite3_close;
+
+        auto tp = extractTranscriptPath(input);
+        if (tp !is null) {
+            auto qdb = openDb();
+            if (qdb !is null) {
+                ingestTranscript(qdb, tp, sessionId, cwd);
+                sqlite3_close(qdb);
+            }
+        }
     }
 
     if (command !is null) {

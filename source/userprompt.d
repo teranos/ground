@@ -21,6 +21,16 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
 
     auto db = openDb();
 
+    // A message typed mid-turn fires no hook, so the transcript is the only
+    // record of it. Without this the corpus holds what was submitted rather
+    // than what was said.
+    {
+        import parse : extractTranscriptPath;
+        import queued : ingestTranscript;
+        auto tp = extractTranscriptPath(input);
+        if (tp !is null) ingestTranscript(db, tp, sessionId, cwd);
+    }
+
     __gshared ZBuf ctx;
     ctx.reset();
     bool any = false;

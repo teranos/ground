@@ -89,6 +89,52 @@ size_t ingestQueued(sqlite3* db, const(char)[] content, const(char)[] sessionId,
     return added;
 }
 
+// "i want to get out of this world of pressing esc, just to have my approval be recorded"
+
+// How much of the transcript's end is read. A session's transcript reaches
+// tens of megabytes, and what has not been stored yet is always at the end.
+enum TAIL_BYTES = 262144;
+
+// The tail of a transcript, ingested. Overlapping reads are free: alreadyStored
+// is what makes reading the same bytes twice cost nothing but a query.
+size_t ingestTranscript(sqlite3* db, const(char)[] path, const(char)[] sessionId,
+                        const(char)[] cwd) {
+    import core.stdc.stdio : fopen, fclose, fread, fseek, ftell, SEEK_END, SEEK_SET;
+
+    if (db is null || path.length == 0 || sessionId.length == 0) return 0;
+
+    __gshared char[4096] pathBuf = 0;
+    if (path.length + 1 > pathBuf.length) return 0;
+    foreach (i, c; path) pathBuf[i] = c;
+    pathBuf[path.length] = 0;
+
+    auto f = fopen(&pathBuf[0], "rb");
+    if (f is null) return 0;
+
+    fseek(f, 0, SEEK_END);
+    auto size = ftell(f);
+    if (size <= 0) { fclose(f); return 0; }
+
+    // A read that starts mid-line drops that line, and the line before the
+    // first newline of the tail is the only one it can lose.
+    long from = size > TAIL_BYTES ? size - TAIL_BYTES : 0;
+    fseek(f, from, SEEK_SET);
+
+    __gshared char[TAIL_BYTES] buf = void;
+    auto n = fread(&buf[0], 1, buf.length, f);
+    fclose(f);
+    if (n == 0) return 0;
+
+    size_t start = 0;
+    if (from > 0) {
+        while (start < n && buf[start] != '\n') start++;
+        if (start < n) start++;
+    }
+    if (start >= n) return 0;
+
+    return ingestQueued(db, buf[start .. n], sessionId, cwd);
+}
+
 // The same bytes are read again every time the transcript is walked, and a
 // window counting the last three messages would read one prompt as three.
 private bool alreadyStored(sqlite3* db, const(char)[] ctx, const(char)[] prompt) {

@@ -40,7 +40,7 @@ build: wind
 # ldc2 directly because dub builds one target and that target is ground.
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
-             ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d
+             ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d
 
 # sqlite3 is the one library ug links. ground owns every row it reads; ug only
 # ever issues SELECT.

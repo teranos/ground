@@ -84,6 +84,11 @@ const(char)[] extractCwd(const(char)[] json) {
     return extractJsonString(json, `"cwd"`, &buf[0], buf.length);
 }
 
+const(char)[] extractTranscriptPath(const(char)[] json) {
+    __gshared char[4096] buf = 0;
+    return extractJsonString(json, `"transcript_path"`, &buf[0], buf.length);
+}
+
 const(char)[] extractSessionId(const(char)[] json) {
     __gshared char[128] buf = 0;
     return extractJsonString(json, `"session_id"`, &buf[0], buf.length);

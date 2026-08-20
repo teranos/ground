@@ -120,7 +120,7 @@ CheckResult commitNotRequested(const(char)[] cwd, const(char)[] input) {
 
     // Check last 3 user messages after the last commit — any approval counts.
     // Window: 3 past messages. After denial, user says "ok"/"y", next attempt sees it.
-    enum last3Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 ORDER BY rowid DESC LIMIT 3\0";
+    enum last3Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 ORDER BY rowid DESC LIMIT 3\0";
 
     import db : sqlite3_column_text;
     sqlite3_stmt* userStmt;
@@ -150,7 +150,7 @@ CheckResult commitNotRequested(const(char)[] cwd, const(char)[] input) {
     // Only the single newest prompt counts — the moment the user says anything
     // else, the standing approval is over and the window rules apply again.
     if (!userSaid) {
-        enum newestSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 1\0";
+        enum newestSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 1\0";
         sqlite3_stmt* newestStmt;
         if (sqlite3_prepare_v2(db, newestSql.ptr, -1, &newestStmt, null) == SQLITE_OK) {
             sqlite3_bind_text(newestStmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
@@ -196,7 +196,7 @@ CheckResult mergeNotRequested(const(char)[] cwd, const(char)[] input) {
     ctx.put("session:");
     ctx.put(g_sessionId);
 
-    enum last5Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 5\0";
+    enum last5Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 5\0";
 
 
     sqlite3_stmt* stmt;
@@ -393,7 +393,7 @@ CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
     ctx.put("session:");
     ctx.put(g_sessionId);
 
-    enum last3Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 3\0";
+    enum last3Sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 3\0";
 
     sqlite3_stmt* stmt;
     bool userSaid = false;
@@ -412,6 +412,124 @@ CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
                 }
             }
             msgIdx++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return approvalVerdict(true, userSaid, null);
+}
+
+// A word is bounded by something that is not a letter or a digit. Case is
+// ignored on both sides.
+private bool containsWord(const(char)[] text, const(char)[] word) {
+    if (word.length == 0 || word.length > text.length) return false;
+
+    static bool alnum(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+            || (c >= '0' && c <= '9');
+    }
+
+    foreach (i; 0 .. text.length - word.length + 1) {
+        bool same = true;
+        foreach (j, wc; word) {
+            char tc = text[i + j];
+            if (tc >= 'A' && tc <= 'Z') tc = cast(char)(tc + 32);
+            char lower = wc >= 'A' && wc <= 'Z' ? cast(char)(wc + 32) : wc;
+            if (tc != lower) { same = false; break; }
+        }
+        if (!same) continue;
+        if (i > 0 && alnum(text[i - 1])) continue;
+        auto after = i + word.length;
+        if (after < text.length && alnum(text[after])) continue;
+        return true;
+    }
+    return false;
+}
+
+// Whether one of the last few things the user typed carries a word.
+private bool userRecentlySaid(const(char)[] word, int limit) {
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
+                sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto db = openDb();
+    if (db is null) return false;
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    enum sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 8\0";
+
+    sqlite3_stmt* stmt;
+    bool said = false;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        int seen = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && seen < limit) {
+            auto text = sqlite3_column_text(stmt, 0);
+            if (text !is null) {
+                size_t tlen = 0;
+                while (text[tlen] != 0) tlen++;
+                if (containsWord(text[0 .. tlen], word)) { said = true; break; }
+            }
+            seen++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return said;
+}
+
+// Anything touching a pull request happens because the user said so. The word
+// is always there when they mean it.
+CheckResult prNotRequested(const(char)[] cwd, const(char)[] input) {
+    if (g_sessionId.length == 0) return passes();
+    return approvalVerdict(true, userRecentlySaid("pr", 8), null);
+}
+
+// "i want to block automatic branch creation by you"
+
+// Same shape as killNotRequested: the word has to be in one of the last few
+// things the user typed, or the branch is not made.
+CheckResult branchNotRequested(const(char)[] cwd, const(char)[] input) {
+    if (g_sessionId.length == 0) return passes();
+
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
+                sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    auto db = openDb();
+    if (db is null)
+        return approvalVerdict(false, false,
+            "denied: ground could not open its database, so it could not check whether you asked for a branch. Denying rather than asserting you did not.");
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    enum lastSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 5\0";
+
+    sqlite3_stmt* stmt;
+    bool userSaid = false;
+    if (sqlite3_prepare_v2(db, lastSql.ptr, -1, &stmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            auto text = sqlite3_column_text(stmt, 0);
+            if (text !is null) {
+                size_t tlen = 0;
+                while (text[tlen] != 0) tlen++;
+                if (containsCI(text[0 .. tlen], "branch")) {
+                    userSaid = true;
+                    break;
+                }
+            }
         }
         sqlite3_finalize(stmt);
     }
@@ -447,7 +565,7 @@ CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
     ctx.put("session:");
     ctx.put(g_sessionId);
 
-    enum saidSql = "SELECT MIN(rowid) FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND instr(json_extract(attributes, '$.prompt'), ?2) > 0\0";
+    enum saidSql = "SELECT MIN(rowid) FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND instr(json_extract(attributes, '$.prompt'), ?2) > 0\0";
 
     enum MAX_SPANS = 64;
     long[MAX_SPANS] said;
@@ -595,7 +713,7 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     // stands quoted in a write that completed — a denied write never reaches
     // PostToolUse, so it cannot launder its own span into the corpus.
     enum sourceSql = "SELECT 1 FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND ("
-        ~ "(json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND instr(json_extract(attributes, '$.prompt'), ?2) > 0)"
+        ~ "(json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND instr(json_extract(attributes, '$.prompt'), ?2) > 0)"
         ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
         ~ ") LIMIT 1\0";
 
@@ -603,7 +721,7 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     // above cannot see. Words typed in an earlier session are still words the
     // user typed, and refusing them called a real quote an invention.
     enum recordedSql = "SELECT 1 FROM attestations WHERE "
-        ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND "
+        ~ "json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND "
         ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
 
     auto src = extractFilePath(input);
