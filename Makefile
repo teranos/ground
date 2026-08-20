@@ -40,7 +40,7 @@ build: wind
 # ldc2 directly because dub builds one target and that target is ground.
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
-             ug/sql.d ug/perf.d
+             ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d
 
 # sqlite3 is the one library ug links. ground owns every row it reads; ug only
 # ever issues SELECT.
@@ -65,6 +65,8 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/perf_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/scan_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/sql.d ug/sql_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/qntx.d ug/json.d ug/qntx_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/probe.d ug/qntx.d ug/json.d ug/probe_test.d
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
 
 install: build

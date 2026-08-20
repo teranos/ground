@@ -10,6 +10,28 @@ import json : jsonString;
 import sql : readPerformances, Row, Read, MAX_PERFORMANCES;
 import perf : chainInto, Perf;
 
+// The QNTX line. Silence is what a healthy box looks like, so a run that
+// finds nothing wrong and nothing to list draws no row at all.
+void qntxLine(const(char)[] home) {
+    import probe : fetch;
+    import qntx : failureInto, pluginsInto, State;
+
+    auto answer = fetch(home, "/api/plugins");
+
+    __gshared char[4096] line = void;
+    size_t n;
+
+    if (answer.state != State.ok) {
+        n = failureInto(answer.state, answer.status, line[]);
+    } else {
+        n = pluginsInto(answer.body_, line[]);
+    }
+
+    if (n == 0) return;
+    fwrite(line.ptr, 1, n, stdout);
+    fputs("\n", stdout);
+}
+
 void ritualLines(const(char)[] input, time_t now) {
     import core.stdc.stdlib : getenv;
 

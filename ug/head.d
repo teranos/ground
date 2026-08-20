@@ -15,8 +15,20 @@ import status : countPorcelain;
 void statushead(const(char)[] input, time_t now) {
     auto lt = localtime(&now);
 
+    import core.stdc.stdlib : getenv;
+
     Head h;
     h.cwd = jsonString(input, "cwd");
+    h.projectDir = jsonString(input, "project_dir");
+    h.style = jsonString(input, "name");
+
+    auto home = getenv("HOME\0".ptr);
+    if (home !is null) {
+        size_t n = 0;
+        while (home[n] != 0) n++;
+        h.home = home[0 .. n];
+    }
+
     h.branch = branchOf(readHead(h.cwd));
     h.model = jsonString(input, "display_name");
     h.percent = jsonNumber(input, "used_percentage");
