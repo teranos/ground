@@ -87,8 +87,10 @@ bool takesUpdatedInput(const(char)[] toolName) {
     return toolName == "Bash";
 }
 
-// The three fields a tool writes with. file_path is deliberately absent.
-private static immutable string[3] WRITTEN_FIELDS = ["content", "new_string", "old_string"];
+// The two fields whose text lands in a file. file_path is deliberately absent,
+// and so is old_string: that one selects text already on disk rather than
+// authoring any, so rewriting it can only stop the edit from matching.
+private static immutable string[2] WRITTEN_FIELDS = ["content", "new_string"];
 
 // True when the whole tool_input was reissued with the home directory taken
 // out of it. False leaves the call exactly as it arrived.

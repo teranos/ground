@@ -17,6 +17,17 @@ Spec: <https://code.claude.com/docs/en/statusline>
 > What does not agree yet: the deploy marker, the ritual line's prefix — name,
 > handle, carrier — its closing sentences, and the ahead-behind segment.
 
+#### 1.a4 — the deploy marker
+
+> The build QNTX is running, shown only while it is news. A fresh process cannot
+> see a change, so the commit and the second it was first seen live in a file,
+> and the marker draws while that second is inside the window. A commit with no
+> record counts as changed, so the first frame after install announces what is
+> already deployed — unseen by this host is new.
+
+> A clock that moved backwards leaves a first-seen in the future. That is
+> unusable rather than a reason to hide the row for a century, so it draws.
+
 #### 1.a2 ✓ — the capture is the reference
 
 "just snapshot what collet sees now, and use that"
