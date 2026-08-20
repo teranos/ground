@@ -105,7 +105,14 @@ Answer fetch(const(char)[] home, const(char)[] path) {
 
         void line(const(char)[] s) { fwrite(s.ptr, 1, s.length, f); }
         line("silent\nshow-error\nmax-time = ");
-        line(MAX_TIME == 3 ? "3" : "3");
+        {
+            char[8] d = void;
+            size_t dl = 0;
+            int v = MAX_TIME;
+            if (v <= 0) { d[dl++] = '0'; }
+            else { while (v > 0 && dl < 7) { d[dl++] = cast(char)('0' + v % 10); v /= 10; } }
+            foreach_reverse (i; 0 .. dl) fwrite(&d[i], 1, 1, f);
+        }
         line("\nheader = \"Authorization: Bearer ");
         line(tok.value);
         line("\"\n");
@@ -114,7 +121,15 @@ Answer fetch(const(char)[] home, const(char)[] path) {
 
     __gshared char[512] cmd = void;
     size_t m = 0;
-    void putCmd(const(char)[] s) { foreach (ch; s) cmd[m++] = ch; }
+    bool overflowed = false;
+
+    // Every piece is bounded and short, so this cannot overflow today. It is
+    // checked anyway, because the thing being built is a command line.
+    void putCmd(const(char)[] s) {
+        if (m + s.length + 1 > cmd.length) { overflowed = true; return; }
+        foreach (ch; s) cmd[m++] = ch;
+    }
+
     putCmd(CURL);
     putCmd(" --config ");
     putCmd(conf[0 .. c]);
@@ -123,6 +138,7 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     putCmd(path);
     putCmd(" 2>/dev/null");
     cmd[m] = 0;
+    if (overflowed) { remove(&conf[0]); return Answer(State.probeError, 0, ""); }
 
     auto pipe = popen(&cmd[0], "r");
     if (pipe is null) { remove(&conf[0]); return Answer(State.probeError, 0, ""); }
