@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug install wind ug
+.PHONY: build test test-tools test-ug install install-ug wind ug
 
 PREFIX ?= $(HOME)/.local
 
@@ -69,7 +69,13 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/probe.d ug/qntx.d ug/json.d ug/probe_test.d
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
 
-install: build
+# The row runs from PREFIX, not from the checkout: a status line pointed at a
+# build directory goes blank the moment that directory moves.
+install-ug: ug
+	mkdir -p $(PREFIX)/bin
+	cp ug/ug $(PREFIX)/bin/ug
+
+install: build install-ug
 	mkdir -p $(PREFIX)/bin
 	cp ground $(PREFIX)/bin/ground
 	./ground attest
