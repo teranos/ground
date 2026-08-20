@@ -8,6 +8,16 @@ module homedir;
 // to this file. The literal $HOME stands for the running user's home.
 enum HOME_TOKEN = "$HOME";
 
+// Scratch. A file here never enters a repository and never outlives the
+// machine, and it is where a fixture carrying a real path legitimately lives.
+enum SCRATCH = ["/tmp/", "/private/tmp/", "/var/folders/"];
+
+bool isScratch(const(char)[] path) {
+    foreach (p; SCRATCH)
+        if (path.length >= p.length && path[0 .. p.length] == p) return true;
+    return false;
+}
+
 // What a rewrite did. `fit` is false when the result would not have fitted the
 // destination, and then `found` is zero — a caller must never be handed a
 // truncated Write, so not fitting means nothing happened at all.

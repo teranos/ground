@@ -2,7 +2,22 @@ module homedir_test;
 
 // CTFE tests — failure shows as a compile error.
 
-import homedir : replaceAll, rewriteField, Rewrite;
+import homedir : replaceAll, rewriteField, isScratch, Rewrite;
+
+// Nothing under a temp directory is tracked anywhere, so a fixture there can
+// carry a real path.
+static assert(isScratch("/tmp/x.sh"));
+static assert(isScratch("/private/tmp/claude-501/session/scratchpad/probe.sh"));
+static assert(isScratch("/var/folders/yk/T/dub-build.rsp"));
+
+// A repository is not scratch, whatever it is called.
+static assert(!isScratch("/a/b/source/main.d"));
+static assert(!isScratch("/a/tmp-not-really/x.d"));
+static assert(!isScratch("/a/b/tmp/x.d"));
+static assert(!isScratch(""));
+
+// The directory itself, with nothing under it, is not a file being written.
+static assert(!isScratch("/tmp"));
 
 enum FROM = "/Users/x";
 enum TO = "/home/golem";

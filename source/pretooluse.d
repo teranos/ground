@@ -112,13 +112,17 @@ private static immutable string[2] WRITTEN_FIELDS = ["content", "new_string"];
 // True when the whole tool_input was reissued with the home directory taken
 // out of it. False leaves the call exactly as it arrived.
 bool rewroteHome(const(char)[] input, const(char)[] toolName) {
-    import homedir : rewriteField, HOME_TOKEN;
+    import homedir : rewriteField, isScratch, HOME_TOKEN;
     import hooks : rewriteFrom, rewriteTo;
     import controls : allParsed;
     import parse : extractToolInputRegion;
     import db : getenv;
 
     if (toolName != "Write" && toolName != "Edit") return false;
+
+    // Scratch is where a fixture carrying a real path belongs, and rewriting
+    // one there breaks the fixture without protecting anything.
+    if (isScratch(extractFilePath(input))) return false;
 
     auto region = extractToolInputRegion(input);
     if (region is null) return false;
