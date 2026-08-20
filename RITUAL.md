@@ -159,6 +159,11 @@ A held rite is the bracketed one in lighter gray: the position is there, the
 command is not running, it ran before. The same rite blinking blue is the
 command running right now. No glyph carries any of this.
 
+This table is implemented twice, from the same row and without shared code —
+once in collet and once in ug, where it is `perf.d` and every line of it is a
+`static assert`. A glyph the build has no colour for draws nothing rather than
+being guessed at as pending.
+
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
 | ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists out of rites" | |
@@ -189,7 +194,22 @@ command running right now. No glyph carries any of this.
 | ✓ | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" / "ground should take responsibility" | "claude -w <id>" |
 | D | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
 | D | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
-| ✓ | 28 | Collet knows where a performance is | collet | — | |
+| ✓ | 28 | The renderer knows where a performance is | collet, `ug/sql.d` | — | two renderers now, from one row, sharing no code |
+
+Three rows above carry a quote, so they cannot be edited without restating it,
+and what changed about them is here instead.
+
+Row 20 — ug draws the halted rite, in blinking red. The exit code and the output
+behind it are still collet's alone.
+
+Row 73 — the tally rides inside the brackets in ug as well, in yellow. A frozen
+count is the stall and a climbing one is the ping-pong, which is legible at one
+frame a second.
+
+Row 98 — this turned out to be load-bearing well outside its own row. Because
+sed, awk and perl are handed the file instead of being run, none of them can
+write one, which is most of why a control that rewrites what reaches a file only
+had to cover Write and Edit.
 
 Not in the example above, and therefore not implementable from it:
 

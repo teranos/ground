@@ -9,6 +9,14 @@ Spec: <https://code.claude.com/docs/en/statusline>
 > the same bytes, which is answerable because collet is stdin to stdout and
 > nothing else.
 
+> What agrees: the whole of collet's first line, byte for byte, against both
+> captures. The test reads them with -J at CTFE, so the compiler diffs against
+> collet's own output rather than against a dump someone retyped. Under it, the
+> ritual walk and the qntx plugin line are drawn.
+
+> What does not agree yet: the deploy marker, the ritual line's prefix — name,
+> handle, carrier — its closing sentences, and the ahead-behind segment.
+
 #### 1.a2 ✓ — the capture is the reference
 
 "just snapshot what collet sees now, and use that"
@@ -18,10 +26,16 @@ Spec: <https://code.claude.com/docs/en/statusline>
 > bounds the tick, which brings the marquee, the blink and the scan back into
 > byte coverage.
 
-#### 1.a3 — ug is its own binary
+#### 1.a3 ✓ — ug is its own binary
 
 > Separate from ground, still in -betterC. Said in an earlier session, and the
 > store is searched one session at a time, so it stands here unquoted.
+
+> It links sqlite3 and nothing else, and it is built by ldc2 from UG_SOURCES
+> rather than by dub, because dub builds one target and that target is ground.
+> Every formatter takes its inputs and a destination buffer and returns what it
+> wrote, which is why the whole of it is checked at CTFE against hand-built
+> states and against the captures.
 
 ### 1.b ✓ — collet keeps rendering the whole time
 
@@ -70,6 +84,14 @@ is ug's to answer. The original numbers are kept and prefixed rug.
 > The rites stay and the words trail them, one pass, then the line goes. Colour
 > and brackets carry the ending, so no word has to name it.
 
+> The pass is a marquee, and the marquee is wontdo, so this row no longer
+> describes a shape that will be built. What stands: the rites stay, the ending
+> is carried by colour and brackets, and the line goes.
+
+> The going is built. An ended performance gets a hold proportional to its
+> width, capped at twenty seconds, lingers ten, and then draws nothing. Without
+> it every ritual ever walked was still on the row.
+
 ### rug66 — who held the mic when each rite passed
 
 "i want to be able to know if an agent went through the chain or ground"
@@ -83,6 +105,13 @@ is ug's to answer. The original numbers are kept and prefixed rug.
 > Passed is one colour today, so a chain ground walked alone draws exactly what a
 > working agent draws. Two greens tell them apart, and the brackets say where the
 > agent itself actually got to.
+
+> Half of this is answered from a different direction. Two letters travel through
+> the bracketed rite: blue right to left while the agent is acting, yellow the
+> other way when ground has just thrown the Stop back. The bracket says where the
+> walk is; the letters say something is happening there, and a stall reads as
+> stillness rather than as nothing. It does not yet say which of them passed each
+> rite behind the bracket.
 
 ### rug68 — the closing sentences are on screen when the ritual ends
 

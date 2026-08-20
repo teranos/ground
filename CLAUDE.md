@@ -8,8 +8,12 @@ Read source/watch.d for the asyncRewake watcher — how immediate messages reach
 Read source/exec.d for exec dispatch — fork+pipe+wrapper, stdout/stderr capture, timeout.
 Read source/errors.d for the GroundError primitive and deliverError fallback chain (db → breadcrumb → stderr).
 Read grove/controls/*.pbt for the rituals — each carries its agent's `system:`, so nothing else has to describe them.
+Read ug/*.d for the status line — one line per row, every formatter taking inputs and a destination buffer.
 Read README.md for project overview.
 Read COUNTDOWN.md for project status.
+Read RITUAL.md for what a ritual is and what each numbered item of it means.
+Read UNDERGROUND.md for ug — what parity is measured against and what still differs.
+Read SIEVE.md for what the second line is for. Deferred, and QNTX's rather than ug's.
 
 Read bench.fish for CTFE scaling limits.
 
