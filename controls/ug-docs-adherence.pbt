@@ -6,6 +6,15 @@
 # > what the user typed. Verbatim or it is not a quote. The write is denied,
 # > and the denial names the span that had no source.
 
+# "Let’s say I want to allow claude to correct my quote minorly."
+
+# "Like allowing it to change up to 4 chars per 40 chars but never more."
+
+# > Verbatim first. Failing that, a span may sit within the correction budget
+# > of a recorded prompt: four characters changed, dropped, or added per forty
+# > the span carries, floored, and never more than that rate. A span under ten
+# > characters buys no corrections.
+
 # 2. Does the quote stand on its own line?
 
 # "you cannot place your word next to mine"

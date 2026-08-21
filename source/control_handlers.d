@@ -565,12 +565,16 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
 
 // A quoted span asserts the user said it. This checks the assertion against
 // every prompt the user has ever submitted, and denies the span that has no
-// source rather than trusting the writer to have looked.
+// source rather than trusting the writer to have looked. A span that misses
+// verbatim may still pass as a minor correction of a prompt, inside the
+// budget correctionBudget sets: four characters per forty, never more.
 CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText, extractFilePath;
-    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine;
+    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine,
+                        correctionBudget, withinCorrections;
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
                 sqlite3_finalize, sqlite3_close, sqlite3_stmt,
+                sqlite3_column_text,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
     import zbuf : ZBuf;
 
@@ -605,6 +609,11 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     enum recordedSql = "SELECT 1 FROM attestations WHERE "
         ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND "
         ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
+
+    // instr cannot measure a near miss, so the correction budget walks the
+    // prompts themselves. Same scope as recordedSql: every recorded prompt.
+    enum promptsSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE "
+        ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit'\0";
 
     auto src = extractFilePath(input);
 
@@ -666,9 +675,28 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
             }
         }
 
+        // Verbatim failed. The user allowed a minor correction of their
+        // words — four characters per forty, never more — so each recorded
+        // prompt is measured against the span before the span is refused.
+        // A budget of zero is what verbatim already asked, so it skips.
+        auto budget = correctionBudget(text.length);
+        if (!found && budget > 0) {
+            sqlite3_stmt* near;
+            if (sqlite3_prepare_v2(db, promptsSql.ptr, -1, &near, null) == SQLITE_OK) {
+                while (!found && sqlite3_step(near) == SQLITE_ROW) {
+                    auto p = sqlite3_column_text(near, 0);
+                    if (p is null) continue;
+                    size_t plen = 0;
+                    while (p[plen] != 0) plen++;
+                    found = withinCorrections(p[0 .. plen], text, budget);
+                }
+                sqlite3_finalize(near);
+            }
+        }
+
         if (!found) {
             observed.reset();
-            observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span: \"");
+            observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span or anything inside its correction budget: \"");
             observed.put(text.length > 200 ? text[0 .. 200] : text);
             observed.put("\"");
             sqlite3_close(db);
