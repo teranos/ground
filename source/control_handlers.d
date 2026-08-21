@@ -2,6 +2,7 @@ module control_handlers;
 
 import matcher : contains;
 import hooks : CheckResult, fires, passes;
+import db : sqlite3;
 
 // Verdict for the approval-gated handlers (commit / merge / kill).
 //
@@ -563,15 +564,96 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
     return contains(fileBuf[0 .. n], needle.slice());
 }
 
+// Two sources, both inside this session. What you typed, and what already
+// stands quoted in a write that completed — a denied write never reaches
+// PostToolUse, so it cannot launder its own span into the corpus.
+private enum sourceSql = "SELECT 1 FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND ("
+    ~ "(json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND instr(json_extract(attributes, '$.prompt'), ?2) > 0)"
+    ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
+    ~ ") LIMIT 1\0";
+
+// Rank 3 of the authority list in CLAUDE.md, which the session-bound query
+// above cannot see. Words typed in an earlier session are still words the
+// user typed, and refusing them called a real quote an invention.
+private enum recordedSql = "SELECT 1 FROM attestations WHERE "
+    ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND "
+    ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
+
+// instr cannot measure a near miss, so the correction budgets walk the
+// prompts themselves. Same scope as recordedSql: every recorded prompt.
+private enum promptsSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE "
+    ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit'\0";
+
+// Whether a verbatim source exists for the span: 1 found, 0 not found, and
+// -1 when a query would not prepare, so the caller decides what a failure
+// to look means for it.
+private int spanExactSource(sqlite3* db, const(char)[] ctx,
+                            const(char)[] text, const(char)[] quoted) {
+    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
+                sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
+                SQLITE_TRANSIENT;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sourceSql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(stmt, 1, ctx.ptr, cast(int) ctx.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, quoted.ptr, cast(int) quoted.length, SQLITE_TRANSIENT);
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    if (found) return 1;
+
+    // Ranked, not widened: this session answers first, and only what it
+    // cannot answer is asked of the whole record.
+    sqlite3_stmt* any;
+    if (sqlite3_prepare_v2(db, recordedSql.ptr, -1, &any, null) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(any, 1, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+    found = sqlite3_step(any) == SQLITE_ROW;
+    sqlite3_finalize(any);
+    return found ? 1 : 0;
+}
+
+// The nearest thing the recorded prompts offer a span that missed verbatim:
+// 2 inside the correction budget, 1 inside the warn budget only, 0 nothing
+// that near. Measured against every prompt, because a later one may sit
+// closer than the first that came near.
+private int spanNearestSource(sqlite3* db, const(char)[] text) {
+    import provenance : correctionBudget, warnBudget, withinCorrections;
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+
+    auto clean = correctionBudget(text.length);
+    auto warn = warnBudget(text.length);
+    if (warn == 0) return 0;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, promptsSql.ptr, -1, &stmt, null) != SQLITE_OK)
+        return 0;
+
+    int nearest = 0;
+    while (nearest < 2 && sqlite3_step(stmt) == SQLITE_ROW) {
+        auto p = sqlite3_column_text(stmt, 0);
+        if (p is null) continue;
+        size_t plen = 0;
+        while (p[plen] != 0) plen++;
+        if (!withinCorrections(p[0 .. plen], text, warn)) continue;
+        nearest = withinCorrections(p[0 .. plen], text, clean) ? 2 : 1;
+    }
+    sqlite3_finalize(stmt);
+    return nearest;
+}
+
 // A quoted span asserts the user said it. This checks the assertion against
 // every prompt the user has ever submitted, and denies the span that has no
-// source rather than trusting the writer to have looked.
+// source rather than trusting the writer to have looked. A span that misses
+// verbatim may still pass inside the warn budget: up to four corrected
+// characters per forty passes clean, five or six passes carrying the warning
+// the stretched handler delivers, and past six it does not pass at all.
 CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText, extractFilePath;
     import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine;
-    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
-                sqlite3_finalize, sqlite3_close, sqlite3_stmt,
-                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import db : openDb, sqlite3_close;
     import zbuf : ZBuf;
 
     auto written = extractWrittenText(input);
@@ -590,21 +672,6 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     ctx.reset();
     ctx.put("session:");
     ctx.put(g_sessionId);
-
-    // Two sources, both inside this session. What you typed, and what already
-    // stands quoted in a write that completed — a denied write never reaches
-    // PostToolUse, so it cannot launder its own span into the corpus.
-    enum sourceSql = "SELECT 1 FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND ("
-        ~ "(json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND instr(json_extract(attributes, '$.prompt'), ?2) > 0)"
-        ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
-        ~ ") LIMIT 1\0";
-
-    // Rank 3 of the authority list in CLAUDE.md, which the session-bound query
-    // above cannot see. Words typed in an earlier session are still words the
-    // user typed, and refusing them called a real quote an invention.
-    enum recordedSql = "SELECT 1 FROM attestations WHERE "
-        ~ "json_extract(predicates, '$[0]') = 'UserPromptSubmit' AND "
-        ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
 
     auto src = extractFilePath(input);
 
@@ -643,37 +710,86 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         // this session and is not something the writer invented now.
         if (spanStandsInFile(input, text)) continue;
 
-        sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2(db, sourceSql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        auto exact = spanExactSource(db, ctx.slice(), text, quoted.slice());
+        if (exact < 0) {
             sqlite3_close(db);
             return CheckResult(true,
                 "denied: ground could not query its database, so it could not check whether you typed this.");
         }
-        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, quoted.ptr(), cast(int) quoted.len, SQLITE_TRANSIENT);
-        bool found = sqlite3_step(stmt) == SQLITE_ROW;
-        sqlite3_finalize(stmt);
+        if (exact > 0) continue;
 
-        // Ranked, not widened: this session answers first, and only what it
-        // cannot answer is asked of the whole record.
-        if (!found) {
-            sqlite3_stmt* any;
-            if (sqlite3_prepare_v2(db, recordedSql.ptr, -1, &any, null) == SQLITE_OK) {
-                sqlite3_bind_text(any, 1, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
-                found = sqlite3_step(any) == SQLITE_ROW;
-                sqlite3_finalize(any);
-            }
-        }
+        // Verbatim failed. The user allowed correction of their words, so
+        // anything the warn budget reaches still passes here; how much of
+        // the budget it spent is the stretched handler's to say.
+        if (spanNearestSource(db, text) > 0) continue;
 
-        if (!found) {
-            observed.reset();
-            observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span: \"");
-            observed.put(text.length > 200 ? text[0 .. 200] : text);
-            observed.put("\"");
-            sqlite3_close(db);
-            return CheckResult(true, cast(string) observed.slice());
-        }
+        observed.reset();
+        observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span or anything inside its correction budget: \"");
+        observed.put(text.length > 200 ? text[0 .. 200] : text);
+        observed.put("\"");
+        sqlite3_close(db);
+        return CheckResult(true, cast(string) observed.slice());
+    }
+
+    sqlite3_close(db);
+    return passes();
+}
+
+// Five or six corrected characters per forty is more than a minor correction
+// spends, and still passes: the span is warned about instead of refused.
+// Advisory, so everything quoteProvenance fails closed on passes silently
+// here — a denial does not need a warning stacked on top of it.
+CheckResult quoteProvenanceStretched(const(char)[] cwd, const(char)[] input) {
+    import parse : extractWrittenText, extractFilePath;
+    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine;
+    import db : openDb, sqlite3_close;
+    import zbuf : ZBuf;
+
+    auto written = extractWrittenText(input);
+    if (written is null) return passes();
+    if (g_sessionId.length == 0) return passes();
+
+    auto db = openDb();
+    if (db is null) return passes();
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    auto src = extractFilePath(input);
+
+    __gshared ZBuf quoted;
+    __gshared ZBuf observed;
+    size_t from = 0;
+    while (true) {
+        auto sp = nextQuotedSpan(written, from);
+        if (!sp.ok) break;
+        from = sp.end + 1;
+        if (!onProseLine(written, sp, src)) continue;
+
+        auto text = written[sp.start .. sp.end];
+        if (text.length == 0) continue;
+
+        __gshared char[8192] esc;
+        auto escLen = jsonEscapeInto(text, esc[]);
+        if (escLen < 0) continue;
+
+        quoted.reset();
+        quoted.put("\\\"");
+        quoted.put(cast(const(char)[]) esc[0 .. escLen]);
+        quoted.put("\\\"");
+
+        if (spanStandsInFile(input, text)) continue;
+        if (spanExactSource(db, ctx.slice(), text, quoted.slice()) != 0) continue;
+        if (spanNearestSource(db, text) != 1) continue;
+
+        observed.reset();
+        observed.put("this quoted span passes on more corrections than the four per forty a minor one is allowed: \"");
+        observed.put(text.length > 200 ? text[0 .. 200] : text);
+        observed.put("\"");
+        sqlite3_close(db);
+        return CheckResult(true, cast(string) observed.slice());
     }
 
     sqlite3_close(db);

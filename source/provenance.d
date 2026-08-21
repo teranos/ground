@@ -361,6 +361,143 @@ unittest {
     assert(!onProseLine(html, nextQuotedSpan(html, 0), "a.html"));
 }
 
+// A correction is one character substituted, dropped, or added against what
+// the user typed. The budget is four corrections per forty characters of the
+// span, floored, and never more than that rate.
+size_t correctionBudget(size_t spanLength) {
+    return spanLength * 4 / 40;
+}
+
+// The band above the correction budget that still passes, warned about
+// instead of denied: five and six corrections per forty. Past this the span
+// does not pass at all.
+size_t warnBudget(size_t spanLength) {
+    return spanLength * 6 / 40;
+}
+
+// The longest span the check ever carries this far: quoteProvenance denies
+// anything its 8192-byte escape buffer cannot hold before searching for it.
+enum SPAN_MAX = 8192;
+
+// Whether some stretch of `text` sits within `budget` corrections of `span`.
+// One column of edit distance per character of text, free to start anywhere
+// and end anywhere, so the span is measured against the stretch it matches
+// best rather than against the whole prompt.
+bool withinCorrections(const(char)[] text, const(char)[] span, size_t budget) {
+    // An empty span asserts the user said nothing, and nothing can source it
+    // here any more than it can be sourced verbatim.
+    if (span.length == 0 || span.length > SPAN_MAX) return false;
+
+    __gshared int[SPAN_MAX + 1] colA;
+    __gshared int[SPAN_MAX + 1] colB;
+    auto m = span.length;
+    auto prev = colA[0 .. m + 1];
+    auto cur = colB[0 .. m + 1];
+
+    foreach (i; 0 .. m + 1) prev[i] = cast(int) i;
+
+    foreach (c; text) {
+        cur[0] = 0;
+        foreach (i; 1 .. m + 1) {
+            int changed = prev[i - 1] + (c == span[i - 1] ? 0 : 1);
+            int dropped = prev[i] + 1;
+            int added = cur[i - 1] + 1;
+            int best = changed;
+            if (dropped < best) best = dropped;
+            if (added < best) best = added;
+            cur[i] = best;
+        }
+        if (cur[m] <= budget) return true;
+        auto swap = prev;
+        prev = cur;
+        cur = swap;
+    }
+    return false;
+}
+
+unittest {
+    // Four corrections per forty characters, floored, and never more. A span
+    // under ten characters buys none and must be verbatim.
+    assert(correctionBudget(40) == 4);
+    assert(correctionBudget(39) == 3);
+    assert(correctionBudget(41) == 4);
+    assert(correctionBudget(80) == 8);
+    assert(correctionBudget(10) == 1);
+    assert(correctionBudget(9) == 0);
+    assert(correctionBudget(1) == 0);
+    assert(correctionBudget(0) == 0);
+}
+
+unittest {
+    // A budget of zero is exact substring matching.
+    assert(withinCorrections("the user typed this", "typed", 0));
+    assert(!withinCorrections("the user typed this", "tyPed", 0));
+
+    // One changed character rides on a budget of one. Two do not.
+    assert(withinCorrections("the user typed this", "tyPed", 1));
+    assert(!withinCorrections("the user typed this", "tYPed", 1));
+    assert(withinCorrections("the user typed this", "tYPed", 2));
+
+    // A dropped character and an added one are corrections too.
+    assert(withinCorrections("the user typd this", "typed", 1));
+    assert(withinCorrections("the user typeed this", "typed", 1));
+
+    // The stretch matched is the prompt's, wherever it falls.
+    assert(withinCorrections("prefix middle suffix", "middle", 0));
+    assert(withinCorrections("middle", "middle", 0));
+
+    // A span nothing in the prompt comes near is out of budget however the
+    // corrections are spent.
+    assert(!withinCorrections("the user typed this", "wrote that", 2));
+
+    // An empty span is not brought in budget by an empty need.
+    assert(!withinCorrections("anything", "", 4));
+    assert(!withinCorrections("", "a", 0));
+}
+
+unittest {
+    // The rule as stated: four corrected characters per forty, never more. A
+    // forty-character span carries four corrections and not five.
+    enum said = "this is what the user actually typed ok!";
+    static assert(said.length == 40);
+
+    enum four = "This is what the user actuaIIy typed ok?";
+    enum five = "This is what the user actuaIIy tiped ok?";
+    assert(withinCorrections(said, four, correctionBudget(four.length)));
+    assert(!withinCorrections(said, five, correctionBudget(five.length)));
+}
+
+unittest {
+    // The warn band above it: six per forty, floored. Where the two budgets
+    // meet, the band is empty and there is nothing to warn about.
+    assert(warnBudget(40) == 6);
+    assert(warnBudget(39) == 5);
+    assert(warnBudget(80) == 12);
+    assert(warnBudget(20) == 3);
+    assert(warnBudget(10) == 1);
+    assert(correctionBudget(10) == warnBudget(10));
+    assert(warnBudget(0) == 0);
+}
+
+unittest {
+    // Five and six corrections per forty sit inside the warn budget and
+    // outside the correction budget. Seven sits outside both.
+    enum said = "this is what the user actually typed ok!";
+    static assert(said.length == 40);
+
+    enum five  = "This is what the user actuaIIy tiped ok?";
+    enum six   = "This is What the user actuaIIy tiped ok?";
+    enum seven = "This is What the User actuaIIy tiped ok?";
+
+    assert(!withinCorrections(said, five, correctionBudget(five.length)));
+    assert(withinCorrections(said, five, warnBudget(five.length)));
+
+    assert(!withinCorrections(said, six, correctionBudget(six.length)));
+    assert(withinCorrections(said, six, warnBudget(six.length)));
+
+    assert(!withinCorrections(said, seven, warnBudget(seven.length)));
+}
+
 unittest {
     // Nothing to claim.
     assert(!nextQuotedSpan("no quotes here", 0).ok);
