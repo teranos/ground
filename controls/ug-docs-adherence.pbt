@@ -10,10 +10,13 @@
 
 # "Like allowing it to change up to 4 chars per 40 chars but never more."
 
+# "And a passing warn at 5 and 6"
+
 # > Verbatim first. Failing that, a span may sit within the correction budget
 # > of a recorded prompt: four characters changed, dropped, or added per forty
-# > the span carries, floored, and never more than that rate. A span under ten
-# > characters buys no corrections.
+# > the span carries, floored. A span under ten characters buys no
+# > corrections. Five or six per forty still passes, but as a warning rather
+# > than in silence; past six the span does not pass at all.
 
 # 2. Does the quote stand on its own line?
 
@@ -54,5 +57,19 @@ scope {
     name: "quotes-keep-chronology"
     check_handler: "quoteChronology"
     msg: "Quoted spans appear in a different order than they were said."
+  }
+}
+
+# No decision: the control injects context and the write proceeds. The span
+# passed provenance on five or six corrections per forty, which is more than
+# a minor correction spends, and the warning says so.
+
+scope {
+  event: "PreToolUse"
+
+  control {
+    name: "quotes-stretched-thin"
+    check_handler: "quoteProvenanceStretched"
+    msg: "A quoted span spent more than a minor correction to pass."
   }
 }

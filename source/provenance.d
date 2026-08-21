@@ -368,6 +368,13 @@ size_t correctionBudget(size_t spanLength) {
     return spanLength * 4 / 40;
 }
 
+// The band above the correction budget that still passes, warned about
+// instead of denied: five and six corrections per forty. Past this the span
+// does not pass at all.
+size_t warnBudget(size_t spanLength) {
+    return spanLength * 6 / 40;
+}
+
 // The longest span the check ever carries this far: quoteProvenance denies
 // anything its 8192-byte escape buffer cannot hold before searching for it.
 enum SPAN_MAX = 8192;
@@ -458,6 +465,37 @@ unittest {
     enum five = "This is what the user actuaIIy tiped ok?";
     assert(withinCorrections(said, four, correctionBudget(four.length)));
     assert(!withinCorrections(said, five, correctionBudget(five.length)));
+}
+
+unittest {
+    // The warn band above it: six per forty, floored. Where the two budgets
+    // meet, the band is empty and there is nothing to warn about.
+    assert(warnBudget(40) == 6);
+    assert(warnBudget(39) == 5);
+    assert(warnBudget(80) == 12);
+    assert(warnBudget(20) == 3);
+    assert(warnBudget(10) == 1);
+    assert(correctionBudget(10) == warnBudget(10));
+    assert(warnBudget(0) == 0);
+}
+
+unittest {
+    // Five and six corrections per forty sit inside the warn budget and
+    // outside the correction budget. Seven sits outside both.
+    enum said = "this is what the user actually typed ok!";
+    static assert(said.length == 40);
+
+    enum five  = "This is what the user actuaIIy tiped ok?";
+    enum six   = "This is What the user actuaIIy tiped ok?";
+    enum seven = "This is What the User actuaIIy tiped ok?";
+
+    assert(!withinCorrections(said, five, correctionBudget(five.length)));
+    assert(withinCorrections(said, five, warnBudget(five.length)));
+
+    assert(!withinCorrections(said, six, correctionBudget(six.length)));
+    assert(withinCorrections(said, six, warnBudget(six.length)));
+
+    assert(!withinCorrections(said, seven, warnBudget(seven.length)));
 }
 
 unittest {

@@ -20,6 +20,7 @@ CheckFn resolveCheck(string name) {
         case "mergeNotRequested": return &control_handlers.mergeNotRequested;
         case "killNotRequested": return &control_handlers.killNotRequested;
         case "quoteProvenance": return &control_handlers.quoteProvenance;
+        case "quoteProvenanceStretched": return &control_handlers.quoteProvenanceStretched;
         case "quoteStandsAlone": return &control_handlers.quoteStandsAlone;
         case "quoteChronology": return &control_handlers.quoteChronology;
         case "strikethrough": return &control_handlers.strikethroughCheck;
