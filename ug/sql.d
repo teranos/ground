@@ -44,10 +44,11 @@ enum PERFORMANCE_SQL =
     "FROM ritual_position " ~
     "WHERE rites IS NOT NULL AND rites != '' " ~
     "AND (parent = ?1 OR session = ?1) " ~
-    "ORDER BY id";
+    "ORDER BY updated_at DESC, rowid DESC";
 
 // How many performances one frame will draw. A row taller than the terminal
 // is a row nobody can read, and ground has never run more than a handful.
+// It bounds the read as well, which is why the query hands over the newest.
 enum MAX_PERFORMANCES = 8;
 
 // Column text belongs to sqlite and is freed the moment the statement steps
