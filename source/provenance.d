@@ -223,15 +223,62 @@ private bool startsAt(const(char)[] s, size_t at, const(char)[] what) {
 
 // Whether an unclosed block comment stands open at `at`. Nesting is not read:
 // no language in the table nests these, and a second open inside one is text.
-private bool insideBlock(const(char)[] s, size_t at, const(char)[] open, const(char)[] close) {
+private bool insideBlock(const(char)[] s, size_t at, const(char)[] open,
+                         const(char)[] close, const(char)[] lineMarker) {
     bool inside = false;
     size_t i = 0;
     while (i < at) {
-        if (!inside && startsAt(s, i, open)) { inside = true; i += open.length; continue; }
-        if (inside && startsAt(s, i, close)) { inside = false; i += close.length; continue; }
+        if (inside) {
+            if (startsAt(s, i, close)) { inside = false; i += close.length; continue; }
+            i++;
+            continue;
+        }
+
+        // A string carries no comment. Reading the opener inside one made
+        // every line after it prose, and code was refused for its own strings.
+        if (s[i] == '"') {
+            i++;
+            while (i < at && s[i] != '"') {
+                if (s[i] == '\\') i++;
+                i++;
+            }
+            i++;
+            continue;
+        }
+
+        // Neither does a line comment: the opener in one ends with the line.
+        if (lineMarker.length > 0 && startsAt(s, i, lineMarker)) {
+            while (i < at && s[i] != '\n') i++;
+            continue;
+        }
+
+        if (startsAt(s, i, open)) { inside = true; i += open.length; continue; }
         i++;
     }
     return inside;
+}
+
+// A single word in quotes is a name, not a claim. It asserts nothing about who
+// said it, and checking it made people write worse messages to get past.
+bool isWord(const(char)[] s, Span sp) {
+    if (!sp.ok || sp.end <= sp.start) return false;
+    foreach (c; s[sp.start .. sp.end])
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') return false;
+    return true;
+}
+
+unittest {
+    enum one = `x "open" y`;
+    assert(isWord(one, nextQuotedSpan(one, 0)));
+
+    enum two = `x "the open case" y`;
+    assert(!isWord(two, nextQuotedSpan(two, 0)));
+
+    enum empty = `x "" y`;
+    assert(!isWord(empty, nextQuotedSpan(empty, 0)));
+
+    enum punctuated = `x "did:key" y`;
+    assert(isWord(punctuated, nextQuotedSpan(punctuated, 0)));
 }
 
 // Whether the span begins somewhere prose is written. Every line of a document
@@ -250,7 +297,7 @@ bool onProseLine(const(char)[] s, Span sp, const(char)[] path) {
     }
 
     auto open = blockOpen(path);
-    return open.length > 0 && insideBlock(s, sp.start, open, blockClose(path));
+    return open.length > 0 && insideBlock(s, sp.start, open, blockClose(path), marker);
 }
 
 unittest {
@@ -331,6 +378,13 @@ unittest {
     // The line the span opens on is the question, not the first line of input.
     enum second = "int y;\n// \"abc\"";
     assert(onProseLine(second, nextQuotedSpan(second, 0), "a.c"));
+
+    // A block opener inside a string literal opens no comment. Read as one, it
+    // made every line after it prose, and code was refused for its own strings.
+    enum opener = "/" ~ "*";
+    enum poisoned = "let s = \"" ~ opener ~ "\";\nlet c = open(\"abc\");";
+    auto tail = nextQuotedSpan(poisoned, 12);
+    assert(!onProseLine(poisoned, tail, "a.rs"));
 }
 
 unittest {

@@ -543,7 +543,7 @@ CheckResult branchNotRequested(const(char)[] cwd, const(char)[] input) {
 // carried by provenance rather than judged here.
 CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText, extractFilePath;
-    import provenance : nextQuotedSpan, firstOutOfOrder, onProseLine;
+    import provenance : nextQuotedSpan, firstOutOfOrder, onProseLine, isWord;
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
                 sqlite3_column_int64, sqlite3_finalize, sqlite3_close,
                 sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -581,6 +581,7 @@ CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
         if (!sp.ok) break;
         from = sp.end + 1;
         if (!onProseLine(written, sp, src)) continue;
+        if (isWord(written, sp)) continue;
         auto text = written[sp.start .. sp.end];
         if (text.length == 0) continue;
 
@@ -621,7 +622,7 @@ CheckResult quoteChronology(const(char)[] cwd, const(char)[] input) {
 // refuses the line rather than trusting the reader to tell them apart.
 CheckResult quoteStandsAlone(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText, extractFilePath;
-    import provenance : nextQuotedSpan, standsAlone, onProseLine, lineComment;
+    import provenance : nextQuotedSpan, standsAlone, onProseLine, lineComment, isWord;
     import zbuf : ZBuf;
 
     auto written = extractWrittenText(input);
@@ -636,6 +637,7 @@ CheckResult quoteStandsAlone(const(char)[] cwd, const(char)[] input) {
         if (!sp.ok) break;
         from = sp.end + 1;
         if (!onProseLine(written, sp, src)) continue;
+        if (isWord(written, sp)) continue;
         if (standsAlone(written, sp, lineComment(src))) continue;
 
         auto text = written[sp.start .. sp.end];
@@ -686,7 +688,7 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
 // source rather than trusting the writer to have looked.
 CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText, extractFilePath;
-    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine;
+    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine, isWord;
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
                 sqlite3_finalize, sqlite3_close, sqlite3_stmt,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -734,6 +736,7 @@ CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
         if (!sp.ok) break;
         from = sp.end + 1;
         if (!onProseLine(written, sp, src)) continue;
+        if (isWord(written, sp)) continue;
 
         auto text = written[sp.start .. sp.end];
         if (text.length == 0) {
