@@ -71,6 +71,17 @@ static assert(stripQuoted(`curl 'http://localhost:877/api'`).slice == `curl 'htt
 static assert(stripQuoted(`sed -i 's/foo/bar/' file`).slice == `sed -i 's/foo/bar/' file`);
 static assert(stripQuoted(`sed 's/a/b/' "my file.txt"`).slice == `sed 's/a/b/' `);
 
+// --- what a cmd matches ---
+
+// A cmd names a whole command, so what follows it is a space or the end of the
+// segment. Without that, `git merge` matched `git merge-base` and the arg was
+// spliced into the middle of the word.
+static assert(commandMatch("go test ./...", "go test"));
+static assert(commandMatch("go test", "go test"));
+static assert(!commandMatch("go testing", "go test"));
+static assert(commandMatch("git merge --ff-only", "git merge"));
+static assert(!commandMatch("git merge-base HEAD origin/main", "git merge"));
+
 // --- Major Tom's test suite ---
 
 enum QNTX = "/Users/dev/QNTX";
@@ -221,9 +232,14 @@ static if (__traits(compiles, { import qntx; })) {
     }
 
     unittest {
-        // Prefix match — "go test" with trailing space matches
+        // The cmd is a whole command, so what follows it is a space or the end
+        // of the segment. Without that, `git merge` matched `git merge-base`
+        // and the arg was spliced into the middle of the word.
         assert(commandMatch("go test ./...", "go test"));
-        assert(commandMatch("go testing", "go test"));
+        assert(commandMatch("go test", "go test"));
+        assert(!commandMatch("go testing", "go test"));
+        assert(!commandMatch("git merge-base HEAD origin/main", "git merge"));
+        assert(commandMatch("git merge --ff-only", "git merge"));
     }
 }
 

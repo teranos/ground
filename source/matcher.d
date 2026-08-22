@@ -315,7 +315,13 @@ bool commandMatch(const(char)[] segment, const(char)[] cmd) {
 
     if (exactMatch) return s == target;
     if (s.length < target.length) return false;
-    return s[0 .. target.length] == target;
+    if (s[0 .. target.length] != target) return false;
+
+    // A cmd names a whole command. Without this, `git merge` matched
+    // `git merge-base`, and applyArg spliced the flag into the middle of it.
+    if (s.length == target.length) return true;
+    auto after = s[target.length];
+    return after == ' ' || after == '\t';
 }
 
 // Returns true if any segment in a compound command matches cmd as a prefix.
