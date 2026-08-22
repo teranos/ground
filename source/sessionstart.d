@@ -128,6 +128,7 @@ void attestTypes() {
     attestType(db, "GroundedPostToolUse", "Grounded", `{}`);
     attestType(db, "GroundedPostToolUseFailure", "Grounded", `{}`);
     attestType(db, "GroundedPostToolUseDeferred", "Grounded", `{}`);
+    attestType(db, "GroundedPlaybill", "Grounded", `{}`);
 
     walCheckpoint(db);
     sqlite3_close(db);
@@ -341,6 +342,25 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                     }
                     break;
                 }
+            }
+        }
+    }
+
+    // What could be performed here, and what starts it. A halt read as output
+    // from a tool the session had never run, and the hunt went to CI.
+    {
+        import db : openDb, sqlite3_close;
+        import playbill : unsaidBillInto;
+
+        auto pdb = openDb();
+        if (pdb !is null) {
+            __gshared char[4096] bill = void;
+            auto n = unsaidBillInto(pdb, sessionId, cwd, bill[]);
+            sqlite3_close(pdb);
+            if (n > 0) {
+                if (any) ctx.put(" | ");
+                ctx.put(bill[0 .. n]);
+                any = true;
             }
         }
     }

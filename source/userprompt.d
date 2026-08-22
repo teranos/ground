@@ -61,6 +61,19 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         }
     }
 
+    // Standing where a ritual performs is enough, whether the session started
+    // here or walked in. Said once, so a turn spent here costs nothing after.
+    {
+        import playbill : unsaidBillInto;
+        __gshared char[4096] bill = void;
+        auto n = unsaidBillInto(db, sessionId, cwd, bill[]);
+        if (n > 0) {
+            if (any) ctx.put(" | ");
+            ctx.put(bill[0 .. n]);
+            any = true;
+        }
+    }
+
     if (db !is null) sqlite3_close(db);
 
     if (!any) return 0;
