@@ -1083,15 +1083,22 @@ private void bindInlineRituals(ref ParseResult result, ref ParsedScope sc) {
         auto idx = result.ctrlPool[ci].inlineRitualIdx;
         if (idx == 0) continue;
 
-        assert(sc.pathCount == 1,
-            "a control carrying `ritual { }` needs a scope with exactly one path");
-        assert(sc.paths[0].length > 0 && sc.paths[0][0] != '!',
-            "a control carrying `ritual { }` cannot sit in a scope whose path is negated");
+        // A negation says where the control does not fire and nothing about
+        // where the ritual performs, so only a real path can be the root.
+        size_t root = sc.pathCount;
+        size_t roots = 0;
+        foreach (i; 0 .. sc.pathCount) {
+            if (sc.paths[i].length == 0 || sc.paths[i][0] == '!') continue;
+            if (roots == 0) root = i;
+            roots++;
+        }
+        assert(roots == 1,
+            "a control carrying `ritual { }` needs exactly one path that is not a negation");
 
         auto name = result.ctrlPool[ci].name;
         assert(name.length > 0, "a control carrying `ritual { }` needs a name to perform it under");
         result.rituals[idx - 1].name = name;
-        result.rituals[idx - 1].projectPath = sc.paths[0];
+        result.rituals[idx - 1].projectPath = sc.paths[root];
         result.ctrlPool[ci].ritual = name;
     }
 }

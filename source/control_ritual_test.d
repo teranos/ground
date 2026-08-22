@@ -96,6 +96,30 @@ scope {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(twoPaths); }));
 
+// A negation narrows where the control fires and says nothing about where the
+// ritual performs, so one of them beside a real path is not an ambiguity.
+enum narrowed = `
+rites obedience { MARK { eval: "true" } }
+
+scope {
+  path:  ["/teranos/QNTX", "!/teranos/QNTX-App"]
+  event: "PostToolUse"
+
+  control {
+    name: "narrowed"
+    ritual { obedience }
+  }
+}
+`;
+enum narrowedParsed = parsePbt(narrowed);
+private enum nidx = () {
+    foreach (i; 0 .. narrowedParsed.ritualCount)
+        if (narrowedParsed.rituals[i].name == "narrowed") return cast(long) i;
+    return -1L;
+}();
+static assert(nidx >= 0, "a scope carrying a negation still registers its ritual");
+static assert(narrowedParsed.rituals[cast(size_t) nidx].projectPath == "/teranos/QNTX");
+
 // A negated path is a place a ritual must not be, which resolves to nowhere.
 enum negated = `
 rites obedience { MARK { eval: "true" } }
