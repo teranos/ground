@@ -3,11 +3,25 @@ module playbill_test;
 // What a session in this project is told about the rituals that could fire.
 
 import proto : parsePbt;
+import controls : allParsed;
 import playbill : cuesOf, billInto, ritualCues;
 
-// The compiled control set, not a fixture. A table that came out empty is a
-// feature that is inert everywhere, which is worth failing the build over.
-static assert(ritualCues.length > 0);
+// One cue per control that names a ritual, counted from the compiled set. A
+// build with no controls has none of either, which is what CI compiles.
+private enum namingRituals = () {
+    size_t n = 0;
+    foreach (si; 0 .. allParsed.scopeCount) {
+        auto sc = allParsed.scopes[si];
+        foreach (ci; sc.controlStart .. sc.controlEnd)
+            if (allParsed.ctrlPool[ci].ritual.length > 0) n++;
+    }
+    return n;
+}();
+static assert(ritualCues.length == namingRituals);
+
+// A checkout with no control directories on it compiles no controls, so the
+// table is empty and the count above is zero on both sides. This is CI.
+static assert(cuesOf(parsePbt("")).len == 0);
 
 enum src = `
 rites deployment {
