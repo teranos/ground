@@ -5,6 +5,7 @@ module playbill;
 // arrived as a word from a tool the session had never run.
 
 import ritual.position : MAX_RITES;
+import db : ZBuf;
 
 // A ritual named by several controls is several cues, and every one of them is
 // something a session would otherwise not be told. The assert is deliberate:
@@ -126,26 +127,112 @@ static immutable ritualCues = _bill.cues[0 .. _bill.len];
 // the same ritual twice, once per hook.
 enum PLAYBILL = "GroundedPlaybill";
 
-// Said once per session, by whichever hook is standing where it performs. A
-// compaction invalidates the mark, which is right: the session has forgotten.
+// The mark is named after the session and the ritual, not after the second it
+// landed in. attestEvent keys its row on the timestamp and the pid, so a whole
+// bill written by one process in one second collapsed to a single row.
+private void markId(ref ZBuf id, const(char)[] sessionId, const(char)[] ritual) {
+    id.reset();
+    id.put("playbill:");
+    id.put(sessionId);
+    id.put(":");
+    id.put(ritual);
+}
+
+private enum PLAYBILL_JSON = `["` ~ PLAYBILL ~ `"]`;
+
+// Whether this session has already been told about this ritual. A compaction
+// after the mark unsets it, which is right: the session has forgotten.
+private bool saidAlready(DB)(DB db, const(char)[] sessionId, const(char)[] ritual) {
+    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64, sqlite3_step,
+                sqlite3_column_int64, sqlite3_finalize, sqlite3_stmt,
+                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+
+    __gshared ZBuf id;
+    markId(id, sessionId, ritual);
+
+    enum sql = "SELECT rowid FROM attestations WHERE id = ?1 LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, id.ptr(), cast(int) id.len, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        return false;
+    }
+    auto at = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(sessionId);
+
+    enum compactSql = "SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PreCompact' AND json_extract(contexts, '$[0]') = ?1 AND rowid > ?2 LIMIT 1\0";
+    sqlite3_stmt* cstmt;
+    if (sqlite3_prepare_v2(db, compactSql.ptr, -1, &cstmt, null) != SQLITE_OK) return true;
+    sqlite3_bind_text(cstmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(cstmt, 2, at);
+    bool compacted = sqlite3_step(cstmt) == SQLITE_ROW;
+    sqlite3_finalize(cstmt);
+
+    return !compacted;
+}
+
+// A compaction has to be able to unset the mark, so a replace would hide the
+// older row the rowid comparison needs. Ignore keeps the first one.
+private void markSaid(DB)(DB db, const(char)[] sessionId, const(char)[] ritual) {
+    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step, sqlite3_finalize,
+                sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT, formatTimestamp, versionString;
+
+    __gshared ZBuf id, ctx, attrs, src;
+    markId(id, sessionId, ritual);
+
+    ctx.reset();
+    ctx.put(`["session:`);
+    ctx.put(sessionId);
+    ctx.put(`"]`);
+
+    attrs.reset();
+    attrs.put(`{"ritual":"`);
+    attrs.put(ritual);
+    attrs.put(`"}`);
+
+    src.reset();
+    src.put("ground ");
+    src.put(versionString());
+
+    enum sql = "INSERT OR IGNORE INTO attestations "
+        ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
+
+    auto ts = formatTimestamp();
+    sqlite3_bind_text(stmt, 1, id.ptr(), cast(int) id.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, PLAYBILL_JSON.ptr, cast(int) PLAYBILL_JSON.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, src.ptr(), cast(int) src.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, attrs.ptr(), cast(int) attrs.len, SQLITE_TRANSIENT);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+// Said once per session, by whichever hook is standing where it performs.
 size_t unsaidBillInto(DB)(DB db, const(char)[] sessionId, const(char)[] cwd, char[] dest) {
     import hooks : scopeMatches;
-    import db : attestationExists, attestControlFire, ZBuf;
 
     if (db is null || sessionId.length == 0) return 0;
 
-    __gshared ZBuf key;
     size_t o = 0;
-
     foreach (ref cue; ritualCues) {
         if (!scopeMatches(cue, cwd)) continue;
-
-        key.reset();
-        key.put("playbill:");
-        key.put(cue.ritual);
-
-        if (attestationExists(db, PLAYBILL, key.slice(), sessionId)) continue;
-        attestControlFire(db, PLAYBILL, key.slice(), cwd, sessionId);
+        if (saidAlready(db, sessionId, cue.ritual)) continue;
+        markSaid(db, sessionId, cue.ritual);
 
         if (o > 0) {
             foreach (c; " | ") if (o < dest.length) dest[o++] = c;
