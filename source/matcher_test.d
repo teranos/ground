@@ -468,6 +468,50 @@ unittest {
     assert(isCommitApproval("VERIFIED"));
 }
 
+// --- gh pr: looking is not touching ---
+
+unittest {
+    // The rule was written against pull requests created and merged unasked.
+    // A read changes nothing, and denying one left a session blind to the CI
+    // it had just started.
+    import control_handlers : prOnlyObserves;
+
+    assert(prOnlyObserves("gh pr checks 854"));
+    assert(prOnlyObserves("gh pr view 854"));
+    assert(prOnlyObserves("gh pr list"));
+    assert(prOnlyObserves("gh pr diff"));
+    assert(prOnlyObserves("gh pr status"));
+
+    // A redirect and a pipe are not a second command against the pull request.
+    assert(prOnlyObserves("gh pr checks 854 2>&1 | head -20"));
+}
+
+unittest {
+    import control_handlers : prOnlyObserves;
+
+    assert(!prOnlyObserves("gh pr create --title x"));
+    assert(!prOnlyObserves("gh pr merge 854"));
+    assert(!prOnlyObserves("gh pr close 854"));
+    assert(!prOnlyObserves("gh pr comment 854 -b hi"));
+
+    // `gh pr checkout` makes a branch, which is the other thing nobody asked
+    // for. It shares five letters with `checks` and is not a look.
+    assert(!prOnlyObserves("gh pr checkout 854"));
+}
+
+unittest {
+    import control_handlers : prOnlyObserves;
+
+    // One look does not carry the command it is chained to.
+    assert(!prOnlyObserves("gh pr checks 854 && gh pr merge 854"));
+    assert(!prOnlyObserves("gh pr view 854; gh pr close 854"));
+
+    // A verb this build has never heard of is not an observation, so a new way
+    // to act on a pull request arrives gated rather than open.
+    assert(!prOnlyObserves("gh pr something-new"));
+    assert(!prOnlyObserves("gh pr"));
+}
+
 // --- containsExact (case-sensitive) tests ---
 
 static assert(containsExact("LICENSE", "LICENSE"));

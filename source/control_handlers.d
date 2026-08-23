@@ -485,10 +485,77 @@ private bool userRecentlySaid(const(char)[] word, int limit) {
     return said;
 }
 
+// Which `gh pr` verbs only look. Everything else — a verb this build has never
+// heard of included — stays gated, so a new way to act arrives closed.
+private static immutable string[5] PR_OBSERVES = [
+    "checks", "diff", "list", "status", "view",
+];
+
+private bool prVerbObserves(const(char)[] segment) {
+    enum PREFIX = "gh pr ";
+    if (segment.length <= PREFIX.length) return false;
+    if (segment[0 .. PREFIX.length] != PREFIX) return false;
+
+    auto rest = segment[PREFIX.length .. $];
+    size_t end = 0;
+    while (end < rest.length && rest[end] != ' ' && rest[end] != '\t') end++;
+
+    foreach (v; PR_OBSERVES) if (rest[0 .. end] == v) return true;
+    return false;
+}
+
+// Whether every segment naming a pull request only looks at one. A chain is
+// judged whole: one look does not carry the merge it is chained to.
+bool prOnlyObserves(const(char)[] command) {
+    import matcher : strip;
+
+    bool sawOne = false;
+    size_t start = 0;
+    size_t i = 0;
+
+    while (i <= command.length) {
+        bool isSep = false;
+        size_t skip = 0;
+
+        if (i == command.length) {
+            isSep = true;
+        } else if (command[i] == '|' || command[i] == ';' || command[i] == '\n') {
+            isSep = true;
+            skip = 1;
+        } else if (i + 1 < command.length && command[i] == '&' && command[i + 1] == '&') {
+            isSep = true;
+            skip = 2;
+        }
+
+        if (isSep) {
+            auto segment = strip(command[start .. i]);
+            if (segment.length >= 5 && segment[0 .. 5] == "gh pr") {
+                if (!prVerbObserves(segment)) return false;
+                sawOne = true;
+            }
+            if (i == command.length) break;
+            start = i + skip;
+            i += (skip > 0 ? skip : 1);
+            continue;
+        }
+        i++;
+    }
+    return sawOne;
+}
+
 // Anything touching a pull request happens because the user said so. The word
 // is always there when they mean it.
 CheckResult prNotRequested(const(char)[] cwd, const(char)[] input) {
+    import parse : extractCommand;
+
     if (g_sessionId.length == 0) return passes();
+
+    // Looking at a pull request is not touching one, and being denied the look
+    // left a session blind to the run it had just started.
+    auto src = input.length > 0 ? input : g_input;
+    auto command = extractCommand(src);
+    if (command !is null && prOnlyObserves(command)) return passes();
+
     return approvalVerdict(true, userRecentlySaid("pr", 8), null);
 }
 
