@@ -97,11 +97,13 @@ void spawnDriver(const Position p, const(char)[] root) {
 
 // A control performing one. There is no argv and no terminal, so why it did
 // not start goes to the error record rather than to a stderr nobody reads.
-bool performFromControl(const(char)[] ritualName, const(char)[] sessionId) {
+bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
+                        const(char)[] where = "") {
     import controls : allParsed;
     import db : openDb, sqlite3_close;
     import core.stdc.time : time;
     import exec : emitError;
+    import git : placeRepo = repoRoot;
 
     static immutable parsed = allParsed;
     auto chosen = chooseRitual(parsed, ritualName, "");
@@ -112,12 +114,18 @@ bool performFromControl(const(char)[] ritualName, const(char)[] sessionId) {
     }
 
     auto projectPath = parsed.rituals[chosen.ritualIdx].projectPath;
-    auto root = repoRoot(parsed, projectPath);
-    if (root.length == 0) {
+    auto declared = repoRoot(parsed, projectPath);
+    if (declared.length == 0) {
         emitError("ritual.control.root", "nothing declares where that project is on disk",
                   0, 1, cast(string) sessionId, cast(string) ritualName, "", "", "");
         return false;
     }
+
+    // The place the tool call worked in, when it belongs to the project the
+    // ritual names — a worktree answers with the tree it was cut from, so a
+    // push made in one performs there rather than in the checkout beside it.
+    auto root = declared;
+    if (where.length > 0 && placeRepo(where) == declared) root = where;
 
     auto flat = flatten(parsed, chosen.ritualIdx);
     Staged st;

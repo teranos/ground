@@ -267,6 +267,9 @@ struct Control {
     string[8] envValues;
     ubyte envCount;
     string exec;
+    // The repo this control belongs to, from the project holding it. Set, the
+    // control fires for every checkout of that repo and nowhere else.
+    string origin;
     string ritual; // the ritual this control performs, by name. Empty = none.
     size_t stropIdx; // 0 = no strop; else 1-based index into controls.globalStropPool.
     int interval; // minimum seconds between fires (0 = no limit)
@@ -348,9 +351,55 @@ struct Scope {
     const(Control)[] controls;
 }
 
+// A path names directories, so it ends where one ends. A raw substring made
+// QNTX-App contain QNTX, which is why every sibling needed its own negation.
+bool pathMatch(const(char)[] path, const(char)[] pattern) {
+    if (pattern.length == 0 || pattern.length > path.length) return false;
+
+    // A pattern closing with a separator already ends on a boundary.
+    bool closed = pattern[$ - 1] == '/';
+
+    foreach (i; 0 .. path.length - pattern.length + 1) {
+        if (path[i .. i + pattern.length] != pattern) continue;
+        if (closed) return true;
+        auto after = i + pattern.length;
+        if (after == path.length || path[after] == '/') return true;
+    }
+    return false;
+}
+
+unittest {
+    // What the substring form already got right stays right.
+    assert(pathMatch("/home/user/QNTX/src", "/QNTX"));
+    assert(pathMatch("/home/user/QNTX", "/QNTX"));
+    assert(pathMatch("/home/user/QNTX/ctp/werf", "/ctp/"));
+    assert(!pathMatch("/home/user/other", "/QNTX"));
+
+    // The sibling that needed a negation of its own does not match now.
+    assert(!pathMatch("/Users/x/teranos/QNTX-App", "/teranos/QNTX"));
+    assert(!pathMatch("/Users/x/teranos/QNTX-App/web", "/teranos/QNTX"));
+    assert(pathMatch("/Users/x/teranos/QNTX", "/teranos/QNTX"));
+    assert(pathMatch("/Users/x/teranos/QNTX/server", "/teranos/QNTX"));
+
+    // A worktree beside the tree is its own directory, so it does not match
+    // the project by name. The repository it belongs to is what does.
+    assert(!pathMatch("/Users/x/teranos/ground-chapter-1", "/teranos/ground"));
+}
+
 bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
+    import git : repoRoot;
+    return scopeMatchesIn(sc, cwd, repoRoot(cwd));
+}
+
+// Where the command runs, and the repository that place belongs to. A worktree
+// is the project it was cut from, wherever on disk somebody put it.
+bool scopeMatchesIn(S)(const ref S sc, const(char)[] cwd, const(char)[] root) {
     if (sc.pathCount == 0) return true;
-    import matcher : contains;
+
+    bool here(const(char)[] pattern) {
+        if (pathMatch(cwd, pattern)) return true;
+        return root.length > 0 && pathMatch(root, pattern);
+    }
 
     // Two-pass: positive paths OR, negative paths AND-filter.
     bool hasPositive = false;
@@ -360,8 +409,8 @@ bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
         auto p = sc.paths[i];
         if (p.length == 0) continue;
         if (p[0] == '!') {
-            // Negative = filter. If cwd contains the excluded pattern, reject immediately.
-            if (contains(cwd, p[1 .. $])) return false;
+            // Negative = filter. Standing in the excluded place rejects at once.
+            if (here(p[1 .. $])) return false;
         } else if (p[0] == '=') {
             hasPositive = true;
             auto exact = p[1 .. $];
@@ -378,7 +427,7 @@ bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
             }
         } else {
             hasPositive = true;
-            if (contains(cwd, p)) positiveMatch = true;
+            if (here(p)) positiveMatch = true;
         }
     }
 

@@ -237,3 +237,25 @@ unittest {
     assert(got.p.holds == 2);
     sqlite3_close(db);
 }
+
+// The tree is decided once, when the row is written, and the row answers for it
+// by the same name WorktreeCreate is handed.
+unittest {
+    import ritual.store : byPerformanceId;
+    auto db = memDb();
+    assert(writePosition(db, perf(held, "q-deploy-1", "/src/proj", "/src/proj-pr852-q-deploy-1")));
+
+    auto got = byPerformanceId(db, "q-deploy-1");
+    assert(got.valid, "a performance is findable by the name WorktreeCreate is given");
+    assert(got.p.worktree == "/src/proj-pr852-q-deploy-1");
+    sqlite3_close(db);
+}
+
+// A name naming no performance has no tree to read, so the caller falls back
+// instead of inventing one.
+unittest {
+    import ritual.store : byPerformanceId;
+    auto db = memDb();
+    assert(!byPerformanceId(db, "nobody-1").valid);
+    sqlite3_close(db);
+}

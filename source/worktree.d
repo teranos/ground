@@ -117,16 +117,40 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
-// Which kind of tree this path is for. The ritual says, and the row is what
-// connects the path back to the ritual that named it.
-private bool wantsEmptyTree(const(char)[] path) {
+// Where the performance said its tree goes, decided once when the row was
+// written. Empty when this name names no performance — a worktree asked for
+// by anything other than a ritual.
+Path plannedTree(const(char)[] name) {
     import controls : allParsed;
     import db : openDb, sqlite3_close;
-    import ritual.store : readPositionAt;
+    import ritual.store : byPerformanceId;
+
+    Path p;
+    if (__ctfe || name.length == 0) return p;
+
+    auto db = openDb();
+    if (db is null) return p;
+    auto found = byPerformanceId(db, name);
+    sqlite3_close(db);
+    if (!found.valid) return p;
+
+    if (!p.put(found.p.worktree)) {
+        Path refused;
+        return refused;
+    }
+    return p;
+}
+
+// Which kind of tree this path is for. The ritual says, and the row is what
+// connects the path back to the ritual that named it.
+private bool wantsEmptyTree(const(char)[] name) {
+    import controls : allParsed;
+    import db : openDb, sqlite3_close;
+    import ritual.store : byPerformanceId;
 
     auto db = openDb();
     if (db is null) return false;
-    auto found = readPositionAt(db, path);
+    auto found = byPerformanceId(db, name);
     sqlite3_close(db);
     if (!found.valid) return false;
 
@@ -146,7 +170,11 @@ int handleWorktreeCreate(const(char)[] input, const(char)[] cwd) {
     auto name = extractJsonString(input, `"name"`, &nameBuf[0], nameBuf.length);
     if (name is null) name = "";
 
-    auto path = worktreePath(cwd, name);
+    // The row decided this when the performance was written. Deriving a second
+    // path from cwd is what let the two disagree: the tree was made under one
+    // name and the driver waited on the other, forever.
+    auto path = plannedTree(name);
+    if (path.len == 0) path = worktreePath(cwd, name);
     if (path.len == 0) {
         emitError("worktree.path", "no cwd or no name, so there is nowhere to put the tree",
                   0, 1, "", "worktree", "", "", "");
@@ -161,9 +189,9 @@ int handleWorktreeCreate(const(char)[] input, const(char)[] cwd) {
         foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; else ok = false; }
     }
 
-    // The row is written before the agent spawns and already carries the path,
-    // so the performance is findable here even though the tree is not there.
-    if (wantsEmptyTree(path.text())) {
+    // The row is written before the agent spawns, so the performance answers
+    // for its own tree here even though the tree is not there yet.
+    if (wantsEmptyTree(name)) {
         auto e = emptyTreeCmd(cwd, path.text(), branchOf(path.text()));
         ok = e.ok;
         add(e.text());

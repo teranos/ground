@@ -32,6 +32,8 @@ struct ParsedPermission {
 
 struct ParsedControl {
     string name;
+    // The repo the holding project named, empty when it named none.
+    string origin;
     // The ritual this control performs. An inline body is registered like any
     // other ritual; the index is 1-based so 0 means it named one instead.
     string ritual;
@@ -93,6 +95,9 @@ struct ParsedProject {
     // Empty is the unnamed block, which wins when a word resolves to both.
     string name;
     string path;
+    // The repo this project is, when it says so. Set, it outranks path: every
+    // checkout of that repo is this project, including ones made later.
+    string origin;
     // Per performance, a full run of a ritual. Zero means the project said
     // nothing and MAX_GOTOS stands.
     size_t maxGoto;
@@ -561,6 +566,7 @@ ScopeSet buildScopes(
             }
 
             c.exec = pc.exec;
+            c.origin = pc.origin;
             c.ritual = pc.ritual;
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
@@ -896,6 +902,7 @@ private bool isNameStart(ref string s, size_t pos) {
 void parseProject(ref string input, ref size_t pos, ref ParseResult result,
                   string projectName = "") {
     string projectPath;
+    string projectOrigin;
     size_t projectMaxGoto;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
@@ -915,6 +922,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             assert(result.projectCount < result.projects.length);
             result.projects[result.projectCount].name = projectName;
             result.projects[result.projectCount].path = projectPath;
+            result.projects[result.projectCount].origin = projectOrigin;
             result.projects[result.projectCount].maxGoto = projectMaxGoto;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
@@ -950,19 +958,26 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             expect(input, pos, '{');
             parseScope(input, pos, result, "", "");
         } else if (wm.base == "control") {
-            // Control directly in project — wrap in scope with path "/"
+            // A project that names a repo hands the control that repo, and no
+            // path decides. One that names none wraps in a scope with path "/".
             skipWS(input, pos);
             expect(input, pos, '{');
             assert(result.scopeCount < result.scopes.length);
             ParsedScope sc;
-            sc.paths[0] = "/"; sc.pathCount = 1;
+            if (projectOrigin.length == 0) { sc.paths[0] = "/"; sc.pathCount = 1; }
             sc.controlStart = result.ctrlPoolLen;
             assert(result.ctrlPoolLen < result.ctrlPool.length);
             result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos, result);
             result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
+            result.ctrlPool[result.ctrlPoolLen].origin = projectOrigin;
             sc.event = result.ctrlPool[result.ctrlPoolLen].event;
             result.ctrlPoolLen++;
             sc.controlEnd = result.ctrlPoolLen;
+            // A project holding a control is what says where its ritual
+            // performs, so a repo-keyed project needs a path to name on disk.
+            assert(projectOrigin.length == 0 || projectPath.length > 0,
+                "a project naming a repo needs a path saying where that repo is on disk");
+            bindInlineRituals(result, sc, projectPath);
             result.scopes[result.scopeCount] = sc;
             result.scopeCount++;
         } else if (wm.base == "permission") {
@@ -987,6 +1002,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             auto val = readValue(input, pos);
             switch (key) {
                 case "path": projectPath = val; break;
+                case "origin": projectOrigin = val; break;
                 case "max_goto": projectMaxGoto = cast(size_t) parseInt(val); break;
                 case "files":
                     if (val is null) {
@@ -1078,27 +1094,34 @@ void parseControlEnvBlock(ref string input, ref size_t pos,
 
 // An inline ritual has no project block, so the scope it fired under is the
 // only thing left that says where it performs and what it is called.
-private void bindInlineRituals(ref ParseResult result, ref ParsedScope sc) {
+private void bindInlineRituals(ref ParseResult result, ref ParsedScope sc,
+                               string projectPath = "") {
     foreach (ci; sc.controlStart .. sc.controlEnd) {
         auto idx = result.ctrlPool[ci].inlineRitualIdx;
         if (idx == 0) continue;
 
-        // A negation says where the control does not fire and nothing about
-        // where the ritual performs, so only a real path can be the root.
-        size_t root = sc.pathCount;
-        size_t roots = 0;
-        foreach (i; 0 .. sc.pathCount) {
-            if (sc.paths[i].length == 0 || sc.paths[i][0] == '!') continue;
-            if (roots == 0) root = i;
-            roots++;
+        // A project that holds the control says where it performs. Only a
+        // control living outside one falls back to the scope it fired under.
+        string where = projectPath;
+        if (where.length == 0) {
+            // A negation says where the control does not fire and nothing about
+            // where the ritual performs, so only a real path can be the root.
+            size_t root = sc.pathCount;
+            size_t roots = 0;
+            foreach (i; 0 .. sc.pathCount) {
+                if (sc.paths[i].length == 0 || sc.paths[i][0] == '!') continue;
+                if (roots == 0) root = i;
+                roots++;
+            }
+            assert(roots == 1,
+                "a control carrying `ritual { }` needs exactly one path that is not a negation");
+            where = sc.paths[root];
         }
-        assert(roots == 1,
-            "a control carrying `ritual { }` needs exactly one path that is not a negation");
 
         auto name = result.ctrlPool[ci].name;
         assert(name.length > 0, "a control carrying `ritual { }` needs a name to perform it under");
         result.rituals[idx - 1].name = name;
-        result.rituals[idx - 1].projectPath = sc.paths[root];
+        result.rituals[idx - 1].projectPath = where;
         result.ctrlPool[ci].ritual = name;
     }
 }

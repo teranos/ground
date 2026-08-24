@@ -169,6 +169,27 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 if (!scopeCmdMatched) continue;
             }
             foreach (ref c; sc.controls) {
+                // A control belonging to a repo fires for every checkout of it
+                // and nowhere else. Where on disk the work happened says
+                // nothing; which repo it was in says everything.
+                if (c.origin.length > 0) {
+                    import git : originOf;
+                    auto here = originOf(where);
+                    if (here != c.origin) {
+                        import core.stdc.stdio : fputs, stderr, fwrite;
+                        fputs("ground: control ", stderr);
+                        fwrite(c.name.ptr, 1, c.name.length, stderr);
+                        fputs(" wants ", stderr);
+                        fwrite(c.origin.ptr, 1, c.origin.length, stderr);
+                        fputs(", this place is ", stderr);
+                        if (here.length > 0) fwrite(here.ptr, 1, here.length, stderr);
+                        else fputs("no repo", stderr);
+                        fputs(" — ", stderr);
+                        fwrite(where.ptr, 1, where.length, stderr);
+                        fputs("\n", stderr);
+                        continue;
+                    }
+                }
                 // A control that performs a ritual. Same gate as exec, and the
                 // same once-per-tool-call guard: a push is one push.
                 if (c.ritual.length > 0) {
@@ -177,9 +198,9 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         && execFireExists(edb, c.name, sessionId, toolUseId))
                         continue;
                     if (edb !is null && toolUseId.length > 0)
-                        attestExecFire(edb, c.name, cwd, sessionId, toolUseId);
+                        attestExecFire(edb, c.name, where, sessionId, toolUseId);
                     import ritual : performFromControl;
-                    cast(void) performFromControl(c.ritual, sessionId);
+                    cast(void) performFromControl(c.ritual, sessionId, where);
                     continue;
                 }
                 if (c.exec.length == 0) continue;
