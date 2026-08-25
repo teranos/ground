@@ -13,7 +13,6 @@ Read README.md for project overview.
 Read COUNTDOWN.md for project status.
 Read RITUAL.md for what a ritual is and what each numbered item of it means.
 Read UNDERGROUND.md for ug — what parity is measured against and what still differs.
-Read SIEVE.md for what the second line is for. Deferred, and QNTX's rather than ug's.
 
 Read bench.fish for CTFE scaling limits.
 
