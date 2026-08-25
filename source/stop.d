@@ -117,6 +117,13 @@ void writeStopResponseAndNotify(const(char)[] reason) {
     notifyLoomHook(g_cwd, g_sessionId, reason);
 }
 
+// The briefing is the agent's keep-going signal. A ritual performs in the
+// checkout the work happened in, so the person's own session stands in the same
+// place and was handed it too, once per turn, for as long as the rite slept.
+bool briefThisSession(const(char)[] sessionId, const(char)[] agentSession) {
+    return agentSession.length > 0 && sessionId == agentSession;
+}
+
 // A live performance with a rite still to meet.
 bool ritualPending(const(char)[] cwd) {
     import db : openDb, sqlite3_close;
@@ -187,10 +194,17 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         auto found = readPositionAt(db, cwd);
 
         // "ground should take responsibility"
+        // The row is found by directory, and a ritual performs in the checkout
+        // the work happened in, so every later turn of that session found the
+        // same ending. It is announced once.
         if (found.valid && found.p.state != RitualState.Live) {
-            sqlite3_close(db);
-            writeStopEnded(found.p.ritual, found.p.state);
-            return 0;
+            import ritual.store : endingSaid, markEndingSaid;
+            if (!endingSaid(db, found.p.id)) {
+                markEndingSaid(db, found.p.id);
+                sqlite3_close(db);
+                writeStopEnded(found.p.ritual, found.p.state);
+                return 0;
+            }
         }
 
         // Stop does not walk. `ground drive` is forked for every performance
@@ -239,6 +253,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
                 // A rite's block is the one place the agent is meant to keep
                 // going rather than stop. Everything else keeps the old shape.
+                if (!briefThisSession(sessionId, found.p.agentSession)) return 0;
                 auto brief = briefing(found.p, flat);
                 writeStopContinue(brief.text());
                 notifyLoomHook(cwd, sessionId, brief.text());
