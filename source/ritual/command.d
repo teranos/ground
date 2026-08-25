@@ -38,6 +38,16 @@ Position preparePerformance(PR)(const PR parsed, size_t ritualIdx,
     st.names = riteNames(flat);
     p.rites = st.names.text();
 
+    // A tree is asked for, not assumed. One cut per performance carried none of
+    // what .gitignore holds, so a rite that compiled anything failed in it, and
+    // the branch it sat on was named after a directory rather than a push.
+    if (parsed.rituals[ritualIdx].tree.length == 0) {
+        import git : getBranch;
+        p.worktree = root;
+        p.branch = getBranch(root);
+        return p;
+    }
+
     // The tree is named after the performance. Nothing parses either name —
     // the row is the identity.
     st.tree = worktreePath(root, p.id);
@@ -63,7 +73,10 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
     import exec : dispatchExec, emitError;
 
     auto brief = briefing(p, flat);
-    auto script = spawnScript(root, p.id, brief.text(), flat.system);
+    // The row already says where it performs. Asking for a tree it does not
+    // have would place the agent somewhere the rites are not.
+    auto treeName = p.worktree == root ? "" : p.id;
+    auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system);
     // No agent is better than a truncated one: the command that starts it
     // carries the briefing, and half a briefing is a different instruction.
     if (script.text().length == 0 || brief.over) {
@@ -88,7 +101,7 @@ void spawnDriver(const Position p, const(char)[] root) {
 
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nexec ground drive ");
-    s.putQuoted(p.worktree);
+    s.putQuoted(p.id);
     s.put("\n");
     if (s.text().length == 0) return;
     dispatchExec(cast(string) s.text(), "ritual-drive", "", 86_400,
@@ -221,7 +234,7 @@ int handleAbort(int argc, const(char)** argv) {
         import rite : runRite;
         import ritual.run : reapScript;
         import exec : emitError;
-        auto reap = reapScript(p.worktree);
+        auto reap = reapScript(p.agentSession);
         if (reap.text().length > 0) {
             // An abort that leaves the agent running has aborted nothing.
             auto done = runRite(reap.text(), "ritual-reap", "");

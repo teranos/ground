@@ -32,6 +32,7 @@ project {
   path: "/teranos/ground"
 
   ritual willow {
+    tree: "checkout"
     system: "You tend a willow. You take exactly the fruit the rite names and nothing else, one at a time, leaving every other line of WILLOW.md as you found it — you never rewrite the file wholesale to reach a state faster. You say which fruit you took and what still hangs there."
 
     orchard

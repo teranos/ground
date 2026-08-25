@@ -31,7 +31,9 @@ scope {
 
   control {
     name: "ground-commit-format"
-    cmd: "git commit"
+    # A prefix match reads the first word of the segment, so any wrapper is a
+    # way past it. The substring form reads the whole segment instead.
+    cmd: "*git commit*"
 
     strop {
       flag: "-m"

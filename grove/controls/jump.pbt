@@ -20,6 +20,7 @@ project {
   path: "/teranos/ground"
 
   ritual jump {
+    tree: "checkout"
     rites1
     rites2
   }

@@ -18,10 +18,10 @@ private bool contains(const(char)[] hay, const(char)[] needle) {
     return false;
 }
 
-enum r = reapScript("/Users/u/src/ground-coinflip-1786828839");
+enum r = reapScript("e5f42580-1a2b-4c3d-9e8f-0123456789ab");
 
 // Proven: `claude stop 422bddec` answered `stopped 422bddec` and kept the tree.
-static assert(contains(r.text(), "claude stop \"$id\""),
+static assert(contains(r.text(), "claude stop"),
     "the documented ending, not a signal");
 
 // `pgrep -f 'claude -w'` returned 0 at every sample through a whole
@@ -31,17 +31,16 @@ static assert(!contains(r.text(), "claude -w"),
 static assert(!contains(r.text(), "pkill"),
     "a signal drops the agent mid-turn and races whatever restarts it");
 
-// The tree is what identifies the agent. `--cwd` filters by where a session
-// was started, and the spawn script cds to the repo first, so it answers []
-// for every worktree. The selection is on the cwd field in the JSON.
-static assert(contains(r.text(), "claude agents --json"));
-static assert(!contains(r.text(), "--cwd"));
-static assert(contains(r.text(), ".cwd==$t"));
-static assert(contains(r.text(), "'/Users/u/src/ground-coinflip-1786828839'"));
+// The agent ground started is the agent ground ends. Selecting on the tree
+// stopped every background session whose cwd matched, and a ritual that names
+// no tree performs in a checkout a person is working in.
+static assert(!contains(r.text(), ".cwd=="),
+    "a directory is not an identity");
+static assert(contains(r.text(), "'e5f42580-1a2b-4c3d-9e8f-0123456789ab'"));
 
-// Nothing to reap without a tree, and an empty pattern would match everything.
+// Nothing to reap without one, and an empty pattern would match everything.
 static assert(reapScript("").text().length == 0);
 
-// Both callers reach the reap by tree now.
-static assert(contains(driveSource, "reapScript(found.p.worktree)"));
-static assert(contains(commandSource, "reapScript(p.worktree)"));
+// Both callers reach the reap by the session the row bound.
+static assert(contains(driveSource, "reapScript(found.p.agentSession)"));
+static assert(contains(commandSource, "reapScript(p.agentSession)"));

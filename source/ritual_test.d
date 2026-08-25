@@ -156,6 +156,17 @@ unittest {
     sqlite3_close(db);
 }
 
+// A row that was never written has no ending to have said, and a mark finds no
+// row to set.
+unittest {
+    import ritual.store : endingSaid, markEndingSaid;
+
+    auto db = memDb();
+    assert(!endingSaid(db, "ends-nobody"));
+    assert(!markEndingSaid(db, "ends-nobody"));
+    sqlite3_close(db);
+}
+
 unittest {
     auto db = memDb();
     auto p = perf(held, "probe-1", "/src/proj", "/tmp/wt-a");
@@ -226,6 +237,17 @@ static assert(heldTwice.holds == 2);
 static assert(step(heldTwice, Verdict.Advance).holds == 2);
 static assert(jump(heldTwice, 0).holds == 2);
 static assert(fresh.holds == 0);
+
+// One rite asking the same question sixteen times has no seventeenth answer
+// coming — ONBRANCH read a branch decided before rite one and held 103 turns.
+// The bound is one eval's, so advancing starts the next one's count over while
+// the walk's tally keeps counting. ONBRANCH read a branch decided before rite
+// one and was asked 103 times, which is the count this makes reachable.
+static assert(heldTwice.evals == 2);
+enum askedThenOn = step(step(heldTwice, Verdict.Advance), Verdict.Hold);
+static assert(askedThenOn.evals == 1);
+static assert(askedThenOn.holds == 3);
+static assert(askedThenOn.state == RitualState.Live);
 
 unittest {
     auto db = memDb();

@@ -17,3 +17,19 @@ static assert(treeVerdict(false, false) == TreeVerdict.Wait);
 
 // Not there and seen before: it was removed, and the performance is over.
 static assert(treeVerdict(false, true) == TreeVerdict.Gone);
+
+import ritual.drive : mayRemoveTree;
+import ritual.position : RitualState;
+
+// A tree ground cut is ground's to remove once the commits are pushed.
+static assert(mayRemoveTree(RitualState.Done, "checkout"));
+static assert(mayRemoveTree(RitualState.Done, "empty"));
+
+// A ritual that named no tree performed in a place that was already there.
+// Removing it deleted a checkout a person was working in.
+static assert(!mayRemoveTree(RitualState.Done, ""));
+
+// A halt keeps its tree either way — what the rite left is what you look at.
+static assert(!mayRemoveTree(RitualState.Halted, "checkout"));
+static assert(!mayRemoveTree(RitualState.Aborted, "checkout"));
+static assert(!mayRemoveTree(RitualState.Live, "checkout"));

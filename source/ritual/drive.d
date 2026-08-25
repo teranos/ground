@@ -18,22 +18,32 @@ TreeVerdict treeVerdict(bool exists, bool sawTree) {
     return sawTree ? TreeVerdict.Gone : TreeVerdict.Wait;
 }
 
-// ground drive <worktree> — the loop that keeps a performance moving. The
+// Only a tree ground cut is ground's to remove. A ritual that names none
+// performs where the work already was, and removing that deletes a checkout
+// the person is using.
+bool mayRemoveTree(RitualState ended, const(char)[] declaredTree) {
+    return ended == RitualState.Done && declaredTree.length > 0;
+}
+
+// ground drive <performance> — the loop that keeps a performance moving. The
 // watcher cannot: delivery is `exit 2`, so it dies every time it speaks, and
 // an agent working a rite reaches neither a Stop nor a new watcher.
 int handleDrive(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import core.stdc.time : time;
     import controls : allParsed;
-    import db : openDb, sqlite3_close;
+    import db : openDb, sqlite3_close, ZBuf;
     import immediate : writeNote;
     import main : argLen;
+    import ritual.store : byPerformanceId;
 
     if (argc < 3) {
-        fputs("usage: ground drive <worktree>\n", stderr);
+        fputs("usage: ground drive <performance>\n", stderr);
         return 1;
     }
-    auto tree = argv[2][0 .. argLen(argv[2])];
+    // The performance, not its tree: in place two of them share one checkout
+    // and the tree cannot say which this drives.
+    auto perfId = argv[2][0 .. argLen(argv[2])];
 
     static immutable parsed = allParsed;
     uint nextSleep = 2;
@@ -41,27 +51,39 @@ int handleDrive(int argc, const(char)** argv) {
     // The driver starts before the agent has made the tree, so a missing one
     // means not yet. Once seen, a missing one means gone.
     bool sawTree = false;
+    __gshared ZBuf treePath;
 
     for (;;) {
-        final switch (treeVerdict(access(argv[2], 0) == 0, sawTree)) {
-        case TreeVerdict.Run:  sawTree = true; break;
-        case TreeVerdict.Gone: return 0;
-        case TreeVerdict.Wait: sleep(1); continue;
-        }
-
         auto db = openDb();
         if (db is null) return 0;
 
-        auto found = readPositionAt(db, tree);
-        if (!found.valid || found.p.state != RitualState.Live) {
-            auto ended = found.valid ? found.p.state : RitualState.Aborted;
-            auto repo = found.valid ? found.p.repo : "";
+        auto found = byPerformanceId(db, perfId);
+        if (!found.valid) { sqlite3_close(db); return 0; }
+
+        treePath.reset();
+        treePath.put(found.p.worktree);
+        final switch (treeVerdict(access(treePath.ptr(), 0) == 0, sawTree)) {
+        case TreeVerdict.Run:  sawTree = true; break;
+        case TreeVerdict.Gone: sqlite3_close(db); return 0;
+        case TreeVerdict.Wait: sqlite3_close(db); sleep(1); continue;
+        }
+
+        if (found.p.state != RitualState.Live) {
+            auto ended = found.p.state;
+            auto repo = found.p.repo;
+            auto tree = found.p.worktree;
+            const(char)[] declaredTree = "";
+            foreach (i; 0 .. parsed.ritualCount) {
+                if (parsed.rituals[i].name != found.p.ritual) continue;
+                declaredTree = parsed.rituals[i].tree;
+                break;
+            }
             sqlite3_close(db);
 
             // Done takes its tree with it: the branch is pushed and the
             // commits are the record, so the checkout is spare. A halt keeps
             // its tree — what the rite left uncommitted is what you look at.
-            if (ended == RitualState.Done && repo.length > 0) {
+            if (mayRemoveTree(ended, declaredTree) && repo.length > 0) {
                 import ritual.resolve : repoRoot;
                 import worktree : removeWorktree;
                 auto root = repoRoot(parsed, repo);
@@ -70,11 +92,11 @@ int handleDrive(int argc, const(char)** argv) {
 
             // Whatever the ending, the agent stops. Done removed the tree out
             // from under one that was still running in it.
-            if (found.valid && found.p.id.length > 0) {
+            if (found.p.id.length > 0) {
                 import rite : runRite;
                 import ritual.run : reapScript;
                 import exec : emitError;
-                auto reap = reapScript(found.p.worktree);
+                auto reap = reapScript(found.p.agentSession);
                 if (reap.text().length > 0) {
                     // The result was discarded here, so a reap that ended
                     // nothing read exactly like one that ended the agent.

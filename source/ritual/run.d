@@ -1,7 +1,7 @@
 module ritual.run;
 
 import rite : Verdict;
-import ritual.position : Position, RitualState, RiteState, step, jump;
+import ritual.position : Position, RitualState, RiteState, step, jump, MAX_EVALS;
 import ritual.resolve : Flattened, indexOfRite, indexOfRiteFrom;
 import ritual.record : attestRite;
 import ritual.store : writePosition;
@@ -227,6 +227,22 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         wantsJump = false;
     }
 
+    // An eval waits for the world to change. Asked this many times with the same
+    // answer, it is reading something decided before the rite ever ran, and no
+    // further asking reaches a different one.
+    bool spentEvals = false;
+    if (a.verdict == Verdict.Hold && p.evals + 1 >= MAX_EVALS) {
+        a.verdict = Verdict.Halt;
+        spentEvals = true;
+        __gshared ZBuf asked;
+        asked.reset();
+        asked.put("eval asked ");
+        putRev(asked, cast(long) (p.evals + 1));
+        asked.put(" times and answered the same, so its condition does not depend on waiting");
+        a.output = asked.slice();
+        wantsJump = false;
+    }
+
     // A halt is the outcome that needs a person, and the block message only
     // reaches the agent. This is the one path that reaches the operator.
     if (a.verdict == Verdict.Halt) {
@@ -239,6 +255,10 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     }
 
     auto moved = step(p, a.verdict);
+
+    // The ask that spent the last one still happened, and a row saying fifteen
+    // when it was asked sixteen times is a record nobody can check.
+    if (spentEvals) moved.evals = p.evals + 1;
 
     // goto is what a caught code does when the rite names somewhere to go.
     if (wantsJump) {
@@ -499,35 +519,38 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
 // An ending ends the agent. `claude stop <id>` is the documented one, and it
 // keeps the worktree — a signal drops the agent mid-turn and needs ground to
 // win a race with whatever restarts it.
-SpawnScript reapScript(const(char)[] worktree) {
+// The session ground bound to this performance, and no other. Selecting on the
+// tree ended every background agent standing in it, which in a ritual that
+// names no tree is whatever the person had running in their own checkout.
+SpawnScript reapScript(const(char)[] agentSession) {
     SpawnScript s;
-    if (worktree.length == 0) return s;
+    if (agentSession.length == 0) return s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\n");
-
-    // The `--cwd` flag filters by where a session was started, and ground's
-    // spawn script cds to the repo first — so it answers [] for a worktree.
-    // The `cwd` field in the JSON is the tree. Select on the field.
-    s.put("out=$(claude agents --json)\n");
-    s.put("ids=$(printf '%s' \"$out\" | jq -r --arg t ");
-    s.putQuoted(worktree);
-    s.put(" '.[] | select(.kind==\"background\" and .cwd==$t) | .id')\n");
-
-    // Nothing to end is not a failure. Anything else is, and says so.
-    s.put("[ -n \"$ids\" ] || exit 0\n");
-    s.put("for id in $ids; do\n");
-    s.put("  claude stop \"$id\"\n");
-    s.put("done\n");
+    s.put("claude stop ");
+    s.putQuoted(agentSession);
+    s.put("\n");
     return s;
 }
 
 SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
-                        const(char)[] prompt, const(char)[] system = "") {
+                        const(char)[] perfId, const(char)[] prompt,
+                        const(char)[] system = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
-    s.put("\nclaude -w ");
-    s.putQuoted(treeName);
-    s.put(" --bg ");
+    // What this agent carries. The tree cannot say it when the tree is one a
+    // person is already working in.
+    s.put("\nexport GROUND_PERFORMANCE=");
+    s.putQuoted(perfId);
+    s.put("\nclaude ");
+    // -w is the whole of the request for a tree. Unnamed, the agent works in
+    // the place the cd already put it.
+    if (treeName.length > 0) {
+        s.put("-w ");
+        s.putQuoted(treeName);
+        s.put(" ");
+    }
+    s.put("--bg ");
 
     // "permission should just never block". There is nobody at this session to
     // ask, and one asked anyway sits blocked until the machine runs out of

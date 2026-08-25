@@ -19,6 +19,7 @@ project {
   max_goto: 2
 
   ritual 2goto {
+    tree: "checkout"
     twice
   }
 }

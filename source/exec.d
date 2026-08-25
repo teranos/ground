@@ -130,14 +130,17 @@ MergedEnv mergeEnv(
 ChildEnv prepareChildEnv(
     const(string)[] controlKeys, const(string)[] controlValues,
     const(string)[] projectKeys, const(string)[] projectValues,
-    string sessionId, string cwd, string toolInput,
+    string sessionId, string branch, string toolInput,
 ) {
     ChildEnv result;
 
     result.keys[0]   = "GROUND_SESSION_ID";
     result.values[0] = sessionId;
-    result.keys[1]   = "GROUND_CWD";
-    result.values[1] = cwd;
+    // A rite runs in a tree ground made, on a branch named after that tree's
+    // directory, so the branch that fired it is the one fact underfoot is wrong
+    // about. Handing a path back instead sent every rite out to re-derive it.
+    result.keys[1]   = "GROUND_BRANCH";
+    result.values[1] = branch;
     result.keys[2]   = "GROUND_TOOL_INPUT";
     result.values[2] = toolInput;
     result.count = 3;
@@ -205,10 +208,19 @@ void dispatchExec(
         projectValues = parsed.envs[bestIdx].values[0 .. parsed.envs[bestIdx].count];
     }
 
+    import db : getBranch;
+
+    // No branch is not a branch named none. A rite reading it would deploy the
+    // name it was handed, so the failure is said here and the value stays empty.
+    auto branch = getBranch(cwd);
+    if (branch is null)
+        emitError("exec.branch", "no branch at the place the control fired, so GROUND_BRANCH is empty",
+                  0, -1, sessionId, controlName, toolUseId, cast(string) cwd, "");
+
     auto env = prepareChildEnv(
         controlKeys, controlValues,
         projectKeys, projectValues,
-        cast(string) sessionId, cast(string) cwd, cast(string) toolInput,
+        cast(string) sessionId, cast(string) branch, cast(string) toolInput,
     );
 
     // --- Materialize script to a private tempfile ---

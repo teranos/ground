@@ -3,6 +3,11 @@ module git;
 import zbuf : ZBuf;
 import core.stdc.stdio : fread, fopen, fclose, FILE;
 
+extern (C) {
+    FILE* popen(const(char)* command, const(char)* mode);
+    int pclose(FILE* stream);
+}
+
 // Extract last two path components from cwd.
 // A path like $HOME/SBVH/teranos/tmp/ground becomes tmp/ground
 const(char)[] cwdTail(const(char)[] path) {
@@ -343,27 +348,105 @@ unittest {
     assert(urlOfOrigin("") == "");
 }
 
+unittest {
+    // A push that was rejected leaves the two refs apart, and ground performed
+    // for it anyway — a deploy of a commit the remote never received.
+    assert(landedFromRefs("abc123\nabc123\n"));
+    assert(!landedFromRefs("abc123\ndef456\n"));
+
+    // One line is the remote ref missing, which is a branch never pushed.
+    assert(!landedFromRefs("abc123\n"));
+    assert(!landedFromRefs(""));
+    assert(!landedFromRefs("\n\n"));
+}
+
+unittest {
+    assert(branchFromHead("ref: refs/heads/main\n") == "main");
+
+    // A branch name is a path, and the whole of it is the name.
+    assert(branchFromHead("ref: refs/heads/claude/glyphs-x\n") == "claude/glyphs-x");
+
+    // Detached: a commit is not a branch, and answering one is a lie a caller
+    // cannot see through — `unknown` reads as a branch all the way to SSM.
+    assert(branchFromHead("4c9f5402b1392e14d4d39817321f329b12976289\n") is null);
+
+    assert(branchFromHead("") is null);
+    assert(branchFromHead("ref: refs/heads/\n") is null);
+}
+
+// HEAD names a branch by ref, or holds a bare commit when detached. Null is the
+// answer when there is no branch to give — a caller cannot see through a name,
+// and unknown reads as a branch the whole way downstream.
+const(char)[] branchFromHead(const(char)[] head) {
+    enum prefix = "ref: refs/heads/";
+    if (head.length <= prefix.length) return null;
+    if (head[0 .. prefix.length] != prefix) return null;
+
+    size_t end = head.length;
+    while (end > 0 && (head[end - 1] == '\n' || head[end - 1] == '\r')) end--;
+    if (end <= prefix.length) return null;
+    return head[prefix.length .. end];
+}
+
+// Two revisions, one per line: the branch and its remote-tracking ref. Equal
+// means the push landed. Anything else — one line, none, a difference — is a
+// remote that does not have what this tree has.
+bool landedFromRefs(const(char)[] out_) {
+    const(char)[] first, second;
+    size_t start = 0;
+    size_t seen = 0;
+    foreach (i, c; out_) {
+        if (c != '\n') continue;
+        auto line = out_[start .. i];
+        while (line.length > 0 && (line[$ - 1] == '\r' || line[$ - 1] == ' ')) line = line[0 .. $ - 1];
+        start = i + 1;
+        if (line.length == 0) continue;
+        if (seen == 0) first = line;
+        else if (seen == 1) second = line;
+        seen++;
+    }
+    return seen == 2 && first == second;
+}
+
+// Whether the remote already has what this branch has. Runs once per push, so
+// the subprocess getBranch avoids is affordable here.
+bool pushLanded(const(char)[] root, const(char)[] branch) {
+    if (__ctfe || root.length == 0 || branch.length == 0) return false;
+
+    // popen is /bin/sh, so a quote in either value is sh source. Neither is
+    // worth escaping for: answer no and let the caller say the push did not land.
+    foreach (c; root) if (c == '\'') return false;
+    foreach (c; branch) if (c == '\'') return false;
+
+    __gshared ZBuf cmd;
+    cmd.reset();
+    // for-each-ref and not rev-parse: --verify takes one revision, and a ref
+    // that is not there prints nothing rather than failing the whole command.
+    cmd.put("git -C '");
+    cmd.put(root);
+    cmd.put("' for-each-ref --format='%(objectname)' 'refs/heads/");
+    cmd.put(branch);
+    cmd.put("' 'refs/remotes/origin/");
+    cmd.put(branch);
+    cmd.put("' 2>/dev/null");
+
+    auto pipe = popen(cmd.ptr(), "r");
+    if (pipe is null) return false;
+    __gshared char[256] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+    return landedFromRefs(outBuf[0 .. n]);
+}
+
 const(char)[] getBranch(const(char)[] cwd) {
     __gshared char[256] branchBuf = 0;
 
     size_t repoRootLen;
     auto f = findGitHead(cwd, repoRootLen);
-    if (f is null) return "unknown";
+    if (f is null) return null;
 
     auto n = fread(&branchBuf[0], 1, branchBuf.length - 1, f);
     fclose(f);
 
-    if (n == 0) return "unknown";
-
-    // .git/HEAD contains "ref: refs/heads/<branch>\n"
-    enum prefix = "ref: refs/heads/";
-    if (n > prefix.length && branchBuf[0 .. prefix.length] == prefix) {
-        size_t end = n;
-        while (end > 0 && (branchBuf[end - 1] == '\n' || branchBuf[end - 1] == '\r'))
-            end--;
-        if (end > prefix.length)
-            return branchBuf[prefix.length .. end];
-    }
-
-    return "unknown";
+    return branchFromHead(branchBuf[0 .. n]);
 }
