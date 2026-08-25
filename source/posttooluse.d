@@ -194,6 +194,25 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 // same once-per-tool-call guard: a push is one push.
                 if (c.ritual.length > 0) {
                     if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
+                    // A rejected push is still a PostToolUse. Performing for it
+                    // deploys a commit the remote never received.
+                    if (isGitPushCommand(detail)) {
+                        import git : pushLanded, getBranch;
+                        auto pushedBranch = getBranch(where);
+                        if (!pushLanded(where, pushedBranch)) {
+                            import core.stdc.stdio : fputs, stderr, fwrite;
+                            fputs("ground: ", stderr);
+                            fwrite(c.name.ptr, 1, c.name.length, stderr);
+                            fputs(" did not perform — origin does not have ", stderr);
+                            if (pushedBranch.length > 0)
+                                fwrite(pushedBranch.ptr, 1, pushedBranch.length, stderr);
+                            else fputs("this branch", stderr);
+                            fputs(" as this tree has it: ", stderr);
+                            fwrite(where.ptr, 1, where.length, stderr);
+                            fputs("\n", stderr);
+                            continue;
+                        }
+                    }
                     if (edb !is null && toolUseId.length > 0
                         && execFireExists(edb, c.name, sessionId, toolUseId))
                         continue;

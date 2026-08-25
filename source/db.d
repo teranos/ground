@@ -281,10 +281,12 @@ bool applySchema(sqlite3* db) {
     // What throws cannot answer once the walk has moved on: how often the
     // world was not ready. Rows written before this read 0, not "never held".
     ensureColumn(db, "ritual_position", "holds", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "evals", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "rev", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "mic", "TEXT NOT NULL DEFAULT 'ground'");
     ensureColumn(db, "ritual_position", "mic_at", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "said", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "ritual_position", "spoke", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "acted_at", "INTEGER NOT NULL DEFAULT 0");
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
@@ -648,6 +650,7 @@ void attestEventAt(
     int pid
 ) {
     auto branch = getBranch(cwd);
+    if (branch is null) branch = "unknown";
 
     __gshared ZBuf subjects;
     __gshared ZBuf predicates;

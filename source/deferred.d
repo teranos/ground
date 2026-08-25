@@ -68,7 +68,10 @@ void writeDeferredMessage(
     __gshared ZBuf attribs;
     jsonAttributesDeferred(attribs, predBuf.slice(), message, afterUnix);
 
+    // The label belongs where a person reads it. Inside getBranch it was data,
+    // and a caller could not tell it from a branch actually named that.
     auto branch = getBranch(cwd);
+    if (branch is null) branch = "unknown";
     auto ts = formatTimestamp();
 
     __gshared ZBuf subjects;

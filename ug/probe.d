@@ -11,8 +11,9 @@ enum HOST = "https://api.q.sbvh.nl";
 // and a credential must not be handed to whatever curl that PATH resolves.
 enum CURL = "/usr/bin/curl";
 
-// Where the token is, under the home the row is running as.
-enum TOKEN_FILE = "/.qntx/collet-token";
+// Where the token is, under the home the row is running as. One file, so there
+// is one thing to rotate and nothing that can go stale unnoticed beside it.
+enum TOKEN_FILE = "/.qntx/token";
 
 // Longer than the frame, deliberately: a probe that gave up inside a second
 // would report a timeout the box never had.

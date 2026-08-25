@@ -139,7 +139,7 @@ project {
 }
 ```
 
-The status line, rendered by collet:
+The status line, rendered by ug:
 
 ```
 watcher > exists > [kill] > gone > rebuild > answers > new
@@ -159,10 +159,8 @@ A held rite is the bracketed one in lighter gray: the position is there, the
 command is not running, it ran before. The same rite blinking blue is the
 command running right now. No glyph carries any of this.
 
-This table is implemented twice, from the same row and without shared code —
-once in collet and once in ug, where it is `perf.d` and every line of it is a
-`static assert`. A glyph the build has no colour for draws nothing rather than
-being guessed at as pending.
+This table is `perf.d`, where every line of it is a `static assert`. A glyph the
+build has no colour for draws nothing rather than being guessed at as pending.
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|

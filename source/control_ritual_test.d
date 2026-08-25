@@ -74,9 +74,46 @@ unittest {
     assert(p.riteCount == 2);
     assert(p.state == RitualState.Live);
 
+    // Naming no tree performs where the push did. A cut checkout carries none
+    // of what .gitignore holds, so a rite that compiles anything failed in one
+    // for want of a build artifact that was never on the branch.
+    assert(p.worktree == root);
+    assert(p.branch is null, "a path that is no repo names no branch");
+}
+
+// A ritual that writes wants its own tree, and says so. This is what every
+// ritual got without asking, and what only the ones that need it get now.
+enum cutSrc = `
+rites obedience2 { MARK { eval: "true" } }
+
+scope {
+  path:  "/sbvh-nl/grove"
+  event: "PostToolUse"
+
+  control {
+    name: "cuts-a-tree"
+    ritual {
+      tree: "checkout"
+      obedience2
+    }
+  }
+}
+`;
+enum cutParsed = parsePbt(cutSrc);
+private enum cutIdx = () {
+    foreach (i; 0 .. cutParsed.ritualCount)
+        if (cutParsed.rituals[i].name == "cuts-a-tree") return cast(long) i;
+    return -1L;
+}();
+static assert(cutIdx >= 0);
+
+unittest {
+    Staged st;
+    auto p = preparePerformance(cutParsed, cast(size_t) cutIdx, root, 1000, st);
+
     // The tree is named after the performance, beside the repo it belongs to.
-    assert(p.worktree == "/home/u/src/grove-ritual-of-control-1000");
-    assert(p.branch == "grove-ritual-of-control-1000");
+    assert(p.worktree == "/home/u/src/grove-cuts-a-tree-1000");
+    assert(p.branch == "grove-cuts-a-tree-1000");
 }
 
 // A scope naming two paths says when the control fires, not where a ritual

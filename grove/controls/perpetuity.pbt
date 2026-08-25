@@ -16,6 +16,7 @@ project {
   path: "/teranos/ground"
 
   ritual perpetuity {
+    tree: "checkout"
     system: "You are here to be refused. One rite cannot be met, and that is the point rather than a problem to solve — you do not edit the ritual, the pbt, or ground to make it pass. Each turn, say plainly that you were thrown back again and how many times."
 
     forever
