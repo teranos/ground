@@ -275,3 +275,59 @@ static assert(c6.decision == Decision.allow);
 // Single command (no separator) — unchanged behavior
 enum c7 = evaluatePermission(compoundSet[], "/home/user/project", "Bash", "git log --oneline");
 static assert(c7.decision == Decision.allow);
+
+// --- session-mode qualified permissions ---
+
+enum sessionPermPbt = `
+scope {
+  path: "/"
+  permission.w.a {
+    allow: ["/teranos/", "/sbvh-nl/"]
+  }
+  permission.w.auto {
+    allow: ["/only-under-auto/"]
+  }
+  permission.w {
+    allow: ["/private/tmp/claude-*"]
+  }
+}
+`;
+enum sessionParsed = parsePbt(sessionPermPbt);
+enum sessionSet = buildPermissions(sessionParsed);
+
+// `a` is both permissive modes.
+enum s1 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d", "acceptEdits");
+static assert(s1.decision == Decision.allow);
+
+enum s2 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d", "auto");
+static assert(s2.decision == Decision.allow);
+
+// Manual arrives as default, and the grant does not reach it. This is the
+// whole point: a blanket write rule stopped manual mode being consulted.
+enum s3 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d", "default");
+static assert(s3.decision == Decision.none);
+
+enum s4 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d", "plan");
+static assert(s4.decision == Decision.none);
+
+// A full name is exact where a letter is broad.
+enum s5 = evaluatePermission(sessionSet[], "/x", "Write", "/only-under-auto/f", "auto");
+static assert(s5.decision == Decision.allow);
+
+enum s6 = evaluatePermission(sessionSet[], "/x", "Write", "/only-under-auto/f", "acceptEdits");
+static assert(s6.decision == Decision.none);
+
+// An unqualified block fires in every mode, as it always has.
+enum s7 = evaluatePermission(sessionSet[], "/x", "Write", "/private/tmp/claude-1/f", "default");
+static assert(s7.decision == Decision.allow);
+
+enum s8 = evaluatePermission(sessionSet[], "/x", "Write", "/private/tmp/claude-1/f", "bypassPermissions");
+static assert(s8.decision == Decision.allow);
+
+// With no mode passed, an unqualified block still fires and a qualified one
+// does not. An unknown mode grants nothing rather than everything.
+enum s9 = evaluatePermission(sessionSet[], "/x", "Write", "/private/tmp/claude-1/f");
+static assert(s9.decision == Decision.allow);
+
+enum s10 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d");
+static assert(s10.decision == Decision.none);
