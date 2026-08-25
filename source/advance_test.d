@@ -172,7 +172,7 @@ unittest {
 // Measured: a ritual walked its rites until it was aborted by hand, because
 // a fruit in the tree had no rite to pick it and CHECKTREE never emptied.
 
-import ritual : MAX_GOTOS, RitualState;
+import ritual : MAX_GOTOS, MAX_EVALS, RitualState;
 
 enum loopSrc = `
 rites spin {
@@ -223,6 +223,41 @@ unittest {
 
     assert(p.state == RitualState.Halted);
     assert(p.gotos == 3, "the project's number bounds the walk, not ground's");
+    sqlite3_close(db);
+}
+
+// A rite with no goto to bound it. ONBRANCH read a branch decided before rite
+// one, held 103 turns of a session, and would have held forever.
+enum stuckSrc = `
+rites stuck {
+  ASKS { eval: "false" }
+}
+
+project {
+  path: "/src/stuck"
+  ritual asking { stuck }
+}
+`;
+enum stuckFlat = flatten(parsePbt(stuckSrc), 0);
+
+unittest {
+    auto db = memDb();
+    auto p = start("asking", stuckFlat.count);
+    p.id = "stuck-1";
+    p.repo = "/src/stuck";
+    p.worktree = "/tmp";
+
+    size_t turns;
+    while (p.state == RitualState.Live && turns < 500) {
+        auto r = advance(db, "sess", p, stuckFlat, 100 + cast(long) turns);
+        if (!r.ran) break;
+        p = r.after;
+        turns++;
+    }
+
+    assert(p.state == RitualState.Halted, "an eval that cannot change is not a wait");
+    assert(p.evals == MAX_EVALS);
+    assert(p.gotos == 0, "nothing jumped, so the goto bound is not what stopped it");
     sqlite3_close(db);
 }
 
