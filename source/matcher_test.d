@@ -23,6 +23,37 @@ static assert(effectiveCwd("cd /a && echo x && cd /b && echo y", "/home/u") == "
 
 // A quoted path still resolves.
 static assert(effectiveCwd(`cd "/srv/my app" && echo hi`, "/home/u") == "/srv/my app");
+
+// cd is not the only way a command says where it works. A push aimed elsewhere
+// with -C was recorded where the session stood: one started a QNTX deploy from
+// a push to another repo, and one deployed main from a push made in a worktree.
+static assert(effectiveCwd("git -C /srv/app push", "/home/u/proj") == "/srv/app");
+static assert(effectiveCwd(`git -C "/srv/my app" push`, "/home/u") == "/srv/my app");
+
+// Two gits, two places, and one answer to give: the last one that ran.
+static assert(effectiveCwd("git -C /a push && git push", "/home/u") == "/home/u");
+
+// A pipe is one command's output feeding another, not a second place. Reading
+// the last segment let `| tail -3` move a push to wherever the session stood,
+// which deployed main from a push made in a worktree.
+static assert(effectiveCwd("git -C /a push 2>&1 | tail -3", "/home/u") == "/a");
+static assert(effectiveCwd("git -C /a push | head -1 | wc -l", "/home/u") == "/a");
+
+// Nothing here is git, so the shell's own place is the answer.
+static assert(effectiveCwd("cd /srv/app && ls | wc -l", "/home/u") == "/srv/app");
+
+// A cd already moved the shell, and a bare git there runs in the place it left.
+static assert(effectiveCwd("cd /srv/app && git push", "/home/u") == "/srv/app");
+
+// Only -C names a place. Another flag before the subcommand does not.
+static assert(effectiveCwd("git --no-pager push", "/home/u") == "/home/u");
+static assert(effectiveCwd("git push", "/home/u") == "/home/u");
+
+// After the subcommand, -C is that subcommand's own word: commit reuses a
+// message with it, and reading HEAD as a directory would move the whole ritual.
+static assert(effectiveCwd("git commit -C HEAD", "/home/u") == "/home/u");
+static assert(effectiveCwd("git -c user.name=x push", "/home/u") == "/home/u");
+static assert(effectiveCwd("git -c user.name=x -C /srv/app push", "/home/u") == "/srv/app");
 import controls : allScopes;
 
 // CTFE predicate — is a named control present in the built scopes?
