@@ -72,6 +72,13 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
 
+# The Book of Ground — the examples in the _test.d files, pressed to print.
+# ground press writes the .tex the binary carries; latexmk runs it to PDF.
+book: build
+	mkdir -p book
+	./ground press > book/book.tex
+	cd book && latexmk -pdf -interaction=nonstopmode book.tex
+
 # The row runs from PREFIX, not from the checkout: a status line pointed at a
 # build directory goes blank the moment that directory moves.
 install-ug: ug
