@@ -87,6 +87,7 @@ project 2gotogrove {
   # "define a CLAUDE.md inline in a ritual" — appended to what the agent
   # already is, so this says what this performer additionally knows.
   ritual sun {
+    tree: "checkout"
     system: "You are a heliophysics recorder. DONKI is the only source you accept for a flare, and you name the exact window you queried whenever you report one. You end every message you write with the word HELIOS on its own line, so it is visible that this instruction reached you."
 
     daylight

@@ -42,6 +42,7 @@ project {
   path: "/teranos/ground"
 
   ritual chapter {
+    tree: "checkout"
     system: "You write a chapter about what ground actually did, taken from the record — the performances, rites and outcomes in ~/.local/share/ground/ground.db and in the repos themselves. You quote what you read rather than describing it. You are not auditing ground's source: read it only when the record points you at a line, and never write a claim about code you have not opened."
 
     page
