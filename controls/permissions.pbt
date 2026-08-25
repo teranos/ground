@@ -63,10 +63,3 @@ permission.r {
 permission.w {
   allow: ["/private/tmp/claude-*", "/tmp/claude-*"]
 }
-
-# One set of repositories, one answer. A session that launched in one of them
-# could edit it and had to ask for every other, so the same edit needed
-# approval or not depending only on where the terminal happened to be.
-permission.w {
-  allow: ["/teranos/", "/sbvh-nl/"]
-}
