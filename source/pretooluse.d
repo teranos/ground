@@ -556,6 +556,14 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             writeDenyResponse(permResult.msg);
             return 0;
         }
+
+        // An allow was computed here and thrown away, so a write rule could
+        // deny and never permit. Which meant where a session launched decided
+        // whether an edit asked, and no rule could say otherwise.
+        if (permResult.decision == Decision.allow) {
+            writeContextResponse("", "allow");
+            return 0;
+        }
     }
 
     // MCP tool controls — scope-level mcp_tool + control-level mcp_arg matching
