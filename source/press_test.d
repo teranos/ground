@@ -8,8 +8,9 @@ module press_test;
 // rendering writes into a Sink, so the same functions run at CTFE and at
 // runtime under -betterC alike.
 
-import press : Example, Chapter, Sink, parseChapter, texEscapeInto,
-               countStaticAsserts, countRuntimeAsserts,
+import press : Example, Chapter, Lang, Part, Counts, Sink, parseChapter,
+               texEscapeInto, countStaticAsserts, countRuntimeAsserts,
+               countControls, countRitesBlocks,
                renderChapterInto, renderBookInto;
 
 // --- parseChapter ---
@@ -102,6 +103,92 @@ private enum chB2B = parseChapter("v", backToBack);
 static assert(chB2B.count == 2);
 static assert(chB2B.examples[1].prose == "// Second, no blank line above.");
 
+// --- parseChapter, pbt ---
+
+// The pbt is the book too — "the literal pbt examples and fixtures being
+// extracted out". Same anatomy, different grammar: prose is the # comment
+// block above a top-level block, and the example is that block whole,
+// verbatim, inner comments and blank lines included.
+private enum pbtSample =
+    "# The law above the block.\n" ~
+    "scope {\n" ~
+    "  event: \"PreToolUse\"\n" ~
+    "\n" ~
+    "  control {\n" ~
+    "    name: \"x\"\n" ~
+    "  }\n" ~
+    "}\n" ~
+    "\n" ~
+    "# A second block.\n" ~
+    "rites r {\n" ~
+    "  A { eval: \"true\" }\n" ~
+    "}\n";
+
+private enum chPbt = parseChapter("law", pbtSample, Lang.pbt);
+
+static assert(chPbt.count == 2);
+static assert(chPbt.examples[0].prose == "# The law above the block.");
+static assert(chPbt.examples[0].code ==
+    "scope {\n  event: \"PreToolUse\"\n\n  control {\n    name: \"x\"\n  }\n}");
+static assert(chPbt.examples[1].prose == "# A second block.");
+static assert(chPbt.examples[1].code == "rites r {\n  A { eval: \"true\" }\n}");
+
+// A backtick eval carrying JSON braces, and a double-quoted value carrying
+// escaped quotes, must not move the depth counter — boxdeath's watcher rite
+// posts exactly such a body, and splitting it would tear the block apart.
+private enum pbtQuoted =
+    "rites b {\n" ~
+    "  W { eval: `curl -d \"{\\\"id\\\":1}\"` }\n" ~
+    "  X { msg: \"brace { in text\" }\n" ~
+    "}\n";
+
+private enum chQuoted = parseChapter("b", pbtQuoted, Lang.pbt);
+
+static assert(chQuoted.count == 1);
+static assert(chQuoted.examples[0].code[0 .. 8] == "rites b ");
+static assert(chQuoted.examples[0].code[$ - 1] == '}');
+
+// A backtick string spans lines — HOLD's eval does — and the braces of the
+// lines inside it stay words, not structure.
+private enum pbtMultiline =
+    "rites m {\n" ~
+    "  H {\n" ~
+    "    eval: `\n" ~
+    "      test -z \"$(git status --porcelain)\"\n" ~
+    "    `\n" ~
+    "  }\n" ~
+    "}\n";
+
+static assert(parseChapter("m", pbtMultiline, Lang.pbt).count == 1);
+
+// A leading comment block with no block under it introduces the chapter —
+// coinflip.pbt and ritual-of-control.pbt open exactly like this.
+private enum pbtIntro =
+    "# A ritual whose whole job is to watch CI it cannot influence.\n" ~
+    "\n" ~
+    "scope {\n" ~
+    "  event: \"PostToolUse\"\n" ~
+    "}\n";
+
+private enum chPbtIntro = parseChapter("coin", pbtIntro, Lang.pbt);
+
+static assert(chPbtIntro.intro == "# A ritual whose whole job is to watch CI it cannot influence.");
+static assert(chPbtIntro.count == 1);
+
+// A # comment inside a block belongs to the block: the rites of moon carry
+// their comments with them onto the page.
+private enum pbtInner =
+    "rites sky {\n" ~
+    "  # Starts every walk from nothing.\n" ~
+    "  WIPE { eval: \"true\" }\n" ~
+    "}\n";
+
+private enum chInner = parseChapter("sky", pbtInner, Lang.pbt);
+
+static assert(chInner.count == 1);
+static assert(chInner.examples[0].code ==
+    "rites sky {\n  # Starts every walk from nothing.\n  WIPE { eval: \"true\" }\n}");
+
 // --- texEscapeInto ---
 
 // Prose goes through LaTeX, so the ten specials are escaped. Code does not —
@@ -132,6 +219,13 @@ static assert(countStaticAsserts("assert(x);") == 0);
 static assert(countRuntimeAsserts("assert(x);\nstatic assert(y);") == 1);
 static assert(countRuntimeAsserts(sample) == 0);
 
+// The fleet is counted the same way: standing controls and rites blocks.
+static assert(countControls(pbtSample) == 1);
+static assert(countControls(pbtQuoted) == 0);
+static assert(countRitesBlocks(pbtSample) == 1);
+static assert(countRitesBlocks(pbtQuoted) == 1);
+static assert(countRitesBlocks("  rites indented {\n}\n") == 0);
+
 // --- rendering ---
 
 private Sink!16384 chapterTex(Chapter c) {
@@ -158,12 +252,20 @@ private enum chUnderscore = parseChapter("u",
     "module u_test;\n\n// about strop_test rules\nstatic assert(true);\n");
 static assert(chapterTex(chUnderscore).count("strop\\_test") == 1);
 
+// A pbt chapter's prose sheds its # the way a D chapter's sheds its //.
+static assert(chapterTex(chPbt).count("The law above the block.") == 1);
+static assert(chapterTex(chPbt).count("# The law") == 0);
+
 // The book is one self-contained document: class, fonts, title page with the
-// impression, every chapter, colophon with the counts, and the closing.
+// impression, parts holding chapters, colophon with the counts, the closing.
 private Sink!65536 bookTex() {
-    Chapter[2] cs = [ch, chIntro];
+    Chapter[1] pbtCs = [chPbt];
+    Chapter[2] codeCs = [ch, chIntro];
+    Part[2] parts = [Part("The Controls", pbtCs[]),
+                     Part("Laws and Practices", codeCs[])];
     Sink!65536 k;
-    renderBookInto(k, cs[], "v0.9.0-test", "2026-08-25", 313, 42);
+    renderBookInto(k, parts[], "v0.9.0-test", "2026-08-25",
+                   Counts(313, 42, 7, 5));
     return k;
 }
 
@@ -172,9 +274,14 @@ private enum book = bookTex();
 static assert(book.count("\\documentclass") == 1);
 static assert(book.count("\\begin{document}") == 1);
 static assert(book.count("\\end{document}") == 1);
+static assert(book.count("\\part{The Controls}") == 1);
+static assert(book.count("\\part{Laws and Practices}") == 1);
+static assert(book.count("\\chapter{law}") == 1);
 static assert(book.count("\\chapter{x}") == 1);
 static assert(book.count("\\chapter{y}") == 1);
 static assert(book.count("The Book of Ground") == 1);
 static assert(book.count("v0.9.0-test") == 1);
 static assert(book.count("313") == 1);
 static assert(book.count("42") == 1);
+static assert(book.count("7 controls") == 1);
+static assert(book.count("5 rites") == 1);

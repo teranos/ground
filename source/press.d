@@ -2,12 +2,15 @@ module press;
 
 // The press for the Book of Ground.
 //
-// The book is already written — it sits in the _test.d files, where every
-// contiguous comment block is prose and the asserts beneath it are the
-// proven statement the prose explains. press does not author anything: it
-// sets that type into LaTeX at CTFE, so the binary carries its own pages
-// and `ground press` at runtime only runs them off. A page that stops being
-// true stops the build.
+// The book is already written — it sits in the pbt files and the _test.d
+// files, where every contiguous comment block is prose and the block
+// beneath it is the statement the prose explains. In pbt the statement is
+// "the literal pbt examples and fixtures being extracted out": a control or
+// a rites block, whole and verbatim. In the test files it is the asserts,
+// proven where they live. press does not author anything: it sets that type
+// into LaTeX at CTFE, so the binary carries its own pages and `ground
+// press` at runtime only runs them off. A page that stops being true stops
+// the build.
 //
 // "Can't we use .tex to generate the Book of Ground?" — the book contains
 // each and every example, and it contains them because it counted, not
@@ -21,8 +24,8 @@ module press;
 // --- parsed shape ---
 
 struct Example {
-    string prose; // the comment block, // prefixes still on, slice of the file
-    string code;  // the code lines beneath it, verbatim, slice of the file
+    string prose; // the comment block, prefixes still on, slice of the file
+    string code;  // the block beneath it, verbatim, slice of the file
 }
 
 // 512 is capacity, not a cap: parseChapter asserts when a file outgrows it,
@@ -31,9 +34,28 @@ enum MAX_EXAMPLES = 512;
 
 struct Chapter {
     string name;
-    string intro; // leading comment block with no code under it
+    string intro; // leading comment block with nothing under it
     Example[MAX_EXAMPLES] examples;
     size_t count;
+}
+
+// The two grammars the tree writes its book in. dtest groups by blank
+// lines; pbt groups by top-level braced blocks, since a block carries blank
+// lines and its own comments inside itself.
+enum Lang { dtest, pbt }
+
+// A part of the book: a titled run of chapters.
+struct Part {
+    string title;
+    const(Chapter)[] chapters;
+}
+
+// What the colophon states. Filled by counting, never by hand.
+struct Counts {
+    size_t laws;      // static asserts — proven at compile time
+    size_t practices; // runtime asserts — proven when the tests run
+    size_t controls;  // control blocks standing watch
+    size_t rites;     // rites blocks
 }
 
 // --- destination buffer ---
@@ -93,10 +115,17 @@ private bool contains(const(char)[] s, char c) {
 
 // --- parsing ---
 
-// One pass over the file. The module line and imports are neither prose nor
-// proof, so they are not on the page; blank lines separate examples; a
+Chapter parseChapter(string name, string text, Lang lang = Lang.dtest) {
+    final switch (lang) {
+        case Lang.dtest: return parseDtest(name, text);
+        case Lang.pbt:   return parsePbt(name, text);
+    }
+}
+
+// One pass over a test file. The module line and imports are neither prose
+// nor proof, so they are not on the page; blank lines separate examples; a
 // comment line after code opens the next example even with no blank between.
-Chapter parseChapter(string name, string text) {
+private Chapter parseDtest(string name, string text) {
     Chapter ch;
     ch.name = name;
 
@@ -150,10 +179,103 @@ Chapter parseChapter(string name, string text) {
     return ch;
 }
 
+// One pass over a pbt file. An example is a top-level braced block, whole:
+// blank lines and # comments inside it belong to it, the way the rites of
+// moon carry their comments with them. Braces inside backtick evals and
+// double-quoted values are words, not structure — boxdeath's watcher posts
+// a JSON body, and counting its braces would tear the block apart. A
+// backtick string spans lines; a double-quoted one does not.
+private Chapter parsePbt(string name, string text) {
+    Chapter ch;
+    ch.name = name;
+
+    size_t proseStart, proseEnd, codeStart, codeEnd;
+    bool haveProse, haveCode;
+    int depth;
+    bool inBacktick;
+
+    void flushProse() {
+        if (!haveProse) return;
+        if (ch.count == 0 && ch.intro.length == 0) {
+            ch.intro = text[proseStart .. proseEnd];
+        } else {
+            assert(ch.count < MAX_EXAMPLES);
+            ch.examples[ch.count] = Example(text[proseStart .. proseEnd], "");
+            ch.count++;
+        }
+        haveProse = false;
+    }
+
+    void flushExample() {
+        assert(ch.count < MAX_EXAMPLES);
+        ch.examples[ch.count] = Example(
+            haveProse ? text[proseStart .. proseEnd] : "",
+            text[codeStart .. codeEnd]);
+        ch.count++;
+        haveProse = false;
+        haveCode = false;
+    }
+
+    void scanLine(const(char)[] line) {
+        bool inDouble = false;
+        size_t i = 0;
+        while (i < line.length) {
+            auto c = line[i];
+            if (inBacktick) {
+                if (c == '`') inBacktick = false;
+            } else if (inDouble) {
+                if (c == '\\') i++;
+                else if (c == '"') inDouble = false;
+            } else if (c == '`') {
+                inBacktick = true;
+            } else if (c == '"') {
+                inDouble = true;
+            } else if (c == '#') {
+                break;
+            } else if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+            }
+            i++;
+        }
+    }
+
+    size_t pos = 0;
+    while (pos < text.length) {
+        size_t nl = pos;
+        while (nl < text.length && text[nl] != '\n') nl++;
+        auto line = text[pos .. nl];
+        auto t = trimLeft(line);
+
+        bool atTop = depth == 0 && !inBacktick && !haveCode;
+
+        if (atTop && t.length == 0) {
+            flushProse();
+        } else if (atTop && startsWith(t, "#")) {
+            if (!haveProse) { proseStart = pos; haveProse = true; }
+            proseEnd = nl;
+        } else {
+            if (!haveCode) { codeStart = pos; haveCode = true; }
+            scanLine(line);
+            codeEnd = nl;
+            if (depth == 0 && !inBacktick) flushExample();
+        }
+
+        pos = nl + 1;
+    }
+    flushProse();
+
+    // A block the file never closed would fall off the page unnoticed.
+    assert(!haveCode && depth == 0 && !inBacktick);
+
+    return ch;
+}
+
 // --- counting, for the colophon ---
 
-// Laws hold at compile time, practices when the tests run. The split is the
-// book's two parts, and the colophon states both numbers from measurement.
+// Laws hold at compile time, practices when the tests run; controls stand
+// watch and rites walk. The colophon states all four from measurement.
 size_t countStaticAsserts(string text) {
     enum needle = "static assert";
     size_t n = 0, i = 0;
@@ -180,6 +302,30 @@ size_t countRuntimeAsserts(string text) {
     return n;
 }
 
+size_t countControls(string text) {
+    enum needle = "control {";
+    size_t n = 0, i = 0;
+    while (i + needle.length <= text.length) {
+        if (text[i .. i + needle.length] == needle) { n++; i += needle.length; }
+        else i++;
+    }
+    return n;
+}
+
+// A rites block opens at column zero — an indented mention is a reference,
+// not a declaration.
+size_t countRitesBlocks(string text) {
+    enum needle = "rites ";
+    size_t n = 0, pos = 0;
+    while (pos < text.length) {
+        size_t nl = pos;
+        while (nl < text.length && text[nl] != '\n') nl++;
+        if (startsWith(text[pos .. nl], needle)) n++;
+        pos = nl + 1;
+    }
+    return n;
+}
+
 // --- rendering ---
 
 // Prose passes through LaTeX, so its specials are escaped. Code never comes
@@ -200,8 +346,9 @@ void texEscapeInto(size_t N)(ref Sink!N k, const(char)[] s) {
     }
 }
 
-// The // comes off each line here and only here — the parser keeps slices of
-// the file untouched so nothing is lost between reading and setting.
+// The comment marker comes off each line here and only here — the parser
+// keeps slices of the file untouched so nothing is lost between reading and
+// setting. Both grammars shed their marker the same way.
 private void proseInto(size_t N)(ref Sink!N k, string prose) {
     size_t pos = 0;
     bool first = true;
@@ -211,6 +358,8 @@ private void proseInto(size_t N)(ref Sink!N k, string prose) {
         auto line = trimLeft(prose[pos .. nl]);
         if (startsWith(line, "// ")) line = line[3 .. $];
         else if (startsWith(line, "//")) line = line[2 .. $];
+        else if (startsWith(line, "# ")) line = line[2 .. $];
+        else if (startsWith(line, "#")) line = line[1 .. $];
         if (!first) k.putc('\n');
         first = false;
         texEscapeInto(k, line);
@@ -249,9 +398,11 @@ void renderChapterInto(size_t N)(ref Sink!N k, ref const Chapter ch) {
     }
 }
 
-void renderBookInto(size_t N)(ref Sink!N k, const(Chapter)[] chapters,
+void renderBookInto(size_t N)(ref Sink!N k, const(Part)[] parts,
                               const(char)[] version_, const(char)[] date,
-                              size_t laws, size_t practices) {
+                              Counts counts) {
+    // The em dash is the one character the tree writes that pdflatex's
+    // verbatim cannot set; literate maps it to a typeset dash.
     k.put("\\documentclass[10pt,twoside]{memoir}\n"
         ~ "\\usepackage[T1]{fontenc}\n"
         ~ "\\usepackage[utf8]{inputenc}\n"
@@ -265,6 +416,7 @@ void renderBookInto(size_t N)(ref Sink!N k, const(Chapter)[] chapters,
         ~ "\\chapterstyle{ell}\n"
         ~ "\\lstset{basicstyle=\\ttfamily\\small, breaklines=true,\n"
         ~ "  columns=fullflexible, keepspaces=true,\n"
+        ~ "  literate={—}{{---}}1,\n"
         ~ "  frame=leftline, framerule=0.4pt,\n"
         ~ "  xleftmargin=1em, aboveskip=0.6em, belowskip=0.9em}\n"
         ~ "\\begin{document}\n"
@@ -287,21 +439,31 @@ void renderBookInto(size_t N)(ref Sink!N k, const(Chapter)[] chapters,
         ~ "\\tableofcontents*\n"
         ~ "\\mainmatter\n\n");
 
-    foreach (i; 0 .. chapters.length)
-        renderChapterInto(k, chapters[i]);
+    foreach (p; 0 .. parts.length) {
+        k.put("\\part{");
+        texEscapeInto(k, parts[p].title);
+        k.put("}\n\n");
+        foreach (i; 0 .. parts[p].chapters.length)
+            renderChapterInto(k, parts[p].chapters[i]);
+    }
 
     k.put("\\backmatter\n"
         ~ "\\chapter{Colophon}\n\n"
-        ~ "This impression was pressed by ground from its own test files.\n"
+        ~ "This impression was pressed by ground from its own tree.\n"
         ~ "Nothing in it was authored for the page: every passage is a\n"
-        ~ "comment block from the tree, and every listing beneath one is the\n"
-        ~ "statement it explains, proven where it lives.\n\n"
+        ~ "comment block, and every listing beneath one is the block it\n"
+        ~ "explains — a control standing watch, a ritual's rites, or an\n"
+        ~ "assertion proven where it lives.\n\n"
         ~ "It contains ");
-    numInto(k, laws);
+    numInto(k, counts.controls);
+    k.put(" controls and ");
+    numInto(k, counts.rites);
+    k.put(" rites blocks, set verbatim; ");
+    numInto(k, counts.laws);
     k.put(" laws --- statements the compiler re-proves at compile time on\n"
         ~ "every build, so a page that stops being true stops the build ---\n"
         ~ "and ");
-    numInto(k, practices);
+    numInto(k, counts.practices);
     k.put(" practices, asserted when the tests run.\n\n"
         ~ "The counts are measured, not remembered.\n"
         ~ "\\end{document}\n");
@@ -309,24 +471,41 @@ void renderBookInto(size_t N)(ref Sink!N k, const(Chapter)[] chapters,
 
 // --- the first impression ---
 
-// The chapters of this impression. Adding one is one line: name the module,
-// string-import its test file. The text is baked in at compile time, so the
-// installed binary presses this book from anywhere, checkout or not.
-private static immutable string[2][3] IMPRESSION = [
+// The chapters of this impression, one array per part. Adding a chapter is
+// one line: name it, string-import its file. The text is baked in at
+// compile time, so the installed binary presses this book from anywhere,
+// checkout or not.
+
+private static immutable string[2][6] CONTROLS_PBT = [
+    ["controls",           import("controls/controls.pbt")],
+    ["commits",            import("controls/commits.pbt")],
+    ["comments",           import("controls/comments.pbt")],
+    ["permissions",        import("controls/permissions.pbt")],
+    ["symbol-not-address", import("controls/symbol-not-address.pbt")],
+    ["ug-docs-adherence",  import("controls/ug-docs-adherence.pbt")],
+];
+
+private static immutable string[2][9] RITUALS_PBT = [
+    ["grove",             import("grove/controls/grove.pbt")],
+    ["sun",               import("grove/controls/sun.pbt")],
+    ["moon",              import("grove/controls/moon.pbt")],
+    ["perpetuity",        import("grove/controls/perpetuity.pbt")],
+    ["coinflip",          import("grove/controls/coinflip.pbt")],
+    ["ritual-of-control", import("grove/controls/ritual-of-control.pbt")],
+    ["jump",              import("grove/controls/jump.pbt")],
+    ["2goto",             import("grove/controls/2goto.pbt")],
+    ["chapters",          import("grove/controls/chapters.pbt")],
+];
+
+private static immutable string[2][3] CODE_TESTS = [
     ["strop", import("source/strop_test.d")],
     ["exec",  import("source/exec_test.d")],
     ["perf",  import("ug/perf_test.d")],
 ];
 
-private size_t sumStatic()(const string[2][] entries) {
+private size_t sumCount()(const string[2][] entries, size_t function(string) f) {
     size_t n = 0;
-    foreach (e; entries) n += countStaticAsserts(e[1]);
-    return n;
-}
-
-private size_t sumRuntime()(const string[2][] entries) {
-    size_t n = 0;
-    foreach (e; entries) n += countRuntimeAsserts(e[1]);
+    foreach (e; entries) n += f(e[1]);
     return n;
 }
 
@@ -339,18 +518,39 @@ private string trimEnd(string s) {
 
 // Working room for one pressing. The exact length is measured below and the
 // stored book is right-sized; this is scaffolding the finished binary drops.
-private enum PRESS_CAP = 1 << 19;
+private enum PRESS_CAP = 1 << 20;
 
 private Sink!PRESS_CAP pressOnce()() {
-    Chapter[IMPRESSION.length] chapters;
-    foreach (i, e; IMPRESSION)
-        chapters[i] = parseChapter(e[0], e[1]);
+    Chapter[CONTROLS_PBT.length] controlChapters;
+    foreach (i, e; CONTROLS_PBT)
+        controlChapters[i] = parseChapter(e[0], e[1], Lang.pbt);
+
+    Chapter[RITUALS_PBT.length] ritualChapters;
+    foreach (i, e; RITUALS_PBT)
+        ritualChapters[i] = parseChapter(e[0], e[1], Lang.pbt);
+
+    Chapter[CODE_TESTS.length] codeChapters;
+    foreach (i, e; CODE_TESTS)
+        codeChapters[i] = parseChapter(e[0], e[1]);
+
+    Part[3] parts = [Part("The Controls", controlChapters[]),
+                     Part("The Rituals", ritualChapters[]),
+                     Part("Laws and Practices", codeChapters[])];
+
+    Counts counts = {
+        laws:      sumCount(CODE_TESTS[], &countStaticAsserts),
+        practices: sumCount(CODE_TESTS[], &countRuntimeAsserts),
+        controls:  sumCount(CONTROLS_PBT[], &countControls)
+                 + sumCount(RITUALS_PBT[], &countControls),
+        rites:     sumCount(CONTROLS_PBT[], &countRitesBlocks)
+                 + sumCount(RITUALS_PBT[], &countRitesBlocks),
+    };
+
     Sink!PRESS_CAP k;
-    renderBookInto(k, chapters[],
+    renderBookInto(k, parts[],
                    trimEnd(import(".version")),
                    trimEnd(import(".builddate")),
-                   sumStatic(IMPRESSION[]),
-                   sumRuntime(IMPRESSION[]));
+                   counts);
     return k;
 }
 
