@@ -195,11 +195,15 @@ NormalizedCmd normalizeGitC(const(char)[] cmd) {
 // Split compound commands on &&, ;, || and evaluate each part.
 // All parts must be allowed for the compound to be allowed.
 // Any deny in any part → deny the whole thing.
+// sessionMode is what Claude Code reported for this call: default, plan,
+// acceptEdits, auto, dontAsk or bypassPermissions. Unset, a block that names
+// a session mode grants nothing — an unknown mode is not every mode.
 PermissionResult evaluatePermission(
     const(PermissionScope)[] scopes,
     const(char)[] cwd,
     const(char)[] toolName,
     const(char)[] command,
+    const(char)[] sessionMode = "",
 ) {
     if (toolName == "Bash") {
         auto parts = splitCompound(command);
@@ -208,7 +212,7 @@ PermissionResult evaluatePermission(
             worst.decision = Decision.allow; // start optimistic
             foreach (i; 0 .. parts.count) {
                 auto part = trimSlice(parts.parts[i]);
-                auto r = evaluateSingle(scopes, cwd, toolName, part, command);
+                auto r = evaluateSingle(scopes, cwd, toolName, part, command, sessionMode);
                 if (r.decision == Decision.deny)
                     return r; // deny immediately
                 if (r.decision < worst.decision) {
@@ -218,7 +222,7 @@ PermissionResult evaluatePermission(
             return worst;
         }
     }
-    return evaluateSingle(scopes, cwd, toolName, command, command);
+    return evaluateSingle(scopes, cwd, toolName, command, command, sessionMode);
 }
 
 private const(char)[] trimSlice(const(char)[] s) {
@@ -275,6 +279,7 @@ private PermissionResult evaluateSingle(
     const(char)[] toolName,
     const(char)[] command,
     const(char)[] fullCommand,
+    const(char)[] sessionMode = "",
 ) {
     import hooks : scopeMatches;
 
@@ -290,8 +295,11 @@ private PermissionResult evaluateSingle(
 
         foreach (ref p; sc.permissions) {
             if (p.mode.length > 0) {
-                import posttooluse : modeMatches;
+                import posttooluse : modeMatches, sessionSegment, sessionMatches;
                 if (!modeMatches(p.mode, toolName)) continue;
+                // The half after the dot. Absent, it is every mode, which is
+                // what every block written before the session axis means.
+                if (!sessionMatches(sessionSegment(p.mode), sessionMode)) continue;
             } else {
                 // no mode = Bash only
                 if (toolName != "Bash") continue;

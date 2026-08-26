@@ -1,6 +1,7 @@
 module posttooluse_test;
 
-import posttooluse : postToolUseMatch, modeMatches, isGitPushCommand;
+import posttooluse : postToolUseMatch, modeMatches, isGitPushCommand,
+                     toolSegment, sessionSegment, sessionMatches;
 import hooks : Control, Cmd, cmd, Msg, FilePath, Mode;
 
 // --- isGitPushCommand: detection for the CI status writer ---
@@ -87,3 +88,70 @@ static assert(!modeMatches("r", "WebSearch"));
 // no mode, no tool — fires for any tool
 static assert(postToolUseMatch(fpCtrl, null, "/Users/me/ground/controls/permissions.pbt", "Read"));
 static assert(postToolUseMatch(fpCtrl, null, "/Users/me/ground/controls/permissions.pbt", "Edit"));
+
+// --- the session axis ---
+
+// A second dot segment names the session mode. Tool letters stop at the dot.
+static assert(toolSegment("w") == "w");
+static assert(toolSegment("rw.pa") == "rw");
+static assert(toolSegment("w.auto") == "w");
+
+static assert(sessionSegment("w") == "");
+static assert(sessionSegment("rw.pa") == "pa");
+static assert(sessionSegment("w.auto") == "auto");
+
+// Iterating the whole string let the `a` in acceptEdits match Agent, so every
+// session-qualified rule silently widened to a tool it never named.
+static assert(modeMatches("w.acceptEdits", "Write"));
+static assert(!modeMatches("w.acceptEdits", "Agent"));
+static assert(modeMatches("rw.pa", "Read"));
+static assert(modeMatches("rw.pa", "Edit"));
+static assert(!modeMatches("rw.pa", "Agent"));
+
+// An absent session segment is every mode, which is what every block written
+// before today means.
+static assert(sessionMatches("", "default"));
+static assert(sessionMatches("", "acceptEdits"));
+static assert(sessionMatches("", "bypassPermissions"));
+
+// Manual arrives as default and never as manual.
+static assert(sessionMatches("m", "default"));
+static assert(!sessionMatches("m", "acceptEdits"));
+static assert(sessionMatches("p", "plan"));
+static assert(sessionMatches("d", "dontAsk"));
+static assert(sessionMatches("b", "bypassPermissions"));
+
+// `a` is both permissive modes: a rule written for one almost always means
+// the other.
+static assert(sessionMatches("a", "acceptEdits"));
+static assert(sessionMatches("a", "auto"));
+static assert(!sessionMatches("a", "default"));
+
+// Letters combine, the way rw does on the tool side.
+static assert(sessionMatches("pa", "plan"));
+static assert(sessionMatches("pa", "acceptEdits"));
+static assert(sessionMatches("pa", "auto"));
+static assert(!sessionMatches("pa", "default"));
+static assert(sessionMatches("mb", "default"));
+static assert(sessionMatches("mb", "bypassPermissions"));
+static assert(!sessionMatches("mb", "plan"));
+
+// A full name is exact where a letter is broad.
+static assert(sessionMatches("auto", "auto"));
+static assert(!sessionMatches("auto", "acceptEdits"));
+static assert(sessionMatches("acceptEdits", "acceptEdits"));
+static assert(!sessionMatches("acceptEdits", "auto"));
+static assert(sessionMatches("default", "default"));
+static assert(sessionMatches("dontAsk", "dontAsk"));
+static assert(sessionMatches("bypassPermissions", "bypassPermissions"));
+
+// Each name carries a character outside {m,p,a,d,b}, so no name reads as a
+// letter set.
+static assert(!sessionMatches("default", "plan"));
+static assert(!sessionMatches("plan", "default"));
+static assert(!sessionMatches("dontAsk", "default"));
+static assert(!sessionMatches("bypassPermissions", "plan"));
+
+// A mode ground does not recognise matches nothing rather than everything.
+static assert(!sessionMatches("m", "sideways"));
+static assert(!sessionMatches("acceptEdits", ""));
