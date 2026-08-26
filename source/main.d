@@ -202,6 +202,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import ritual : handleDrive;
             return handleDrive(argc, argv);
         }
+        if (cmd == "press") {
+            import press : handlePress;
+            return handlePress();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
