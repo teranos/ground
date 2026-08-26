@@ -32,6 +32,11 @@ struct ParsedPermission {
 
 struct ParsedControl {
     string name;
+    // The # run immediately above the declaration, and the declaration's own
+    // span, keyword through closing brace. Both are slices of the input,
+    // kept so no consumer ever has cause to parse pbt again.
+    string comment;
+    string src;
     // The repo the holding project named, empty when it named none.
     string origin;
     // The ritual this control performs. An inline body is registered like any
@@ -73,6 +78,11 @@ struct ParsedControl {
 }
 
 struct ParsedScope {
+    // The # run immediately above the declaration, and the declaration's own
+    // span, keyword through closing brace. Both are slices of the input,
+    // kept so no consumer ever has cause to parse pbt again.
+    string comment;
+    string src;
     string[8] paths;
     ubyte pathCount;
     string[8] edited;
@@ -91,6 +101,11 @@ struct ParsedScope {
 }
 
 struct ParsedProject {
+    // The # run immediately above the declaration, and the declaration's own
+    // span, keyword through closing brace. Both are slices of the input,
+    // kept so no consumer ever has cause to parse pbt again.
+    string comment;
+    string src;
     // Several blocks can share a path, and the name is what tells them apart.
     // Empty is the unnamed block, which wins when a word resolves to both.
     string name;
@@ -126,6 +141,11 @@ struct ParsedAttestation {
 // A rite is a command and a verdict. `cmd` is the only required field.
 struct ParsedRite {
     string name;
+    // The # run immediately above the declaration, and the declaration's own
+    // span, keyword through closing brace. Both are slices of the input,
+    // kept so no consumer ever has cause to parse pbt again.
+    string comment;
+    string src;
     // "to me its eval" — the operation. `pass`, `catch`, `goto`, `to`, `wait`
     // and `mic` are what the writer changes its default behaviour with.
     string eval;
@@ -167,6 +187,11 @@ struct ParsedRite {
 // A rites group is material — it is never invoked, only referenced.
 struct ParsedRites {
     string name;
+    // The # run immediately above the declaration, and the declaration's own
+    // span, keyword through closing brace. Both are slices of the input,
+    // kept so no consumer ever has cause to parse pbt again.
+    string comment;
+    string src;
     string[8] params;
     size_t paramCount;
     ParsedRite[32] rites;
@@ -652,19 +677,27 @@ ScopeSet mergeScopes(const ScopeSet* a, const ScopeSet* b, const ScopeSet* c) {
 ParseResult parsePbt(string input) {
     ParseResult result;
     size_t pos = 0;
+    CommentRun run;
 
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;
 
-        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '#') {
+            markComment(run, input, pos);
+            skipLine(input, pos);
+            run.end = pos;
+            continue;
+        }
 
+        auto declStart = pos;
         auto word = readWord(input, pos);
+        auto comment = takeComment(run, input, declStart);
         auto wm = splitMode(word);
         if (wm.base == "scope") {
             skipWS(input, pos);
             expect(input, pos, '{');
-            parseScope(input, pos, result, "", "");
+            parseScope(input, pos, result, "", "", "", comment, declStart);
         } else if (wm.base == "permission") {
             // Top-level permission — wrap in a scope with path "/"
             skipWS(input, pos);
@@ -691,6 +724,8 @@ ParseResult parsePbt(string input) {
             assert(result.ctrlPoolLen < result.ctrlPool.length);
             result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos, result);
             result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
+            result.ctrlPool[result.ctrlPoolLen].comment = comment;
+            result.ctrlPool[result.ctrlPoolLen].src = input[declStart .. pos];
             sc.event = result.ctrlPool[result.ctrlPoolLen].event; // inherit event
             result.ctrlPoolLen++;
             sc.controlEnd = result.ctrlPoolLen;
@@ -706,7 +741,7 @@ ParseResult parsePbt(string input) {
                 skipWS(input, pos);
             }
             expect(input, pos, '{');
-            parseProject(input, pos, result, projectName);
+            parseProject(input, pos, result, projectName, comment, declStart);
         } else if (wm.base == "qntx") {
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -722,6 +757,8 @@ ParseResult parsePbt(string input) {
             expect(input, pos, '{');
             assert(result.ritesCount < result.rites.length, "Rites group overflow");
             result.rites[result.ritesCount] = parseRites(input, pos, groupName);
+            result.rites[result.ritesCount].comment = comment;
+            result.rites[result.ritesCount].src = input[declStart .. pos];
             result.ritesCount++;
         } else if (wm.base == "include") {
             // A directive to wind, not a declaration. By the time ground parses
@@ -740,8 +777,42 @@ private:
 
 import lexer : skipWS, skipLine, expect, splitMode, readWord, readValue, parseInt;
 
+// A run of # lines, tracked where the loops used to throw them away. A blank
+// line breaks a run, and a run a blank line away from a declaration attaches
+// to nothing: a file header belongs to the file, not to whatever block
+// happens to come first.
+struct CommentRun {
+    size_t start, end;
+    bool have;
+}
+
+// True when nothing but this line's leftovers sit between from and to — a
+// newline in the gap means a blank line stood there.
+bool touching(string input, size_t from, size_t to) {
+    foreach (i; from .. to) if (input[i] == '\n') return false;
+    return true;
+}
+
+void markComment(ref CommentRun run, string input, size_t pos) {
+    if (!run.have || !touching(input, run.end, pos)) run.start = pos;
+    run.have = true;
+}
+
+// The run's text when it stands directly above the declaration at declPos,
+// trailing newline trimmed. Taking clears the run either way — a comment is
+// spoken for by the first declaration after it or by nothing.
+string takeComment(ref CommentRun run, string input, size_t declPos) {
+    if (!run.have) return "";
+    run.have = false;
+    if (!touching(input, run.end, declPos)) return "";
+    auto end = run.end;
+    while (end > run.start && (input[end - 1] == '\n' || input[end - 1] == '\r')) end--;
+    return input[run.start .. end];
+}
+
 void parseScope(ref string input, ref size_t pos, ref ParseResult result,
-    string parentPath, string parentDecision, string parentEvent = "")
+    string parentPath, string parentDecision, string parentEvent = "",
+    string comment = "", size_t srcStart = 0)
 {
     ParsedScope sc;
     if (parentPath.length > 0) { sc.paths[0] = parentPath; sc.pathCount = 1; }
@@ -752,16 +823,24 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
     bool hasChildren = false;
     bool rangeFinalized = false;
 
+    CommentRun run;
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;
-        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '#') {
+            markComment(run, input, pos);
+            skipLine(input, pos);
+            run.end = pos;
+            continue;
+        }
         if (input[pos] == '}') {
             pos++;
             if (!rangeFinalized) {
                 sc.controlEnd = result.ctrlPoolLen;
                 sc.permEnd = result.permPoolLen;
             }
+            sc.comment = comment;
+            sc.src = input[srcStart .. pos];
             bindInlineRituals(result, sc);
             if (!hasChildren || sc.controlCount > 0 || sc.permissionCount > 0) {
                 assert(result.scopeCount < result.scopes.length,
@@ -772,7 +851,9 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             return;
         }
 
+        auto declStart = pos;
         auto key = readWord(input, pos);
+        auto childComment = takeComment(run, input, declStart);
         auto wm = splitMode(key);
         if (wm.base == "scope") {
             // Finalize this scope's control/perm range before children add to pools
@@ -784,13 +865,16 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             expect(input, pos, '{');
             hasChildren = true;
-            parseScope(input, pos, result, sc.pathCount > 0 ? sc.paths[0] : "", sc.decision, sc.event);
+            parseScope(input, pos, result, sc.pathCount > 0 ? sc.paths[0] : "", sc.decision, sc.event,
+                       childComment, declStart);
         } else if (wm.base == "control") {
             skipWS(input, pos);
             expect(input, pos, '{');
             assert(result.ctrlPoolLen < result.ctrlPool.length);
             result.ctrlPool[result.ctrlPoolLen] = parseControl(input, pos, result);
             result.ctrlPool[result.ctrlPoolLen].mode = wm.mode;
+            result.ctrlPool[result.ctrlPoolLen].comment = childComment;
+            result.ctrlPool[result.ctrlPoolLen].src = input[declStart .. pos];
             result.ctrlPoolLen++;
         } else if (wm.base == "permission") {
             skipWS(input, pos);
@@ -900,7 +984,7 @@ private bool isNameStart(ref string s, size_t pos) {
 }
 
 void parseProject(ref string input, ref size_t pos, ref ParseResult result,
-                  string projectName = "") {
+                  string projectName = "", string comment = "", size_t srcStart = 0) {
     string projectPath;
     string projectOrigin;
     size_t projectMaxGoto;
@@ -920,6 +1004,8 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
         if (input[pos] == '}') {
             pos++;
             assert(result.projectCount < result.projects.length);
+            result.projects[result.projectCount].comment = comment;
+            result.projects[result.projectCount].src = input[srcStart .. pos];
             result.projects[result.projectCount].name = projectName;
             result.projects[result.projectCount].path = projectPath;
             result.projects[result.projectCount].origin = projectOrigin;
@@ -1491,13 +1577,21 @@ ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string p
 ParsedRites parseRites(ref string input, ref size_t pos, string groupName) {
     ParsedRites g;
     g.name = groupName;
+    CommentRun run;
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;
-        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '#') {
+            markComment(run, input, pos);
+            skipLine(input, pos);
+            run.end = pos;
+            continue;
+        }
         if (input[pos] == '}') { pos++; return g; }
 
+        auto declStart = pos;
         auto name = readWord(input, pos);
+        auto riteComment = takeComment(run, input, declStart);
         skipWS(input, pos);
 
         // `params:` is the one word here that is not a rite. A colon
@@ -1529,6 +1623,8 @@ ParsedRites parseRites(ref string input, ref size_t pos, string groupName) {
         expect(input, pos, '{');
         assert(g.riteCount < g.rites.length, "Rite overflow in group");
         auto rite = parseRite(input, pos, name);
+        rite.comment = riteComment;
+        rite.src = input[declStart .. pos];
         // Silence about catch means 1 — the honest no. A rite that catches
         // nothing would halt on the very code that means "not yet".
         if (rite.catchCount == 0) {
