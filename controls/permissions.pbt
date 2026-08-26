@@ -63,3 +63,10 @@ permission.r {
 permission.w {
   allow: ["/private/tmp/claude-*", "/tmp/claude-*"]
 }
+
+# One set of repositories, one answer. acceptEdits reaches the workspace root
+# and nothing else, so the same edit asked or did not depending only on where
+# the terminal happened to be. Manual keeps asking.
+permission.rw.pa {
+  allow: ["/teranos/", "/sbvh-nl/"]
+}

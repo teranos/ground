@@ -195,13 +195,16 @@ private bool inLivePerformance(const(char)[] cwd) {
 
 // --- PreToolUse handler ---
 
-// TODO: extract `permission_mode` — adjust decisions based on current mode (plan, auto, etc.)
 int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
+    import parse : extractPermissionMode;
     auto t0 = usecNow();
     long tParse, tBinary, tMatch, tDb, tPerm;
 
     auto toolName = extractToolName(input);
+    // Which mode the session is in, so a permission block can name one. Absent,
+    // a block that names a mode grants nothing.
+    auto sessionMode = extractPermissionMode(input);
     auto toolUseId = extractToolUseId(input);
     if (toolUseId is null) toolUseId = "unknown";
 
@@ -474,7 +477,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (pSep) {
                     auto seg = strip(command[pstart .. pi]);
                     if (seg.length > 0) {
-                        auto permResult = evaluatePermission(permissionScopes, cwd, toolName, seg);
+                        auto permResult = evaluatePermission(permissionScopes, cwd, toolName, seg, sessionMode);
                         if (permResult.decision == Decision.deny) {
                             tPerm = usecNow();
                             __gshared ZBuf prof;
@@ -542,7 +545,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     if (filePath !is null) {
         import controls : permissionScopes;
         import permission : evaluatePermission, Decision;
-        auto permResult = evaluatePermission(permissionScopes, cwd, toolName, filePath);
+        auto permResult = evaluatePermission(permissionScopes, cwd, toolName, filePath, sessionMode);
         if (permResult.decision == Decision.deny) {
             if (permResult.name.length > 0) {
                 import db : openDb, sqlite3_close;
