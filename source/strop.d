@@ -974,6 +974,141 @@ unittest {
     assert(!contains(bad.msg, "commit message"));
 }
 
+unittest {
+    // A refusal that names only the offset leaves the shape to be inferred from
+    // rejections, which is a search rather than a correction.
+    import matcher : contains;
+    string src = `flag: "-m"
+      sequence [ letters(1..20) literal(": ") line(max: 80) end() ]
+    }`;
+    size_t pos = 0;
+    auto s = parseStropBlock(src, pos);
+
+    auto bad = stropDispatch(s, `git commit -m "fixed the thing"`);
+    assert(bad.deny);
+    // The needle stops before the space, because contains refuses a match
+    // followed by a digit and the first thing a shape names is a bound.
+    assert(contains(bad.msg, "expected:"), "the refusal must state the shape");
+    assert(contains(bad.msg, "1-20 capitals"));
+    assert(contains(bad.msg, `": "`), "a literal is quoted as itself");
+    assert(contains(bad.msg, "a line of at most 80"));
+    assert(contains(bad.msg, "end of value"));
+}
+
+unittest {
+    // Every part kind renders, so a grammar cannot describe itself as blank.
+    import matcher : contains;
+    string src = `flag: "-x"
+      sequence [
+        lower(1..4) digits(0..2) newline()
+        oneof([a, b])
+        repeat(0..3)[ literal("-") lower(1..9) ]
+        notahead[ newline() ]
+        any(max: 12)
+      ]
+    }`;
+    size_t pos = 0;
+    auto s = parseStropBlock(src, pos);
+
+    auto bad = stropDispatch(s, `run -x "!!!"`);
+    assert(bad.deny);
+    assert(contains(bad.msg, "1-4 lowercase"));
+    assert(contains(bad.msg, "up to 2 digits"));
+    assert(contains(bad.msg, "a line break"));
+    assert(contains(bad.msg, "one of a, b"));
+    assert(contains(bad.msg, "0 to 3 of ("), "a repeat names its body");
+    assert(contains(bad.msg, "not "), "a notahead says what must not follow");
+    assert(contains(bad.msg, "at most 12"));
+}
+
+// What the sequence asks for, read off the parts rather than written beside
+// them. A hand-kept sentence drifts from the grammar; this cannot.
+private void describeInto(ref StropDispatchResult r, const Strop s,
+                          const(Part)[] parts) {
+    size_t i = 0;
+    bool first = true;
+
+    while (i < parts.length) {
+        auto p = parts[i];
+        if (!first) appendMsg(r, ", then ");
+        first = false;
+
+        final switch (p.kind) {
+        case PartKind.Literal:
+            appendMsg(r, `"`);
+            appendMsg(r, p.literal);
+            appendMsg(r, `"`);
+            break;
+        case PartKind.Letters:
+            appendRange(r, p.min, p.max);
+            appendMsg(r, " capitals");
+            break;
+        case PartKind.Lower:
+            appendRange(r, p.min, p.max);
+            appendMsg(r, " lowercase");
+            break;
+        case PartKind.Digits:
+            appendRange(r, p.min, p.max);
+            appendMsg(r, " digits");
+            break;
+        case PartKind.Any:
+            appendMsg(r, "at most ");
+            appendNum(r, p.max);
+            appendMsg(r, " more on the line");
+            break;
+        case PartKind.Line:
+            appendMsg(r, "a line of at most ");
+            appendNum(r, p.max);
+            break;
+        case PartKind.Until:
+            appendMsg(r, "anything up to ");
+            appendMsg(r, p.literal);
+            break;
+        case PartKind.Oneof:
+            appendMsg(r, "one of ");
+            if (p.wordsIdx > 0) {
+                auto w = s.wordPool[p.wordsIdx - 1];
+                foreach (k; 0 .. w.count) {
+                    if (k > 0) appendMsg(r, ", ");
+                    appendMsg(r, w.words[k]);
+                }
+            }
+            break;
+        case PartKind.Newline:
+            appendMsg(r, "a line break");
+            break;
+        case PartKind.End:
+            appendMsg(r, "end of value");
+            break;
+        case PartKind.Repeat:
+            appendNum(r, p.min);
+            appendMsg(r, " to ");
+            appendNum(r, p.max);
+            appendMsg(r, " of (");
+            describeInto(r, s, parts[i + 1 .. i + 1 + p.bodyLen]);
+            appendMsg(r, ")");
+            i += p.bodyLen;
+            break;
+        case PartKind.NotAhead:
+            appendMsg(r, "not (");
+            describeInto(r, s, parts[i + 1 .. i + 1 + p.bodyLen]);
+            appendMsg(r, ")");
+            i += p.bodyLen;
+            break;
+        }
+        i++;
+    }
+}
+
+// A bound of n..n is one number, and a zero floor is an at-most.
+private void appendRange(ref StropDispatchResult r, size_t min, size_t max) {
+    if (min == max) { appendNum(r, min); return; }
+    if (min == 0) { appendMsg(r, "up to "); appendNum(r, max); return; }
+    appendNum(r, min);
+    appendMsg(r, "-");
+    appendNum(r, max);
+}
+
 StropDispatchResult stropDispatch(const Strop s, string command) {
     StropDispatchResult res;
     auto ex = extractFlag(command, s.flag);
@@ -1028,6 +1163,13 @@ StropDispatchResult stropDispatch(const Strop s, string command) {
             appendMsg(res, "\n");
             foreach (_; 0 .. at - lineStart) appendMsg(res, " ");
             appendMsg(res, "^");
+        }
+
+        // The caret says where it stopped. This says what it was stopping for,
+        // which is the half a writer needs in order to comply rather than guess.
+        if (s.sequenceCount > 0) {
+            appendMsg(res, "\nexpected: ");
+            describeInto(res, s, s.sequences[0].items());
         }
         return res;
     }

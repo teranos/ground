@@ -107,6 +107,20 @@ scope {
       cmd: "terraform"
       msg: "Use opentofu (tofu) instead of terraform."
     }
+
+    control {
+      name: "branch-not-requested"
+      cmd: ["git checkout -b", "git switch -c"]
+      check_handler: "branchNotRequested"
+      msg: "The developer did not ask for a branch. A branch nobody asked for has to be merged, pushed and deleted to be rid of. Work where you are."
+    }
+
+    control {
+      name: "pr-not-requested"
+      cmd: "gh pr"
+      check_handler: "prNotRequested"
+      msg: "The developer did not say pr. They always say it when they want anything to do with a pull request, so its absence means they do not."
+    }
   }
 
   # Checkpoints — require manual approval.
@@ -134,7 +148,7 @@ scope {
 
     control {
       name: "git-checkout-b"
-      cmd: "git checkout -b"
+      cmd: ["git checkout -b", "git switch -c"]
       msg: "Check main for unpushed commits and push them first. Commit the smallest documentation change that describes intended behavior — before any code. Then: TDD — failing test, confirm failure, make it pass."
     }
 

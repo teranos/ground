@@ -12,13 +12,13 @@ bool writePosition(DB)(DB db, const Position p) {
                 sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
     import exec : emitError;
 
-    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, mic, mic_at, said, holds) "
-        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) ON CONFLICT(id) DO UPDATE SET "
+    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, mic, mic_at, said, holds, evals) "
+        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) ON CONFLICT(id) DO UPDATE SET "
         // session and agent_pid are absent on purpose: bindAgent owns them, and
         // a whole-row update from a stale copy erased them.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
         ~ "agent=?11, gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
-        ~ "mic=?17, mic_at=?18, said=?19, holds=?20, rev=rev+1, updated_at=CURRENT_TIMESTAMP\0";
+        ~ "mic=?17, mic_at=?18, said=?19, holds=?20, evals=?21, rev=rev+1, updated_at=CURRENT_TIMESTAMP\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
@@ -50,6 +50,7 @@ bool writePosition(DB)(DB db, const Position p) {
     sqlite3_bind_int64(stmt, 18, p.micAt);
     sqlite3_bind_int64(stmt, 19, p.said);
     sqlite3_bind_int64(stmt, 20, cast(long) p.holds);
+    sqlite3_bind_int64(stmt, 21, cast(long) p.evals);
 
     auto rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -65,14 +66,14 @@ bool writePosition(DB)(DB db, const Position p) {
 // worktree, and survives finishing — a terminal state is the verdict, and a
 // query that returns only live ones hides what you walked away to collect.
 Restored readPosition(DB)(DB db, const(char)[] repo) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals "
         ~ "FROM ritual_position WHERE repo = ?1 ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, repo);
 }
 
 // The performance being done in this tree.
 Restored readPositionAt(DB)(DB db, const(char)[] worktree) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals "
         ~ "FROM ritual_position WHERE worktree = ?1 ORDER BY updated_at DESC LIMIT 1\0";
     return readOne(db, sql, worktree);
 }
@@ -133,6 +134,7 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     auto micHeld = sqlite3_column_int64(stmt, 18);
     auto saidHash = sqlite3_column_int64(stmt, 19);
     auto holdCount = cast(size_t) sqlite3_column_int64(stmt, 20);
+    auto evalCount = cast(size_t) sqlite3_column_int64(stmt, 21);
 
     auto wordPtr = sqlite3_column_text(stmt, 7);
     RitualState st = RitualState.Live;
@@ -176,6 +178,7 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     r.p.said = saidHash;
     r.p.gotos = gotoCount;
     r.p.holds = holdCount;
+    r.p.evals = evalCount;
     return r;
 }
 
@@ -189,12 +192,12 @@ bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
 
     // An upsert and not an UPDATE: a performance's first write creates the row,
     // and a guarded UPDATE would refuse it for having no revision to match.
-    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds) "
-        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17 + 1, ?18, ?19, ?20, ?21) ON CONFLICT(id) DO UPDATE SET "
+    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals) "
+        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17 + 1, ?18, ?19, ?20, ?21, ?22) ON CONFLICT(id) DO UPDATE SET "
         // session and agent_pid are absent on purpose: bindAgent owns them.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
         ~ "agent=?11, gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
-        ~ "mic=?18, mic_at=?19, said=?20, holds=?21, rev=rev+1, updated_at=CURRENT_TIMESTAMP WHERE ritual_position.rev=?17\0";
+        ~ "mic=?18, mic_at=?19, said=?20, holds=?21, evals=?22, rev=rev+1, updated_at=CURRENT_TIMESTAMP WHERE ritual_position.rev=?17\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
@@ -223,6 +226,7 @@ bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
     sqlite3_bind_int64(stmt, 19, p.micAt);
     sqlite3_bind_int64(stmt, 20, p.said);
     sqlite3_bind_int64(stmt, 21, cast(long) p.holds);
+    sqlite3_bind_int64(stmt, 22, cast(long) p.evals);
 
     auto rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -236,18 +240,21 @@ bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
 // Who is carrying this performance. Two columns, written where they are known
 // and nowhere else — a whole-row write from any other caller carried a stale
 // copy and erased them seconds after they were made.
-void bindAgent(DB)(DB db, const(char)[] worktree, const(char)[] sessionId, long pid) {
+// The performance the agent was told it carries. Keyed on the tree, a session a
+// person opened in that same checkout bound itself as the agent, and the ending
+// then stopped it.
+void bindAgent(DB)(DB db, const(char)[] perfId, const(char)[] sessionId, long pid) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
                 sqlite3_bind_text, sqlite3_bind_int64, sqlite3_stmt,
                 SQLITE_OK, SQLITE_TRANSIENT;
 
-    if (worktree.length == 0 || sessionId.length == 0) return;
+    if (perfId.length == 0 || sessionId.length == 0) return;
     enum sql = "UPDATE ritual_position SET session = ?2, agent_pid = ?3 "
-        ~ "WHERE worktree = ?1 AND state = 'live'\0";
+        ~ "WHERE id = ?1 AND state = 'live'\0";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
-    sqlite3_bind_text(stmt, 1, worktree.ptr, cast(int) worktree.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, perfId.ptr, cast(int) perfId.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, sessionId.ptr, cast(int) sessionId.length, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 3, pid);
     sqlite3_step(stmt);
@@ -302,7 +309,7 @@ Restored byHandle(DB)(DB db, const(char)[] handle) {
     sqlite3_finalize(stmt);
     if (!found) return Restored(false);
 
-    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds "
+    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals "
         ~ "FROM ritual_position WHERE id = ?1\0";
     return readOne(db, byId, idBuf[0 .. idLen]);
 }
@@ -339,15 +346,78 @@ private Restored stateHere(DB)(DB db, const(char)[] cwd, const(char)[] want) {
     sqlite3_finalize(stmt);
     if (!found) return Restored(false);
 
-    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds "
+    enum byId = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals "
         ~ "FROM ritual_position WHERE id = ?1\0";
     return readOne(db, byId, idBuf[0 .. idLen]);
+}
+
+// Whether this performance's ending has been announced.
+bool endingSaid(DB)(DB db, const(char)[] id) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_column_int64, sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+
+    if (id.length == 0) return false;
+    enum sql = "SELECT spoke FROM ritual_position WHERE id = ?1\0";
+
+    import exec : emitError;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        emitError("ritual.spoke.read", "could not prepare the ending-said read",
+                  0, 0, "", cast(string) id, "", "", "");
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
+    auto step = sqlite3_step(stmt);
+    if (step != SQLITE_ROW)
+        emitError("ritual.spoke.row", "no performance by that id when reading ending-said",
+                  0, step, "", cast(string) id, "", "", "");
+    bool said = step == SQLITE_ROW && sqlite3_column_int64(stmt, 0) != 0;
+    sqlite3_finalize(stmt);
+    return said;
+}
+
+// Said once. Without this the Stop that follows an ending repeated it for as
+// long as a session stood in the tree the ritual performed in.
+bool markEndingSaid(DB)(DB db, const(char)[] id) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+
+    if (id.length == 0) return false;
+    // Only the row that has not been marked. A mark that reports a change on
+    // every call cannot tell a first ending from a repeat.
+    enum sql = "UPDATE ritual_position SET spoke = 1 WHERE id = ?1 AND spoke = 0\0";
+
+    import exec : emitError;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        emitError("ritual.spoke.prepare", "could not prepare the ending-said write",
+                  0, 0, "", cast(string) id, "", "", "");
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        emitError("ritual.spoke.step", "the ending-said write did not land",
+                  0, rc, "", cast(string) id, "", "", "");
+        return false;
+    }
+    // A statement that changed no row is not a statement that failed, and
+    // reading only the return code made the two look the same.
+    if (sqlite3_changes(db) == 0) {
+        emitError("ritual.spoke.rows", "no performance by that id to mark",
+                  0, 0, "", cast(string) id, "", "", "");
+        return false;
+    }
+    return true;
 }
 
 // The rite already ran, so a write that lost its revision needs the current
 // one — not a second run of the rite.
 Restored byPerformanceId(DB)(DB db, const(char)[] id) {
-    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds "
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals "
         ~ "FROM ritual_position WHERE id = ?1\0";
     return readOne(db, sql, id);
 }

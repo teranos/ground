@@ -48,22 +48,28 @@ static assert(collision.keys[0] == "PORT");
 static assert(collision.values[0] == "9999");
 
 // --- prepareChildEnv ---
-// Extends mergeEnv with the GROUND_ floor: session id, cwd, tool input
-// JSON. GROUND_ vars come first (positions 0..2), then merged (project +
-// control) pairs. Never fewer than 3 entries — the floor is guaranteed.
+// The floor carries the branch ground fired on, not a path back to it. A rite
+// runs in a tree ground made, on a branch named after that tree's directory.
 import exec : prepareChildEnv, ChildEnv;
 
 enum ChildEnv floorOnly = prepareChildEnv(
     [], [], [], [],
-    "sid-xyz", "/tmp/cwd", "{}"
+    "sid-xyz", "feat/x", "{}"
 );
 static assert(floorOnly.count == 3);
 static assert(floorOnly.keys[0] == "GROUND_SESSION_ID");
 static assert(floorOnly.values[0] == "sid-xyz");
-static assert(floorOnly.keys[1] == "GROUND_CWD");
-static assert(floorOnly.values[1] == "/tmp/cwd");
+static assert(floorOnly.keys[1] == "GROUND_BRANCH");
+static assert(floorOnly.values[1] == "feat/x");
 static assert(floorOnly.keys[2] == "GROUND_TOOL_INPUT");
 static assert(floorOnly.values[2] == "{}");
+
+// A rite that cannot name a place cannot walk out of the one it was given.
+static assert(() {
+    foreach (i; 0 .. floorOnly.count)
+        if (floorOnly.keys[i] == "GROUND_CWD") return false;
+    return true;
+}());
 
 // Floor + project env only.
 enum ChildEnv withProj = prepareChildEnv(

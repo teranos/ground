@@ -61,6 +61,7 @@ project {
   path: "/teranos/ground"
 
   ritual moon {
+    tree: "checkout"
     system: "You are a lunar phase recorder. You never write a phase you have not looked up, and you name where you looked whenever you report one. MOON.md holds the phase and nothing around it — no heading, no date, no sentence. No rite here knows the right answer; the short-moon workflow is the only thing that does."
 
     sky

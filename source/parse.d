@@ -6,7 +6,7 @@ module parse;
 //   session_id        — UUID, stable for one claude invocation
 //   transcript_path   — absolute path to session JSONL transcript
 //   cwd               — working directory of the session
-//   permission_mode   — "default", "plan", "acceptEdits", "dontAsk", "bypassPermissions"
+//   permission_mode   — "default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"
 //   hook_event_name   — which lifecycle event fired
 //
 // PreToolUse / PostToolUse:
@@ -84,6 +84,11 @@ const(char)[] extractCwd(const(char)[] json) {
     return extractJsonString(json, `"cwd"`, &buf[0], buf.length);
 }
 
+const(char)[] extractTranscriptPath(const(char)[] json) {
+    __gshared char[4096] buf = 0;
+    return extractJsonString(json, `"transcript_path"`, &buf[0], buf.length);
+}
+
 const(char)[] extractSessionId(const(char)[] json) {
     __gshared char[128] buf = 0;
     return extractJsonString(json, `"session_id"`, &buf[0], buf.length);
@@ -107,6 +112,14 @@ const(char)[] extractHookEventName(const(char)[] json) {
 const(char)[] extractToolName(const(char)[] json) {
     __gshared char[64] buf = 0;
     return extractJsonString(json, `"tool_name"`, &buf[0], buf.length);
+}
+
+// Which permission mode the session is in. The mode the UI labels Manual
+// arrives here as "default" and never as "manual", so anything comparing
+// against it compares against "default".
+const(char)[] extractPermissionMode(const(char)[] json) {
+    __gshared char[32] buf = 0;
+    return extractJsonString(json, `"permission_mode"`, &buf[0], buf.length);
 }
 
 // Returns the raw JSON region for "tool_input": { ... } — no parsing, just the brace-delimited slice.

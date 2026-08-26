@@ -19,6 +19,8 @@ CheckFn resolveCheck(string name) {
         case "commitNotRequested": return &control_handlers.commitNotRequested;
         case "mergeNotRequested": return &control_handlers.mergeNotRequested;
         case "killNotRequested": return &control_handlers.killNotRequested;
+        case "branchNotRequested": return &control_handlers.branchNotRequested;
+        case "prNotRequested": return &control_handlers.prNotRequested;
         case "quoteProvenance": return &control_handlers.quoteProvenance;
         case "quoteProvenanceStretched": return &control_handlers.quoteProvenanceStretched;
         case "quoteStandsAlone": return &control_handlers.quoteStandsAlone;

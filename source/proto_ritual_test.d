@@ -418,3 +418,101 @@ project {
 enum noBranchParsed = parsePbt(noBranchInput);
 import ritual : flatten;
 static assert(flatten(noBranchParsed, 0).count == 1);
+
+// A project can say which repo it is. Set, every checkout of that repo is this
+// project — the worktree cut this afternoon and the clone made tomorrow.
+enum originInput = `
+project {
+  origin: "teranos/QNTX"
+  path: "/Users/x/teranos/QNTX"
+  env {
+    port: "8770"
+  }
+}
+`;
+enum originParsed = parsePbt(originInput);
+static assert(originParsed.projectCount == 1);
+static assert(originParsed.projects[0].origin == "teranos/QNTX");
+static assert(originParsed.projects[0].path == "/Users/x/teranos/QNTX");
+
+// Saying nothing about a repo leaves origin empty, so a project keyed on a path
+// keeps answering for that path and nothing else.
+enum pathOnlyInput = `
+project {
+  path: "/Users/x/teranos/laye"
+}
+`;
+static assert(parsePbt(pathOnlyInput).projects[0].origin == "");
+
+// A control in a project that names a repo belongs to that repo. Firing is the
+// project's property, so the control carries it and no path decides.
+enum projectControlInput = `
+project {
+  origin: "teranos/QNTX"
+  path: "/Users/x/teranos/QNTX"
+
+  control {
+    name: "q-deploy"
+    event: "PostToolUse"
+    cmd: "git push"
+  }
+}
+`;
+enum pcParsed = parsePbt(projectControlInput);
+static assert(pcParsed.ctrlPool[0].origin == "teranos/QNTX");
+static assert(pcParsed.scopes[0].pathCount == 0, "a repo is not a path to match");
+
+// Declaring the event on the control is what puts it in that event's set. A
+// control nobody collects never runs, however well it matches.
+static assert(pcParsed.scopes[0].event == "PostToolUse", "the scope carries the control's event");
+import proto : buildScopes;
+enum pcBuilt = buildScopes(pcParsed, "PostToolUse");
+static assert(pcBuilt.len == 1, "q-deploy is collected for PostToolUse");
+static assert(pcBuilt.items[0].controls[0].origin == "teranos/QNTX", "and it arrives carrying its repo");
+
+// The real control performs a ritual, and that is the shape that has to work.
+enum ritualControlInput = `
+rites deployment {
+  BRANCH { eval: "true" }
+}
+
+project {
+  origin: "teranos/QNTX"
+  path: "/Users/x/teranos/QNTX"
+
+  control {
+    name: "q-deploy"
+    event: "PostToolUse"
+    cmd: "git push"
+
+    ritual {
+      system: "literal"
+
+      deployment
+    }
+  }
+}
+`;
+enum rcParsed = parsePbt(ritualControlInput);
+static assert(rcParsed.scopes[0].event == "PostToolUse", "a control performing a ritual still declares its event");
+enum rcBuilt = buildScopes(rcParsed, "PostToolUse");
+static assert(rcBuilt.len == 1, "and is still collected for it");
+static assert(rcBuilt.items[0].controls[0].origin == "teranos/QNTX");
+static assert(rcBuilt.items[0].controls[0].ritual.length > 0, "carrying the ritual it performs");
+
+// A control in a project with no repo named is unchanged: it fires wherever it
+// did before, and carries no repo of its own.
+enum plainControlInput = `
+project {
+  path: "/Users/x/teranos/laye"
+
+  control {
+    name: "whatever"
+    event: "PostToolUse"
+    cmd: "git push"
+  }
+}
+`;
+enum plainParsed = parsePbt(plainControlInput);
+static assert(plainParsed.ctrlPool[0].origin == "");
+static assert(plainParsed.scopes[0].paths[0] == "/");

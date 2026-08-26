@@ -37,12 +37,63 @@ bool modeMatchesToolName(char mode, const(char)[] toolName) {
     }
 }
 
-// Checks if any mode char in the mode string matches the tool name.
+// Everything before the dot. A mode with no dot is all tool letters.
+const(char)[] toolSegment(const(char)[] mode) {
+    foreach (i, c; mode) if (c == '.') return mode[0 .. i];
+    return mode;
+}
+
+// Everything after the dot, empty when there is none.
+const(char)[] sessionSegment(const(char)[] mode) {
+    foreach (i, c; mode) if (c == '.') return mode[i + 1 .. $];
+    return "";
+}
+
+// Checks if any tool char in the mode string matches the tool name. Reads the
+// tool half alone: iterating the whole string let the `a` in acceptEdits match
+// Agent, widening every session-qualified rule to a tool it never named.
 bool modeMatches(const(char)[] mode, const(char)[] toolName) {
-    foreach (ch; mode) {
+    foreach (ch; toolSegment(mode)) {
         if (modeMatchesToolName(cast(char) ch, toolName)) return true;
     }
     return false;
+}
+
+// A session letter and the mode it stands for on the wire. `a` is both
+// permissive modes, because a rule written for one almost always means the
+// other; the full name is there when it does not.
+bool sessionLetterMatches(char letter, const(char)[] mode) {
+    switch (letter) {
+        case 'm': return mode == "default";
+        case 'p': return mode == "plan";
+        case 'a': return mode == "acceptEdits" || mode == "auto";
+        case 'd': return mode == "dontAsk";
+        case 'b': return mode == "bypassPermissions";
+        default: return false;
+    }
+}
+
+// Whether every character is a session letter. Each of the six mode names
+// carries one outside this set, so a name can never read as a letter set and
+// the two forms need no lookahead to tell apart.
+bool isSessionLetterSet(const(char)[] seg) {
+    if (seg.length == 0) return false;
+    foreach (c; seg) {
+        if (c != 'm' && c != 'p' && c != 'a' && c != 'd' && c != 'b') return false;
+    }
+    return true;
+}
+
+// Whether this session segment covers the mode the session is in. An absent
+// segment is every mode, which is what every block written before the session
+// axis existed means.
+bool sessionMatches(const(char)[] seg, const(char)[] mode) {
+    if (seg.length == 0) return true;
+    if (isSessionLetterSet(seg)) {
+        foreach (c; seg) if (sessionLetterMatches(c, mode)) return true;
+        return false;
+    }
+    return seg == mode;
 }
 
 // Does this Bash command contain a `git push` invocation? Uses hasSegment
@@ -169,17 +220,57 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 if (!scopeCmdMatched) continue;
             }
             foreach (ref c; sc.controls) {
+                // A control belonging to a repo fires for every checkout of it
+                // and nowhere else. Where on disk the work happened says
+                // nothing; which repo it was in says everything.
+                if (c.origin.length > 0) {
+                    import git : originOf;
+                    auto here = originOf(where);
+                    if (here != c.origin) {
+                        import core.stdc.stdio : fputs, stderr, fwrite;
+                        fputs("ground: control ", stderr);
+                        fwrite(c.name.ptr, 1, c.name.length, stderr);
+                        fputs(" wants ", stderr);
+                        fwrite(c.origin.ptr, 1, c.origin.length, stderr);
+                        fputs(", this place is ", stderr);
+                        if (here.length > 0) fwrite(here.ptr, 1, here.length, stderr);
+                        else fputs("no repo", stderr);
+                        fputs(" — ", stderr);
+                        fwrite(where.ptr, 1, where.length, stderr);
+                        fputs("\n", stderr);
+                        continue;
+                    }
+                }
                 // A control that performs a ritual. Same gate as exec, and the
                 // same once-per-tool-call guard: a push is one push.
                 if (c.ritual.length > 0) {
                     if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
+                    // A rejected push is still a PostToolUse. Performing for it
+                    // deploys a commit the remote never received.
+                    if (isGitPushCommand(detail)) {
+                        import git : pushLanded, getBranch;
+                        auto pushedBranch = getBranch(where);
+                        if (!pushLanded(where, pushedBranch)) {
+                            import core.stdc.stdio : fputs, stderr, fwrite;
+                            fputs("ground: ", stderr);
+                            fwrite(c.name.ptr, 1, c.name.length, stderr);
+                            fputs(" did not perform — origin does not have ", stderr);
+                            if (pushedBranch.length > 0)
+                                fwrite(pushedBranch.ptr, 1, pushedBranch.length, stderr);
+                            else fputs("this branch", stderr);
+                            fputs(" as this tree has it: ", stderr);
+                            fwrite(where.ptr, 1, where.length, stderr);
+                            fputs("\n", stderr);
+                            continue;
+                        }
+                    }
                     if (edb !is null && toolUseId.length > 0
                         && execFireExists(edb, c.name, sessionId, toolUseId))
                         continue;
                     if (edb !is null && toolUseId.length > 0)
-                        attestExecFire(edb, c.name, cwd, sessionId, toolUseId);
+                        attestExecFire(edb, c.name, where, sessionId, toolUseId);
                     import ritual : performFromControl;
-                    cast(void) performFromControl(c.ritual, sessionId);
+                    cast(void) performFromControl(c.ritual, sessionId, where);
                     continue;
                 }
                 if (c.exec.length == 0) continue;

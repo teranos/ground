@@ -3,18 +3,14 @@ module attest;
 import core.stdc.stdio : stderr, fputs, fwrite, fprintf;
 import db : ZBuf;
 
-// Bearer token for remote QNTX nodes. Env wins so a run can override without
-// touching disk; otherwise $HOME/.qntx/ground-token. Never a tracked file —
-// a token in git is a token on GitHub.
-//
-// Ground has its own credential rather than borrowing another tool's: these
-// attestations carry actors ["ground"], and an actor that cannot be told
-// apart from another actor is not an actor.
+// One token. A second name for the same credential is a second thing to
+// rotate, and the one nobody rotated went stale and was refused for weeks.
+// What tells these attestations apart is actors ["ground"], not the filename.
 private const(char)[] qntxToken() {
     import errors : getenv, open, read, close, O_RDONLY;
     import http : trimToken;
 
-    auto env = getenv("GROUND_QNTX_TOKEN\0".ptr);
+    auto env = getenv("QNTX_TOKEN\0".ptr);
     if (env !is null) {
         size_t n = 0;
         while (env[n] != 0) n++;
@@ -30,7 +26,7 @@ private const(char)[] qntxToken() {
     __gshared ZBuf pathBuf;
     pathBuf.reset();
     pathBuf.put(home[0 .. hLen]);
-    pathBuf.put("/.qntx/ground-token");
+    pathBuf.put("/.qntx/token");
 
     auto fd = open(pathBuf.ptr(), O_RDONLY, 0);
     if (fd < 0) return null;
@@ -101,8 +97,8 @@ int handleAttest() {
                 // Naming the cause here is the difference between a fix and a
                 // hunt: the endpoint answered, it just would not take us.
                 fputs(token.length > 0
-                    ? "401/403 — token rejected\n"
-                    : "401/403 — no token (set GROUND_QNTX_TOKEN or ~/.qntx/ground-token)\n",
+                    ? "401/403 — token rejected (QNTX_TOKEN or ~/.qntx/token)\n"
+                    : "401/403 — no token (set QNTX_TOKEN or ~/.qntx/token)\n",
                     stderr);
                 failed++;
             } else if (code == 0) {

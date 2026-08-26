@@ -167,6 +167,8 @@ int maxCommentRun(const(char)[] text) {
 // callers that gate on a place before they look at any segment.
 const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
     auto eff = cwd;
+    auto shell = cwd;
+    bool sawGit = false;
     size_t start = 0;
     size_t i = 0;
 
@@ -187,7 +189,15 @@ const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
         if (isSep) {
             auto segment = strip(command[start .. i]);
             auto target = extractLeadingCd(segment);
-            if (target.length > 0) eff = target;
+            if (target.length > 0) shell = target;
+            // Only a git invocation names where git work happened. A `| tail`
+            // names nothing, and reading it as a place moved a push to wherever
+            // the session stood.
+            if (isGitInvocation(segment)) {
+                auto named = extractGitDashC(segment);
+                eff = named.length > 0 ? named : shell;
+                sawGit = true;
+            }
             if (i == command.length) break;
             start = i + skip;
             i += (skip > 0 ? skip : 1);
@@ -195,7 +205,53 @@ const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
         }
         i++;
     }
-    return eff;
+    return sawGit ? eff : shell;
+}
+
+bool isGitInvocation(const(char)[] segment) {
+    enum lead = "git ";
+    return segment.length >= lead.length && segment[0 .. lead.length] == lead;
+}
+
+// -C names a place for one git, the way cd names one for the shell. Only the
+// global options are read: after the subcommand `-C` is something else entirely,
+// and `git commit -C HEAD` reuses a message rather than naming a directory.
+const(char)[] extractGitDashC(const(char)[] command) {
+    enum lead = "git ";
+    if (command.length < lead.length || command[0 .. lead.length] != lead) return "";
+
+    size_t pos = lead.length;
+    while (pos < command.length) {
+        while (pos < command.length && command[pos] == ' ') pos++;
+        if (pos >= command.length) return "";
+
+        // The first word that is not an option is the subcommand, and every
+        // token after it belongs to that subcommand's own vocabulary.
+        if (command[pos] != '-') return "";
+
+        bool isDashC = pos + 1 < command.length && command[pos + 1] == 'C'
+            && (pos + 2 >= command.length || command[pos + 2] == ' ');
+        bool takesValue = isDashC
+            || (pos + 1 < command.length && command[pos + 1] == 'c'
+                && (pos + 2 >= command.length || command[pos + 2] == ' '));
+
+        while (pos < command.length && command[pos] != ' ') pos++;
+        if (!takesValue) continue;
+
+        while (pos < command.length && command[pos] == ' ') pos++;
+        if (pos >= command.length) return "";
+
+        size_t start = pos;
+        if (command[pos] == '"') {
+            pos++;
+            start = pos;
+            while (pos < command.length && command[pos] != '"') pos++;
+        } else {
+            while (pos < command.length && command[pos] != ' ') pos++;
+        }
+        if (isDashC) return command[start .. pos];
+    }
+    return "";
 }
 
 const(char)[] extractLeadingCd(const(char)[] command) {
@@ -315,7 +371,13 @@ bool commandMatch(const(char)[] segment, const(char)[] cmd) {
 
     if (exactMatch) return s == target;
     if (s.length < target.length) return false;
-    return s[0 .. target.length] == target;
+    if (s[0 .. target.length] != target) return false;
+
+    // A cmd names a whole command. Without this, `git merge` matched
+    // `git merge-base`, and applyArg spliced the flag into the middle of it.
+    if (s.length == target.length) return true;
+    auto after = s[target.length];
+    return after == ' ' || after == '\t';
 }
 
 // Returns true if any segment in a compound command matches cmd as a prefix.

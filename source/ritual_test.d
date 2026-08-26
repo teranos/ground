@@ -156,6 +156,17 @@ unittest {
     sqlite3_close(db);
 }
 
+// A row that was never written has no ending to have said, and a mark finds no
+// row to set.
+unittest {
+    import ritual.store : endingSaid, markEndingSaid;
+
+    auto db = memDb();
+    assert(!endingSaid(db, "ends-nobody"));
+    assert(!markEndingSaid(db, "ends-nobody"));
+    sqlite3_close(db);
+}
+
 unittest {
     auto db = memDb();
     auto p = perf(held, "probe-1", "/src/proj", "/tmp/wt-a");
@@ -227,6 +238,17 @@ static assert(step(heldTwice, Verdict.Advance).holds == 2);
 static assert(jump(heldTwice, 0).holds == 2);
 static assert(fresh.holds == 0);
 
+// One rite asking the same question sixteen times has no seventeenth answer
+// coming — ONBRANCH read a branch decided before rite one and held 103 turns.
+// The bound is one eval's, so advancing starts the next one's count over while
+// the walk's tally keeps counting. ONBRANCH read a branch decided before rite
+// one and was asked 103 times, which is the count this makes reachable.
+static assert(heldTwice.evals == 2);
+enum askedThenOn = step(step(heldTwice, Verdict.Advance), Verdict.Hold);
+static assert(askedThenOn.evals == 1);
+static assert(askedThenOn.holds == 3);
+static assert(askedThenOn.state == RitualState.Live);
+
 unittest {
     auto db = memDb();
     auto p = perf(heldTwice, "probe-h", "/src/proj", "/tmp/wt-h");
@@ -235,5 +257,27 @@ unittest {
     auto got = readPositionAt(db, "/tmp/wt-h");
     assert(got.valid);
     assert(got.p.holds == 2);
+    sqlite3_close(db);
+}
+
+// The tree is decided once, when the row is written, and the row answers for it
+// by the same name WorktreeCreate is handed.
+unittest {
+    import ritual.store : byPerformanceId;
+    auto db = memDb();
+    assert(writePosition(db, perf(held, "q-deploy-1", "/src/proj", "/src/proj-pr852-q-deploy-1")));
+
+    auto got = byPerformanceId(db, "q-deploy-1");
+    assert(got.valid, "a performance is findable by the name WorktreeCreate is given");
+    assert(got.p.worktree == "/src/proj-pr852-q-deploy-1");
+    sqlite3_close(db);
+}
+
+// A name naming no performance has no tree to read, so the caller falls back
+// instead of inventing one.
+unittest {
+    import ritual.store : byPerformanceId;
+    auto db = memDb();
+    assert(!byPerformanceId(db, "nobody-1").valid);
     sqlite3_close(db);
 }

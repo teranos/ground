@@ -2,7 +2,23 @@ module sql_test;
 
 // CTFE tests — failure shows as a compile error.
 
-import sql : dbPathInto;
+import sql : dbPathInto, PERFORMANCE_SQL, MAX_PERFORMANCES;
+
+// The read stops at MAX_PERFORMANCES, so the order decides which ones a frame
+// can ever see. Oldest first meant the eight taken were the eight most expired
+// and the live performance, always last, was never read at all.
+static assert(contains(PERFORMANCE_SQL, "ORDER BY updated_at DESC"));
+
+// Ordering on the id sorts ritual names, not time: `willow` outranks
+// `q-deploy` whatever hour either ran.
+static assert(!contains(PERFORMANCE_SQL, "ORDER BY id"));
+
+private bool contains(const(char)[] haystack, const(char)[] needle) {
+    if (needle.length > haystack.length) return false;
+    foreach (i; 0 .. haystack.length - needle.length + 1)
+        if (haystack[i .. i + needle.length] == needle) return true;
+    return false;
+}
 
 char[128] built(const(char)[] home)() {
     char[128] buf = 0;

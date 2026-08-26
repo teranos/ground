@@ -38,6 +38,16 @@ Position preparePerformance(PR)(const PR parsed, size_t ritualIdx,
     st.names = riteNames(flat);
     p.rites = st.names.text();
 
+    // A tree is asked for, not assumed. One cut per performance carried none of
+    // what .gitignore holds, so a rite that compiled anything failed in it, and
+    // the branch it sat on was named after a directory rather than a push.
+    if (parsed.rituals[ritualIdx].tree.length == 0) {
+        import git : getBranch;
+        p.worktree = root;
+        p.branch = getBranch(root);
+        return p;
+    }
+
     // The tree is named after the performance. Nothing parses either name —
     // the row is the identity.
     st.tree = worktreePath(root, p.id);
@@ -63,7 +73,10 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
     import exec : dispatchExec, emitError;
 
     auto brief = briefing(p, flat);
-    auto script = spawnScript(root, p.id, brief.text(), flat.system);
+    // The row already says where it performs. Asking for a tree it does not
+    // have would place the agent somewhere the rites are not.
+    auto treeName = p.worktree == root ? "" : p.id;
+    auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system);
     // No agent is better than a truncated one: the command that starts it
     // carries the briefing, and half a briefing is a different instruction.
     if (script.text().length == 0 || brief.over) {
@@ -88,7 +101,7 @@ void spawnDriver(const Position p, const(char)[] root) {
 
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nexec ground drive ");
-    s.putQuoted(p.worktree);
+    s.putQuoted(p.id);
     s.put("\n");
     if (s.text().length == 0) return;
     dispatchExec(cast(string) s.text(), "ritual-drive", "", 86_400,
@@ -97,11 +110,13 @@ void spawnDriver(const Position p, const(char)[] root) {
 
 // A control performing one. There is no argv and no terminal, so why it did
 // not start goes to the error record rather than to a stderr nobody reads.
-bool performFromControl(const(char)[] ritualName, const(char)[] sessionId) {
+bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
+                        const(char)[] where = "") {
     import controls : allParsed;
     import db : openDb, sqlite3_close;
     import core.stdc.time : time;
     import exec : emitError;
+    import git : placeRepo = repoRoot;
 
     static immutable parsed = allParsed;
     auto chosen = chooseRitual(parsed, ritualName, "");
@@ -112,12 +127,18 @@ bool performFromControl(const(char)[] ritualName, const(char)[] sessionId) {
     }
 
     auto projectPath = parsed.rituals[chosen.ritualIdx].projectPath;
-    auto root = repoRoot(parsed, projectPath);
-    if (root.length == 0) {
+    auto declared = repoRoot(parsed, projectPath);
+    if (declared.length == 0) {
         emitError("ritual.control.root", "nothing declares where that project is on disk",
                   0, 1, cast(string) sessionId, cast(string) ritualName, "", "", "");
         return false;
     }
+
+    // The place the tool call worked in, when it belongs to the project the
+    // ritual names — a worktree answers with the tree it was cut from, so a
+    // push made in one performs there rather than in the checkout beside it.
+    auto root = declared;
+    if (where.length > 0 && placeRepo(where) == declared) root = where;
 
     auto flat = flatten(parsed, chosen.ritualIdx);
     Staged st;
@@ -213,7 +234,7 @@ int handleAbort(int argc, const(char)** argv) {
         import rite : runRite;
         import ritual.run : reapScript;
         import exec : emitError;
-        auto reap = reapScript(p.worktree);
+        auto reap = reapScript(p.agentSession);
         if (reap.text().length > 0) {
             // An abort that leaves the agent running has aborted nothing.
             auto done = runRite(reap.text(), "ritual-reap", "");

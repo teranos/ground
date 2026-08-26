@@ -23,6 +23,37 @@ static assert(effectiveCwd("cd /a && echo x && cd /b && echo y", "/home/u") == "
 
 // A quoted path still resolves.
 static assert(effectiveCwd(`cd "/srv/my app" && echo hi`, "/home/u") == "/srv/my app");
+
+// cd is not the only way a command says where it works. A push aimed elsewhere
+// with -C was recorded where the session stood: one started a QNTX deploy from
+// a push to another repo, and one deployed main from a push made in a worktree.
+static assert(effectiveCwd("git -C /srv/app push", "/home/u/proj") == "/srv/app");
+static assert(effectiveCwd(`git -C "/srv/my app" push`, "/home/u") == "/srv/my app");
+
+// Two gits, two places, and one answer to give: the last one that ran.
+static assert(effectiveCwd("git -C /a push && git push", "/home/u") == "/home/u");
+
+// A pipe is one command's output feeding another, not a second place. Reading
+// the last segment let `| tail -3` move a push to wherever the session stood,
+// which deployed main from a push made in a worktree.
+static assert(effectiveCwd("git -C /a push 2>&1 | tail -3", "/home/u") == "/a");
+static assert(effectiveCwd("git -C /a push | head -1 | wc -l", "/home/u") == "/a");
+
+// Nothing here is git, so the shell's own place is the answer.
+static assert(effectiveCwd("cd /srv/app && ls | wc -l", "/home/u") == "/srv/app");
+
+// A cd already moved the shell, and a bare git there runs in the place it left.
+static assert(effectiveCwd("cd /srv/app && git push", "/home/u") == "/srv/app");
+
+// Only -C names a place. Another flag before the subcommand does not.
+static assert(effectiveCwd("git --no-pager push", "/home/u") == "/home/u");
+static assert(effectiveCwd("git push", "/home/u") == "/home/u");
+
+// After the subcommand, -C is that subcommand's own word: commit reuses a
+// message with it, and reading HEAD as a directory would move the whole ritual.
+static assert(effectiveCwd("git commit -C HEAD", "/home/u") == "/home/u");
+static assert(effectiveCwd("git -c user.name=x push", "/home/u") == "/home/u");
+static assert(effectiveCwd("git -c user.name=x -C /srv/app push", "/home/u") == "/srv/app");
 import controls : allScopes;
 
 // CTFE predicate — is a named control present in the built scopes?
@@ -70,6 +101,17 @@ static assert(stripQuoted(`no quotes here`).slice == `no quotes here`);
 static assert(stripQuoted(`curl 'http://localhost:877/api'`).slice == `curl 'http://localhost:877/api'`);
 static assert(stripQuoted(`sed -i 's/foo/bar/' file`).slice == `sed -i 's/foo/bar/' file`);
 static assert(stripQuoted(`sed 's/a/b/' "my file.txt"`).slice == `sed 's/a/b/' `);
+
+// --- what a cmd matches ---
+
+// A cmd names a whole command, so what follows it is a space or the end of the
+// segment. Without that, `git merge` matched `git merge-base` and the arg was
+// spliced into the middle of the word.
+static assert(commandMatch("go test ./...", "go test"));
+static assert(commandMatch("go test", "go test"));
+static assert(!commandMatch("go testing", "go test"));
+static assert(commandMatch("git merge --ff-only", "git merge"));
+static assert(!commandMatch("git merge-base HEAD origin/main", "git merge"));
 
 // --- Major Tom's test suite ---
 
@@ -221,9 +263,14 @@ static if (__traits(compiles, { import qntx; })) {
     }
 
     unittest {
-        // Prefix match — "go test" with trailing space matches
+        // The cmd is a whole command, so what follows it is a space or the end
+        // of the segment. Without that, `git merge` matched `git merge-base`
+        // and the arg was spliced into the middle of the word.
         assert(commandMatch("go test ./...", "go test"));
-        assert(commandMatch("go testing", "go test"));
+        assert(commandMatch("go test", "go test"));
+        assert(!commandMatch("go testing", "go test"));
+        assert(!commandMatch("git merge-base HEAD origin/main", "git merge"));
+        assert(commandMatch("git merge --ff-only", "git merge"));
     }
 }
 
@@ -450,6 +497,50 @@ unittest {
     assert(isCommitApproval("Verified it."));
     assert(isCommitApproval("verified"));
     assert(isCommitApproval("VERIFIED"));
+}
+
+// --- gh pr: looking is not touching ---
+
+unittest {
+    // The rule was written against pull requests created and merged unasked.
+    // A read changes nothing, and denying one left a session blind to the CI
+    // it had just started.
+    import control_handlers : prOnlyObserves;
+
+    assert(prOnlyObserves("gh pr checks 854"));
+    assert(prOnlyObserves("gh pr view 854"));
+    assert(prOnlyObserves("gh pr list"));
+    assert(prOnlyObserves("gh pr diff"));
+    assert(prOnlyObserves("gh pr status"));
+
+    // A redirect and a pipe are not a second command against the pull request.
+    assert(prOnlyObserves("gh pr checks 854 2>&1 | head -20"));
+}
+
+unittest {
+    import control_handlers : prOnlyObserves;
+
+    assert(!prOnlyObserves("gh pr create --title x"));
+    assert(!prOnlyObserves("gh pr merge 854"));
+    assert(!prOnlyObserves("gh pr close 854"));
+    assert(!prOnlyObserves("gh pr comment 854 -b hi"));
+
+    // `gh pr checkout` makes a branch, which is the other thing nobody asked
+    // for. It shares five letters with `checks` and is not a look.
+    assert(!prOnlyObserves("gh pr checkout 854"));
+}
+
+unittest {
+    import control_handlers : prOnlyObserves;
+
+    // One look does not carry the command it is chained to.
+    assert(!prOnlyObserves("gh pr checks 854 && gh pr merge 854"));
+    assert(!prOnlyObserves("gh pr view 854; gh pr close 854"));
+
+    // A verb this build has never heard of is not an observation, so a new way
+    // to act on a pull request arrives gated rather than open.
+    assert(!prOnlyObserves("gh pr something-new"));
+    assert(!prOnlyObserves("gh pr"));
 }
 
 // --- containsExact (case-sensitive) tests ---

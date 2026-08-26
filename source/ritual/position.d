@@ -24,6 +24,11 @@ enum MAX_RITES = 32;
 // because one fruit in the tree had no rite to pick it.
 enum MAX_GOTOS = 16;
 
+// One eval may be asked this many times before the walk gives up on it. An eval
+// that does not pass waits for the world to change; sixteen identical answers is
+// a rite asking something that was decided before it ever ran.
+enum MAX_EVALS = 16;
+
 // A performance is identified by itself. The worktree is where it is being
 // performed, not what it is.
 struct Position {
@@ -45,6 +50,7 @@ struct Position {
     // The walk's own count, cleared by nothing. `throws` is the rite's and the
     // advance wipes it, so a finished row could not say it had ever waited.
     size_t holds;
+    size_t evals;          // times this rite's eval was asked, against MAX_EVALS
     long rev;              // bumped on every write, so a stale one can be told
     // "there can only be 1 mic per ritual performance"
     // "something is always holding the mic"
@@ -124,11 +130,13 @@ Position step(Position p, Verdict v) {
         p.states[p.current] = RiteState.Passed;
         p.current++;
         p.throws = 0;
+        p.evals = 0;
         if (p.current >= p.riteCount) p.state = RitualState.Done;
         break;
     case Verdict.Hold:
         p.states[p.current] = RiteState.Ran;
         p.holds++;
+        p.evals++;
         break;
     case Verdict.Halt:
         p.states[p.current] = RiteState.Halted;

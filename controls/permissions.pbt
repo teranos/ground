@@ -16,9 +16,27 @@ scope {
   }
 }
 
+# substitute_for_read hands over the file when sed is used to read one. Writing
+# in place is a different act and went through untouched, so a script could be
+# rewritten by a tool the transcript never shows editing it. Edit shows the
+# before and the after.
+permission {
+
+  deny: ["sed -i*", "* sed -i*"]
+  msg:  "Edit writes files here. sed -i rewrites one without showing what changed."
+}
+
 permission {
 
   allow: ["cd *", "sleep *", "say *", "time *"]
+}
+
+# A grant per invocation is a prompt per invocation. Claude Code's own list had
+# accumulated four literal spellings of the same command, one per redirect and
+# pipe that had ever been typed. These generalise instead.
+permission {
+
+  allow: ["make test*", "echo *"]
 }
 
 permission {
@@ -38,4 +56,17 @@ permission {
 permission.r {
   deny: [".env", ".env.*", "secrets/*"]
   msg: "Secrets are off-limits"
+}
+
+# The session scratchpad is outside every workspace root, so acceptEdits does
+# not reach it and each write asks. Nothing there is tracked or published.
+permission.w {
+  allow: ["/private/tmp/claude-*", "/tmp/claude-*"]
+}
+
+# One set of repositories, one answer. acceptEdits reaches the workspace root
+# and nothing else, so the same edit asked or did not depending only on where
+# the terminal happened to be. Manual keeps asking.
+permission.rw.pa {
+  allow: ["/teranos/", "/sbvh-nl/"]
 }

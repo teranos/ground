@@ -128,6 +128,7 @@ void attestTypes() {
     attestType(db, "GroundedPostToolUse", "Grounded", `{}`);
     attestType(db, "GroundedPostToolUseFailure", "Grounded", `{}`);
     attestType(db, "GroundedPostToolUseDeferred", "Grounded", `{}`);
+    attestType(db, "GroundedPlaybill", "Grounded", `{}`);
 
     walCheckpoint(db);
     sqlite3_close(db);
@@ -311,19 +312,32 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
         auto rdb = openDb();
         if (rdb !is null) {
-            auto found = readPositionAt(rdb, cwd);
+            // A session ground spawned was told which performance it carries.
+            // One that was not is a person's own, standing in the same tree.
+            import errors : getenv;
+            import ritual.store : byPerformanceId;
+            auto carriedPtr = getenv("GROUND_PERFORMANCE\0".ptr);
+            const(char)[] carried;
+            if (carriedPtr !is null) {
+                size_t cn = 0;
+                while (carriedPtr[cn] != 0) cn++;
+                carried = carriedPtr[0 .. cn];
+            }
+
+            auto found = carried.length > 0
+                ? byPerformanceId(rdb, carried)
+                : readPositionAt(rdb, cwd);
 
             // The agent's own start is where the performance learns who is
-            // carrying it: this hook runs inside the background session that
-            // was spawned for the tree.
-            if (found.valid && found.p.state == RitualState.Live
+            // carrying it: this hook runs inside the session ground spawned.
+            if (carried.length > 0 && found.valid && found.p.state == RitualState.Live
                 && found.p.agentSession.length == 0 && sessionId.length > 0) {
                 // This hook runs inside the agent, so its parent is the agent.
                 // Nothing else knows the pid: with --bg the process belongs to
                 // the background host.
                 import watch : getppid;
                 import ritual.store : bindAgent;
-                bindAgent(rdb, found.p.worktree, sessionId, getppid());
+                bindAgent(rdb, found.p.id, sessionId, getppid());
                 found.p = bindSession(found.p, sessionId);
                 found.p.agentPid = getppid();
             }
@@ -341,6 +355,25 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                     }
                     break;
                 }
+            }
+        }
+    }
+
+    // What could be performed here, and what starts it. A halt read as output
+    // from a tool the session had never run, and the hunt went to CI.
+    {
+        import db : openDb, sqlite3_close;
+        import playbill : unsaidBillInto;
+
+        auto pdb = openDb();
+        if (pdb !is null) {
+            __gshared char[4096] bill = void;
+            auto n = unsaidBillInto(pdb, sessionId, cwd, bill[]);
+            sqlite3_close(pdb);
+            if (n > 0) {
+                if (any) ctx.put(" | ");
+                ctx.put(bill[0 .. n]);
+                any = true;
             }
         }
     }
