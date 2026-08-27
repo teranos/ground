@@ -741,19 +741,19 @@ qntx {
 }
 
 attestation {
-  subject: "telegram:chat:1667286968"
-  predicate: "raven:route"
+  subject: "beacon:channel:1000000001"
+  predicate: "beacon:route"
   context: "project:SBVH"
   attributes: {
-    "chat_id": 1667286968,
+    "chat_id": 1000000001,
     "project": "SBVH",
-    "chat_name": "Danilo"
+    "chat_name": "Alice"
   }
 }
 
 attestation {
-  subject: "telegram:chat:355422856"
-  predicate: "raven:route"
+  subject: "beacon:channel:1000000002"
+  predicate: "beacon:route"
   context: "project:SBVH"
 }
 `;
@@ -762,12 +762,12 @@ static assert(qntxParsed.qntxNodeCount == 2);
 static assert(qntxParsed.qntxNodes[0].url == "http://localhost:8771");
 static assert(qntxParsed.qntxNodes[1].url == "http://localhost:8772");
 static assert(qntxParsed.attestationCount == 2);
-static assert(qntxParsed.attestations[0].subject == "telegram:chat:1667286968");
-static assert(qntxParsed.attestations[0].predicate == "raven:route");
+static assert(qntxParsed.attestations[0].subject == "beacon:channel:1000000001");
+static assert(qntxParsed.attestations[0].predicate == "beacon:route");
 static assert(qntxParsed.attestations[0].context == "project:SBVH");
 static assert(qntxParsed.attestations[0].attributes.length > 0);
-static assert(qntxParsed.attestations[1].subject == "telegram:chat:355422856");
-static assert(qntxParsed.attestations[1].predicate == "raven:route");
+static assert(qntxParsed.attestations[1].subject == "beacon:channel:1000000002");
+static assert(qntxParsed.attestations[1].predicate == "beacon:route");
 static assert(qntxParsed.attestations[1].attributes.length == 0);
 
 // --- cmd: array syntax at control level ---
