@@ -392,17 +392,6 @@ scope {
   }
 }
 
-# UserPromptSubmit — sbvh-nl reminder
-scope {
-  path: "!/sbvh-nl"
-  event: "UserPromptSubmit"
-
-  control {
-    name: "sbvh-nl-reminder"
-    userprompt: "sbvh-nl"
-    msg: "sbvh-nl is at ~/SBVH/sbvh-nl/ — private repos under the sbvh-nl GitHub org. Read ~/SBVH/sbvh-nl/CLAUDE.md for the repo table and conventions. These are independent repos, not part of QNTX."
-  }
-}
 
 
 # Stop — pattern matching on last assistant message
