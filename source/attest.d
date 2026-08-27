@@ -3,6 +3,32 @@ module attest;
 import core.stdc.stdio : stderr, fputs, fwrite, fprintf;
 import db : ZBuf;
 
+enum RETRY_ATTEMPTS = 5;
+
+// "QNTX RESTARTS SOEMTHIMES"
+// "BUT THERE ISNT REALLY AN INSTANCE WHERE ITS DOWN FOR MORE THAN 5 MINUTES"
+bool shouldRetry(int code) {
+    return code == 0 || (code >= 500 && code < 600);
+}
+
+extern (C) uint sleep(uint seconds);
+
+void sleepSeconds(int secs) {
+    if (__ctfe || secs <= 0) return;
+    sleep(cast(uint) secs);
+}
+
+int backoffSeconds(int attempt) {
+    switch (attempt) {
+        case 0: return 2;
+        case 1: return 5;
+        case 2: return 15;
+        case 3: return 45;
+        case 4: return 90;
+        default: return 0;
+    }
+}
+
 // One token. A second name for the same credential is a second thing to
 // rotate, and the one nobody rotated went stale and was refused for weeks.
 // What tells these attestations apart is actors ["ground"], not the filename.
@@ -79,10 +105,23 @@ int handleAttest() {
             // http:// goes over the in-process socket; anything else needs
             // DNS and TLS, which is curl's job.
             import http : httpPost, curlPost, needsCurl;
+            import core.stdc.stdlib : system;
             auto remote = needsCurl(node.url);
-            auto code = remote
-                ? curlPost(url.slice(), body_.slice(), token)
-                : httpPost(url.slice(), body_.slice(), 400);
+
+            int code;
+            int tries = 0;
+            while (true) {
+                code = remote
+                    ? curlPost(url.slice(), body_.slice(), token)
+                    : httpPost(url.slice(), body_.slice(), 400);
+                if (!shouldRetry(code) || tries >= RETRY_ATTEMPTS - 1) break;
+
+                auto wait = backoffSeconds(tries);
+                fprintf(stderr, "  %s %s -> %d, retrying in %ds\n".ptr,
+                        url.ptr(), a.subject.ptr, code, wait);
+                sleepSeconds(wait);
+                tries++;
+            }
 
             // Report
             fputs("  ", stderr);
