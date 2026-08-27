@@ -109,9 +109,36 @@ bool needsCorpus(const(char)[] toolName, const(char)[] command) {
 // authoring any, so rewriting it can only stop the edit from matching.
 private static immutable string[2] WRITTEN_FIELDS = ["content", "new_string"];
 
+struct StandingPair {
+    const(char)[] pair;
+    const(char)[] msg;
+    bool done;
+}
+
+// A rewrite is a control, and a control fires where its scope stands. Walked by
+// index so nothing has to be sized to hold the answer.
+StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
+                               const(char)[] root, size_t want) {
+    import hooks : scopeMatchesIn;
+
+    size_t seen = 0;
+    foreach (si; 0 .. parsed.scopeCount) {
+        auto sc = parsed.scopes[si];
+        if (!scopeMatchesIn(sc, cwd, root)) continue;
+        foreach (ci; sc.controlStart .. sc.controlEnd) {
+            auto c = parsed.ctrlPool[ci];
+            foreach (pi; 0 .. c.rewriteCount) {
+                if (seen == want) return StandingPair(c.rewrites[pi], c.msg, false);
+                seen++;
+            }
+        }
+    }
+    return StandingPair(null, null, true);
+}
+
 // True when the whole tool_input was reissued with the home directory taken
 // out of it. False leaves the call exactly as it arrived.
-bool rewroteHome(const(char)[] input, const(char)[] toolName) {
+bool rewroteHome(const(char)[] input, const(char)[] toolName, const(char)[] cwd) {
     import homedir : rewriteField, isScratch, HOME_TOKEN;
     import hooks : rewriteFrom, rewriteTo;
     import controls : allParsed;
@@ -144,30 +171,29 @@ bool rewroteHome(const(char)[] input, const(char)[] toolName) {
 
     static immutable parsed = allParsed;
 
-    foreach (si; 0 .. parsed.scopeCount) {
-        auto sc = parsed.scopes[si];
-        foreach (ci; sc.controlStart .. sc.controlEnd) {
-            auto c = parsed.ctrlPool[ci];
-            foreach (pi; 0 .. c.rewriteCount) {
-                auto pair = c.rewrites[pi];
-                auto from = rewriteFrom(pair);
-                auto to = rewriteTo(pair);
-                if (from == HOME_TOKEN) from = home;
-                if (from.length == 0 || to.length == 0) continue;
+    import git : repoRoot;
+    auto root = repoRoot(cwd);
 
-                foreach (key; WRITTEN_FIELDS) {
-                    auto dest = inA ? bufA[] : bufB[];
-                    auto r = rewriteField(current, key, from, to, dest);
-                    // Not fitting is not a rewrite. The call goes through as
-                    // it arrived rather than through a value cut short.
-                    if (!r.fit) return false;
-                    if (r.found == 0) continue;
-                    found += r.found;
-                    current = dest[0 .. r.len];
-                    inA = !inA;
-                    if (why.length == 0) why = c.msg;
-                }
-            }
+    for (size_t i = 0;; i++) {
+        auto sp = standingRewrite(parsed, cwd, root, i);
+        if (sp.done) break;
+
+        auto from = rewriteFrom(sp.pair);
+        auto to = rewriteTo(sp.pair);
+        if (from == HOME_TOKEN) from = home;
+        if (from.length == 0 || to.length == 0) continue;
+
+        foreach (key; WRITTEN_FIELDS) {
+            auto dest = inA ? bufA[] : bufB[];
+            auto r = rewriteField(current, key, from, to, dest);
+            // Not fitting is not a rewrite. The call goes through as
+            // it arrived rather than through a value cut short.
+            if (!r.fit) return false;
+            if (r.found == 0) continue;
+            found += r.found;
+            current = dest[0 .. r.len];
+            inA = !inA;
+            if (why.length == 0) why = sp.msg;
         }
     }
 
@@ -202,9 +228,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     long tParse, tBinary, tMatch, tDb, tPerm;
 
     auto toolName = extractToolName(input);
-    // Which mode the session is in, so a permission block can name one. Absent,
-    // a block that names a mode grants nothing.
-    auto sessionMode = extractPermissionMode(input);
+    import sessionmode : parseSessionMode;
+    auto sessionMode = parseSessionMode(extractPermissionMode(input));
     auto toolUseId = extractToolUseId(input);
     if (toolUseId is null) toolUseId = "unknown";
 
@@ -436,6 +461,19 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             if (hasDeny) {
                 writeDenyResponse(allMessages.slice());
                 return 0;
+            }
+
+            // "a control can't invalidate a permission"
+            {
+                import controls : permissionScopes;
+                import permission : evaluatePermission, Decision;
+                import decide : combine;
+                auto pr = evaluatePermission(permissionScopes, cwd, toolName, command, sessionMode);
+                if (pr.decision == Decision.deny) {
+                    writeDenyResponse(pr.msg);
+                    return 0;
+                }
+                finalDecision = combine(finalDecision, pr.decision);
             }
 
             // A deny is ground answering; an ask is ground handing the question
@@ -735,7 +773,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     // The author's home directory is rewritten out of what is about to be
     // written. file_path is left alone: rewriting that sends the write to a
     // path that does not exist.
-    if (rewroteHome(input, toolName)) return 0;
+    if (rewroteHome(input, toolName, cwd)) return 0;
 
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.

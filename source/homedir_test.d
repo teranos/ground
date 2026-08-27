@@ -10,7 +10,11 @@ static assert(isScratch("/tmp/x.sh"));
 static assert(isScratch("/private/tmp/claude-501/session/scratchpad/probe.sh"));
 static assert(isScratch("/var/folders/yk/T/dub-build.rsp"));
 
-// A repository is not scratch, whatever it is called.
+// A repository is not scratch, whatever it is called. What keeps a rewrite out
+// of one is the scope on the control, not this list.
+static assert(!isScratch("/a/b/controls/local/permissions.pbt"));
+static assert(!isScratch("/a/b/controls/permissions.pbt"));
+
 static assert(!isScratch("/a/b/source/main.d"));
 static assert(!isScratch("/a/tmp-not-really/x.d"));
 static assert(!isScratch("/a/b/tmp/x.d"));
