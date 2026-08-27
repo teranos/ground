@@ -16,6 +16,7 @@ extern (C) {
     int dup2(int oldfd, int newfd);
     int waitpid(int pid, int* wstatus, int options);
     int kill(int pid, int sig);
+    int setpgid(int pid, int pgid);
     int getpid();
     int setsid();
 
@@ -341,6 +342,7 @@ void dispatchExec(
     }
     if (scriptPid == 0) {
         // --- Grandchild (script) ---
+        setpgid(0, 0);
         dup2(outPipe[1], 1);
         dup2(errPipe[1], 2);
         close(outPipe[0]); close(outPipe[1]);
@@ -404,14 +406,16 @@ void dispatchExec(
         auto elapsed = cast(long) time(null) - startTs;
         if (elapsed >= timeoutSec) {
             timedOut = true;
-            kill(scriptPid, SIGTERM);
+            // The group, not the leader. A git that outlives its shell holds
+            // .git/index.lock with nothing left alive to release it.
+            kill(-scriptPid, SIGTERM);
             // Give it 2 seconds to react, then SIGKILL.
             auto killDeadline = cast(long) time(null) + 2;
             while (cast(long) time(null) < killDeadline) {
                 int st;
                 if (waitpid(scriptPid, &st, WNOHANG) != 0) break;
             }
-            kill(scriptPid, SIGKILL);
+            kill(-scriptPid, SIGKILL);
             break;
         }
 
@@ -471,7 +475,7 @@ void dispatchExec(
     import errors : clearInflightMarker;
     clearInflightMarker(sessionId, myPid);
     if (timedOut) {
-        emitError("exec.timeout", "grandchild exceeded configured timeout",
+        emitError("exec.timeout", "grandchild exceeded configured timeout, process group killed",
                   0, exitCode, sessionId, controlName, toolUseId,
                   stdoutData, stderrData);
     } else {
