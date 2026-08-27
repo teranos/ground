@@ -5,6 +5,7 @@ import hooks : Control, scopeMatches;
 import parse : extractCommand, extractFilePath, extractToolName, writeJsonString;
 import core.stdc.stdio : stdout, fputs, stderr;
 import db : ZBuf;
+import sessionmode : SessionMode;
 
 void putInt(ref ZBuf buf, long v) {
     char[20] digits = 0;
@@ -59,23 +60,12 @@ bool modeMatches(const(char)[] mode, const(char)[] toolName) {
     return false;
 }
 
-// A session letter and the mode it stands for on the wire. `a` is both
-// permissive modes, because a rule written for one almost always means the
-// other; the full name is there when it does not.
-bool sessionLetterMatches(char letter, const(char)[] mode) {
-    switch (letter) {
-        case 'm': return mode == "default";
-        case 'p': return mode == "plan";
-        case 'a': return mode == "acceptEdits" || mode == "auto";
-        case 'd': return mode == "dontAsk";
-        case 'b': return mode == "bypassPermissions";
-        default: return false;
-    }
+bool sessionLetterMatches(char letter, SessionMode mode) {
+    import sessionmode : letterOf;
+    if (mode == SessionMode.unknown) return false;
+    return letter == letterOf(mode);
 }
 
-// Whether every character is a session letter. Each of the six mode names
-// carries one outside this set, so a name can never read as a letter set and
-// the two forms need no lookahead to tell apart.
 bool isSessionLetterSet(const(char)[] seg) {
     if (seg.length == 0) return false;
     foreach (c; seg) {
@@ -84,16 +74,14 @@ bool isSessionLetterSet(const(char)[] seg) {
     return true;
 }
 
-// Whether this session segment covers the mode the session is in. An absent
-// segment is every mode, which is what every block written before the session
-// axis existed means.
-bool sessionMatches(const(char)[] seg, const(char)[] mode) {
-    if (seg.length == 0) return true;
+bool sessionMatches(const(char)[] seg, SessionMode mode) {
+    import sessionmode : nameOf, grants;
+    if (seg.length == 0) return grants(mode);
     if (isSessionLetterSet(seg)) {
         foreach (c; seg) if (sessionLetterMatches(c, mode)) return true;
         return false;
     }
-    return seg == mode;
+    return seg == nameOf(mode);
 }
 
 // Does this Bash command contain a `git push` invocation? Uses hasSegment

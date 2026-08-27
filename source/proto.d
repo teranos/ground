@@ -293,6 +293,26 @@ Warns warnRituals(PR)(const PR r) {
 // Everything a ritual can be wrong about before it runs. Empty when clean,
 // else one message — a value rather than an assert, because an assert at CTFE
 // cannot be caught by a static assert.
+// A permission is a grant, and a grant says which session modes it reaches.
+// Written without one it reached every mode, manual included, so ground
+// approved what the operator had asked to see.
+Wrong validatePermissions(PR)(const PR r) {
+    import posttooluse : sessionSegment;
+
+    foreach (i; 0 .. r.permPoolLen) {
+        auto p = &r.permPool[i];
+        if (p.allowCount == 0) continue;
+        if (sessionSegment(p.mode).length > 0) continue;
+
+        if (p.mode.length == 0)
+            return wrong("permission ", p.name,
+                         ": names no session mode. Write permission.x.<modes>");
+        return wrong("permission.", p.mode, " ", p.name,
+                     ": names no session mode. Add .<modes> after the tool letters");
+    }
+    return Wrong.init;
+}
+
 Wrong validateRituals(PR)(const PR r) {
     // "within a rites block, rite should be unique, yes. but in my mental
     // image, you can have a same name rite in multiple RITES"

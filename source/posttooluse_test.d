@@ -3,6 +3,7 @@ module posttooluse_test;
 import posttooluse : postToolUseMatch, modeMatches, isGitPushCommand,
                      toolSegment, sessionSegment, sessionMatches;
 import hooks : Control, Cmd, cmd, Msg, FilePath, Mode;
+import sessionmode : SessionMode;
 
 // --- isGitPushCommand: detection for the CI status writer ---
 // Closes the substring-match hole where `git -C <path> push` was silently
@@ -108,50 +109,42 @@ static assert(modeMatches("rw.pa", "Read"));
 static assert(modeMatches("rw.pa", "Edit"));
 static assert(!modeMatches("rw.pa", "Agent"));
 
-// An absent session segment is every mode, which is what every block written
-// before today means.
-static assert(sessionMatches("", "default"));
-static assert(sessionMatches("", "acceptEdits"));
-static assert(sessionMatches("", "bypassPermissions"));
+static assert(!sessionMatches("", SessionMode.manual));
+static assert(sessionMatches("", SessionMode.acceptEdits));
+static assert(sessionMatches("", SessionMode.bypassPermissions));
 
-// Manual arrives as default and never as manual.
-static assert(sessionMatches("m", "default"));
-static assert(!sessionMatches("m", "acceptEdits"));
-static assert(sessionMatches("p", "plan"));
-static assert(sessionMatches("d", "dontAsk"));
-static assert(sessionMatches("b", "bypassPermissions"));
+static assert(sessionMatches("m", SessionMode.manual));
+static assert(!sessionMatches("m", SessionMode.acceptEdits));
+static assert(sessionMatches("p", SessionMode.plan));
+static assert(sessionMatches("d", SessionMode.dontAsk));
+static assert(sessionMatches("b", SessionMode.bypassPermissions));
 
-// `a` is both permissive modes: a rule written for one almost always means
-// the other.
-static assert(sessionMatches("a", "acceptEdits"));
-static assert(sessionMatches("a", "auto"));
-static assert(!sessionMatches("a", "default"));
+// "a = acceptEdits and or auto"
+static assert(sessionMatches("a", SessionMode.acceptEdits));
+static assert(sessionMatches("a", SessionMode.auto_));
+static assert(!sessionMatches("a", SessionMode.manual));
 
-// Letters combine, the way rw does on the tool side.
-static assert(sessionMatches("pa", "plan"));
-static assert(sessionMatches("pa", "acceptEdits"));
-static assert(sessionMatches("pa", "auto"));
-static assert(!sessionMatches("pa", "default"));
-static assert(sessionMatches("mb", "default"));
-static assert(sessionMatches("mb", "bypassPermissions"));
-static assert(!sessionMatches("mb", "plan"));
+static assert(sessionMatches("pa", SessionMode.plan));
+static assert(sessionMatches("pa", SessionMode.acceptEdits));
+static assert(sessionMatches("pa", SessionMode.auto_));
+static assert(!sessionMatches("pa", SessionMode.manual));
+static assert(sessionMatches("mb", SessionMode.manual));
+static assert(sessionMatches("mb", SessionMode.bypassPermissions));
+static assert(!sessionMatches("mb", SessionMode.plan));
 
-// A full name is exact where a letter is broad.
-static assert(sessionMatches("auto", "auto"));
-static assert(!sessionMatches("auto", "acceptEdits"));
-static assert(sessionMatches("acceptEdits", "acceptEdits"));
-static assert(!sessionMatches("acceptEdits", "auto"));
-static assert(sessionMatches("default", "default"));
-static assert(sessionMatches("dontAsk", "dontAsk"));
-static assert(sessionMatches("bypassPermissions", "bypassPermissions"));
+// "but you allow both though, in case you want to seprate behaviour to just auto, you can do so by typing auto"
+static assert(sessionMatches("auto", SessionMode.auto_));
+static assert(!sessionMatches("auto", SessionMode.acceptEdits));
+static assert(sessionMatches("acceptEdits", SessionMode.acceptEdits));
+static assert(!sessionMatches("acceptEdits", SessionMode.auto_));
+static assert(sessionMatches("default", SessionMode.manual));
+static assert(sessionMatches("dontAsk", SessionMode.dontAsk));
+static assert(sessionMatches("bypassPermissions", SessionMode.bypassPermissions));
 
-// Each name carries a character outside {m,p,a,d,b}, so no name reads as a
-// letter set.
-static assert(!sessionMatches("default", "plan"));
-static assert(!sessionMatches("plan", "default"));
-static assert(!sessionMatches("dontAsk", "default"));
-static assert(!sessionMatches("bypassPermissions", "plan"));
+static assert(!sessionMatches("default", SessionMode.plan));
+static assert(!sessionMatches("plan", SessionMode.manual));
+static assert(!sessionMatches("dontAsk", SessionMode.manual));
+static assert(!sessionMatches("bypassPermissions", SessionMode.plan));
 
-// A mode ground does not recognise matches nothing rather than everything.
-static assert(!sessionMatches("m", "sideways"));
-static assert(!sessionMatches("acceptEdits", ""));
+static assert(!sessionMatches("m", SessionMode.unknown));
+static assert(!sessionMatches("", SessionMode.unknown));

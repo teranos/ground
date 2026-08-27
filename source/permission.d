@@ -1,7 +1,49 @@
+/// A permission answers a tool call before the prompt exists.
+///
+/// A block says which tools it speaks for and what to do with a match. Until
+/// the session axis it said nothing about $(I when) it applied, so a rule meant
+/// for one session mode applied in all of them. The rule that exposed this was
+/// asked for as a grant while accept edits was on. It had no spelling, so it
+/// went in unconditional, and manual mode stopped being consulted for every
+/// write across two trees. Ground lives in one of them, so the controls
+/// defining the permission system were themselves unprompted.
+///
+/// "goal: make sure ground is in control of it"
+///
+/// "goal: make sure i can reject Edits again like i used to be able to do"
+///
+/// "we have modes for rwx"
+///
+/// "which is one axis"
+///
+/// "and then there is the mode of edits or not"
+///
+/// ---
+/// permission.rw.pa {
+///   allow: ["/teranos/", "/sbvh-nl/"]
+/// }
+/// ---
+///
+/// $(EX_TOOLSEGMENT)
+///
+/// $(EX_SESSIONSEGMENT)
+///
+/// $(EX_MODEMATCHES)
+///
+/// "so manual is default"
+///
+/// $(EX_SESSIONMATCHES)
+///
+/// "a = acceptEdits and or auto"
+///
+/// "but you allow both though, in case you want to seprate behaviour to just auto, you can do so by typing auto"
+///
+/// "im not changing the spec, this is in addition to, i epect you to hold both in context"
 module permission;
 
 import matcher : wildcardContains, stripQuoted, contains, envSubst;
 import proto : ParseResult, ParsedPermission;
+import sessionmode : SessionMode;
 
 // --- Runtime permission structs ---
 
@@ -11,12 +53,19 @@ struct PatternList {
     const(string)[] values() const return { return _buf[0 .. len]; }
 }
 
+/// One block of a `.pbt`. `path:` is not a field here — it comes from the
+/// enclosing scope, so a permission never names its own place.
 struct Permission {
     string name;
+    /// `tool.session`, e.g. `rw.pa`. Empty means Bash and nothing else.
     string mode;
+    /// Patterns that resolve the call.
     PatternList allow;
+    /// Patterns that refuse it.
     PatternList deny;
+    /// Patterns that hand it to the user.
     PatternList ask;
+    /// What the refusal says.
     string msg;
 }
 
@@ -81,6 +130,8 @@ PermissionSet buildPermissions(const ParseResult parsed) {
 // Returns "deny", "ask", "allow", or null (no match — fall through).
 // Precedence: deny > ask > allow.
 
+/// deny wins over ask, ask wins over allow. A deny returns immediately;
+/// `none` is no match at all, and the call falls through to Claude Code.
 enum Decision { none, allow, ask, deny }
 
 struct PermissionResult {
@@ -203,7 +254,7 @@ PermissionResult evaluatePermission(
     const(char)[] cwd,
     const(char)[] toolName,
     const(char)[] command,
-    const(char)[] sessionMode = "",
+    SessionMode sessionMode = SessionMode.unknown,
 ) {
     if (toolName == "Bash") {
         auto parts = splitCompound(command);
@@ -279,7 +330,7 @@ private PermissionResult evaluateSingle(
     const(char)[] toolName,
     const(char)[] command,
     const(char)[] fullCommand,
-    const(char)[] sessionMode = "",
+    SessionMode sessionMode = SessionMode.unknown,
 ) {
     import hooks : scopeMatches;
 
@@ -294,15 +345,15 @@ private PermissionResult evaluateSingle(
         if (!scopeMatches(sc, cwd)) continue;
 
         foreach (ref p; sc.permissions) {
+            import posttooluse : modeMatches, sessionSegment, sessionMatches;
+            bool granted = true;
             if (p.mode.length > 0) {
-                import posttooluse : modeMatches, sessionSegment, sessionMatches;
                 if (!modeMatches(p.mode, toolName)) continue;
-                // The half after the dot. Absent, it is every mode, which is
-                // what every block written before the session axis means.
-                if (!sessionMatches(sessionSegment(p.mode), sessionMode)) continue;
+                granted = sessionMatches(sessionSegment(p.mode), sessionMode);
             } else {
                 // no mode = Bash only
                 if (toolName != "Bash") continue;
+                granted = sessionMatches("", sessionMode);
             }
 
             // Bash: match against stripped command with wildcardContains
@@ -327,6 +378,8 @@ private PermissionResult evaluateSingle(
                     }
                 }
             }
+
+            if (!granted) continue;
 
             // Check allow
             foreach (ref pat; p.allow.values) {
