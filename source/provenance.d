@@ -100,6 +100,14 @@ private bool isWs(char c) {
 
 // True when the span's own two lines carry nothing but the quote. A comment
 // marker is where the line begins, so it is the one prefix that is not company.
+// `///` opens the same comment `//` does, and it is what the reference is
+// written in. A quote that cannot stand on a ddoc line cannot reach the book.
+bool isDdoc(const(char)[] prefix, const(char)[] marker) {
+    if (marker != "//" || prefix.length < 3) return false;
+    foreach (c; prefix) if (c != '/') return false;
+    return true;
+}
+
 bool standsAlone(const(char)[] s, Span sp, const(char)[] marker = "") {
     size_t open = sp.start - 1;
     size_t lineStart = open;
@@ -110,7 +118,7 @@ bool standsAlone(const(char)[] s, Span sp, const(char)[] marker = "") {
     while (b < e && isWs(s[b])) b++;
     while (e > b && isWs(s[e - 1])) e--;
     auto prefix = s[b .. e];
-    if (prefix.length != 0 && prefix != marker) return false;
+    if (prefix.length != 0 && prefix != marker && !isDdoc(prefix, marker)) return false;
 
     size_t j = sp.end + 1;
     while (j < s.length && s[j] != '\n') {
@@ -138,6 +146,11 @@ unittest {
 
     // A marker from another language is just text in front of the quote.
     assert(!standsAlone(`# "a"`, Span(true, 3, 4), "//"));
+
+    // Ddoc is the same marker: the reference is written in `///`, and a quote
+    // that cannot stand on a `///` line cannot reach the book at all.
+    assert(standsAlone(`/// "a"`, Span(true, 5, 6), "//"));
+    assert(!standsAlone(`/// x "a"`, Span(true, 7, 8), "//"));
 
     // The span crosses newlines; only its two edges are the line question.
     assert(standsAlone("\"a\nb\"", Span(true, 1, 4)));

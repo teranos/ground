@@ -685,6 +685,16 @@ unittest {
 }
 
 unittest {
+    // `///` is the reference, not commentary. The book is generated from it,
+    // so it is reviewed as the book rather than buried where nothing reads it.
+    assert(maxCommentRun("/// a\n/// b\n/// c\n/// d\n/// e") == 0);
+
+    // It is not scaffolding either: a run of `//` ends where the doc begins,
+    // so alternating the two markers cannot smuggle a block past the count.
+    assert(maxCommentRun("// a\n/// doc\n// b") == 1);
+}
+
+unittest {
     // A literal backslash-n is not a line break. A test fixture holding
     // JSON payloads is one line of source, not four comments — this fired
     // on exactly that and blocked a file it had no business blocking.

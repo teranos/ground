@@ -137,8 +137,13 @@ int maxCommentRun(const(char)[] text) {
 
         if (opens) inBlock = true;
 
+        // `///` is the reference this repo publishes, not commentary hiding a
+        // claim. It neither counts nor continues a run, so alternating markers
+        // cannot smuggle a block past the count.
+        bool ddoc = rest.length >= 3 && rest[0 .. 3] == "///";
+
         bool isComment = false;
-        if (!scaffold && p < line.length) {
+        if (!scaffold && !ddoc && p < line.length) {
             if (line[p] == '#') isComment = true;
             else if (line[p] == '/' && p + 1 < line.length && line[p + 1] == '/')
                 isComment = true;
