@@ -1,5 +1,10 @@
 module matcher;
 
+// A scope is where a rule stands. It carries the path it stands in, the event
+// it answers to, and the command it waits for, and everything written inside
+// it is bound by all three. A scope inside a scope inherits what the outer one
+// said and may say otherwise, so the narrower answer is the one that holds.
+
 import controls;
 import hooks : scopeMatches;
 

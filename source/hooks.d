@@ -1,5 +1,10 @@
 module hooks;
 
+// A control is a named rule and a message: what it matches on, and what the
+// operator reads at the moment it matches. The event it declares is the set
+// that collects it, so a control nobody collects never runs, however well it
+// matches.
+
 enum HookEvent {
     SessionStart,       // scoped controls via sessionstart(), optional check functions, arch context
                         // TODO: watchPaths (arms FileChanged), initialUserMessage, sessionTitle, reloadSkills
