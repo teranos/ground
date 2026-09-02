@@ -149,7 +149,8 @@ bool rewroteHome(const(char)[] input, const(char)[] toolName, const(char)[] cwd)
 
     // Scratch is where a fixture carrying a real path belongs, and rewriting
     // one there breaks the fixture without protecting anything.
-    if (isScratch(extractFilePath(input))) return false;
+    auto target = extractFilePath(input);
+    if (isScratch(target)) return false;
 
     auto region = extractToolInputRegion(input);
     if (region is null) return false;
@@ -171,11 +172,15 @@ bool rewroteHome(const(char)[] input, const(char)[] toolName, const(char)[] cwd)
 
     static immutable parsed = allParsed;
 
+    // The scope is asked about the file being changed, not about where the
+    // session stands. A session in a public repo writing into a private one
+    // was scrubbing the private file for being in the wrong company.
     import git : repoRoot;
-    auto root = repoRoot(cwd);
+    auto where = target.length > 0 ? target : cwd;
+    auto root = repoRoot(where);
 
     for (size_t i = 0;; i++) {
-        auto sp = standingRewrite(parsed, cwd, root, i);
+        auto sp = standingRewrite(parsed, where, root, i);
         if (sp.done) break;
 
         auto from = rewriteFrom(sp.pair);

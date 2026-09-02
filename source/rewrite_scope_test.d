@@ -61,3 +61,16 @@ FakeParsed everywhere() {
 static immutable e = everywhere();
 
 static assert(standingRewrite(e, "/x/clean", "", 0).pair == "$HOME|/home/golem");
+
+// "IF THE FILE IS IN teranos YES TO RERTIE, IF OUTSIDE OF IT THE RULE SHOULD NOT APPLY"
+// A rewrite is asked about the file it changes, not about where the session stands.
+FakeParsed public_only() {
+    auto p = golem();
+    p.scopes[0].paths[0] = "/teranos/";
+    return p;
+}
+
+static immutable t = public_only();
+
+static assert(standingRewrite(t, "/u/geology/teranos/QNTX/am.toml", "", 0).pair == "$HOME|/home/golem");
+static assert(standingRewrite(t, "/u/geology/sbvh-nl/q.sbvh.nl/infra/am.toml", "", 0).done);
