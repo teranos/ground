@@ -124,14 +124,14 @@ MergedEnv mergeEnv(
 }
 
 // Build the full env dict passed to an exec child. GROUND_ vars come first
-// (positions 0..2, always present), then merged (project + control) pairs.
+// (positions 0..3, always present), then merged (project + control) pairs.
 // Pbt authors should not declare GROUND_-prefixed keys in env {} blocks —
 // GROUND_ names are reserved for the runtime floor. Nothing enforces this
 // today; it's a convention.
 ChildEnv prepareChildEnv(
     const(string)[] controlKeys, const(string)[] controlValues,
     const(string)[] projectKeys, const(string)[] projectValues,
-    string sessionId, string branch, string toolInput,
+    string sessionId, string branch, string toolInput, string toolOutput,
 ) {
     ChildEnv result;
 
@@ -144,7 +144,12 @@ ChildEnv prepareChildEnv(
     result.values[1] = branch;
     result.keys[2]   = "GROUND_TOOL_INPUT";
     result.values[2] = toolInput;
-    result.count = 3;
+    // What the tool printed. `git push --tags` names no tag; git's answer
+    // does, and a rite reads the answer.
+    // "if we have TOOL_INPUT, it makes sense to have TOOL_OUTPUT"
+    result.keys[3]   = "GROUND_TOOL_OUTPUT";
+    result.values[3] = toolOutput;
+    result.count = 4;
 
     auto merged = mergeEnv(controlKeys, controlValues, projectKeys, projectValues);
     foreach (i; 0 .. merged.count) {
@@ -178,6 +183,7 @@ void dispatchExec(
     int timeoutSec,
     const(string)[] controlKeys, const(string)[] controlValues,
     string sessionId, const(char)[] cwd, const(char)[] toolInput,
+    const(char)[] toolOutput = "",
 ) {
     import controls : allParsed;
     import matcher : contains;
@@ -222,6 +228,7 @@ void dispatchExec(
         controlKeys, controlValues,
         projectKeys, projectValues,
         cast(string) sessionId, cast(string) branch, cast(string) toolInput,
+        cast(string) toolOutput,
     );
 
     // --- Materialize script to a private tempfile ---

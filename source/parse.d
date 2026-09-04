@@ -140,6 +140,26 @@ const(char)[] extractToolInputRegion(const(char)[] json) {
     return null;
 }
 
+// The JSON from "tool_response" onward, or null before the tool has answered.
+// A key looked up from here cannot be one the command happened to quote.
+const(char)[] toolResponseRegion(const(char)[] json) {
+    auto idx = indexOf(json, `"tool_response"`);
+    if (idx < 0) return null;
+    size_t pos = cast(size_t) idx + `"tool_response"`.length;
+    while (pos < json.length && json[pos] != '{') pos++;
+    if (pos >= json.length) return null;
+    return json[pos .. $];
+}
+
+// What the tool printed. Unescaped, so a rite reads the lines git wrote and
+// not the two-character \n the hook carries them as.
+const(char)[] extractToolOutput(const(char)[] json) {
+    __gshared char[65536] buf = 0;
+    auto region = toolResponseRegion(json);
+    if (region is null) return null;
+    return extractJsonString(region, `"stdout"`, &buf[0], buf.length);
+}
+
 const(char)[] extractFilePath(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"file_path"`, &buf[0], buf.length);

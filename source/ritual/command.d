@@ -95,7 +95,11 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
 // The loop that keeps it moving while the agent works. Without this the
 // position only advances when a turn ends, which for a working agent can be
 // never. The path is quoted rather than pasted — it is a name ground built.
-void spawnDriver(const Position p, const(char)[] root) {
+//
+// Every rite runs under this process and reads its environment, so the tool
+// call that fired the control is handed to it here or reaches no rite at all.
+void spawnDriver(const Position p, const(char)[] root,
+                 const(char)[] toolInput = "", const(char)[] toolOutput = "") {
     import exec : dispatchExec;
     import ritual.run : SpawnScript, put, putQuoted;
 
@@ -105,13 +109,14 @@ void spawnDriver(const Position p, const(char)[] root) {
     s.put("\n");
     if (s.text().length == 0) return;
     dispatchExec(cast(string) s.text(), "ritual-drive", "", 86_400,
-                 [], [], "", root, "");
+                 [], [], "", root, toolInput, toolOutput);
 }
 
 // A control performing one. There is no argv and no terminal, so why it did
 // not start goes to the error record rather than to a stderr nobody reads.
 bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
-                        const(char)[] where = "") {
+                        const(char)[] where = "",
+                        const(char)[] toolInput = "", const(char)[] toolOutput = "") {
     import controls : allParsed;
     import db : openDb, sqlite3_close;
     import core.stdc.time : time;
@@ -155,7 +160,7 @@ bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
     if (!ok) return false;
 
     if (!spawnPerformance(p, flat, root)) return false;
-    spawnDriver(p, root);
+    spawnDriver(p, root, toolInput, toolOutput);
     return true;
 }
 

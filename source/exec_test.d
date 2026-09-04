@@ -54,15 +54,19 @@ import exec : prepareChildEnv, ChildEnv;
 
 enum ChildEnv floorOnly = prepareChildEnv(
     [], [], [], [],
-    "sid-xyz", "feat/x", "{}"
+    "sid-xyz", "feat/x", "{}", " * [new tag]           v0.31.0 -> v0.31.0\n"
 );
-static assert(floorOnly.count == 3);
+static assert(floorOnly.count == 4);
 static assert(floorOnly.keys[0] == "GROUND_SESSION_ID");
 static assert(floorOnly.values[0] == "sid-xyz");
 static assert(floorOnly.keys[1] == "GROUND_BRANCH");
 static assert(floorOnly.values[1] == "feat/x");
 static assert(floorOnly.keys[2] == "GROUND_TOOL_INPUT");
 static assert(floorOnly.values[2] == "{}");
+// What the tool printed, in the tool's own words. A push says [new tag] and
+// the rite reads that rather than the command that was typed.
+static assert(floorOnly.keys[3] == "GROUND_TOOL_OUTPUT");
+static assert(floorOnly.values[3] == " * [new tag]           v0.31.0 -> v0.31.0\n");
 
 // A rite that cannot name a place cannot walk out of the one it was given.
 static assert(() {
@@ -74,18 +78,18 @@ static assert(() {
 // Floor + project env only.
 enum ChildEnv withProj = prepareChildEnv(
     [], [], ["PORT"], ["8770"],
-    "s", "/c", "in"
+    "s", "/c", "in", "out"
 );
-static assert(withProj.count == 4);
-static assert(withProj.keys[3] == "PORT");
-static assert(withProj.values[3] == "8770");
+static assert(withProj.count == 5);
+static assert(withProj.keys[4] == "PORT");
+static assert(withProj.values[4] == "8770");
 
 // Floor + control env, collision with project (control still wins).
 enum ChildEnv withMerge = prepareChildEnv(
     ["PORT"], ["9999"],
     ["PORT"], ["8770"],
-    "s", "/c", "in"
+    "s", "/c", "in", "out"
 );
-static assert(withMerge.count == 4);
-static assert(withMerge.keys[3] == "PORT");
-static assert(withMerge.values[3] == "9999");
+static assert(withMerge.count == 5);
+static assert(withMerge.keys[4] == "PORT");
+static assert(withMerge.values[4] == "9999");

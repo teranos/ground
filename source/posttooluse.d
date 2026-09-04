@@ -2,7 +2,7 @@ module posttooluse;
 
 import matcher : hasSegment, contains, envSubst;
 import hooks : Control, scopeMatches;
-import parse : extractCommand, extractFilePath, extractToolName, writeJsonString;
+import parse : extractCommand, extractFilePath, extractToolName, extractToolOutput, writeJsonString;
 import core.stdc.stdio : stdout, fputs, stderr;
 import db : ZBuf;
 import sessionmode : SessionMode;
@@ -109,7 +109,6 @@ bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] file
     return false;
 }
 
-// TODO: extract `tool_response` — the actual result the tool returned (ground only reads tool_input today)
 int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
     auto t0 = usecNow();
@@ -131,6 +130,9 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
+    // What the tool printed, for the floor. Read once here: the buffer behind
+    // it is shared, and the whole payload below is still `input`.
+    auto toolOutput = extractToolOutput(input);
 
     // Blue is "the agent is doing something", so it is stamped where the agent
     // does something. Collet read this off the attestation table before, which
@@ -258,7 +260,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (edb !is null && toolUseId.length > 0)
                         attestExecFire(edb, c.name, where, sessionId, toolUseId);
                     import ritual : performFromControl;
-                    cast(void) performFromControl(c.ritual, sessionId, where);
+                    cast(void) performFromControl(c.ritual, sessionId, where, input, toolOutput);
                     continue;
                 }
                 if (c.exec.length == 0) continue;
@@ -296,7 +298,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     timeoutSec,
                     c.envKeys[0 .. c.envCount],
                     c.envValues[0 .. c.envCount],
-                    cast(string) sessionId, cwd, input,
+                    cast(string) sessionId, cwd, input, toolOutput,
                 );
             }
         }
