@@ -1,7 +1,5 @@
 module proto_test;
 
-// TODO: split by feature area — see proto_exec_test.d for the pattern (one focused file per pbt feature).
-
 import proto : parsePbt, buildScopes, ParseResult;
 import hooks : CheckFn, DelayFn, DeliverFn;
 
