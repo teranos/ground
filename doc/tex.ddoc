@@ -1,0 +1,93 @@
+DDOC =
+	\chapter{$(TITLE)}
+	$(BODY)
+
+DDOC_SECTIONS         = $0
+DDOC_MODULE_MEMBERS   = $0
+DDOC_STRUCT_MEMBERS =
+	\begin{gmembers}
+	$0
+	\end{gmembers}
+
+DDOC_ENUM_MEMBERS     = $0
+DDOC_CLASS_MEMBERS    = $0
+DDOC_TEMPLATE_MEMBERS = $0
+DDOC_MEMBERS          = $0
+DDOC_MEMBER           = $0
+DDOC_MEMBER_HEADER    =
+DDOC_HEADER_ANCHOR    =
+DDOC_ANCHOR           =
+
+DDOC_DECL =
+
+DDOC_DECL_DD = $0
+
+DDOC_SUMMARY =
+	$0
+
+DDOC_DESCRIPTION =
+	$0
+
+DDOC_EXAMPLES =
+	\begin{gcode}
+	$0
+	\end{gcode}
+
+DDOC_RETURNS =
+	\gsection{Answers}
+	$0
+
+DDOC_THROWS =
+	\gsection{Refuses}
+	$0
+
+DDOC_SEE_ALSO =
+	\gsection{See also}
+	$0
+
+DDOC_PARAMS =
+	\begin{gparams}
+	$0
+	\end{gparams}
+
+DDOC_PARAM_ROW  = $0
+DDOC_PARAM_ID   = \item[$0]
+DDOC_PARAM_DESC = $0
+
+DDOC_PSYMBOL       = $0
+DDOC_PSUPER_SYMBOL = $0
+DDOC_KEYWORD       = $0
+DDOC_PARAM         = $0
+DDOC_CONSTRAINT    = $0
+DDOC_BLANKLINE     =
+
+D_CODE =
+	\begin{gcode}
+	$0
+	\end{gcode}
+
+D_INLINECODE = \gverb{$0}
+D_COMMENT    = $0
+D_STRING     = $0
+D_KEYWORD    = $0
+D_PSYMBOL    = $0
+D_PARAM      = $0
+
+B = \textbf{$0}
+I = \textit{$0}
+U = $0
+
+P =
+	$0
+
+LI = \item $0
+
+UL =
+	\begin{itemize}
+	$0
+	\end{itemize}
+
+OL =
+	\begin{enumerate}
+	$0
+	\end{enumerate}

@@ -18,6 +18,9 @@
 ground
 ground-test-application
 tools/wind
+tools/press
+tools/binder
+tools/editor
 ug/ug
 
 # Generated
@@ -41,6 +44,34 @@ controls/*
 !controls/local/
 controls/local/*
 !controls/local/.gitkeep
+
+# The book is generated from source, so only its inputs are tracked. A tracked
+# PDF would be a second copy of the reference, free to disagree with the code.
+doc/tex/
+doc/provenance.tex
+doc/edition.tex
+doc/cases.ddoc
+doc/book.pdf
+doc/book.folios
+doc/annot.pdf
+doc/annot.folios
+doc/html/
+doc/book.html
+doc/book.css
+doc/*.4ct
+doc/*.4tc
+doc/*.idv
+doc/*.lg
+doc/*.tmp
+doc/*.xref
+doc/*.dvi
+doc/*.aux
+doc/*.log
+doc/*.out
+doc/*.toc
+doc/*.fls
+doc/*.fdb_latexmk
+doc/*.xdv
 
 # DUB
 .dub
