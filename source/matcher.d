@@ -187,23 +187,27 @@ const(char)[] shellHome() {
     return h[0 .. n];
 }
 
+// The shell expands a tilde before cd sees it, and ground reads the text the
+// shell was given. Two pushes made as `cd ~/...; git push` started no ritual:
+// the literal went to git, which found no repo there. Written into a buffer
+// the caller owns, so CTFE and betterC both have somewhere to put it.
+const(char)[] tildeExpanded(const(char)[] target, const(char)[] home, char[] joined) {
+    if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
+    if (target.length == 1) return home;
+    if (target[1] != '/') return target;
+    size_t n;
+    foreach (c; home) { if (n < joined.length) joined[n++] = c; }
+    foreach (c; target[1 .. $]) { if (n < joined.length) joined[n++] = c; }
+    return joined[0 .. n];
+}
+
 const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd, const(char)[] home = "") {
     auto eff = cwd;
     auto shell = cwd;
 
-    // The shell expands a tilde before cd sees it, and this reads the text
-    // the shell was given. Two pushes made as `cd ~/...; git push` started no
-    // ritual: the literal went to git, which found no repo there.
+    __gshared char[4096] joined = 0;
     const(char)[] expanded(const(char)[] target) {
-        if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
-        if (target.length == 1) return home;
-        if (target[1] != '/') return target;
-        if (__ctfe) return home ~ target[1 .. $];
-        __gshared char[4096] joined = 0;
-        size_t n;
-        foreach (c; home) { if (n < joined.length) joined[n++] = c; }
-        foreach (c; target[1 .. $]) { if (n < joined.length) joined[n++] = c; }
-        return joined[0 .. n];
+        return tildeExpanded(target, home, joined);
     }
     bool sawGit = false;
     size_t start = 0;
