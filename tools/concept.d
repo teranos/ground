@@ -47,6 +47,41 @@ immutable Reading[] readings = [
                         "binary"]),
 ];
 
+// "so its deliberate which terms deserve a glossary entry"
+// Which chapter owns a module, and so which section its terms are set in. A
+// reading names proto twice; this names each module once, or not at all.
+struct Owner {
+    string chapter;
+    immutable(string)[] mods;
+}
+
+immutable Owner[] owners = [
+    Owner("scope",       ["matcher"]),
+    Owner("control",     ["hooks", "strop", "exec"]),
+    Owner("project",     ["project"]),
+    Owner("permission",  ["permission", "sessionmode"]),
+    Owner("ritual",      ["ritual/resolve", "rite", "ritual/position", "ritual/run",
+                          "ritual/drive", "mic", "receiver", "ritual/delivery",
+                          "dispatch"]),
+    Owner("attestation", ["db", "attest", "provenance", "queued"]),
+];
+
+string chapterOf(string mod) {
+    foreach (o; owners)
+        foreach (m; o.mods) if (m == mod) return o.chapter;
+    return "";
+}
+
+// The subject a file is about. A module and its test are one subject, and a
+// module under a directory of source/ carries that directory with it.
+string moduleName(string path) {
+    auto s = path;
+    if (s.length > 7 && s[0 .. 7] == "source/") s = s[7 .. $];
+    if (s.length > 2 && s[$ - 2 .. $] == ".d") s = s[0 .. $ - 2];
+    if (s.length > 5 && s[$ - 5 .. $] == "_test") s = s[0 .. $ - 5];
+    return s;
+}
+
 // The module a chapter opens on: the first one its order names. Its heading is
 // the only prose in the book that is about a concept rather than about a case,
 // and a chapter with no order of its own opens on nothing.

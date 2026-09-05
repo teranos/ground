@@ -10,8 +10,9 @@ import std.array : array;
 import std.path : baseName;
 import std.stdio : stderr;
 
-import cases : extractCases, renderCase, caseName, Case, splitLines, unmark, flow;
-import concept : conceptOf, chapters, rank, opener;
+import cases : extractCases, renderCase, caseName, Case, splitLines, unmark, flow,
+               extractGlossary, Entry;
+import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners;
 
 // A case and where its chapter puts it. The rank and the file are asked once,
 // when the case is collected, because the file is only known here.
@@ -21,13 +22,14 @@ struct Placed {
     Case c;
 }
 
-// The subject a file is about. A module and its test are the same subject, so
-// the book meets them together rather than a whole alphabet apart.
-string stem(string path) {
-    auto b = baseName(path);
-    if (b.length > 2 && b[$ - 2 .. $] == ".d") b = b[0 .. $ - 2];
-    if (b.length > 5 && b[$ - 5 .. $] == "_test") b = b[0 .. $ - 5];
-    return b;
+// The subject a file is about, named the way concept.d names it.
+alias stem = moduleName;
+
+// A glossary line the book will not set: no term on it, or a module no chapter
+// owns. Said with the file and the line, and nothing is written.
+struct Refused {
+    string file;
+    string why;
 }
 
 // An example is something a reader can see at once. The text block is 212mm
@@ -59,10 +61,16 @@ int main(string[] argv) {
     string[] present;
 
     // Every module, not only the test ones. `//` and `///` are both prose and
-    // both belong in the book.
-    auto files = dirEntries("source", "*.d", SpanMode.shallow)
+    // both belong in the book. One level down as well: the ritual's own
+    // modules live under source/ritual/, and the terms they define with them.
+    auto files = dirEntries("source", "*.d", SpanMode.depth)
         .array
         .sort!((a, b) => a.name < b.name);
+
+    // The glossary, by module. Set in the order owners names the modules, so
+    // where a term stands in its section is decided in one place.
+    Entry[][string] glossary;
+    Refused[] refused;
 
     // Every case for one symbol also lands under a macro, so a `///` can name
     // one without the whole chapter coming with it.
@@ -78,7 +86,22 @@ int main(string[] argv) {
 
     size_t totalCases = 0;
     foreach (f; files) {
-        auto found = extractCases(readText(f.name));
+        auto text = readText(f.name);
+
+        foreach (e; extractGlossary(text)) {
+            if (e.term.length == 0) {
+                refused ~= Refused(f.name, "carries a glossary line without a term: " ~ e.text);
+                continue;
+            }
+            auto owner = chapterOf(stem(f.name));
+            if (owner.length == 0) {
+                refused ~= Refused(f.name, "defines " ~ e.term ~ " and no chapter owns " ~ stem(f.name));
+                continue;
+            }
+            glossary[stem(f.name)] ~= e;
+        }
+
+        auto found = extractCases(text);
         if (found.length == 0) continue;
 
         foreach (c; found) {
@@ -129,6 +152,14 @@ int main(string[] argv) {
         return 1;
     }
 
+    // A term the book cannot place is not filed somewhere plausible. The line
+    // was written on purpose, so the book says which one and stops.
+    if (refused.length > 0) {
+        foreach (r; refused) stderr.writefln("press: %s %s", r.file, r.why);
+        stderr.writeln("press: a glossary line the book cannot set. Nothing written.");
+        return 1;
+    }
+
     // A chapter that stops being one would leave its file behind for an
     // \input that no longer names it. Cleared here rather than by the caller,
     // so a halt leaves the last good book standing instead of deleting it.
@@ -165,11 +196,42 @@ int main(string[] argv) {
         write("doc/tex/" ~ o ~ ".tex", "\\chapter{" ~ o ~ "}\n" ~ lead ~ renderBody(placed));
         list ~= "\\input{tex/" ~ o ~ "}\n";
     }
+
+    // "the glossary has a section for each non glossary capter"
+    // Sections run in chapter order, and a chapter with no term has none.
+    auto gloss = renderGlossary(order, glossary);
+    if (gloss.length > 0) {
+        write("doc/tex/glossary.tex", gloss);
+        list ~= "\\input{tex/glossary}\n";
+    }
     write("doc/tex/chapters.tex", list);
 
-    stderr.writefln("press: %d chapters, %d cases, %d symbols",
-        order.length, totalCases, symbols.length);
+    size_t terms = 0;
+    foreach (es; glossary) terms += es.length;
+    stderr.writefln("press: %d chapters, %d cases, %d symbols, %d terms",
+        order.length, totalCases, symbols.length, terms);
     return 0;
+}
+
+// The glossary chapter. Empty when no module defines a term, so the book has
+// no chapter that says nothing.
+string renderGlossary(const(string)[] order, Entry[][string] glossary) {
+    string out_;
+    foreach (ch; order) {
+        string section;
+        foreach (o; owners) {
+            if (o.chapter != ch) continue;
+            foreach (m; o.mods) {
+                if (m !in glossary) continue;
+                foreach (e; glossary[m])
+                    section ~= "\\item[" ~ escape(e.term) ~ "] " ~ escape(e.text) ~ "\n";
+            }
+        }
+        if (section.length == 0) continue;
+        out_ ~= "\\gsection{" ~ ch ~ "}\n\\begin{gglossary}\n" ~ section ~ "\\end{gglossary}\n\n";
+    }
+    if (out_.length == 0) return "";
+    return "\\chapter{glossary}\n\n" ~ out_;
 }
 
 string numeral(size_t n) {

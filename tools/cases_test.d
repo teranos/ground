@@ -4,7 +4,8 @@ module cases_test;
 // already states, and rendering them as ddoc macros. Failure shows as a
 // compile error from static assert.
 
-import cases : extractCases, renderCase, caseName, subject, flow;
+import cases : extractCases, renderCase, caseName, subject, flow,
+               extractGlossary, isGlossary;
 
 // The symbol under test is the first thing the assertion calls.
 static assert(subject(`static assert(sessionMatches("m", "default"));`) == "sessionMatches");
@@ -243,3 +244,54 @@ static assert(pair[0].prose == "About x.");
 static assert(pair[1].prose == "About y.");
 static assert(pair[0].pbt == "scope { }");
 static assert(pair[1].pbt == "control { }");
+
+// "so its deliberate which terms deserve a glossary entry"
+// A term is in the glossary because one line in source says so. The line is
+// the operator's own, verbatim.
+enum riteLine = "// BOOK_GLOSSARY **Rite**: Defined in a rites{ .. } block, composable specified behaviour and execution.";
+enum glossed = extractGlossary(riteLine ~ "\n");
+static assert(glossed.length == 1);
+static assert(glossed[0].term == "Rite");
+static assert(glossed[0].text ==
+    "Defined in a rites{ .. } block, composable specified behaviour and execution.");
+
+// Both comment kinds are prose, and both carry a term.
+static assert(extractGlossary("/// BOOK_GLOSSARY **Mic**: Who is speaking.\n")[0].term == "Mic");
+
+// The marker is the first word of the comment, or it is not the marker.
+static assert(extractGlossary("// The BOOK_GLOSSARY lines are scanned.\n").length == 0);
+static assert(extractGlossary("BOOK_GLOSSARY **Rite**: not a comment\n").length == 0);
+
+// A line carrying the marker without the shape is not dropped: it comes back
+// with no term and the line itself as its text, so press can name it.
+enum broken = extractGlossary("// BOOK_GLOSSARY Rite: no asterisks.\n");
+static assert(broken.length == 1);
+static assert(broken[0].term == "");
+static assert(broken[0].text == "// BOOK_GLOSSARY Rite: no asterisks.");
+
+enum noColon = extractGlossary("// BOOK_GLOSSARY **Rite** no colon.\n");
+static assert(noColon.length == 1);
+static assert(noColon[0].term == "");
+
+// Two terms in one module are two entries, in the order the file states them.
+enum twoTerms = extractGlossary(
+    "// BOOK_GLOSSARY **Ritual**: One or more rites blocks.\n" ~
+    "static assert(f(1));\n" ~
+    "\n" ~
+    "// BOOK_GLOSSARY **Rite**: One step.\n");
+static assert(twoTerms.length == 2);
+static assert(twoTerms[0].term == "Ritual");
+static assert(twoTerms[1].term == "Rite");
+
+// A glossary line is not prose about the stretch that follows it, so it is
+// not a heading, and it is not part of the case it stands above.
+static assert(isGlossary("// BOOK_GLOSSARY **Rite**: One step."));
+static assert(!isGlossary("// A rite."));
+static assert(extractCases("// BOOK_GLOSSARY **Rite**: One step.\n\n").length == 0);
+enum above = extractCases(
+    "// BOOK_GLOSSARY **Rite**: One step.\n" ~
+    "// A case.\n" ~
+    "static assert(f(1));\n");
+static assert(above.length == 1);
+static assert(above[0].text == "// A case.\nstatic assert(f(1));");
+static assert(above[0].prose == "A case.");

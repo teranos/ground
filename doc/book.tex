@@ -59,6 +59,10 @@
 
 \newenvironment{gparams}{\begin{description}[leftmargin=!,font=\normalfont\ttfamily]}{\end{description}}
 
+% A glossary term is a word of the book's own language, so it is set as a word
+% and not as code.
+\newenvironment{gglossary}{\begin{description}[leftmargin=!,font=\normalfont\scshape]}{\end{description}}
+
 % A case is one row: the block on the left, what it is for on the right. A
 % minipage cannot be broken, so a page never cuts an example in half.
 \newlength{\gpbtw}

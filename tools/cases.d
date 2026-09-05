@@ -33,6 +33,49 @@ string subject(string line) {
     return s[0 .. n];
 }
 
+// A glossary entry: one term, one sentence, from one line in the module that
+// owns the term. Which terms have one is decided by writing the line.
+struct Entry {
+    // Empty when the line carried the marker but not the shape, and text is
+    // then the line itself, so press can say which one.
+    string term;
+    string text;
+}
+
+// "so its deliberate which terms deserve a glossary entry"
+// The marker is the first word of the comment, the term stands between two
+// pairs of asterisks, and the sentence follows the colon.
+enum GLOSSARY_MARK = "BOOK_GLOSSARY";
+
+bool isGlossary(string line) {
+    auto s = trimLeft(line);
+    if (!startsAt(s, 0, "//")) return false;
+    s = unmark(line);
+    return startsAt(s, 0, GLOSSARY_MARK ~ " ");
+}
+
+// Every glossary line in the module, in the order the file states them.
+Entry[] extractGlossary(string source) {
+    Entry[] found;
+    foreach (line; splitLines(source)) {
+        if (!isGlossary(line)) continue;
+        auto s = unmark(line)[GLOSSARY_MARK.length .. $];
+        s = trimLeft(s);
+
+        if (!startsAt(s, 0, "**")) { found ~= Entry("", trimLeft(line)); continue; }
+        s = s[2 .. $];
+        size_t n = 0;
+        while (n + 1 < s.length && !(s[n] == '*' && s[n + 1] == '*')) n++;
+        if (n + 1 >= s.length) { found ~= Entry("", trimLeft(line)); continue; }
+        auto term = s[0 .. n];
+        s = s[n + 2 .. $];
+
+        if (!startsAt(s, 0, ":")) { found ~= Entry("", trimLeft(line)); continue; }
+        found ~= Entry(term, trimLeft(s[1 .. $]));
+    }
+    return found;
+}
+
 // Walk the module, gathering runs of comment and assertion lines. Anything
 // else ends the run: a blank line separates two thoughts, and a line of setup
 // beneath a case is not part of what the case claims.
@@ -43,6 +86,15 @@ Case[] extractCases(string source) {
 
     void flush() {
         scope (exit) { block = null; fixture = null; }
+
+        // A glossary line defines a word; it is not about the stretch beneath
+        // it and not part of any case, so it leaves the run before the run is
+        // read as either.
+        {
+            string[] kept;
+            foreach (line; block) if (!isGlossary(line)) kept ~= line;
+            block = kept;
+        }
 
         string asserted;
         foreach (line; block) {

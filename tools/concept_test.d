@@ -3,7 +3,7 @@ module concept_test;
 // CTFE tests for where a case belongs. A chapter is a concept, and the grammar
 // has more words than it has concepts.
 
-import concept : conceptOf, isConcept, chapters, rank, opener;
+import concept : conceptOf, isConcept, chapters, rank, opener, chapterOf, moduleName;
 
 // "most chapters arent supposed to be their own standalone chapters"
 static assert(chapters.length == 6);
@@ -109,3 +109,27 @@ static assert(rank("scope", "proto") > rank("scope", "matcher"));
 // A chapter with no order opens on nothing, and its first case stands alone
 // the way every chapter did before one was written.
 static assert(opener("attestation") == "");
+
+// "so its deliberate which terms deserve a glossary entry"
+// A glossary term belongs to the chapter that owns its module, and a chapter
+// owns a module by naming it. Naming is the whole of the decision.
+static assert(chapterOf("matcher") == "scope");
+static assert(chapterOf("hooks") == "control");
+static assert(chapterOf("permission") == "permission");
+static assert(chapterOf("rite") == "ritual");
+static assert(chapterOf("mic") == "ritual");
+
+// A module nobody names owns no term, so a glossary line in it is a line the
+// book refuses rather than one it files somewhere.
+static assert(chapterOf("zbuf") == "");
+
+// The reading order of a chapter is not ownership. proto is read under both
+// scope and control and owns terms for neither.
+static assert(chapterOf("proto") == "");
+
+// A module under source/ritual/ is named with its directory, so the ritual's
+// own modules are reachable and nothing beside them can be mistaken for them.
+static assert(moduleName("source/ritual/position.d") == "ritual/position");
+static assert(moduleName("source/rite.d") == "rite");
+static assert(moduleName("source/proto_test.d") == "proto");
+static assert(chapterOf("ritual/position") == "ritual");
