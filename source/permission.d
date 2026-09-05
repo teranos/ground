@@ -41,6 +41,8 @@
 /// "im not changing the spec, this is in addition to, i epect you to hold both in context"
 module permission;
 
+// BOOK_GLOSSARY **Permission**: A grant or a denial of a tool call, answered before the prompt exists, and the message a denial carries.
+
 import matcher : wildcardContains, stripQuoted, contains, envSubst;
 import proto : ParseResult, ParsedPermission;
 import sessionmode : SessionMode;

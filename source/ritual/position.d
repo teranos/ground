@@ -1,5 +1,8 @@
 module ritual.position;
 
+// BOOK_GLOSSARY **Performance**: One full run of a ritual, identified by itself and not by the tree it is performed in.
+// BOOK_GLOSSARY **Position**: Which ritual, which rite, and what every rite has been.
+
 import rite : Verdict;
 public import mic : Mic, micWord, micFromWord;
 

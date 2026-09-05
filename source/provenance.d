@@ -1,5 +1,7 @@
 module provenance;
 
+// BOOK_GLOSSARY **Provenance**: A quoted span is a claim about who said something, checked against what the operator typed.
+
 // A quoted span is a claim about who said something. This module finds the
 // claims; checking them against what the user typed is the caller's job.
 

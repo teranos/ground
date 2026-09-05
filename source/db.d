@@ -1,5 +1,7 @@
 module db;
 
+// BOOK_GLOSSARY **Attestation**: The record of one event with its full payload, in the store ground refuses to operate without.
+
 import matcher : indexOf, contains;
 import core.stdc.stdio : FILE;
 import core.stdc.time : time, time_t, tm, gmtime;

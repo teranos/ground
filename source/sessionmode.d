@@ -1,5 +1,7 @@
 module sessionmode;
 
+// BOOK_GLOSSARY **Session mode**: The permission mode a session runs under, which a permission names to say when it applies.
+
 /// https://code.claude.com/docs/en/permission-modes
 enum SessionMode {
     unknown,

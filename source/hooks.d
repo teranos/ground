@@ -1,5 +1,9 @@
 module hooks;
 
+// BOOK_GLOSSARY **Control**: A named rule and a message: what it matches on, and what the operator reads at the moment it matches.
+// BOOK_GLOSSARY **Rewrite**: A correction to what was run, made silently, with a message saying why.
+// BOOK_GLOSSARY **Substitute for read**: A command reaching for a file is handed the file instead of being run.
+
 // A control is a named rule and a message: what it matches on, and what the
 // operator reads at the moment it matches. The event it declares is the set
 // that collects it, so a control nobody collects never runs, however well it

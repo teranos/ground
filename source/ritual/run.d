@@ -1,5 +1,8 @@
 module ritual.run;
 
+// BOOK_GLOSSARY **Goto**: Where a caught code sends the position when the rite names somewhere to go, bounded per performance.
+// BOOK_GLOSSARY **Briefing**: What an agent is told at the start of a turn: which rite, what meets it, and what the author said.
+
 import rite : Verdict;
 import ritual.position : Position, RitualState, RiteState, step, jump, MAX_EVALS;
 import ritual.resolve : Flattened, indexOfRite, indexOfRiteFrom;

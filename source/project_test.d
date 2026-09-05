@@ -1,5 +1,7 @@
 module project_test;
 
+// BOOK_GLOSSARY **Project**: A repo ground knows about, by path, whose controls and rituals live beside the code they govern.
+
 import proto : parsePbt;
 import proto_test : ctrl, perm;
 

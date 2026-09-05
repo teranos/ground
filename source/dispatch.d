@@ -1,5 +1,7 @@
 module dispatch;
 
+// BOOK_GLOSSARY **Dispatch**: A workflow sent to a repo's own default branch, over when the job is sent and not when it concludes.
+
 import worktree : addQuoted;
 import rite : RITE_UNREACHED;
 

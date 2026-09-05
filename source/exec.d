@@ -1,5 +1,7 @@
 module exec;
 
+// BOOK_GLOSSARY **Floor**: What every exec and every rite is given: the session, the branch, what was run, and what it printed.
+
 import core.stdc.errno : errno;
 
 extern (C) {

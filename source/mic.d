@@ -1,5 +1,7 @@
 module mic;
 
+// BOOK_GLOSSARY **Mic**: The object that signifies who is speaking into the receiver: ground, agent, ci, human, or an error. One per performance, and something is always holding it.
+
 // "the object that signifies who is speaking into the receiver is called a mic"
 // "there can only be 1 mic per ritual performance"
 // "something is always holding the mic"

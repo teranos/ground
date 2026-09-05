@@ -1,5 +1,7 @@
 module ritual.drive;
 
+// BOOK_GLOSSARY **Driver**: The loop that keeps a performance moving, one per performance, forked when it starts.
+
 import ritual.position : RitualState;
 import ritual.resolve : flatten;
 import ritual.run : advance, briefing;

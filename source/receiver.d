@@ -1,5 +1,7 @@
 module receiver;
 
+// BOOK_GLOSSARY **Receiver**: Who a message is for: human, host, ritual, or agent. Parent is human and host together.
+
 // "THERE ARE FOR RECEIVERS"
 
 // "PARENT: HUMAN / HOSTLLM"
