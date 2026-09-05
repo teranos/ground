@@ -1,5 +1,7 @@
 module matcher;
 
+// BOOK_GLOSSARY **Scope**: Where a rule stands: the path it stands in, the event it answers to, and the command it waits for.
+
 // A scope is where a rule stands. It carries the path it stands in, the event
 // it answers to, and the command it waits for, and everything written inside
 // it is bound by all three. A scope inside a scope inherits what the outer one
@@ -205,9 +207,12 @@ const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd, const(char)
     auto eff = cwd;
     auto shell = cwd;
 
+    // The buffer is reached only for a tilde with a home to expand it to, so a
+    // compile-time caller with neither never touches static storage.
     __gshared char[4096] joined = 0;
     const(char)[] expanded(const(char)[] target) {
-        return tildeExpanded(target, home, joined);
+        if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
+        return tildeExpanded(target, home, joined[]);
     }
     bool sawGit = false;
     size_t start = 0;
