@@ -308,6 +308,14 @@ bool applySchema(sqlite3* db) {
     enum idxTiming = "CREATE INDEX IF NOT EXISTS idx_timing_event_project ON timing(hook_event, project, id)\0";
     sqlite3_exec(db, idxTiming.ptr, null, null, null);
 
+    // Whether a repository is public, by origin, as GitHub last said. Asked
+    // once per repository and kept, so a scope that stands in public costs a
+    // write nothing after the first.
+    enum visibilitySchema = "CREATE TABLE IF NOT EXISTS repo_visibility ("
+        ~ "origin TEXT PRIMARY KEY, visibility INTEGER NOT NULL, "
+        ~ "asked_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+    sqlite3_exec(db, visibilitySchema.ptr, null, null, null);
+
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";

@@ -175,9 +175,36 @@ int maxCommentRun(const(char)[] text) {
 // Where a command actually ran. checkAllCommands has tracked this per segment
 // since it existed; this is the same walk with the answer at the end, for
 // callers that gate on a place before they look at any segment.
-const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
+// The home the shell expands a tilde to, for the callers that read a command
+// at runtime. Empty leaves a tilde alone, which is what CTFE tests want.
+const(char)[] shellHome() {
+    if (__ctfe) return "";
+    import db : getenv;
+    auto h = getenv("HOME\0".ptr);
+    if (h is null) return "";
+    size_t n;
+    while (h[n] != 0) n++;
+    return h[0 .. n];
+}
+
+const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd, const(char)[] home = "") {
     auto eff = cwd;
     auto shell = cwd;
+
+    // The shell expands a tilde before cd sees it, and this reads the text
+    // the shell was given. Two pushes made as `cd ~/...; git push` started no
+    // ritual: the literal went to git, which found no repo there.
+    const(char)[] expanded(const(char)[] target) {
+        if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
+        if (target.length == 1) return home;
+        if (target[1] != '/') return target;
+        if (__ctfe) return home ~ target[1 .. $];
+        __gshared char[4096] joined = 0;
+        size_t n;
+        foreach (c; home) { if (n < joined.length) joined[n++] = c; }
+        foreach (c; target[1 .. $]) { if (n < joined.length) joined[n++] = c; }
+        return joined[0 .. n];
+    }
     bool sawGit = false;
     size_t start = 0;
     size_t i = 0;
@@ -199,7 +226,7 @@ const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
         if (isSep) {
             auto segment = strip(command[start .. i]);
             auto target = extractLeadingCd(segment);
-            if (target.length > 0) shell = target;
+            if (target.length > 0) shell = expanded(target);
             // Only a git invocation names where git work happened. A `| tail`
             // names nothing, and reading it as a place moved a push to wherever
             // the session stood.

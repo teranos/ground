@@ -83,6 +83,9 @@ struct ParsedScope {
     string[3] extraEvents;
     ubyte extraEventCount;
     string mcpTool;
+    // The scope stands only in a public repository. A fact ground asks GitHub
+    // for, not a path anyone maintains.
+    bool publicOnly;
     size_t controlStart, controlEnd;     // indices into ParseResult.ctrlPool
     size_t permStart, permEnd;           // indices into ParseResult.permPool
 
@@ -626,6 +629,7 @@ ScopeSet buildScopes(
         s.cmdCount = ps.cmdCount;
         s.decision = decision;
         s.mcpTool = ps.mcpTool;
+        s.publicOnly = ps.publicOnly;
         s.controls = result.ctrlPool[ctrlStart .. poolLen];
         result.items[result.len] = s;
         result.len++;
@@ -903,6 +907,7 @@ void parseScope(ref string input, ref size_t pos, ref ParseResult result,
                     }
                     break;
                 case "mcp_tool": sc.mcpTool = val; break;
+                case "public":   sc.publicOnly = (val == "true"); break;
                 default: assert(0, "Unknown scope field");
             }
         }

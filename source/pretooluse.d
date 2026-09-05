@@ -313,14 +313,14 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         {
             import substitute : readTargets, handOver;
             import controls : allScopes;
-            import matcher : effectiveCwd;
+            import matcher : effectiveCwd, shellHome;
 
             foreach (ref sc; allScopes) {
                 foreach (ref ctrl; sc.controls) {
                     auto utils = ctrl.substituteForRead.values();
                     if (utils.length == 0) continue;
 
-                    auto eff = effectiveCwd(command, cwd);
+                    auto eff = effectiveCwd(command, cwd, shellHome());
                     auto targets = readTargets(command, utils);
                     if (targets.count == 0) continue;
 

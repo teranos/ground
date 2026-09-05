@@ -353,7 +353,21 @@ struct Scope {
     ubyte cmdCount;
     string decision;
     string mcpTool;
+    // Stands only where the repository is public. Not a path: the answer to a
+    // question ground asks about the repository the tool call reaches into.
+    bool publicOnly;
     const(Control)[] controls;
+}
+
+// What ground knows about a repository's audience.
+enum Visibility { Unknown, Public, Private }
+
+// A scope that stands in public stands where the repository is public, and
+// where ground could not place it: the unknown case is the one where a leak
+// costs the most. A scope that never said so stands everywhere.
+bool standsInPublic(bool publicOnly, Visibility seen) {
+    if (!publicOnly) return true;
+    return seen != Visibility.Private;
 }
 
 // A path names directories, so it ends where one ends. A raw substring made
@@ -399,6 +413,14 @@ bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
 // Where the command runs, and the repository that place belongs to. A worktree
 // is the project it was cut from, wherever on disk somebody put it.
 bool scopeMatchesIn(S)(const ref S sc, const(char)[] cwd, const(char)[] root) {
+    // The audience is asked only of a scope that cares, so a scope that never
+    // said `public` costs no lookup. Test structs carry no such field.
+    static if (__traits(hasMember, S, "publicOnly")) {
+        if (sc.publicOnly) {
+            import git : repoVisibility;
+            if (!standsInPublic(true, repoVisibility(root))) return false;
+        }
+    }
     if (sc.pathCount == 0) return true;
 
     bool here(const(char)[] pattern) {

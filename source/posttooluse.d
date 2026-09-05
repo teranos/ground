@@ -198,8 +198,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         auto edb = openDb();
         // Where the command ran, not where the session sits. `cd X && git push`
         // is work done in X, and a scope naming X was skipped before this.
-        import matcher : effectiveCwd;
-        auto where = effectiveCwd(detail, cwd);
+        import matcher : effectiveCwd, shellHome;
+        auto where = effectiveCwd(detail, cwd, shellHome());
         foreach (ref sc; postToolUseScopes) {
             if (!scopeMatches(sc, where)) continue;
             if (sc.cmdCount > 0) {

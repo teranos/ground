@@ -2,6 +2,7 @@ module git;
 
 import zbuf : ZBuf;
 import core.stdc.stdio : fread, fopen, fclose, FILE;
+import hooks : Visibility;
 
 extern (C) {
     FILE* popen(const(char)* command, const(char)* mode);
@@ -449,4 +450,83 @@ const(char)[] getBranch(const(char)[] cwd) {
     fclose(f);
 
     return branchFromHead(branchBuf[0 .. n]);
+}
+
+// visibilityIn reads GitHub's answer for a repository the way the throttle
+// reads the rate limit: one field, no jq. Anything that is not a plain
+// `"private": true` or `"private": false` is unknown.
+Visibility visibilityIn(const(char)[] json) {
+    import matcher : indexOf;
+    enum key = `"private":`;
+    auto at = indexOf(json, key);
+    if (at < 0) return Visibility.Unknown;
+    size_t pos = cast(size_t) at + key.length;
+    while (pos < json.length && json[pos] == ' ') pos++;
+    if (pos + 4 <= json.length && json[pos .. pos + 4] == "true") return Visibility.Private;
+    if (pos + 5 <= json.length && json[pos .. pos + 5] == "false") return Visibility.Public;
+    return Visibility.Unknown;
+}
+
+// repoVisibility is whether the repository at root is public, by its origin.
+// Asked of GitHub once per origin with curl and the token gh holds, the way
+// a dispatch asks, and remembered in ground's db so the next write costs
+// nothing. Unknown is not remembered: a network down for one write must not
+// make a repository public for good.
+Visibility repoVisibility(const(char)[] root) {
+    if (__ctfe || root.length == 0) return Visibility.Unknown;
+    auto origin = originOf(root);
+    if (origin.length == 0) return Visibility.Unknown;
+    foreach (c; origin) if (c == '\'' || c == '"' || c == ' ') return Visibility.Unknown;
+
+    import db : openDb, sqlite3_close, sqlite3_prepare_v2, sqlite3_bind_text,
+                sqlite3_bind_int64, sqlite3_step, sqlite3_column_int64,
+                sqlite3_finalize, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, sqlite3_stmt;
+
+    auto store = openDb();
+    if (store !is null) {
+        sqlite3_stmt* stmt;
+        enum readSql = "SELECT visibility FROM repo_visibility WHERE origin = ?1\0";
+        if (sqlite3_prepare_v2(store, readSql.ptr, -1, &stmt, null) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                auto known = cast(Visibility) sqlite3_column_int64(stmt, 0);
+                sqlite3_finalize(stmt);
+                sqlite3_close(store);
+                return known;
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
+
+    __gshared ZBuf cmd;
+    cmd.reset();
+    cmd.put("tok=''; if env | grep -q '^GH_TOKEN='; then tok=$(env | grep -m1 '^GH_TOKEN=' | cut -d= -f2-); fi; ");
+    cmd.put("if [ -z \"$tok\" ] && env | grep -q '^GITHUB_TOKEN='; then tok=$(env | grep -m1 '^GITHUB_TOKEN=' | cut -d= -f2-); fi; ");
+    cmd.put("if [ -z \"$tok\" ] && command -v gh > /dev/null 2>&1; then tok=$(gh auth token 2>/dev/null); fi; ");
+    cmd.put("curl -sS -m 10 -H \"Authorization: Bearer $tok\" 'https://api.github.com/repos/");
+    cmd.put(origin);
+    cmd.put("' 2>/dev/null");
+
+    auto pipe = popen(cmd.ptr(), "r");
+    if (pipe is null) {
+        if (store !is null) sqlite3_close(store);
+        return Visibility.Unknown;
+    }
+    __gshared char[8192] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+    auto seen = visibilityIn(outBuf[0 .. n]);
+
+    if (seen != Visibility.Unknown && store !is null) {
+        sqlite3_stmt* stmt;
+        enum writeSql = "INSERT OR REPLACE INTO repo_visibility (origin, visibility) VALUES (?1, ?2)\0";
+        if (sqlite3_prepare_v2(store, writeSql.ptr, -1, &stmt, null) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(stmt, 2, cast(long) seen);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+    if (store !is null) sqlite3_close(store);
+    return seen;
 }
