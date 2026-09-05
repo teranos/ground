@@ -24,6 +24,13 @@ static assert(effectiveCwd("cd /a && echo x && cd /b && echo y", "/home/u") == "
 // A quoted path still resolves.
 static assert(effectiveCwd(`cd "/srv/my app" && echo hi`, "/home/u") == "/srv/my app");
 
+// The shell expands a tilde before cd ever sees it, and ground reads the
+// command text. Two pushes made as `cd ~/... ; git push` started no ritual:
+// the literal was handed to git, which found no repo there.
+static assert(effectiveCwd("cd ~/work/proj; git push", "/home/u", "/home/u") == "/home/u/work/proj");
+static assert(effectiveCwd("cd ~ && git push", "/tmp", "/home/u") == "/home/u");
+static assert(effectiveCwd("cd /srv/app; git push", "/home/u", "/home/u") == "/srv/app");
+
 // cd is not the only way a command says where it works. A push aimed elsewhere
 // with -C was recorded where the session stood: one started a QNTX deploy from
 // a push to another repo, and one deployed main from a push made in a worktree.
