@@ -233,7 +233,18 @@ string renderProse(string text) {
 // have to arrive as characters.
 string escape(string s) {
     string out_;
-    foreach (c; s) {
+    // Charter has no arrow, and a glyph the font lacks is a gap on the page
+    // with a warning nobody reads. The math arrow is in every setup.
+    enum arrow = "\xE2\x86\x92";
+    size_t i = 0;
+    while (i < s.length) {
+        if (i + arrow.length <= s.length && s[i .. i + arrow.length] == arrow) {
+            out_ ~= "$\\rightarrow$";
+            i += arrow.length;
+            continue;
+        }
+        auto c = s[i];
+        i++;
         if (c == '\\') { out_ ~= "\\textbackslash{}"; continue; }
         if (c == '&' || c == '%' || c == '$' || c == '#' || c == '{' || c == '}')
             out_ ~= "\\";
