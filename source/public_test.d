@@ -50,3 +50,24 @@ static assert(visibilityIn(`{"id":1,"name":"QNTX","private":false,"owner":{}}`) 
 static assert(visibilityIn(`{"id":2,"name":"q","private":true}`) == Visibility.Private);
 static assert(visibilityIn(`{"message":"Not Found"}`) == Visibility.Unknown);
 static assert(visibilityIn(``) == Visibility.Unknown);
+
+// The rewrite is the floor. A session in auto mode had every write allowed by
+// a permission rule before the handler reached the rewrite, so the floor never
+// applied to anything written all day. Whatever the handler answers, the
+// answer carries the rewritten input when there is one.
+import pretooluse : contextResponse;
+import matcher : contains;
+
+static assert(() {
+    char[512] b;
+    auto r = contextResponse(b[], "why", "allow", `{"file_path":"/p","content":"abcd"}`);
+    return contains(r, `"updatedInput":{"file_path":"/p","content":"abcd"}`)
+        && contains(r, `"permissionDecision":"allow"`)
+        && contains(r, `"additionalContext":"why"`);
+}());
+
+static assert(() {
+    char[512] b;
+    auto r = contextResponse(b[], "", "allow", null);
+    return !contains(r, "updatedInput");
+}());
