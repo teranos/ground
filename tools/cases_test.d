@@ -218,6 +218,9 @@ static assert(flow("// A control is a named rule\n// and a message.") ==
 // One line is already a paragraph.
 static assert(flow("// A control is a named rule.") == "A control is a named rule.");
 
+// A ddoc line is prose too, and its third slash is marker rather than text.
+static assert(flow("/// A permission answers a tool call.") == "A permission answers a tool call.");
+
 // A blank line is where the author did mean a break, so it ends the paragraph.
 static assert(flow("// One.\n//\n// Two.") == "One.\n\nTwo.");
 

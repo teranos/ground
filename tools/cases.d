@@ -274,6 +274,8 @@ private bool proves(string[] block) {
 string unmark(string line) {
     auto s = trimLeft(line);
     if (s.length >= 2 && s[0 .. 2] == "//") s = s[2 .. $];
+    // A ddoc line is prose too, and its third slash is marker, not text.
+    if (s.length >= 1 && s[0] == '/') s = s[1 .. $];
     while (s.length > 0 && (s[0] == ' ' || s[0] == '-')) s = s[1 .. $];
     while (s.length > 0 && (s[$ - 1] == ' ' || s[$ - 1] == '-')) s = s[0 .. $ - 1];
     return s;
