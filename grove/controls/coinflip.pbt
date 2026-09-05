@@ -16,7 +16,7 @@ scope {
       tree: "empty"
 
       toss { rig: "none" }
-      toss2 { rig: "none" }
+      toss2
     }
   }
 }
