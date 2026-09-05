@@ -31,17 +31,70 @@ const(char)[] advisoryDecision(const(char)[] decision) {
 
 // --- JSON response writers (PreToolUse format) ---
 
-// Context-only response for non-Bash tools (no updatedInput).
-void writeContextResponse(const(char)[] context, const(char)[] decision) {
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`, stdout);
-    if (decision.length > 0) {
-        fputs(`,"permissionDecision":"`, stdout);
-        fputs2(decision);
-        fputs(`"`, stdout);
+// The rewritten tool_input for the call in flight, computed once before any
+// control is asked, and the reason. Every answer the handler gives carries it:
+// a permission rule that allowed a write used to answer before the rewrite was
+// reached, and in auto mode that was every write.
+__gshared const(char)[] pendingRewrite;
+__gshared const(char)[] pendingWhy;
+
+// Appends a JSON string with the same escaping writeJsonString prints.
+private void putJsonString(ref char[] dest, ref size_t n, const(char)[] s) {
+    void one(const(char)[] piece) { foreach (c; piece) if (n < dest.length) dest[n++] = c; }
+    foreach (c; s) {
+        switch (c) {
+            case '"': one(`\"`); break;
+            case '\\': one(`\\`); break;
+            case '\n': one(`\n`); break;
+            case '\r': one(`\r`); break;
+            case '\t': one(`\t`); break;
+            default: if (n < dest.length) dest[n++] = c; break;
+        }
     }
-    fputs(`,"additionalContext":"`, stdout);
-    writeJsonString(context);
-    fputs(`"}}`, stdout);
+}
+
+// The PreToolUse answer, built into a buffer the caller owns so a test can
+// read it. An updated input rides along whenever there is one, whatever the
+// decision: the rewrite is the floor, and the floor is not conditional on
+// which rule happened to speak first.
+const(char)[] contextResponse(char[] dest, const(char)[] context, const(char)[] decision,
+                              const(char)[] updatedInput) {
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < dest.length) dest[n++] = c; }
+    put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`);
+    if (decision.length > 0) {
+        put(`,"permissionDecision":"`);
+        put(decision);
+        put(`"`);
+    }
+    if (updatedInput.length > 0) {
+        put(`,"updatedInput":`);
+        put(updatedInput);
+    }
+    put(`,"additionalContext":"`);
+    putJsonString(dest, n, context);
+    put(`"}}`);
+    return dest[0 .. n];
+}
+
+// Context response for non-Bash tools. Carries the pending rewrite, and says
+// why beside whatever else there was to say.
+void writeContextResponse(const(char)[] context, const(char)[] decision) {
+    __gshared char[262144] out_ = 0;
+    __gshared char[4096] said = 0;
+    size_t sn;
+    void say(const(char)[] s) { foreach (c; s) if (sn < said.length) said[sn++] = c; }
+    say(context);
+    if (pendingWhy.length > 0) {
+        if (sn > 0) say(" ");
+        say(pendingWhy);
+    }
+    // A write the floor changed is allowed as changed; a decision that was
+    // only advisory does not turn into a prompt for it.
+    auto verdict = decision;
+    if (pendingRewrite.length > 0 && verdict.length == 0) verdict = "allow";
+    auto r = contextResponse(out_[], said[0 .. sn], verdict, pendingRewrite);
+    fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
 }
 
@@ -136,9 +189,10 @@ StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
     return StandingPair(null, null, true);
 }
 
-// True when the whole tool_input was reissued with the home directory taken
-// out of it. False leaves the call exactly as it arrived.
-bool rewroteHome(const(char)[] input, const(char)[] toolName, const(char)[] cwd) {
+// Computes the rewritten tool_input for a Write or Edit and leaves it in
+// pendingRewrite, with the reason in pendingWhy. True when something changed.
+// Nothing is written here: whichever answer the handler gives carries it.
+bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] cwd) {
     import homedir : rewriteField, isScratch, HOME_TOKEN;
     import hooks : rewriteFrom, rewriteTo;
     import controls : allParsed;
@@ -204,11 +258,10 @@ bool rewroteHome(const(char)[] input, const(char)[] toolName, const(char)[] cwd)
 
     if (found == 0) return false;
 
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":`, stdout);
-    fwrite(current.ptr, 1, current.length, stdout);
-    fputs(`,"additionalContext":"`, stdout);
-    writeJsonString(why);
-    fputs(`"}}` ~ "\n", stdout);
+    // current is a slice of one of the two __gshared buffers, which outlive
+    // this call, so the handler reads it whenever it answers.
+    pendingRewrite = current;
+    pendingWhy = why;
     return true;
 }
 
@@ -237,6 +290,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     auto sessionMode = parseSessionMode(extractPermissionMode(input));
     auto toolUseId = extractToolUseId(input);
     if (toolUseId is null) toolUseId = "unknown";
+
+    // The floor comes first. What the file will hold is decided before any
+    // rule is asked, so no rule's answer can leave the original in place.
+    pendingRewrite = null;
+    pendingWhy = null;
+    computeRewrite(input, toolName, cwd);
 
     auto command = extractCommand(input);
 
@@ -775,10 +834,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         }
     }
 
-    // The author's home directory is rewritten out of what is about to be
-    // written. file_path is left alone: rewriting that sends the write to a
-    // path that does not exist.
-    if (rewroteHome(input, toolName, cwd)) return 0;
+    // Nothing else spoke. A pending rewrite is the whole answer; file_path is
+    // left alone, since rewriting that sends the write to a path that does
+    // not exist.
+    if (pendingRewrite.length > 0) {
+        writeContextResponse("", "allow");
+        return 0;
+    }
 
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.
