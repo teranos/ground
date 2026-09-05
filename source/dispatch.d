@@ -160,13 +160,25 @@ DispatchScript dispatchScript(const(char)[] target, const(char)[] inputs,
     s.putToken();
     s.putThrottle();
 
-    // The branch is stated, not resolved: gh asked graphql for it first, a
-    // round-trip ground never needed to make. Read through env rather than
-    // $GROUND_REF — under `set -u` an unset variable aborts.
-    s.put("ref=master\n");
+    // Read through env rather than $GROUND_REF — under `set -u` an unset
+    // variable aborts.
+    s.put("ref=''\n");
     s.put("if env | grep -q '^GROUND_REF='; then\n");
     s.put("  ref=$(env | grep -m1 '^GROUND_REF=' | cut -d= -f2-)\n");
     s.put("fi\n");
+    // master was a guess. It held for one repo and sent another a 422, so the
+    // target is asked for its own default branch. Same JSON reading as the
+    // throttle: one field, no jq.
+    s.put("if [ -z \"$ref\" ]; then\n");
+    s.put("  meta=$(curl -sS -m 20 -H \"Authorization: Bearer $tok\" ");
+    s.put("\"https://api.github.com/repos/$repo\" 2>&1) || meta=''\n");
+    s.put("  ref=$(printf '%s' \"$meta\" | tr ',' '\\n' | grep -m1 '\"default_branch\"' | cut -d'\"' -f4)\n");
+    s.put("fi\n");
+    s.put("if [ -z \"$ref\" ]; then\n");
+    s.put("  printf 'could not read the default branch of %s\\n' \"$repo\"\n");
+    s.put("  exit ");
+    s.putNum(RITE_UNREACHED);
+    s.put("\nfi\n");
 
     // The run has to carry a name ground chose, or newest-first is a guess.
     s.put("fields=''\n");
