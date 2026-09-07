@@ -362,6 +362,17 @@ unittest {
 }
 
 unittest {
+    // "gitignored files should be excempt from the golem rewrite rule"
+    // check-ignore prints the path it was asked about when git ignores it, and
+    // nothing at all when it does not.
+    assert(ignoredFromCheck("controls/dispatch.pbt\n"));
+    assert(ignoredFromCheck("/home/u/proj/controls/dispatch.pbt\n"));
+    assert(!ignoredFromCheck(""));
+    assert(!ignoredFromCheck("\n"));
+    assert(!ignoredFromCheck("  \n"));
+}
+
+unittest {
     assert(branchFromHead("ref: refs/heads/main\n") == "main");
 
     // A branch name is a path, and the whole of it is the name.
@@ -437,6 +448,40 @@ bool pushLanded(const(char)[] root, const(char)[] branch) {
     auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
     pclose(pipe);
     return landedFromRefs(outBuf[0 .. n]);
+}
+
+// check-ignore names what it was asked about when git ignores it, and says
+// nothing when it does not. One non-blank line is the whole answer.
+bool ignoredFromCheck(const(char)[] out_) {
+    foreach (c; out_)
+        if (c != '\n' && c != '\r' && c != ' ' && c != '\t') return true;
+    return false;
+}
+
+// Whether git ignores this path. A file git ignores never reaches the remote,
+// so a rule protecting what the remote shows has nothing to protect in it.
+bool isIgnored(const(char)[] root, const(char)[] path) {
+    if (__ctfe || root.length == 0 || path.length == 0) return false;
+
+    // popen is /bin/sh, so a quote in either value is sh source. Answer no:
+    // the rewrite then applies, which is the safe side.
+    foreach (c; root) if (c == '\'') return false;
+    foreach (c; path) if (c == '\'') return false;
+
+    __gshared ZBuf cmd;
+    cmd.reset();
+    cmd.put("git -C '");
+    cmd.put(root);
+    cmd.put("' check-ignore -- '");
+    cmd.put(path);
+    cmd.put("' 2>/dev/null");
+
+    auto pipe = popen(cmd.ptr(), "r");
+    if (pipe is null) return false;
+    __gshared char[4096] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+    return ignoredFromCheck(outBuf[0 .. n]);
 }
 
 const(char)[] getBranch(const(char)[] cwd) {

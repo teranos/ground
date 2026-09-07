@@ -258,6 +258,12 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
 
     if (found == 0) return false;
 
+    // "gitignored files should be excempt from the golem rewrite rule"
+    // A file git ignores never reaches the remote the rule guards. Asked here
+    // and not earlier, so a write nothing would rewrite never forks git.
+    import git : isIgnored;
+    if (isIgnored(root, target)) return false;
+
     // current is a slice of one of the two __gshared buffers, which outlive
     // this call, so the handler reads it whenever it answers.
     pendingRewrite = current;
