@@ -142,13 +142,15 @@ int handleDrive(int argc, const(char)** argv) {
             // driver walks most of them, and walked all of them silently.
             // Only on a move: a held rite is re-run every cycle.
             if (moved) {
-                import notification : riteLine;
+                import notification : riteLine, riteWords;
                 import ritual.delivery : deliver;
                 import db : ZBuf;
 
                 auto rite = flat.rites[found.p.current].name;
                 auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id,
-                                     flat.rites[found.p.current].mic,
+                                     riteWords(res.verdict,
+                                               flat.rites[found.p.current].mic,
+                                               flat.rites[found.p.current].msg),
                                      flat.rites[found.p.current].dispatch);
 
                 // The note id is the key, so the revision keeps a rite asked

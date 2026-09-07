@@ -67,3 +67,57 @@ rites b {
 enum survived = parsePbt(gotoInput).rites[0].rites[1];
 static assert(classify(22, survived) == Verdict.Hold);
 static assert(classify(0,  survived) == Verdict.Advance);
+
+// "A DISPATCH ISNT A QUESTION BEING ASKED"
+// long-coin knows three rigs: none, heads, tails. Asked to rig an edge, GitHub
+// refuses at the door and the dispatch exits 1.
+enum edgeInput = `
+rites toss {
+  params: [rig]
+
+  FLIP {
+    dispatch: "teranos/ground long-coin.yml"
+    inputs:   ` ~ "`" ~ `echo "rig=$rig"` ~ "`" ~ `
+    to:       parent
+  }
+  REST {
+    run: "sleep 30"
+    to:  parent
+  }
+}
+`;
+// Silence about catch is not the honest no it is for an eval: sent, or not.
+enum flip = parsePbt(edgeInput).rites[0].rites[0];
+static assert(flip.catchCount == 0);
+static assert(classify(0, flip) == Verdict.Advance);
+static assert(classify(1, flip) == Verdict.Halt);
+
+// "i want APP to be silent about its non zero exit"
+// The author foresaw the refusal. Caught, it holds and goes to REST, and what
+// is said about it is the author's sentence, not the exit.
+enum foreseenInput = `
+rites toss {
+  params: [rig]
+
+  FLIP {
+    dispatch: "teranos/ground long-coin.yml"
+    inputs:   ` ~ "`" ~ `echo "rig=$rig"` ~ "`" ~ `
+    catch:    1
+    goto:     REST
+    msg:      "a coin has no edge to rig, going to: REST"
+    to:       parent
+  }
+  REST {
+    run: "sleep 30"
+    to:  parent
+  }
+}
+`;
+enum foreseen = parsePbt(foreseenInput).rites[0].rites[0];
+static assert(classify(0, foreseen) == Verdict.Advance);
+static assert(classify(1, foreseen) == Verdict.Hold);
+static assert(foreseen.goto_ == "REST");
+static assert(foreseen.msg == "a coin has no edge to rig, going to: REST");
+// A code nobody foresaw still halts.
+static assert(classify(2, foreseen) == Verdict.Halt);
+

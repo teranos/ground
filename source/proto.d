@@ -1556,7 +1556,8 @@ ParsedRites parseRites(ref string input, ref size_t pos, string groupName) {
         auto rite = parseRite(input, pos, name);
         // Silence about catch means 1 — the honest no. A rite that catches
         // nothing would halt on the very code that means "not yet".
-        if (rite.catchCount == 0) {
+        // Not for a dispatch: sent or not, so 1 is a refusal and not a not-yet.
+        if (rite.catchCount == 0 && rite.dispatch.length == 0) {
             rite.catches[0] = 1;
             rite.catchCount = 1;
         }

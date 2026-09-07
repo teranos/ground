@@ -183,7 +183,10 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         a.ran = true;
         a.code = run.code;
         a.output = run.output();
-        a.verdict = run.code == 0 ? Verdict.Advance : Verdict.Halt;
+        // A refusal the author caught is one they foresaw, and goes where they
+        // said. The parser hands a dispatch no catch of its own, so silence
+        // still reads sent or not.
+        a.verdict = classify(run.code, r);
 
         // The walk leaves this rite behind, so this row is the only thing that
         // remembers a run is still owed.
