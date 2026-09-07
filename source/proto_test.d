@@ -179,7 +179,8 @@ static assert(testParsed.scopeCount == 6);
 import pretooluse : advisoryDecision;
 static assert(advisoryDecision("allow") == "");   // default "allow" → no decision
 static assert(advisoryDecision("") == "");         // empty → no decision
-static assert(advisoryDecision("ask") == "ask");   // explicit ask → preserved
+// "aut-accept should not litigate ever"
+static assert(advisoryDecision("ask") == "");      // ground never says ask
 static assert(advisoryDecision("deny") == "deny"); // explicit deny → preserved
 
 // A part keeps its own place in the whole: last one written, last one parsed.

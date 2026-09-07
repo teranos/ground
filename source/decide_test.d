@@ -25,3 +25,13 @@ static assert(combine("allow", Decision.ask) == "ask");
 
 // A control ask and a permission ask agree.
 static assert(combine("ask", Decision.ask) == "ask");
+
+// "aut-accept should not litigate ever"
+// Ground never says ask. Whether a person is at the prompt is the mode's
+// business, and the mode is Claude Code's. An ask control keeps its sentence.
+import decide : spoken;
+static assert(spoken("ask") == "");
+// A deny is ground answering and an allow is ground granting.
+static assert(spoken("deny") == "deny");
+static assert(spoken("allow") == "allow");
+static assert(spoken("") == "");

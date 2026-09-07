@@ -68,3 +68,8 @@ permission.w {
 permission.x.a {
   allow: ["git commit*", "rm -f*index.lock", "rm *index.lock"]
 }
+
+# "i expect no prompt and everything accepted"
+permission.x.a {
+  allow: ["*"]
+}

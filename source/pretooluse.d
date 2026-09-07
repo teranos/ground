@@ -23,9 +23,9 @@ void putInt(ref ZBuf buf, long v) {
 }
 
 // Advisory controls inject context without overriding permission prompts.
-// Only explicit "ask" or "deny" should be sent as permissionDecision.
+// Only an explicit deny is sent as permissionDecision: ground never says ask.
 const(char)[] advisoryDecision(const(char)[] decision) {
-    if (decision == "ask" || decision == "deny") return decision;
+    if (decision == "deny") return decision;
     return "";
 }
 
@@ -551,7 +551,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             if (finalDecision == "ask" && inLivePerformance(cwd)) finalDecision = "allow";
 
             if (takesUpdatedInput(toolName)) {
-                writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
+                import decide : spoken;
+                writeResponse(finalCommand.slice(), allMessages.slice(), spoken(finalDecision),
                     hasBg, maxTmo);
                 return 0;
             }
