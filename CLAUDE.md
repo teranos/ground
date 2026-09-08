@@ -1,22 +1,40 @@
+# OPERATIONAL DOC
+
 Read source/hooks.d for control types, scope struct, and trigger builders.
 Read source/strop.d for value-shape validation on extracted flag values.
 Read source/controls.d for CTFE wiring — how pbt becomes static immutable scope arrays.
 Read source/control_handlers.d for check, delay, and deliver handler implementations.
 Read source/deferred.d for deferred delivery — session-scoped and project-scoped messages delivered at Stop.
 Read source/immediate.d for immediate delivery — attestation format for external writers (QNTX, etc).
-Read source/watch.d for the asyncRewake watcher — how immediate messages reach running sessions.
 Read source/exec.d for exec dispatch — fork+pipe+wrapper, stdout/stderr capture, timeout.
 Read source/errors.d for the GroundError primitive and deliverError fallback chain (db → breadcrumb → stderr).
+Read source/pretooluse.d and source/stop.d for the two hook handlers everything above is wired into.
+Read source/git.d for git discovery — repo root and branch are file reads; check-ignore is the one subprocess left in the hot path.
 Read grove/controls/*.pbt for the rituals — each carries its agent's `system:`, so nothing else has to describe them.
 Read ug/*.d for the status line — one line per row, every formatter taking inputs and a destination buffer.
 Read README.md for project overview.
 Read COUNTDOWN.md for project status.
 Read RITUAL.md for what a ritual is and what each numbered item of it means.
-Read UNDERGROUND.md for ug — what parity is measured against and what still differs.
+Read UNDERGROUND.md for ug, the statusline
 
 Read bench.fish for CTFE scaling limits.
 
-TEST DRIVEN DEVELOPMENT (TDD): write a failing test before implementing. Confirm it fails, then Green: Write code that makes the test pass.
+### CLI
+
+```fish
+
+# timing table:
+ground profile 
+
+# the asyncRewake watcher
+ground watch $PWD
+```
+
+### TEST DRIVEN DEVELOPMENT (TDD)
+
+RED: Write a failing test before implementing, Confirm it fails
+GREEN: Write code that makes the test pass.
+REFACTOR: Cohere with the rest of the codebase, finish the implementation fully.
 
 ## AUTHORITY
 
