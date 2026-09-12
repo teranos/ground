@@ -109,3 +109,41 @@ char[512] eventDrawn(const(char)[] cwd)() {
 enum eventWant = "vigil performs here on Stop: LOOK";
 static assert(eventLen!"/x/sbvh-nl/grove"() == eventWant.length);
 static assert(eventDrawn!"/x/sbvh-nl/grove"()[0 .. eventWant.length] == eventWant);
+
+// A project names a path and no command, so the control under it carries the
+// command. A session told the ritual performs here, and not told a push is what
+// performs it, learns the deploy is something other than the push it just made.
+enum onControl = `
+rites deployment { WEB { eval: "true" } }
+
+project {
+  origin: "teranos/QNTX"
+  path: "/teranos/QNTX"
+
+  control {
+    name: "q-deploy"
+    event: "PostToolUse"
+    cmd: "git push"
+    ritual { deployment }
+  }
+}
+`;
+enum controlBill = cuesOf(parsePbt(onControl));
+
+static assert(controlBill.cues[0].cmdCount == 1);
+static assert(controlBill.cues[0].cmds[0] == "git push");
+
+size_t controlLen(const(char)[] cwd)() {
+    char[512] buf = '.';
+    return billInto(controlBill.cues[0 .. controlBill.len], cwd, buf[]);
+}
+
+char[512] controlDrawn(const(char)[] cwd)() {
+    char[512] buf = '.';
+    billInto(controlBill.cues[0 .. controlBill.len], cwd, buf[]);
+    return buf;
+}
+
+enum controlWant = "q-deploy performs here on `git push` (PostToolUse): WEB";
+static assert(controlLen!"/Users/x/teranos/QNTX"() == controlWant.length);
+static assert(controlDrawn!"/Users/x/teranos/QNTX"()[0 .. controlWant.length] == controlWant);
