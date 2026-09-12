@@ -3,6 +3,7 @@ module git;
 import zbuf : ZBuf;
 import core.stdc.stdio : fread, fopen, fclose, FILE;
 import hooks : Visibility;
+import db : sqlite3;
 
 extern (C) {
     FILE* popen(const(char)* command, const(char)* mode);
@@ -512,6 +513,33 @@ Visibility visibilityIn(const(char)[] json) {
     return Visibility.Unknown;
 }
 
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, SQLITE_OK, applySchema;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:\0".ptr, &testDb) == SQLITE_OK);
+    assert(applySchema(testDb));
+
+    // Never asked is not known.
+    assert(knownVisibility(testDb, "teranos/x") == Visibility.Unknown);
+
+    rememberVisibility(testDb, "teranos/x", Visibility.Public);
+    assert(knownVisibility(testDb, "teranos/x") == Visibility.Public);
+
+    // GitHub's latest word replaces the earlier one.
+    rememberVisibility(testDb, "teranos/x", Visibility.Private);
+    assert(knownVisibility(testDb, "teranos/x") == Visibility.Private);
+
+    // Unknown is not remembered: a network down for one write must not make
+    // a repository public for good.
+    rememberVisibility(testDb, "teranos/y", Visibility.Unknown);
+    assert(knownVisibility(testDb, "teranos/y") == Visibility.Unknown);
+
+    // One origin's answer is not another's.
+    assert(knownVisibility(testDb, "teranos/z") == Visibility.Unknown);
+
+    sqlite3_close(testDb);
+}
+
 // repoVisibility is whether the repository at root is public, by its origin.
 // Asked of GitHub once per origin with curl and the token gh holds, the way
 // a dispatch asks, and remembered in ground's db so the next write costs
@@ -523,23 +551,14 @@ Visibility repoVisibility(const(char)[] root) {
     if (origin.length == 0) return Visibility.Unknown;
     foreach (c; origin) if (c == '\'' || c == '"' || c == ' ') return Visibility.Unknown;
 
-    import db : openDb, sqlite3_close, sqlite3_prepare_v2, sqlite3_bind_text,
-                sqlite3_bind_int64, sqlite3_step, sqlite3_column_int64,
-                sqlite3_finalize, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, sqlite3_stmt;
+    import db : openDb, sqlite3_close;
 
     auto store = openDb();
     if (store !is null) {
-        sqlite3_stmt* stmt;
-        enum readSql = "SELECT visibility FROM repo_visibility WHERE origin = ?1\0";
-        if (sqlite3_prepare_v2(store, readSql.ptr, -1, &stmt, null) == SQLITE_OK) {
-            sqlite3_bind_text(stmt, 1, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
-            if (sqlite3_step(stmt) == SQLITE_ROW) {
-                auto known = cast(Visibility) sqlite3_column_int64(stmt, 0);
-                sqlite3_finalize(stmt);
-                sqlite3_close(store);
-                return known;
-            }
-            sqlite3_finalize(stmt);
+        auto known = knownVisibility(store, origin);
+        if (known != Visibility.Unknown) {
+            sqlite3_close(store);
+            return known;
         }
     }
 
@@ -562,16 +581,38 @@ Visibility repoVisibility(const(char)[] root) {
     pclose(pipe);
     auto seen = visibilityIn(outBuf[0 .. n]);
 
-    if (seen != Visibility.Unknown && store !is null) {
-        sqlite3_stmt* stmt;
-        enum writeSql = "INSERT OR REPLACE INTO repo_visibility (origin, visibility) VALUES (?1, ?2)\0";
-        if (sqlite3_prepare_v2(store, writeSql.ptr, -1, &stmt, null) == SQLITE_OK) {
-            sqlite3_bind_text(stmt, 1, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
-            sqlite3_bind_int64(stmt, 2, cast(long) seen);
-            sqlite3_step(stmt);
-            sqlite3_finalize(stmt);
-        }
+    if (store !is null) {
+        rememberVisibility(store, origin, seen);
+        sqlite3_close(store);
     }
-    if (store !is null) sqlite3_close(store);
     return seen;
+}
+
+// What GitHub last said about an origin, or Unknown when it was never asked.
+Visibility knownVisibility(sqlite3* db, const(char)[] origin) {
+    import db : sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
+                sqlite3_column_int64, sqlite3_finalize, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    sqlite3_stmt* stmt;
+    enum sql = "SELECT visibility FROM repo_visibility WHERE origin = ?1\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return Visibility.Unknown;
+    sqlite3_bind_text(stmt, 1, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
+    auto known = Visibility.Unknown;
+    if (sqlite3_step(stmt) == SQLITE_ROW) known = cast(Visibility) sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return known;
+}
+
+// Unknown is not remembered: a network down for one write must not make a
+// repository public for good.
+void rememberVisibility(sqlite3* db, const(char)[] origin, Visibility seen) {
+    import db : sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
+                sqlite3_step, sqlite3_finalize, SQLITE_OK, SQLITE_TRANSIENT;
+    if (seen == Visibility.Unknown) return;
+    sqlite3_stmt* stmt;
+    enum sql = "INSERT OR REPLACE INTO repo_visibility (origin, visibility) VALUES (?1, ?2)\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, cast(long) seen);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
