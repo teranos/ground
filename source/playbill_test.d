@@ -84,7 +84,7 @@ enum eventOnly = `
 rites watch { LOOK { eval: "true" } }
 
 scope {
-  path:  "/sbvh-nl/grove"
+  path:  "/abcd-nl/grove"
   event: "Stop"
 
   control {
@@ -107,8 +107,8 @@ char[512] eventDrawn(const(char)[] cwd)() {
 }
 
 enum eventWant = "vigil performs here on Stop: LOOK";
-static assert(eventLen!"/x/sbvh-nl/grove"() == eventWant.length);
-static assert(eventDrawn!"/x/sbvh-nl/grove"()[0 .. eventWant.length] == eventWant);
+static assert(eventLen!"/x/abcd-nl/grove"() == eventWant.length);
+static assert(eventDrawn!"/x/abcd-nl/grove"()[0 .. eventWant.length] == eventWant);
 
 // A project names a path and no command, so the control under it carries the
 // command. A session told the ritual performs here, and not told a push is what
