@@ -102,18 +102,12 @@ int handleAttest() {
             url.put(node.url);
             url.put("/api/attestations");
 
-            // http:// goes over the in-process socket; anything else needs
-            // DNS and TLS, which is curl's job.
-            import http : httpPost, curlPost, needsCurl;
-            import core.stdc.stdlib : system;
-            auto remote = needsCurl(node.url);
+            import http : curlPost;
 
             int code;
             int tries = 0;
             while (true) {
-                code = remote
-                    ? curlPost(url.slice(), body_.slice(), token)
-                    : httpPost(url.slice(), body_.slice(), 400);
+                code = curlPost(url.slice(), body_.slice(), token);
                 if (!shouldRetry(code) || tries >= RETRY_ATTEMPTS - 1) break;
 
                 auto wait = backoffSeconds(tries);
@@ -141,7 +135,7 @@ int handleAttest() {
                     stderr);
                 failed++;
             } else if (code == 0) {
-                fputs(remote ? "unreachable (curl)\n" : "unreachable\n", stderr);
+                fputs("unreachable (curl)\n", stderr);
                 failed++;
             } else {
                 fprintf(stderr, "%d failed\n".ptr, code);

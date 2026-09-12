@@ -577,31 +577,14 @@ Visibility repoVisibility(const(char)[] root) {
         }
     }
 
-    // popen is /bin/sh, so a quote or space in the token is sh source. No
-    // header then, and GitHub answers as it does for anyone.
-    auto tok = githubToken();
-    foreach (c; tok) if (c == '\'' || c == '"' || c == ' ') tok = "";
+    import http : curlGet;
+    __gshared ZBuf url;
+    url.reset();
+    url.put("https://api.github.com/repos/");
+    url.put(origin);
 
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("curl -sS -m 10 ");
-    if (tok.length > 0) {
-        cmd.put("-H 'Authorization: Bearer ");
-        cmd.put(tok);
-        cmd.put("' ");
-    }
-    cmd.put("'https://api.github.com/repos/");
-    cmd.put(origin);
-    cmd.put("' 2>/dev/null");
-
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) {
-        if (store !is null) sqlite3_close(store);
-        return Visibility.Unknown;
-    }
-    __gshared char[8192] outBuf = 0;
-    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
+    __gshared char[16384] outBuf = 0;
+    auto n = curlGet(url.slice(), githubToken(), outBuf[]);
     auto seen = visibilityIn(outBuf[0 .. n]);
 
     if (store !is null) {
