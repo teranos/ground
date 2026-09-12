@@ -540,6 +540,21 @@ unittest {
     sqlite3_close(testDb);
 }
 
+unittest {
+    // The env wins over gh, and GH_TOKEN over GITHUB_TOKEN, the order the
+    // shell script had.
+    assert(firstToken("a", "b", "c") == "a");
+    assert(firstToken("", "b", "c") == "b");
+    assert(firstToken("", "", "c") == "c");
+
+    // gh prints a trailing newline, and a newline inside a header is a
+    // malformed request, not a bad token.
+    assert(firstToken("", "", "c\n") == "c");
+    assert(firstToken(" \n", "", "c") == "c", "whitespace is not a credential");
+
+    assert(firstToken("", "", "") == "");
+}
+
 // repoVisibility is whether the repository at root is public, by its origin.
 // Asked of GitHub once per origin with curl and the token gh holds, the way
 // a dispatch asks, and remembered in ground's db so the next write costs
@@ -562,12 +577,20 @@ Visibility repoVisibility(const(char)[] root) {
         }
     }
 
+    // popen is /bin/sh, so a quote or space in the token is sh source. No
+    // header then, and GitHub answers as it does for anyone.
+    auto tok = githubToken();
+    foreach (c; tok) if (c == '\'' || c == '"' || c == ' ') tok = "";
+
     __gshared ZBuf cmd;
     cmd.reset();
-    cmd.put("tok=''; if env | grep -q '^GH_TOKEN='; then tok=$(env | grep -m1 '^GH_TOKEN=' | cut -d= -f2-); fi; ");
-    cmd.put("if [ -z \"$tok\" ] && env | grep -q '^GITHUB_TOKEN='; then tok=$(env | grep -m1 '^GITHUB_TOKEN=' | cut -d= -f2-); fi; ");
-    cmd.put("if [ -z \"$tok\" ] && command -v gh > /dev/null 2>&1; then tok=$(gh auth token 2>/dev/null); fi; ");
-    cmd.put("curl -sS -m 10 -H \"Authorization: Bearer $tok\" 'https://api.github.com/repos/");
+    cmd.put("curl -sS -m 10 ");
+    if (tok.length > 0) {
+        cmd.put("-H 'Authorization: Bearer ");
+        cmd.put(tok);
+        cmd.put("' ");
+    }
+    cmd.put("'https://api.github.com/repos/");
     cmd.put(origin);
     cmd.put("' 2>/dev/null");
 
@@ -615,4 +638,39 @@ void rememberVisibility(sqlite3* db, const(char)[] origin, Visibility seen) {
     sqlite3_bind_int64(stmt, 2, cast(long) seen);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+}
+
+// The first of the three that is a credential once trimmed.
+const(char)[] firstToken(const(char)[] ghToken, const(char)[] githubToken, const(char)[] ghAuth) {
+    import http : trimToken;
+    auto a = trimToken(ghToken);
+    if (a.length > 0) return a;
+    auto b = trimToken(githubToken);
+    if (b.length > 0) return b;
+    return trimToken(ghAuth);
+}
+
+// GH_TOKEN, then GITHUB_TOKEN, then what gh holds. gh is asked only when the
+// env has nothing, since asking it is a process.
+const(char)[] githubToken() {
+    if (__ctfe) return "";
+    import db : getenv;
+
+    static const(char)[] envSlice(const(char)* p) {
+        if (p is null) return "";
+        size_t n = 0;
+        while (p[n] != 0) n++;
+        return p[0 .. n];
+    }
+
+    auto fromEnv = firstToken(envSlice(getenv("GH_TOKEN\0".ptr)),
+                              envSlice(getenv("GITHUB_TOKEN\0".ptr)), "");
+    if (fromEnv.length > 0) return fromEnv;
+
+    __gshared char[512] ghBuf = 0;
+    auto pipe = popen("gh auth token 2>/dev/null", "r");
+    if (pipe is null) return "";
+    auto n = fread(&ghBuf[0], 1, ghBuf.length - 1, pipe);
+    pclose(pipe);
+    return firstToken("", "", ghBuf[0 .. n]);
 }
