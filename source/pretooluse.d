@@ -6,6 +6,7 @@ import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite, stderr, fprintf;
 import db : ZBuf;
+import sessionmode : SessionMode;
 
 void emitProfile(ref ZBuf buf) {
     import main : setPhases;
@@ -273,15 +274,18 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
 }
 
 // Called only where ground would otherwise leave the decision to a human, so
-// the common allow and deny paths pay nothing for it.
-private bool inLivePerformance(const(char)[] cwd) {
+// the common allow and deny paths pay nothing for it. A manual session is
+// refused before the row is read: the mode alone decides, no lookup needed.
+private bool inLivePerformance(const(char)[] cwd, SessionMode sessionMode) {
     import ritual : performanceAnswers, readPositionAt;
+    import sessionmode : grants;
     import db : openDb, sqlite3_close;
+    if (!grants(sessionMode)) return false;
     auto pdb = openDb();
     if (pdb is null) return false;
     auto perf = readPositionAt(pdb, cwd);
     sqlite3_close(pdb);
-    return performanceAnswers(perf.valid, perf.p.state);
+    return performanceAnswers(perf.valid, perf.p.state, sessionMode);
 }
 
 // --- PreToolUse handler ---
@@ -551,7 +555,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
             // A deny is ground answering; an ask is ground handing the question
             // to someone who has walked away. The rewrites above still applied.
-            if (finalDecision == "ask" && inLivePerformance(cwd)) finalDecision = "allow";
+            if (finalDecision == "ask" && inLivePerformance(cwd, sessionMode)) finalDecision = "allow";
 
             if (takesUpdatedInput(toolName)) {
                 import decide : spoken;
@@ -645,7 +649,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         // Saying nothing is what let Claude Code ask. Inside a performance
         // there is nobody to ask, so ground answers instead.
-        if (inLivePerformance(cwd)) {
+        if (inLivePerformance(cwd, sessionMode)) {
             if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
             else writeContextResponse("", "allow");
         }
@@ -854,7 +858,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.
-    if (inLivePerformance(cwd)) {
+    if (inLivePerformance(cwd, sessionMode)) {
         writeContextResponse("allowed by the live performance", "allow");
         return 0;
     }
