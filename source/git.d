@@ -230,6 +230,27 @@ const(char)[] originIdentity(const(char)[] url) {
     return url[ownerStart .. end];
 }
 
+// The host a remote url names: after `scheme://` and `user@`, up to the first
+// ':' or '/'. Empty for a local path, which names none.
+const(char)[] originHost(const(char)[] url) {
+    size_t i = 0;
+    foreach (k; 0 .. url.length) {
+        if (k + 2 < url.length && url[k] == ':' && url[k + 1] == '/' && url[k + 2] == '/') {
+            i = k + 3;
+            break;
+        }
+        if (url[k] == '/' || url[k] == '@') break;
+    }
+
+    size_t start = i;
+    size_t j = i;
+    while (j < url.length && url[j] != ':' && url[j] != '/') {
+        if (url[j] == '@') start = j + 1;
+        j++;
+    }
+    return url[start .. j];
+}
+
 unittest {
     // The two ways the same repo is cloned.
     assert(originIdentity("git@github.com:teranos/QNTX.git") == "teranos/QNTX");
@@ -250,28 +271,43 @@ unittest {
     assert(originIdentity(".git") == "");
 }
 
+unittest {
+    // The host, however the url spells it. Only GitHub can be asked, so a
+    // remote anywhere else has to be seen as somewhere else.
+    assert(originHost("git@github.com:teranos/QNTX.git") == "github.com");
+    assert(originHost("https://github.com/teranos/QNTX.git") == "github.com");
+    assert(originHost("ssh://git@github.com/teranos/QNTX.git") == "github.com");
+    assert(originHost("git@gitlab.com:foo/bar.git") == "gitlab.com");
+    assert(originHost("https://gitlab.example.org/foo/bar") == "gitlab.example.org");
+    assert(originHost("https://github.com:443/teranos/QNTX") == "github.com");
+
+    // A local path names no host.
+    assert(originHost("/srv/git/repo.git") == "");
+    assert(originHost("") == "");
+}
+
 // One answer per process, like repoRoot — every scope asks, and the config is
 // one file that does not change under a hook.
-private __gshared char[512] originAsked = 0;
-private __gshared size_t originAskedLen = 0;
-private __gshared char[256] originFound = 0;
-private __gshared size_t originFoundLen = 0;
-private __gshared bool originCached = false;
+private __gshared char[512] urlAsked = 0;
+private __gshared size_t urlAskedLen = 0;
+private __gshared char[512] urlFound = 0;
+private __gshared size_t urlFoundLen = 0;
+private __gshared bool urlCached = false;
 
-// The repo this place is a checkout of. A worktree answers with the tree it was
-// cut from, so every checkout of one repository gives the same answer.
-const(char)[] originOf(const(char)[] cwd) {
+// The origin url of the repo this place is a checkout of. A worktree answers
+// with the tree it was cut from, so every checkout of one repository agrees.
+const(char)[] originUrlOf(const(char)[] cwd) {
     if (__ctfe) return "";
 
-    if (cwd.length == 0 || cwd.length >= originAsked.length) return "";
-    if (originCached && originAskedLen == cwd.length
-        && originAsked[0 .. originAskedLen] == cwd)
-        return originFound[0 .. originFoundLen];
+    if (cwd.length == 0 || cwd.length >= urlAsked.length) return "";
+    if (urlCached && urlAskedLen == cwd.length
+        && urlAsked[0 .. urlAskedLen] == cwd)
+        return urlFound[0 .. urlFoundLen];
 
-    foreach (i, c; cwd) originAsked[i] = c;
-    originAskedLen = cwd.length;
-    originCached = true;
-    originFoundLen = 0;
+    foreach (i, c; cwd) urlAsked[i] = c;
+    urlAskedLen = cwd.length;
+    urlCached = true;
+    urlFoundLen = 0;
 
     auto root = repoRoot(cwd);
     if (root.length == 0) return "";
@@ -289,11 +325,19 @@ const(char)[] originOf(const(char)[] cwd) {
     if (n == 0) return "";
 
     auto url = urlOfOrigin(cfg[0 .. n]);
-    auto id = originIdentity(url);
-    if (id.length == 0 || id.length > originFound.length) return "";
-    foreach (i, c; id) originFound[i] = c;
-    originFoundLen = id.length;
-    return originFound[0 .. originFoundLen];
+    if (url.length == 0 || url.length > urlFound.length) return "";
+    foreach (i, c; url) urlFound[i] = c;
+    urlFoundLen = url.length;
+    return urlFound[0 .. urlFoundLen];
+}
+
+// The repo this place is a checkout of, as owner/repo.
+const(char)[] originOf(const(char)[] cwd) {
+    return originIdentity(originUrlOf(cwd));
+}
+
+const(char)[] originHostOf(const(char)[] cwd) {
+    return originHost(originUrlOf(cwd));
 }
 
 // The url of the origin remote in a git config, or empty when it declares none.
@@ -564,6 +608,9 @@ Visibility repoVisibility(const(char)[] root) {
     if (__ctfe || root.length == 0) return Visibility.Unknown;
     auto origin = originOf(root);
     if (origin.length == 0) return Visibility.Unknown;
+    // Only GitHub answers. A remote anywhere else is not asked about whatever
+    // repository happens to share its name there.
+    if (originHostOf(root) != "github.com") return Visibility.Unknown;
     foreach (c; origin) if (c == '\'' || c == '"' || c == ' ') return Visibility.Unknown;
 
     import db : openDb, sqlite3_close;
