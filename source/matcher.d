@@ -789,14 +789,17 @@ Buf applyClamp(string spec, const(char)[] segment) {
 
     // Replace [numStart..numEnd] with minValue's decimal form.
     buf.put(segment[0 .. numStart]);
+    putDecimal(buf, minValue);
+    buf.put(segment[numEnd .. $]);
+    return buf;
+}
 
+private void putDecimal(ref Buf buf, int v) {
     char[20] tbuf = 0;
     int tlen = 0;
-    int v = minValue;
     if (v == 0) { tbuf[0] = '0'; tlen = 1; }
     else {
         while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
-        // Reverse in place.
         foreach (i; 0 .. tlen / 2) {
             auto tmp = tbuf[i];
             tbuf[i] = tbuf[tlen - 1 - i];
@@ -804,9 +807,71 @@ Buf applyClamp(string spec, const(char)[] segment) {
         }
     }
     buf.put(tbuf[0 .. tlen]);
+}
 
-    buf.put(segment[numEnd .. $]);
+// A non-negative decimal, or -1 when the text is not one.
+private int decimalOf(const(char)[] s) {
+    if (s.length == 0) return -1;
+    int n = 0;
+    foreach (c; s) {
+        if (c < '0' || c > '9') return -1;
+        n = n * 10 + (c - '0');
+    }
+    return n;
+}
+
+// A range read starts at the top and reaches past where it was aimed. Spec
+// "<start>,+<more>", e.g. "1,+10": the first `A,Bp` in the segment becomes
+// `<start>,<B+more>p`. No range in the segment, unchanged.
+Buf applyRange(string spec, const(char)[] segment) {
+    Buf buf;
+
+    auto sep = indexOf(spec, ",+");
+    if (sep < 0) { buf.put(segment); return buf; }
+    auto start = decimalOf(spec[0 .. cast(size_t) sep]);
+    auto more = decimalOf(spec[cast(size_t) sep + 2 .. $]);
+    if (start < 0 || more < 0) { buf.put(segment); return buf; }
+
+    static bool digit(char c) { return c >= '0' && c <= '9'; }
+
+    size_t i = 0;
+    while (i < segment.length) {
+        if (!digit(segment[i])) { i++; continue; }
+        size_t aStart = i;
+        while (i < segment.length && digit(segment[i])) i++;
+        if (i >= segment.length || segment[i] != ',') continue;
+
+        size_t bStart = i + 1;
+        size_t j = bStart;
+        while (j < segment.length && digit(segment[j])) j++;
+        if (j == bStart || j >= segment.length || segment[j] != 'p') continue;
+
+        auto end = decimalOf(segment[bStart .. j]);
+        buf.put(segment[0 .. aStart]);
+        putDecimal(buf, start);
+        buf.put(",");
+        putDecimal(buf, end + more);
+        buf.put(segment[j .. $]);
+        return buf;
+    }
+
+    buf.put(segment);
     return buf;
+}
+
+unittest {
+    // A range read starts at the top and reaches ten lines past where it
+    // was aimed. A fraction of a file is how a file gets spoken about unread.
+    assert(applyRange("1,+10", "sed -n 300,340p source/db.d").slice() == "sed -n 1,350p source/db.d");
+    assert(applyRange("1,+10", "sed -n '300,340p' source/db.d").slice() == "sed -n '1,350p' source/db.d");
+    assert(applyRange("1,+10", "sed -n 1,10p x").slice() == "sed -n 1,20p x");
+
+    // A single line, or no range at all, is left alone.
+    assert(applyRange("1,+10", "sed -n 5p x").slice() == "sed -n 5p x");
+    assert(applyRange("1,+10", "sed -i 's/a/b/' x").slice() == "sed -i 's/a/b/' x");
+
+    // A spec that is not two parts is no instruction.
+    assert(applyRange("1", "sed -n 300,340p x").slice() == "sed -n 300,340p x");
 }
 
 // Strips the entire line containing the needle.

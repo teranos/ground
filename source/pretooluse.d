@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applyRange, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
 import strop : stropDispatch;
 import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
@@ -194,6 +194,7 @@ StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
 // Nothing is written here: whichever answer the handler gives carries it.
 bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] cwd) {
     import homedir : rewriteField, isScratch, HOME_TOKEN;
+    import scratchdir : scratchHere;
     import hooks : rewriteFrom, rewriteTo;
     import controls : allParsed;
     import parse : extractToolInputRegion;
@@ -204,7 +205,7 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     // Scratch is where a fixture carrying a real path belongs, and rewriting
     // one there breaks the fixture without protecting anything.
     auto target = extractFilePath(input);
-    if (isScratch(target)) return false;
+    if (isScratch(target) || scratchHere(target)) return false;
 
     auto region = extractToolInputRegion(input);
     if (region is null) return false;
@@ -456,7 +457,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.bg.value) hasBg = true;
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
-                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.substituteForCmd.value.length == 0;
+                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.range.value.length == 0 && c.substituteForCmd.value.length == 0;
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -492,6 +493,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         amended = applyOmit(c, m.segment);
                     else if (c.clamp.value.length > 0)
                         amended = applyClamp(c.clamp.value, m.segment);
+                    else if (c.range.value.length > 0)
+                        amended = applyRange(c.range.value, m.segment);
                     else
                         amended = applyArg(c, m.segment);
 

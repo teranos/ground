@@ -97,6 +97,12 @@ struct Clamp {
     string value;
 }
 
+// A range read pinned to the top and stretched past its end. Spec:
+// "<start>,+<more>" — e.g. "1,+10". See matcher.applyRange.
+struct Range {
+    string value;
+}
+
 struct Trigger {
     string[16] _buf;
     ubyte len;
@@ -255,6 +261,7 @@ struct Control {
     Omit omit;
     OmitLine omitLine;
     Clamp clamp;
+    Range range;
     Trigger trigger;
     FilePath filepath;
     PushedPath pushedPath;
