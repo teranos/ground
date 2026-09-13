@@ -431,10 +431,6 @@ const(char)[] originOf(const(char)[] cwd) {
     return originIdentity(originUrlOf(cwd));
 }
 
-const(char)[] originHostOf(const(char)[] cwd) {
-    return originHost(originUrlOf(cwd));
-}
-
 // The url of the origin remote in a git config, or empty when it declares none.
 // Sections run until the next one opens, so a url outside origin is not it.
 const(char)[] urlOfOrigin(const(char)[] cfg) {
@@ -472,6 +468,48 @@ private const(char)[] trimBoth(const(char)[] s) {
     return s[a .. b];
 }
 
+// Every remote's url and pushurl, in config order. A pushurl is where a push
+// goes when one is set, so it is a destination in its own right.
+size_t remoteUrls(const(char)[] cfg, const(char)[][] dest) {
+    enum head = "[remote \"";
+    size_t count = 0;
+    bool inRemote = false;
+    size_t i = 0;
+
+    while (i < cfg.length && count < dest.length) {
+        size_t lineEnd = i;
+        while (lineEnd < cfg.length && cfg[lineEnd] != '\n') lineEnd++;
+        auto line = trimBoth(cfg[i .. lineEnd]);
+        i = lineEnd + 1;
+
+        if (line.length == 0) continue;
+        if (line[0] == '[') {
+            inRemote = line.length >= head.length && line[0 .. head.length] == head;
+            continue;
+        }
+        if (!inRemote) continue;
+
+        size_t keyLen = 0;
+        if (line.length > 3 && line[0 .. 3] == "url") keyLen = 3;
+        else if (line.length > 7 && line[0 .. 7] == "pushurl") keyLen = 7;
+        if (keyLen == 0) continue;
+
+        auto rest = trimBoth(line[keyLen .. $]);
+        if (rest.length == 0 || rest[0] != '=') continue;
+        auto url = trimBoth(rest[1 .. $]);
+        if (url.length > 0) dest[count++] = url;
+    }
+    return count;
+}
+
+// The widest audience of two. Public beats Unknown beats Private: Unknown
+// stands as public, and Private is the only answer that stands down.
+Visibility widest(Visibility a, Visibility b) {
+    if (a == Visibility.Public || b == Visibility.Public) return Visibility.Public;
+    if (a == Visibility.Unknown || b == Visibility.Unknown) return Visibility.Unknown;
+    return Visibility.Private;
+}
+
 unittest {
     enum cfg = "[core]\n\trepositoryformatversion = 0\n"
              ~ "[remote \"origin\"]\n\turl = git@github.com:teranos/QNTX.git\n"
@@ -487,6 +525,29 @@ unittest {
     // A repo with no origin names none.
     assert(urlOfOrigin("[core]\n\tbare = false\n") == "");
     assert(urlOfOrigin("") == "");
+}
+
+unittest {
+    // The information ends up at every remote, not only at origin. A second
+    // remote that is public is where a private origin's bytes go public.
+    enum cfg = "[remote \"origin\"]\n\turl = git@github.com:teranos/QNTX.git\n"
+             ~ "\tpushurl = git@github.com:teranos/QNTX-push.git\n"
+             ~ "[remote \"mirror\"]\n\turl = https://github.com/teranos/QNTX-mirror.git\n"
+             ~ "[branch \"main\"]\n\tremote = origin\n";
+    const(char)[][8] urls;
+    assert(remoteUrls(cfg, urls[]) == 3);
+    assert(urls[0] == "git@github.com:teranos/QNTX.git");
+    assert(urls[1] == "git@github.com:teranos/QNTX-push.git");
+    assert(urls[2] == "https://github.com/teranos/QNTX-mirror.git");
+    assert(remoteUrls("[core]\n\tbare = false\n", urls[]) == 0);
+    assert(remoteUrls("", urls[]) == 0);
+
+    // The widest audience among the remotes is the repository's audience.
+    assert(widest(Visibility.Private, Visibility.Public) == Visibility.Public);
+    assert(widest(Visibility.Private, Visibility.Unknown) == Visibility.Unknown);
+    assert(widest(Visibility.Unknown, Visibility.Public) == Visibility.Public);
+    assert(widest(Visibility.Private, Visibility.Private) == Visibility.Private);
+    assert(widest(Visibility.Unknown, Visibility.Unknown) == Visibility.Unknown);
 }
 
 unittest {
@@ -694,45 +755,65 @@ unittest {
     assert(firstToken("", "", "") == "");
 }
 
-// repoVisibility is whether the repository at root is public, by its origin.
-// Asked of GitHub once per origin with curl and the token gh holds, the way
-// a dispatch asks, and remembered in ground's db so the next write costs
-// nothing. Unknown is not remembered: a network down for one write must not
-// make a repository public for good.
+// repoVisibility is the widest audience of the repository at root, over every
+// remote it pushes to. Each GitHub remote is asked once and remembered; the
+// rule applies to wherever the information ends up.
 Visibility repoVisibility(const(char)[] root) {
     if (__ctfe || root.length == 0) return Visibility.Unknown;
-    auto origin = originOf(root);
-    if (origin.length == 0) return Visibility.Unknown;
-    // Only GitHub answers. A remote anywhere else is not asked about whatever
-    // repository happens to share its name there.
-    if (originHostOf(root) != "github.com") return Visibility.Unknown;
-    foreach (c; origin) if (c == '\'' || c == '"' || c == ' ') return Visibility.Unknown;
+
+    __gshared char[1024] cfgPath = 0;
+    auto cp = configPathInto(root, cfgPath[]);
+    if (cp.length == 0) return Visibility.Unknown;
+
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
+    pathBuf.put(cp);
+    auto f = fopen(pathBuf.ptr(), "r");
+    if (f is null) return Visibility.Unknown;
+    __gshared char[8192] cfg = 0;
+    auto n = fread(&cfg[0], 1, cfg.length - 1, f);
+    fclose(f);
+
+    const(char)[][8] urls;
+    auto count = remoteUrls(cfg[0 .. n], urls[]);
+    if (count == 0) return Visibility.Unknown;
 
     import db : openDb, sqlite3_close;
-
     auto store = openDb();
+    scope (exit) if (store !is null) sqlite3_close(store);
+
+    auto seen = Visibility.Private;
+    foreach (u; urls[0 .. count]) {
+        seen = widest(seen, remoteVisibility(store, u));
+        if (seen == Visibility.Public) break;
+    }
+    return seen;
+}
+
+// One remote's audience. Only GitHub answers: a remote anywhere else is not
+// asked about whatever repository happens to share its name there. Unknown is
+// not remembered, so a network down for one write is not public for good.
+private Visibility remoteVisibility(sqlite3* store, const(char)[] url) {
+    auto id = originIdentity(url);
+    if (id.length == 0) return Visibility.Unknown;
+    if (originHost(url) != "github.com") return Visibility.Unknown;
+    foreach (c; id) if (c == '\'' || c == '"' || c == ' ') return Visibility.Unknown;
+
     if (store !is null) {
-        auto known = knownVisibility(store, origin);
-        if (known != Visibility.Unknown) {
-            sqlite3_close(store);
-            return known;
-        }
+        auto known = knownVisibility(store, id);
+        if (known != Visibility.Unknown) return known;
     }
 
     import http : curlGet;
-    __gshared ZBuf url;
-    url.reset();
-    url.put("https://api.github.com/repos/");
-    url.put(origin);
+    __gshared ZBuf api;
+    api.reset();
+    api.put("https://api.github.com/repos/");
+    api.put(id);
 
     __gshared char[16384] outBuf = 0;
-    auto n = curlGet(url.slice(), githubToken(), outBuf[]);
+    auto n = curlGet(api.slice(), githubToken(), outBuf[]);
     auto seen = visibilityIn(outBuf[0 .. n]);
-
-    if (store !is null) {
-        rememberVisibility(store, origin, seen);
-        sqlite3_close(store);
-    }
+    if (store !is null) rememberVisibility(store, id, seen);
     return seen;
 }
 
