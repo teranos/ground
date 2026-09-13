@@ -44,7 +44,7 @@ void buildSubject(ref ZBuf buf, const(char)[] cwd, const(char)[] branch) {
 
 // Shared git discovery — walks up from cwd to find .git, returns repo root length
 // and opens .git/HEAD for branch reading.
-__gshared char[512] gitdirBuf = 0;
+__gshared char[1024] gitdirBuf = 0;
 
 private FILE* findGitHead(const(char)[] cwd, out size_t repoRootLen) {
     __gshared ZBuf pathBuf;
@@ -72,7 +72,7 @@ private FILE* findGitHead(const(char)[] cwd, out size_t repoRootLen) {
         pathBuf.put("/.git");
         f = fopen(pathBuf.ptr(), "r");
         if (f !is null) {
-            __gshared char[512] gdBuf = 0;
+            __gshared char[1024] gdBuf = 0;
             auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
             fclose(f);
             f = null;
@@ -171,7 +171,7 @@ const(char)[] configPathInto(const(char)[] root, char[] dest) {
     pathBuf.put("/.git");
     auto f = fopen(pathBuf.ptr(), "r");
     if (f !is null) {
-        __gshared char[512] gdBuf = 0;
+        __gshared char[1024] gdBuf = 0;
         auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
         fclose(f);
         auto line = gdBuf[0 .. gn];
@@ -224,9 +224,9 @@ unittest {
 
 // One answer per process. scopeMatches asks once per scope and a hook has
 // many, so the walk happens on the first and nowhere after it.
-private __gshared char[512] rootAsked = 0;
+private __gshared char[1024] rootAsked = 0;
 private __gshared size_t rootAskedLen = 0;
-private __gshared char[512] rootFound = 0;
+private __gshared char[1024] rootFound = 0;
 private __gshared size_t rootFoundLen = 0;
 private __gshared bool rootCached = false;
 
@@ -249,7 +249,7 @@ const(char)[] repoRoot(const(char)[] cwd) {
     rootCached = true;
     rootFoundLen = 0;
 
-    __gshared char[512] walk = 0;
+    __gshared char[1024] walk = 0;
     foreach (i, c; cwd) walk[i] = c;
     size_t len = cwd.length;
 
@@ -272,7 +272,7 @@ const(char)[] repoRoot(const(char)[] cwd) {
         pathBuf.put("/.git");
         f = fopen(pathBuf.ptr(), "r");
         if (f !is null) {
-            __gshared char[512] gdBuf = 0;
+            __gshared char[1024] gdBuf = 0;
             auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
             fclose(f);
             auto line = gdBuf[0 .. gn];
@@ -380,7 +380,7 @@ unittest {
 
 // One answer per process, like repoRoot — every scope asks, and the config is
 // one file that does not change under a hook.
-private __gshared char[512] urlAsked = 0;
+private __gshared char[1024] urlAsked = 0;
 private __gshared size_t urlAskedLen = 0;
 private __gshared char[512] urlFound = 0;
 private __gshared size_t urlFoundLen = 0;
@@ -571,6 +571,46 @@ unittest {
     assert(!ignoredFromCheck(""));
     assert(!ignoredFromCheck("\n"));
     assert(!ignoredFromCheck("  \n"));
+}
+
+unittest {
+    // PATH_MAX is 1024 here, and a path between 512 and 1024 bytes read as no
+    // repository, which stands as public. On disk, because the walk is a walk.
+    import core.sys.posix.unistd : rmdir;
+    import errors : mkdir, unlink, open, write, close, O_WRONLY, O_CREAT, O_TRUNC;
+
+    enum base = "/tmp/ground-longpath-test";
+    enum seg = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+             ~ "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    enum one = base ~ "/" ~ seg;
+    enum two = one ~ "/" ~ seg;
+    enum deep = two ~ "/" ~ seg;
+    enum gitDir = base ~ "/.git";
+    enum headFile = gitDir ~ "/HEAD";
+    static assert(deep.length > 512 && deep.length < 1024);
+
+    mkdir(base.ptr, 0x1ED);
+    mkdir(gitDir.ptr, 0x1ED);
+    auto fd = open(headFile.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    assert(fd >= 0);
+    enum head = "ref: refs/heads/main\n";
+    write(fd, head.ptr, head.length);
+    close(fd);
+    mkdir(one.ptr, 0x1ED);
+    mkdir(two.ptr, 0x1ED);
+    mkdir(deep.ptr, 0x1ED);
+
+    scope (exit) {
+        rmdir(deep.ptr);
+        rmdir(two.ptr);
+        rmdir(one.ptr);
+        unlink(headFile.ptr);
+        rmdir(gitDir.ptr);
+        rmdir(base.ptr);
+    }
+
+    assert(repoRoot(deep) == base, "a legal path is a repository");
+    assert(getBranch(deep) == "main");
 }
 
 unittest {
