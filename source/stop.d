@@ -376,6 +376,52 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
+    // A route named in the reply gets its contract put in front of the model,
+    // once per session per route, whole or not at all.
+    {
+        import controls : projectRoutes;
+        import routes : saysWord, routeApplies, fitRoutes, buildRoutesMessage;
+        if (lastMsg !is null && projectRoutes.length > 0) {
+            import db : attestationExists, attestControlFire;
+
+            const(char)[][8] texts;
+            const(char)[][8] paths;
+            size_t count;
+
+            foreach (ref r; projectRoutes) {
+                if (count >= texts.length) break;
+                if (!routeApplies(r.project, cwd)) continue;
+                if (!saysWord(lastMsg, r.word)) continue;
+
+                __gshared ZBuf dedupKey;
+                dedupKey.reset();
+                dedupKey.put("openapi:");
+                dedupKey.put(r.path);
+                if (attestationExists(db, "GroundedStop", dedupKey.slice(), sessionId))
+                    continue;
+
+                texts[count] = r.text;
+                paths[count] = r.path;
+                count++;
+            }
+
+            auto fits = fitRoutes(texts[0 .. count], ZBuf.init.data.length - 1);
+            if (fits > 0) {
+                foreach (i; 0 .. fits) {
+                    __gshared ZBuf attestKey;
+                    attestKey.reset();
+                    attestKey.put("openapi:");
+                    attestKey.put(paths[i]);
+                    attestControlFire(db, "GroundedStop", attestKey.slice(), cwd, sessionId);
+                }
+                auto msg = buildRoutesMessage(texts[0 .. fits]);
+                sqlite3_close(db);
+                writeStopResponseAndNotify(msg.slice());
+                return 0;
+            }
+        }
+    }
+
     auto t4 = usecNow();
 
     // Deliver-based Stop controls — no trigger, main only, compaction-window dedup

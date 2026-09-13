@@ -81,6 +81,12 @@ import proto : extractProjectFiles;
 private static immutable _projFiles = extractProjectFiles(allParsed);
 static immutable projectFiles = _projFiles.files[0 .. _projFiles.len];
 
+// Route vocabulary — built at CTFE from the route blocks wind writes into a
+// project that names its OpenAPI spec.
+import proto : extractProjectRoutes;
+private static immutable _projRoutes = extractProjectRoutes(allParsed);
+static immutable projectRoutes = _projRoutes.routes[0 .. _projRoutes.len];
+
 // Rites and rituals — built at CTFE from rites/ritual blocks.
 // The validation runs here so a malformed ritual fails the build.
 import proto : ParsedRites, ParsedRitual, validateRituals;
@@ -95,10 +101,17 @@ import proto : warnRituals;
 private enum _ritualWarn = warnRituals(allParsed).text();
 static if (_ritualWarn.length > 0) pragma(msg, "ground: " ~ _ritualWarn);
 
-// QNTX nodes and attestations — built at CTFE from qntx/attestation blocks
-import proto : ParsedQntxNode, ParsedAttestation;
-static immutable qntxNodes = allParsed.qntxNodes[0 .. allParsed.qntxNodeCount];
+// Attestations and where each is posted — built at CTFE from the attestation
+// blocks and the qntx: of the projects. An attestation inside a project that
+// names no backend fails the build here, naming itself.
+import proto : ParsedAttestation;
+import backend : postings, unbacked;
 static immutable attestations = allParsed.attestations[0 .. allParsed.attestationCount];
+private enum _unbacked = unbacked(allParsed);
+static assert(_unbacked.length == 0,
+    "attestation " ~ _unbacked ~ " sits in a project that names no qntx: backend");
+private static immutable _postings = postings(allParsed);
+static immutable postingList = _postings.items[0 .. _postings.len];
 
 // Global strop pool. Control.stropIdx is a 1-based index into this array.
 // Only strop-using controls consume a slot — non-strop controls carry just

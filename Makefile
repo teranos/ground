@@ -2,8 +2,8 @@
 
 PREFIX ?= $(HOME)/.local
 
-wind: tools/wind.d tools/filelist.d
-	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d
+wind: tools/wind.d tools/filelist.d tools/openapi.d
+	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d tools/openapi.d
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
@@ -58,6 +58,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/concept.d tools/concept_test.d
 	ldc2 -c -od=/tmp -I=tools tools/bind.d tools/bind_test.d
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
+	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
 
 # Same shape for ug/*_test.d.
 test-ug:

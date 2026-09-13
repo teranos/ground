@@ -110,6 +110,20 @@ static assert(projectWithEnvParsed.envs[0].keys[0] == "port");
 static assert(projectWithEnvParsed.envs[0].values[0] == "8771");
 static assert(projectWithEnvParsed.envs[0].count == 1);
 
+// "A project can have qntx set to its backend url."
+// The pond is where the project's attestations settle. Naming it here is what
+// makes the top-level qntx block unnecessary.
+enum backedInput = `
+project {
+  origin: "veenpolder/dijkwacht"
+  path: "/Users/me/grove/dijkwacht"
+  qntx: "https://pond.veenpolder.invalid"
+  openapi: "server/openapi/openapi.json"
+}
+`;
+enum backedParsed = parsePbt(backedInput);
+static assert(backedParsed.projects[0].qntx == "https://pond.veenpolder.invalid");
+
 // --- extractProjectFiles: flatten all project file lists into one array ---
 
 import proto : extractProjectFiles;

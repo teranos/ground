@@ -64,14 +64,14 @@ private const(char)[] qntxToken() {
 }
 
 int handleAttest() {
-    import controls : qntxNodes, attestations;
+    import controls : postingList, attestations;
 
-    if (qntxNodes.length == 0) {
-        fputs("ground attest: no qntx nodes defined\n", stderr);
-        return 0;
-    }
     if (attestations.length == 0) {
         fputs("ground attest: no attestations defined\n", stderr);
+        return 0;
+    }
+    if (postingList.length == 0) {
+        fputs("ground attest: no project names a qntx: backend\n", stderr);
         return 0;
     }
 
@@ -80,8 +80,9 @@ int handleAttest() {
 
     auto token = qntxToken();
 
-    foreach (ref node; qntxNodes) {
-        foreach (ref a; attestations) {
+    foreach (ref p; postingList) {
+        {
+            auto a = attestations[p.attestation];
             __gshared ZBuf body_;
             body_.reset();
             body_.put(`{"subjects":["`);
@@ -99,7 +100,7 @@ int handleAttest() {
 
             __gshared ZBuf url;
             url.reset();
-            url.put(node.url);
+            url.put(p.url);
             url.put("/api/attestations");
 
             import http : curlPost;
@@ -119,7 +120,7 @@ int handleAttest() {
 
             // Report
             fputs("  ", stderr);
-            fputs2(node.url);
+            fputs2(p.url);
             fputs(" ", stderr);
             fputs2(a.subject);
             fputs(" -> ", stderr);

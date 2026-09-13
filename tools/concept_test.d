@@ -67,9 +67,10 @@ static assert(conceptOf("rites green {\n  built { eval: `make` }\n}") == "ritual
 static assert(conceptOf("permission.rw.pa {\n  allow: [\"/x\"]\n}") == "permission");
 static assert(conceptOf("permission {\n  deny: [\"rm\"]\n}") == "permission");
 
-// An attestation and the node it is posted to are one subject.
+// An attestation is its own subject. Where it is posted is a project's
+// business, so a project naming its backend is an example of a project.
 static assert(conceptOf("attestation {\n  subject: \"x\"\n}") == "attestation");
-static assert(conceptOf("qntx {\n  node {\n    url: \"http://x\"\n  }\n}") == "attestation");
+static assert(conceptOf("project {\n  qntx: \"http://x\"\n}") == "project");
 
 // Text that is not pbt belongs to no chapter.
 static assert(conceptOf("") == "");

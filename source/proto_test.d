@@ -754,18 +754,9 @@ static assert(mcpBuilt.items[0].mcpTool == "read_messages");
 static assert(mcpBuilt.items[0].controls[0].mcpArg.value == "Alice");
 static assert(mcpBuilt.items[0].controls[1].mcpArg.value == "Bob");
 
-// --- qntx block + attestation block ---
+// --- attestation block ---
 
 enum qntxInput = `
-qntx {
-  node {
-    url: "http://localhost:8771"
-  }
-  node {
-    url: "http://localhost:8772"
-  }
-}
-
 attestation {
   subject: "beacon:channel:1000000001"
   predicate: "beacon:route"
@@ -784,10 +775,8 @@ attestation {
 }
 `;
 enum qntxParsed = parsePbt(qntxInput);
-static assert(qntxParsed.qntxNodeCount == 2);
-static assert(qntxParsed.qntxNodes[0].url == "http://localhost:8771");
-static assert(qntxParsed.qntxNodes[1].url == "http://localhost:8772");
 static assert(qntxParsed.attestationCount == 2);
+static assert(qntxParsed.attestations[0].project == "");
 static assert(qntxParsed.attestations[0].subject == "beacon:channel:1000000001");
 static assert(qntxParsed.attestations[0].predicate == "beacon:route");
 static assert(qntxParsed.attestations[0].context == "project:SBVH");

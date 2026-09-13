@@ -106,6 +106,20 @@ struct ParsedProject {
     size_t maxGoto;
     string[1024] files;
     size_t fileCount;
+    // The OpenAPI spec this project keeps, relative to path. Wind reads it and
+    // writes one route block per path back into the project.
+    string openapi;
+    // The QNTX this project attests to. Empty means it attests nowhere.
+    string qntx;
+}
+
+// One path of a project's spec: the word a reply is matched on, and the text
+// ground puts in front of the model when that word is said.
+struct ParsedRoute {
+    string project;
+    string path;
+    string word;
+    string text;
 }
 
 struct ParsedEnv {
@@ -115,15 +129,14 @@ struct ParsedEnv {
     ubyte count;
 }
 
-struct ParsedQntxNode {
-    string url;
-}
-
 struct ParsedAttestation {
     string subject;
     string predicate;
     string context;
     string attributes; // raw JSON
+    // The path of the project it was written in. Empty is top level: posted to
+    // every backend rather than to one project's.
+    string project;
 }
 
 // A rite is a command and a verdict. `cmd` is the only required field.
@@ -218,8 +231,8 @@ struct ParseResult {
     size_t projectCount;
     ParsedEnv[pbtCounts.totalEnvs + 4] envs;
     size_t envCount;
-    ParsedQntxNode[16] qntxNodes;
-    size_t qntxNodeCount;
+    ParsedRoute[pbtCounts.totalRoutes + 4] routes;
+    size_t routeCount;
     ParsedAttestation[128] attestations;
     size_t attestationCount;
     Strop[MAX_STROP_POOL] stropPool;
@@ -453,6 +466,22 @@ auto extractProjectFiles(PR)(const PR parsed) {
         }
     }
     result.len = pos;
+    return result;
+}
+
+// --- Flat route list extraction (CTFE) ---
+// Every project's routes in one array for the Stop hook to walk.
+
+struct ProjectRouteList(size_t N) {
+    ParsedRoute[N] routes;
+    size_t len;
+}
+
+auto extractProjectRoutes(PR)(const PR parsed) {
+    ProjectRouteList!(PR.init.routes.length) result;
+    foreach (i; 0 .. parsed.routeCount)
+        result.routes[i] = parsed.routes[i];
+    result.len = parsed.routeCount;
     return result;
 }
 
@@ -732,10 +761,6 @@ ParseResult parsePbt(string input) {
             }
             expect(input, pos, '{');
             parseProject(input, pos, result, projectName);
-        } else if (wm.base == "qntx") {
-            skipWS(input, pos);
-            expect(input, pos, '{');
-            parseQntx(input, pos, result);
         } else if (wm.base == "attestation") {
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -755,7 +780,7 @@ ParseResult parsePbt(string input) {
             skipWS(input, pos);
             cast(void) readValue(input, pos);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'qntx', 'attestation', 'rites', or 'include'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', or 'include'");
         }
     }
     return result;
@@ -929,6 +954,8 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
                   string projectName = "") {
     string projectPath;
     string projectOrigin;
+    string projectOpenapi;
+    string projectQntx;
     size_t projectMaxGoto;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
@@ -950,6 +977,8 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             result.projects[result.projectCount].path = projectPath;
             result.projects[result.projectCount].origin = projectOrigin;
             result.projects[result.projectCount].maxGoto = projectMaxGoto;
+            result.projects[result.projectCount].openapi = projectOpenapi;
+            result.projects[result.projectCount].qntx = projectQntx;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
@@ -971,6 +1000,16 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             skipWS(input, pos);
             expect(input, pos, '{');
             parseEnvBlock(input, pos, envKeys, envValues, envCount);
+        } else if (wm.base == "route") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(projectPath.length > 0, "a route needs the project path before it");
+            parseRouteBlock(input, pos, result, projectPath);
+        } else if (wm.base == "attestation") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(projectPath.length > 0, "an attestation needs the project path before it");
+            parseAttestation(input, pos, result, projectPath);
         } else if (wm.base == "ritual") {
             skipWS(input, pos);
             auto ritualName = readWord(input, pos);
@@ -1029,6 +1068,8 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             switch (key) {
                 case "path": projectPath = val; break;
                 case "origin": projectOrigin = val; break;
+                case "openapi": projectOpenapi = val; break;
+                case "qntx": projectQntx = val; break;
                 case "max_goto": projectMaxGoto = cast(size_t) parseInt(val); break;
                 case "files":
                     if (val is null) {
@@ -1050,6 +1091,39 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
         }
     }
     assert(0, "Unterminated project block");
+}
+
+// Written by wind, so every field is a plain quoted or backtick string.
+void parseRouteBlock(ref string input, ref size_t pos, ref ParseResult result,
+                     string projectPath)
+{
+    ParsedRoute r;
+    r.project = projectPath;
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') {
+            pos++;
+            assert(r.path.length > 0 && r.word.length > 0, "a route needs path and word");
+            assert(result.routeCount < result.routes.length, "Route overflow");
+            result.routes[result.routeCount] = r;
+            result.routeCount++;
+            return;
+        }
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+        switch (key) {
+            case "path": r.path = val; break;
+            case "word": r.word = val; break;
+            case "text": r.text = val; break;
+            default: assert(0, "Unknown route field");
+        }
+    }
+    assert(0, "Unterminated route block");
 }
 
 void parseEnvBlock(ref string input, ref size_t pos,
@@ -1429,27 +1503,6 @@ ParsedPermission parsePermission(ref string input, ref size_t pos) {
     assert(0, "Unterminated permission block");
 }
 
-void parseQntx(ref string input, ref size_t pos, ref ParseResult result) {
-    while (pos < input.length) {
-        skipWS(input, pos);
-        if (pos >= input.length) break;
-        if (input[pos] == '#') { skipLine(input, pos); continue; }
-        if (input[pos] == '}') { pos++; return; }
-
-        auto key = readWord(input, pos);
-        if (key == "node") {
-            skipWS(input, pos);
-            expect(input, pos, '{');
-            assert(result.qntxNodeCount < result.qntxNodes.length, "QNTX node overflow");
-            result.qntxNodes[result.qntxNodeCount] = parseQntxNode(input, pos);
-            result.qntxNodeCount++;
-        } else {
-            assert(0, "Unknown qntx field — expected 'node'");
-        }
-    }
-    assert(0, "Unterminated qntx block");
-}
-
 // A ritual body holds only references — never definitions — so a name
 // followed by a block is unambiguous: it is that reference, with values.
 ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string projectPath,
@@ -1637,30 +1690,11 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
     assert(0, "Unterminated rite block");
 }
 
-ParsedQntxNode parseQntxNode(ref string input, ref size_t pos) {
-    ParsedQntxNode n;
-    while (pos < input.length) {
-        skipWS(input, pos);
-        if (pos >= input.length) break;
-        if (input[pos] == '#') { skipLine(input, pos); continue; }
-        if (input[pos] == '}') { pos++; return n; }
-
-        auto key = readWord(input, pos);
-        skipWS(input, pos);
-        expect(input, pos, ':');
-        skipWS(input, pos);
-        auto val = readValue(input, pos);
-        switch (key) {
-            case "url": n.url = val; break;
-            default: assert(0, "Unknown node field");
-        }
-    }
-    assert(0, "Unterminated node block");
-}
-
-void parseAttestation(ref string input, ref size_t pos, ref ParseResult result) {
+void parseAttestation(ref string input, ref size_t pos, ref ParseResult result,
+                      string projectPath = "") {
     assert(result.attestationCount < result.attestations.length, "Attestation overflow");
     ParsedAttestation a;
+    a.project = projectPath;
     while (pos < input.length) {
         skipWS(input, pos);
         if (pos >= input.length) break;

@@ -13,7 +13,6 @@ struct Word {
 // control: the scope is where it sits, not what it shows.
 immutable Word[] words = [
     Word("attestation", "attestation"),
-    Word("qntx",        "attestation"),
     Word("include",     ""),
     Word("ritual",      "ritual"),
     Word("rites",       "ritual"),
@@ -45,6 +44,9 @@ immutable Reading[] readings = [
     Reading("control", ["hooks", "proto", "project", "control_ritual",
                         "proto_exec", "proto_ritual", "strop", "playbill",
                         "binary"]),
+    // What a project is, then what one can name: its spec, and the routes
+    // wind writes back from it.
+    Reading("project", ["project", "routes"]),
 ];
 
 // "so its deliberate which terms deserve a glossary entry"
@@ -56,14 +58,33 @@ struct Owner {
 }
 
 immutable Owner[] owners = [
-    Owner("scope",       ["matcher"]),
+    Owner("scope",       ["matcher", "scratchdir"]),
     Owner("control",     ["hooks", "strop", "exec"]),
-    Owner("project",     ["project"]),
+    Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode"]),
     Owner("ritual",      ["ritual/resolve", "rite", "ritual/position", "ritual/run",
                           "ritual/drive", "mic", "receiver", "ritual/delivery",
                           "dispatch"]),
-    Owner("attestation", ["db", "attest", "provenance", "queued"]),
+    Owner("attestation", ["db", "attest", "backend", "provenance", "queued"]),
+];
+
+// Who owns the repos the examples are about. Four owners, each with a world
+// to draw names from, so the book does not read as one company's.
+struct Org {
+    string slug;    // what origin: carries
+    string name;
+    string world;   // the names its repos, subjects and predicates draw on
+    string chapter; // where it carries the examples
+}
+
+// "we want for orgs a variety"
+// Checkouts live in the grove whoever owns them: /Users/me/grove/<repo>. A
+// backend is a pond, https://pond.<slug>.invalid, or localhost when local.
+immutable Org[] orgs = [
+    Org("veenpolder", "Veenpolder",                     "dijkwacht, peil, sluis, gemaal",  "project"),
+    Org("lille",      "Châtellenie de Lille",           "cens, terrier, ban, seigneur",    "permission"),
+    Org("ffestiniog", "Rheilffordd Ffestiniog",         "amserlen, signal, tocyn, gorsaf", "control"),
+    Org("coinflip",   "Coinflip Ltd.",                  "heads, tails, munt, kop",         "ritual"),
 ];
 
 string chapterOf(string mod) {

@@ -13,6 +13,7 @@ import std.stdio : stderr;
 import std.string : indexOf, splitLines, strip;
 
 import filelist : renderFileList;
+import openapi : renderRoutes;
 
 void main() {
     mkdirRecurse(".ctfe");
@@ -77,6 +78,24 @@ void main() {
     size_t totalFiles;
 
     foreach (ref proj; projects) {
+        // A project naming its OpenAPI spec gets one route block per path,
+        // rendered here so ground compiles text and never parses JSON.
+        {
+            auto body_ = findProjectWithKey(sand, proj.path, "openapi");
+            if (body_ >= 0) {
+                auto rel = findKeyInBlock(sand, cast(size_t) body_, "openapi");
+                auto specPath = buildNormalizedPath(proj.path, rel);
+                if (!exists(specPath)) {
+                    stderr.writefln("wind: openapi not found %s", specPath);
+                } else {
+                    auto routes = renderRoutes(cast(string) read(specPath));
+                    auto close = blockClose(sand, cast(size_t) body_);
+                    sand = sand[0 .. close] ~ routes ~ sand[close .. $];
+                    stderr.writefln("wind: openapi %s", specPath);
+                }
+            }
+        }
+
         if (proj.envOnly) continue; // env-only projects don't need file lists
         if (!exists(proj.path) || !isDir(proj.path)) {
             stderr.writefln("wind: skip %s (not found)", proj.path);
@@ -141,6 +160,14 @@ string readPbtDir(string dir) {
 /// Find the closing } of the project block that contains the given path.
 /// Returns the index just before the }, or -1 if not found.
 long findProjectClose(string input, string path) {
+    auto body_ = findProjectWithKey(input, path, "path");
+    if (body_ < 0) return -1;
+    return cast(long) blockClose(input, cast(size_t) body_);
+}
+
+/// The body start (just past `{`) of the first project block at `path` that
+/// carries `key`. Two blocks may share a path; the key says which is meant.
+long findProjectWithKey(string input, string path, string key) {
     size_t pos = 0;
 
     while (pos < input.length) {
@@ -167,46 +194,58 @@ long findProjectClose(string input, string path) {
         if (pos >= input.length) break;
         pos++;
 
-        if (base == "project") {
-            // Check if this project has our path
-            auto blockPath = findPathInBlock(input, pos);
-            if (blockPath == path) {
-                // Find the closing } at depth 1
-                int depth = 1;
-                while (pos < input.length && depth > 0) {
-                    if (input[pos] == '"') {
-                        pos++;
-                        while (pos < input.length && input[pos] != '"') pos++;
-                        if (pos < input.length) pos++;
-                    } else if (input[pos] == '{') { depth++; pos++; }
-                    else if (input[pos] == '}') {
-                        depth--;
-                        if (depth == 0) return cast(long) pos;
-                        pos++;
-                    }
-                    else pos++;
-                }
-            } else {
-                skipBlock(input, pos);
-            }
-        } else {
-            skipBlock(input, pos);
-        }
+        if (base == "project" && findPathInBlock(input, pos) == path
+            && findKeyInBlock(input, pos, key) !is null)
+            return cast(long) pos;
+        skipBlock(input, pos);
     }
     return -1;
 }
 
+/// The index of the } that closes the block whose body starts at `bodyStart`.
+size_t blockClose(string input, size_t bodyStart) {
+    auto pos = bodyStart;
+    int depth = 1;
+    while (pos < input.length) {
+        if (input[pos] == '"') {
+            pos++;
+            while (pos < input.length && input[pos] != '"') pos++;
+            if (pos < input.length) pos++;
+        } else if (input[pos] == '`') {
+            pos++;
+            while (pos < input.length && input[pos] != '`') pos++;
+            if (pos < input.length) pos++;
+        } else if (input[pos] == '{') { depth++; pos++; }
+        else if (input[pos] == '}') {
+            depth--;
+            if (depth == 0) return pos;
+            pos++;
+        }
+        else pos++;
+    }
+    return input.length;
+}
+
 /// Find `path: "..."` inside a block (without consuming past the block).
 string findPathInBlock(string input, size_t startPos) {
+    return findKeyInBlock(input, startPos, "path");
+}
+
+/// Find `key: "..."` at the top level of a block, without consuming past it.
+/// Nested blocks are stepped over, so a key inside one is not this block's.
+string findKeyInBlock(string input, size_t startPos, string wanted) {
     auto pos = startPos;
-    int depth = 1;
-    while (pos < input.length && depth > 0) {
+    while (pos < input.length) {
         while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t' ||
                input[pos] == '\n' || input[pos] == '\r'))
             pos++;
         if (pos >= input.length) break;
         if (input[pos] == '}') return null;
-        if (input[pos] == '{') { pos++; depth++; continue; }
+        if (input[pos] == '#') {
+            while (pos < input.length && input[pos] != '\n') pos++;
+            continue;
+        }
+        if (input[pos] == '{') { pos++; skipBlock(input, pos); continue; }
 
         auto keyStart = pos;
         while (pos < input.length && input[pos] != ':' && input[pos] != ' ' &&
@@ -224,7 +263,14 @@ string findPathInBlock(string input, size_t startPos) {
             while (pos < input.length && input[pos] != '"') pos++;
             auto val = input[valStart .. pos];
             if (pos < input.length) pos++;
-            if (key == "path") return val;
+            if (key == wanted) return val;
+        } else if (pos < input.length && input[pos] == '`') {
+            pos++;
+            while (pos < input.length && input[pos] != '`') pos++;
+            if (pos < input.length) pos++;
+        } else if (pos < input.length && input[pos] == '[') {
+            while (pos < input.length && input[pos] != ']') pos++;
+            if (pos < input.length) pos++;
         }
     }
     return null;
