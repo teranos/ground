@@ -76,18 +76,16 @@ private FILE* findGitHead(const(char)[] cwd, out size_t repoRootLen) {
             auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
             fclose(f);
             f = null;
-            enum gdPrefix = "gitdir: ";
-            if (gn > gdPrefix.length && gdBuf[0 .. gdPrefix.length] == gdPrefix) {
-                size_t end = gn;
-                while (end > 0 && (gdBuf[end - 1] == '\n' || gdBuf[end - 1] == '\r'))
-                    end--;
-                if (end > gdPrefix.length) {
-                    pathBuf.reset();
-                    pathBuf.put(gdBuf[gdPrefix.length .. end]);
-                    pathBuf.put("/HEAD");
-                    f = fopen(pathBuf.ptr(), "r");
-                    if (f !is null) break;
-                }
+            // A submodule's gitdir is relative to the submodule, so it is
+            // resolved against the directory holding the file.
+            __gshared char[1024] gd = 0;
+            auto target = gitdirInto(gitdirBuf[0 .. cwdLen], gdBuf[0 .. gn], gd[]);
+            if (target.length > 0) {
+                pathBuf.reset();
+                pathBuf.put(target);
+                pathBuf.put("/HEAD");
+                f = fopen(pathBuf.ptr(), "r");
+                if (f !is null) break;
             }
         }
 
@@ -123,6 +121,73 @@ const(char)[] repoFromGitdir(const(char)[] line) {
     return "";
 }
 
+// A submodule's .git is a file pointing into the parent's modules directory.
+// It is its own repository, with its own origin, so it is not the parent.
+bool isModuleGitdir(const(char)[] line) {
+    import matcher : indexOf;
+    enum prefix = "gitdir: ";
+    if (line.length <= prefix.length || line[0 .. prefix.length] != prefix) return false;
+    return indexOf(line, ".git/modules/") >= 0;
+}
+
+// The directory a .git file points at, absolute. git writes a submodule's
+// relative to the submodule, so `dir` is what a relative one is under.
+const(char)[] gitdirInto(const(char)[] dir, const(char)[] line, char[] dest) {
+    enum prefix = "gitdir: ";
+    if (line.length <= prefix.length || line[0 .. prefix.length] != prefix) return "";
+    size_t end = line.length;
+    while (end > prefix.length && (line[end - 1] == '\n' || line[end - 1] == '\r')) end--;
+    auto target = line[prefix.length .. end];
+    if (target.length == 0) return "";
+
+    size_t o = 0;
+    bool put(const(char)[] s) {
+        if (o + s.length > dest.length) return false;
+        foreach (c; s) dest[o++] = c;
+        return true;
+    }
+    if (target[0] != '/') {
+        if (!put(dir) || !put("/")) return "";
+    }
+    if (!put(target)) return "";
+    return dest[0 .. o];
+}
+
+// Where a repository's config is: under .git when that is a directory, and at
+// the gitdir the .git file names when the repository is a submodule.
+const(char)[] configPathInto(const(char)[] root, char[] dest) {
+    if (__ctfe) return "";
+
+    size_t o = 0;
+    bool put(const(char)[] s) {
+        if (o + s.length > dest.length) return false;
+        foreach (c; s) dest[o++] = c;
+        return true;
+    }
+
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
+    pathBuf.put(root);
+    pathBuf.put("/.git");
+    auto f = fopen(pathBuf.ptr(), "r");
+    if (f !is null) {
+        __gshared char[512] gdBuf = 0;
+        auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
+        fclose(f);
+        auto line = gdBuf[0 .. gn];
+        if (isModuleGitdir(line)) {
+            __gshared char[1024] gd = 0;
+            auto target = gitdirInto(root, line, gd[]);
+            if (target.length == 0) return "";
+            if (!put(target) || !put("/config")) return "";
+            return dest[0 .. o];
+        }
+    }
+
+    if (!put(root) || !put("/.git/config")) return "";
+    return dest[0 .. o];
+}
+
 unittest {
     enum line = "gitdir: /Users/x/teranos/ground/.git/worktrees/ground-chapter-1";
     assert(repoFromGitdir(line) == "/Users/x/teranos/ground");
@@ -136,6 +201,25 @@ unittest {
     assert(repoFromGitdir("") == "");
     assert(repoFromGitdir("gitdir: ") == "");
     assert(repoFromGitdir("/Users/x/teranos/ground") == "");
+}
+
+unittest {
+    // A submodule's .git file points into the parent's modules, and the
+    // submodule is its own repository: the root is the directory holding the
+    // file, not the parent and not nothing.
+    assert(isModuleGitdir("gitdir: ../.git/modules/sub\n"));
+    assert(isModuleGitdir("gitdir: /Users/x/proj/.git/modules/sub"));
+    assert(!isModuleGitdir("gitdir: /Users/x/proj/.git/worktrees/w"));
+    assert(!isModuleGitdir(""));
+
+    // Where its config lives: the gitdir, which git writes relative to the
+    // submodule itself.
+    char[512] buf = 0;
+    assert(gitdirInto("/Users/x/proj/sub", "gitdir: ../.git/modules/sub\n", buf[])
+           == "/Users/x/proj/sub/../.git/modules/sub");
+    assert(gitdirInto("/Users/x/proj/sub", "gitdir: /Users/x/proj/.git/modules/sub", buf[])
+           == "/Users/x/proj/.git/modules/sub");
+    assert(gitdirInto("/Users/x/proj/sub", "nope", buf[]) == "");
 }
 
 // One answer per process. scopeMatches asks once per scope and a hook has
@@ -191,7 +275,15 @@ const(char)[] repoRoot(const(char)[] cwd) {
             __gshared char[512] gdBuf = 0;
             auto gn = fread(&gdBuf[0], 1, gdBuf.length - 1, f);
             fclose(f);
-            auto main = repoFromGitdir(gdBuf[0 .. gn]);
+            auto line = gdBuf[0 .. gn];
+            // A submodule is the tree itself: its .git file names where its
+            // own objects live, not a tree it was cut from.
+            if (isModuleGitdir(line)) {
+                foreach (i; 0 .. len) rootFound[i] = walk[i];
+                rootFoundLen = len;
+                return rootFound[0 .. rootFoundLen];
+            }
+            auto main = repoFromGitdir(line);
             if (main.length > 0 && main.length <= rootFound.length) {
                 foreach (i, c; main) rootFound[i] = c;
                 rootFoundLen = main.length;
@@ -312,10 +404,13 @@ const(char)[] originUrlOf(const(char)[] cwd) {
     auto root = repoRoot(cwd);
     if (root.length == 0) return "";
 
+    __gshared char[1024] cfgPath = 0;
+    auto cp = configPathInto(root, cfgPath[]);
+    if (cp.length == 0) return "";
+
     __gshared ZBuf pathBuf;
     pathBuf.reset();
-    pathBuf.put(root);
-    pathBuf.put("/.git/config");
+    pathBuf.put(cp);
     auto f = fopen(pathBuf.ptr(), "r");
     if (f is null) return "";
 
