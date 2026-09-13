@@ -19,7 +19,7 @@ rites live {
 
 project {
   path: "/src/proj"
-  env { api: "https://api.example.invalid" }
+  env { api: "https://api.coin.flip.example" }
 
   ritual probe {
     parity { row: "watchers" }

@@ -286,7 +286,7 @@ project {
   path: "/src/proj"
 
   env {
-    api: "https://api.example.invalid"
+    api: "https://api.coin.flip.example"
   }
 
   ritual probe {

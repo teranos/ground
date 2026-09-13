@@ -78,10 +78,10 @@ struct Org {
 }
 
 // "we want for orgs a variety"
-// Checkouts live in the grove whoever owns them: /Users/me/grove/<repo>. A
-// backend is a pond, https://pond.<slug>.invalid, or localhost when local.
+// Alice is a person with her own deployment of QNTX at qntx.alice.example and
+// her projects under /Users/Alice/projects. The others are companies.
 immutable Org[] orgs = [
-    Org("veenpolder", "Veenpolder",                     "dijkwacht, peil, sluis, gemaal",  "project"),
+    Org("alice",      "Alice",                          "QNTX, hygrometer-server",         "project"),
     Org("lille",      "Châtellenie de Lille",           "cens, terrier, ban, seigneur",    "permission"),
     Org("ffestiniog", "Rheilffordd Ffestiniog",         "amserlen, signal, tocyn, gorsaf", "control"),
     Org("coinflip",   "Coinflip Ltd.",                  "heads, tails, munt, kop",         "ritual"),
