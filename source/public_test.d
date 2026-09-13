@@ -1,7 +1,8 @@
 module public_test;
 
 import proto : parsePbt;
-import hooks : Visibility, standsInPublic;
+import hooks : Visibility;
+import audience : audienceFrom, internetSees;
 import git : visibilityIn;
 
 // "the rewrite rule should apply to any repo i work in that is public but not in private repo's"
@@ -38,11 +39,9 @@ static assert(!quietParsed.scopes[0].publicOnly);
 // The rule. A public repository is where the rewrite stands; a private one is
 // not. A repository ground cannot place is treated as public, because the
 // unknown case is the one where a leak costs the most.
-static assert(standsInPublic(true, Visibility.Public));
-static assert(!standsInPublic(true, Visibility.Private));
-static assert(standsInPublic(true, Visibility.Unknown));
-static assert(standsInPublic(false, Visibility.Private));
-static assert(standsInPublic(false, Visibility.Unknown));
+static assert(internetSees(audienceFrom(false, false, true, Visibility.Public)));
+static assert(!internetSees(audienceFrom(false, false, true, Visibility.Private)));
+static assert(internetSees(audienceFrom(false, false, true, Visibility.Unknown)));
 
 // GitHub's answer for a repository is read the way the throttle reads the
 // rate limit: one field out of the JSON, no jq. Anything else is unknown.

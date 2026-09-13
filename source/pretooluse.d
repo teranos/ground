@@ -194,8 +194,8 @@ StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
 // pendingRewrite, with the reason in pendingWhy. True when something changed.
 // Nothing is written here: whichever answer the handler gives carries it.
 bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] cwd) {
-    import homedir : rewriteField, isScratch, HOME_TOKEN;
-    import scratchdir : scratchHere;
+    import homedir : rewriteField, HOME_TOKEN;
+    import audience : audienceOf, internetSees, Audience;
     import hooks : rewriteFrom, rewriteTo;
     import controls : allParsed;
     import parse : extractToolInputRegion;
@@ -203,10 +203,11 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
 
     if (toolName != "Write" && toolName != "Edit") return false;
 
-    // Scratch is where a fixture carrying a real path belongs, and rewriting
-    // one there breaks the fixture without protecting anything.
+    // Nobody sees it, nothing to protect: scratch, a file outside any
+    // repository, a private one.
     auto target = extractFilePath(input);
-    if (isScratch(target) || scratchHere(target)) return false;
+    auto where = target.length > 0 ? target : cwd;
+    if (!internetSees(audienceOf(where, false))) return false;
 
     auto region = extractToolInputRegion(input);
     if (region is null) return false;
@@ -232,7 +233,6 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     // session stands. A session in a public repo writing into a private one
     // was scrubbing the private file for being in the wrong company.
     import git : repoRoot;
-    auto where = target.length > 0 ? target : cwd;
     auto root = repoRoot(where);
 
     for (size_t i = 0;; i++) {
@@ -261,10 +261,8 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     if (found == 0) return false;
 
     // "gitignored files should be excempt from the golem rewrite rule"
-    // A file git ignores never reaches the remote the rule guards. Asked here
-    // and not earlier, so a write nothing would rewrite never forks git.
-    import git : isIgnored;
-    if (isIgnored(root, target)) return false;
+    // Asked here and not earlier, so a write nothing would rewrite never forks git.
+    if (audienceOf(where, true) == Audience.Ignored) return false;
 
     // current is a slice of one of the two __gshared buffers, which outlive
     // this call, so the handler reads it whenever it answers.

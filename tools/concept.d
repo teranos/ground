@@ -58,7 +58,7 @@ struct Owner {
 }
 
 immutable Owner[] owners = [
-    Owner("scope",       ["matcher", "scratchdir"]),
+    Owner("scope",       ["matcher", "scratchdir", "audience"]),
     Owner("control",     ["hooks", "strop", "exec"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode"]),

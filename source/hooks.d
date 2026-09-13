@@ -373,14 +373,6 @@ struct Scope {
 // What ground knows about a repository's audience.
 enum Visibility { Unknown, Public, Private }
 
-// A scope that stands in public stands where the repository is public, and
-// where ground could not place it: the unknown case is the one where a leak
-// costs the most. A scope that never said so stands everywhere.
-bool standsInPublic(bool publicOnly, Visibility seen) {
-    if (!publicOnly) return true;
-    return seen != Visibility.Private;
-}
-
 // A path names directories, so it ends where one ends. A raw substring made
 // QNTX-App contain QNTX, which is why every sibling needed its own negation.
 bool pathMatch(const(char)[] path, const(char)[] pattern) {
@@ -428,8 +420,8 @@ bool scopeMatchesIn(S)(const ref S sc, const(char)[] cwd, const(char)[] root) {
     // said `public` costs no lookup. Test structs carry no such field.
     static if (__traits(hasMember, S, "publicOnly")) {
         if (sc.publicOnly) {
-            import git : repoVisibility;
-            if (!standsInPublic(true, repoVisibility(root))) return false;
+            import audience : audienceOf, internetSees;
+            if (!internetSees(audienceOf(root, false))) return false;
         }
     }
     if (sc.pathCount == 0) return true;
