@@ -22,6 +22,7 @@ CheckFn resolveCheck(string name) {
         case "branchNotRequested": return &control_handlers.branchNotRequested;
         case "prNotRequested": return &control_handlers.prNotRequested;
         case "quoteProvenance": return &control_handlers.quoteProvenance;
+        case "quoteProvenanceStretched": return &control_handlers.quoteProvenanceStretched;
         case "quoteStandsAlone": return &control_handlers.quoteStandsAlone;
         case "quoteChronology": return &control_handlers.quoteChronology;
         case "strikethrough": return &control_handlers.strikethroughCheck;
