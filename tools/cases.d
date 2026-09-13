@@ -358,24 +358,6 @@ string flow(string text) {
     return out_;
 }
 
-// One name per symbol, so a `///` refers to the cases for a thing by naming
-// the thing.
-string caseName(string s) {
-    string out_ = "EX_";
-    foreach (c; s) out_ ~= upper(c);
-    return out_;
-}
-
-// A ddoc macro definition. Continuation lines are indented by one space,
-// which is what makes ddoc read them as part of this definition rather than
-// as the start of the next one.
-string renderCase(string s, string text) {
-    string out_ = caseName(s) ~ " =\n \\begin{gcode}\n";
-    foreach (line; splitLines(text)) out_ ~= " " ~ line ~ "\n";
-    out_ ~= " \\end{gcode}\n\n";
-    return out_;
-}
-
 // Take the common indent off every line. A case written inside a unittest is
 // indented by its block, and printing that would step each example further
 // right than the last for no reason a reader could see.
@@ -430,8 +412,4 @@ private bool startsAt(string s, size_t i, string what) {
 private bool isNameChar(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
         || (c >= '0' && c <= '9') || c == '_';
-}
-
-private char upper(char c) {
-    return (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
 }

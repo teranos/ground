@@ -1,11 +1,9 @@
 module cases_test;
 
 // CTFE tests for the pure half of press: finding the cases a test module
-// already states, and rendering them as ddoc macros. Failure shows as a
-// compile error from static assert.
+// already states. Failure shows as a compile error from static assert.
 
-import cases : extractCases, renderCase, caseName, subject, flow,
-               extractGlossary, isGlossary;
+import cases : extractCases, subject, flow, extractGlossary, isGlossary;
 
 // The symbol under test is the first thing the assertion calls.
 static assert(subject(`static assert(sessionMatches("m", "default"));`) == "sessionMatches");
@@ -196,19 +194,6 @@ static assert(block[0].subject == "checkCommand");
 
 // A unittest that asserts nothing is scaffolding.
 static assert(extractCases("unittest {\n    setUp();\n}\n").length == 0);
-
-// Every case for one symbol lands under one name.
-static assert(caseName("sessionMatches") == "EX_SESSIONMATCHES");
-static assert(caseName("maxCommentRun") == "EX_MAXCOMMENTRUN");
-
-// Rendered as a ddoc macro, continuation lines indented by one space so ddoc
-// reads them as one definition. gcode gobbles that space back off.
-static assert(renderCase("f", "// A case.\nstatic assert(f(1));") ==
-    "EX_F =\n" ~
-    " \\begin{gcode}\n" ~
-    " // A case.\n" ~
-    " static assert(f(1));\n" ~
-    " \\end{gcode}\n\n");
 
 // "the first one should be about control as a concept"
 // A chapter opens on a paragraph. Where a source comment wraps is a width the

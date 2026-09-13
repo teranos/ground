@@ -91,8 +91,8 @@ install: build install-ug
 	./ground decay
 
 # The book is generated from the source it documents, so it cannot describe a
-# ground that does not exist. Every module is a chapter, and both comment kinds
-# are prose: a ddoc pass writing the same paths overwrote what press extracted.
+# ground that does not exist. Both comment kinds are prose: a // line and a
+# /// line reach the page alike.
 press: tools/press.d tools/cases.d tools/concept.d
 	ldc2 -of=tools/press -I=tools tools/press.d tools/cases.d tools/concept.d
 

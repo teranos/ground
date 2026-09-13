@@ -10,7 +10,7 @@ import std.array : array;
 import std.path : baseName;
 import std.stdio : stderr;
 
-import cases : extractCases, renderCase, caseName, Case, splitLines, unmark, flow,
+import cases : extractCases, Case, splitLines, unmark, flow,
                extractGlossary, Entry;
 import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners;
 
@@ -72,11 +72,6 @@ int main(string[] argv) {
     Entry[][string] glossary;
     Refused[] refused;
 
-    // Every case for one symbol also lands under a macro, so a `///` can name
-    // one without the whole chapter coming with it.
-    string[string] gathered;
-    string[] symbols;
-
     // A module's own first heading, kept by subject. A chapter opens on the
     // one belonging to the module its order names first, so the reader is told
     // what the concept is before being shown an example of it.
@@ -127,16 +122,7 @@ int main(string[] argv) {
         }
 
         size_t proved = 0;
-        foreach (c; found) {
-            if (c.heading) continue;
-            proved++;
-            if (c.subject !in gathered) {
-                gathered[c.subject] = c.text;
-                symbols ~= c.subject;
-            } else {
-                gathered[c.subject] ~= "\n\n" ~ c.text;
-            }
-        }
+        foreach (c; found) if (!c.heading) proved++;
         totalCases += proved;
         stderr.writefln("press: %s (%d cases)", baseName(f.name), proved);
     }
@@ -164,10 +150,6 @@ int main(string[] argv) {
     // \input that no longer names it. Cleared here rather than by the caller,
     // so a halt leaves the last good book standing instead of deleting it.
     foreach (e; dirEntries("doc/tex", "*.tex", SpanMode.shallow)) remove(e.name);
-
-    string macros;
-    foreach (s; symbols) macros ~= renderCase(s, gathered[s]);
-    write("doc/cases.ddoc", macros);
 
     // The chapter list, in the order asked for, then anything not named.
     string[] order;
@@ -208,8 +190,8 @@ int main(string[] argv) {
 
     size_t terms = 0;
     foreach (es; glossary) terms += es.length;
-    stderr.writefln("press: %d chapters, %d cases, %d symbols, %d terms",
-        order.length, totalCases, symbols.length, terms);
+    stderr.writefln("press: %d chapters, %d cases, %d terms",
+        order.length, totalCases, terms);
     return 0;
 }
 

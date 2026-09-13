@@ -50,7 +50,6 @@ controls/local/*
 doc/tex/
 doc/provenance.tex
 doc/edition.tex
-doc/cases.ddoc
 doc/book.pdf
 doc/book.folios
 doc/annot.pdf
