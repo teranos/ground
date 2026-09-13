@@ -59,9 +59,24 @@
 
 \newenvironment{gparams}{\begin{description}[leftmargin=!,font=\normalfont\ttfamily]}{\end{description}}
 
-% A glossary term is a word of the book's own language, so it is set as a word
-% and not as code.
-\newenvironment{gglossary}{\begin{description}[leftmargin=!,font=\normalfont\scshape]}{\end{description}}
+% The glossary runs in two columns. A chapter's terms are one block the width
+% of a column, so a section is never cut between the columns, and each term is
+% a row: the word bold on the left, what it means in a subcolumn beside it.
+\usepackage{multicol}
+\newenvironment{gcolumns}{\begin{multicols}{2}\raggedcolumns}{\end{multicols}}
+\newenvironment{gglossary}{\noindent\begin{minipage}{\columnwidth}\small}{\end{minipage}\par\vspace{8pt}}
+\newlength{\gtermw}
+\setlength{\gtermw}{24mm}
+% The main term is the chapter's own word and heads the block; its subs are
+% the rows beneath it, stepped in so the head reads as the head.
+\newlength{\gsubin}
+\setlength{\gsubin}{8pt}
+\newcommand{\gmain}[2]{%
+  \noindent\parbox[t]{\gtermw}{\raggedright\bfseries\normalsize #1}\hspace{4pt}%
+  \parbox[t]{\dimexpr\columnwidth-\gtermw-4pt\relax}{\raggedright #2}\par\vspace{5pt}}
+\newcommand{\gterm}[2]{%
+  \noindent\hspace*{\gsubin}\parbox[t]{\dimexpr\gtermw-\gsubin\relax}{\raggedright\bfseries #1}\hspace{4pt}%
+  \parbox[t]{\dimexpr\columnwidth-\gtermw-4pt\relax}{\raggedright #2}\par\vspace{3pt}}
 
 % A case is one row: the block on the left, what it is for on the right. A
 % minipage cannot be broken, so a page never cuts an example in half.

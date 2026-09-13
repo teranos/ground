@@ -218,20 +218,43 @@ int main(string[] argv) {
 string renderGlossary(const(string)[] order, Entry[][string] glossary) {
     string out_;
     foreach (ch; order) {
+        // The term that is the chapter's own word heads its section, and the
+        // other terms are its subs. Without one, the word itself is the head.
+        string main_;
         string section;
         foreach (o; owners) {
             if (o.chapter != ch) continue;
             foreach (m; o.mods) {
                 if (m !in glossary) continue;
-                foreach (e; glossary[m])
-                    section ~= "\\item[" ~ escape(e.term) ~ "] " ~ escape(e.text) ~ "\n";
+                foreach (e; glossary[m]) {
+                    if (main_.length == 0 && isWord(e.term, ch)) {
+                        main_ = "\\gmain{" ~ escape(e.term) ~ "}{" ~ escape(e.text) ~ "}\n";
+                        continue;
+                    }
+                    section ~= "\\gterm{" ~ escape(e.term) ~ "}{" ~ escape(e.text) ~ "}\n";
+                }
             }
         }
-        if (section.length == 0) continue;
-        out_ ~= "\\gsection{" ~ ch ~ "}\n\\begin{gglossary}\n" ~ section ~ "\\end{gglossary}\n\n";
+        if (main_.length == 0 && section.length == 0) continue;
+        auto head = main_.length > 0 ? "\\begin{gglossary}\n" ~ main_
+                                     : "\\gsection{" ~ ch ~ "}\n\\begin{gglossary}\n";
+        out_ ~= head ~ section ~ "\\end{gglossary}\n\n";
     }
     if (out_.length == 0) return "";
-    return "\\chapter{glossary}\n\n" ~ out_;
+    // Two columns, and a section is one block in them: press names the parts,
+    // book.tex sets them.
+    return "\\chapter{glossary}\n\n\\begin{gcolumns}\n" ~ out_ ~ "\\end{gcolumns}\n";
+}
+
+// A term is the chapter's word when it is that word with its first letter
+// raised: Scope for scope.
+bool isWord(string term, string chapter) {
+    if (term.length != chapter.length) return false;
+    foreach (i, c; term) {
+        auto lower = (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+        if (lower != chapter[i]) return false;
+    }
+    return true;
 }
 
 string numeral(size_t n) {

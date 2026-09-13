@@ -59,6 +59,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/bind.d tools/bind_test.d
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
+	ldc2 -c -od=/tmp -I=tools tools/press.d tools/cases.d tools/concept.d tools/press_test.d
 
 # Same shape for ug/*_test.d.
 test-ug:
