@@ -521,39 +521,26 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         sqlite3_finalize(stmt);
                         auto avgMs = avgUs / 1000;
                         auto budgetMs = b.thresholdUs / 1000;
+                        // The breakdown is the event's own, averaged over the
+                        // rows the average came from. Stop's phases stood here
+                        // and read as this event's.
+                        import phases : PhaseMeans, regressionLine;
+                        import db : sqlite3_column_text;
+                        import profile : cstr;
+                        PhaseMeans means;
+                        enum phasesSql = "SELECT phases FROM timing WHERE hook_event = ?1 AND project = ?2 ORDER BY id DESC LIMIT 20\0";
+                        sqlite3_stmt* ps;
+                        if (sqlite3_prepare_v2(db, phasesSql.ptr, -1, &ps, null) == SQLITE_OK) {
+                            sqlite3_bind_text(ps, 1, b.event.ptr, cast(int) b.event.length, SQLITE_TRANSIENT);
+                            sqlite3_bind_text(ps, 2, project.ptr, cast(int) project.length, SQLITE_TRANSIENT);
+                            while (sqlite3_step(ps) == SQLITE_ROW)
+                                means.add(cstr(sqlite3_column_text(ps, 0)));
+                            sqlite3_finalize(ps);
+                        }
                         __gshared ZBuf timingMsg;
                         timingMsg.reset();
-                        timingMsg.put("fyi: ground timing regression: ");
-                        timingMsg.put(b.event);
-                        timingMsg.put(" averages ");
-                        putInt(timingMsg, avgMs);
-                        timingMsg.put("ms (budget ");
-                        putInt(timingMsg, budgetMs);
                         enum VERSION = import(".version");
-                        timingMsg.put("ms, ground ");
-                        foreach (vc; VERSION)
-                            if (vc != '\n' && vc != '\r') timingMsg.putChar(vc);
-                        timingMsg.put(")");
-                        auto t7 = usecNow();
-                        timingMsg.put(" [parse=");
-                        putInt(timingMsg, (t1-t0)/1000);
-                        timingMsg.put("ms db=");
-                        putInt(timingMsg, (t2-t1)/1000);
-                        timingMsg.put("ms branch=");
-                        putInt(timingMsg, branchUs/1000);
-                        timingMsg.put("ms triggers=");
-                        putInt(timingMsg, (t4-t3)/1000);
-                        timingMsg.put("ms deliver=");
-                        putInt(timingMsg, (t5-t4)/1000);
-                        timingMsg.put("ms deferred=");
-                        putInt(timingMsg, (t6-t5)/1000);
-                        timingMsg.put("ms(sessQ=");
-                        putInt(timingMsg, (tDeferSess-t5)/1000);
-                        timingMsg.put("ms projQ=");
-                        putInt(timingMsg, (t6-tDeferSess)/1000);
-                        timingMsg.put("ms) timing=");
-                        putInt(timingMsg, (t7-t6)/1000);
-                        timingMsg.put("ms]");
+                        regressionLine(timingMsg, b.event, avgMs, budgetMs, VERSION, means);
                         attestEvent(db, "GroundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
                         sqlite3_close(db);
                         writeStopResponseAndNotify(timingMsg.slice());

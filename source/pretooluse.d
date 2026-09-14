@@ -293,6 +293,19 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     import parse : extractPermissionMode;
     auto t0 = usecNow();
     long tParse, tBinary, tMatch, tDb, tPerm;
+    const(char)[] exitLabel = "none";
+
+    // One row for every exit. A deny or an early answer used to leave the
+    // phases blank, and a third of the table said nothing about itself.
+    scope (exit) {
+        import phases : phaseChain;
+        static immutable string[5] KEYS = ["parse", "binary", "match", "db", "perm"];
+        long[5] stamps = [tParse, tBinary, tMatch, tDb, tPerm];
+        __gshared ZBuf prof;
+        prof.reset();
+        phaseChain(prof, t0, KEYS[], stamps[], usecNow(), exitLabel);
+        emitProfile(prof);
+    }
 
     auto toolName = extractToolName(input);
     import sessionmode : parseSessionMode;
@@ -370,6 +383,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 denyMsg.put("Binary file detected: ");
                 denyMsg.put(binaryFile);
                 denyMsg.put(". Binary files must not be committed.");
+                exitLabel = "binary-deny";
                 writeDenyResponse(denyMsg.slice());
                 return 0;
             }
@@ -402,6 +416,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         if (handOver(handed, targets.paths[i], eff)) any = true;
                     if (!any) continue;
 
+                    exitLabel = "handed";
                     writeDenyResponse(handed.slice());
                     return 0;
                 }
@@ -521,17 +536,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
             if (db !is null) sqlite3_close(db);
             tDb = usecNow();
-
-            __gshared ZBuf prof;
-            prof.reset();
-            prof.put("parse="); putInt(prof, tParse-t0);
-            prof.put("us binary="); putInt(prof, tBinary-tParse);
-            prof.put("us match="); putInt(prof, tMatch-tBinary);
-            prof.put("us db="); putInt(prof, tDb-tMatch);
-            prof.put("us total="); putInt(prof, tDb-t0);
-            if (hasDeny) prof.put("us exit=deny");
-            else prof.put("us exit=control");
-            emitProfile(prof);
+            exitLabel = hasDeny ? "deny" : "control";
 
             if (hasDeny) {
                 writeDenyResponse(allMessages.slice());
@@ -545,6 +550,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 import decide : combine;
                 auto pr = evaluatePermission(permissionScopes, cwd, toolName, command, sessionMode);
                 if (pr.decision == Decision.deny) {
+                    exitLabel = "deny";
                     writeDenyResponse(pr.msg);
                     return 0;
                 }
@@ -594,29 +600,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         auto permResult = evaluatePermission(permissionScopes, cwd, toolName, seg, sessionMode);
                         if (permResult.decision == Decision.deny) {
                             tPerm = usecNow();
-                            __gshared ZBuf prof;
-                            prof.reset();
-                            prof.put("parse="); putInt(prof, tParse-t0);
-                            prof.put("us binary="); putInt(prof, tBinary-tParse);
-                            prof.put("us match="); putInt(prof, tMatch-tBinary);
-                            prof.put("us perm="); putInt(prof, tPerm-tMatch);
-                            prof.put("us total="); putInt(prof, tPerm-t0);
-                            prof.put("us exit=perm-deny");
-                            emitProfile(prof);
+                            exitLabel = "perm-deny";
                             writeDenyResponse(permResult.msg);
                             return 0;
                         }
                         if (permResult.decision == Decision.allow) {
                             tPerm = usecNow();
-                            __gshared ZBuf prof;
-                            prof.reset();
-                            prof.put("parse="); putInt(prof, tParse-t0);
-                            prof.put("us binary="); putInt(prof, tBinary-tParse);
-                            prof.put("us match="); putInt(prof, tMatch-tBinary);
-                            prof.put("us perm="); putInt(prof, tPerm-tMatch);
-                            prof.put("us total="); putInt(prof, tPerm-t0);
-                            prof.put("us exit=perm-allow");
-                            emitProfile(prof);
+                            exitLabel = "perm-allow";
                             if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
                             else writeContextResponse("", "allow");
                             return 0;
@@ -633,17 +623,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         }
 
         tPerm = usecNow();
-        {
-            __gshared ZBuf prof;
-            prof.reset();
-            prof.put("parse="); putInt(prof, tParse-t0);
-            prof.put("us binary="); putInt(prof, tBinary-tParse);
-            prof.put("us match="); putInt(prof, tMatch-tBinary);
-            prof.put("us perm="); putInt(prof, tPerm-tMatch);
-            prof.put("us total="); putInt(prof, tPerm-t0);
-            prof.put("us exit=bash-none");
-            emitProfile(prof);
-        }
+        exitLabel = "bash-none";
 
         // Saying nothing is what let Claude Code ask. Inside a performance
         // there is nobody to ask, so ground answers instead.
@@ -670,6 +650,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     sqlite3_close(pdb);
                 }
             }
+            exitLabel = "file-perm-deny";
             writeDenyResponse(permResult.msg);
             return 0;
         }
@@ -678,6 +659,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         // deny and never permit. Which meant where a session launched decided
         // whether an edit asked, and no rule could say otherwise.
         if (permResult.decision == Decision.allow) {
+            exitLabel = "file-perm-allow";
             writeContextResponse("", "allow");
             return 0;
         }
@@ -727,6 +709,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (db !is null) sqlite3_close(db);
 
         if (mcpMsgBuf.len > 0) {
+            exitLabel = "mcp";
             writeContextResponse(mcpMsgBuf.slice(), "");
             return 0;
         }
@@ -841,6 +824,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (db !is null) sqlite3_close(db);
 
         if (fileMsgBuf.len > 0) {
+            exitLabel = "file-control";
             writeContextResponse(fileMsgBuf.slice(), advisoryDecision(fileDecision));
             return 0;
         }
@@ -850,6 +834,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     // left alone, since rewriting that sends the write to a path that does
     // not exist.
     if (pendingRewrite.length > 0) {
+        exitLabel = "rewrite";
         writeContextResponse("", "allow");
         return 0;
     }
@@ -857,18 +842,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.
     if (inLivePerformance(cwd, sessionMode)) {
+        exitLabel = "live";
         writeContextResponse("allowed by the live performance", "allow");
         return 0;
     }
 
-    auto tEnd = usecNow();
-    {
-        __gshared ZBuf prof;
-        prof.reset();
-        prof.put("parse="); putInt(prof, tParse-t0);
-        prof.put("us total="); putInt(prof, tEnd-t0);
-        prof.put("us exit=none");
-        emitProfile(prof);
-    }
     return 0;
 }

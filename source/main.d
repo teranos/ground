@@ -148,7 +148,7 @@ const(char)[] getPhases() {
     return g_phasesBuf[0 .. g_phasesLen];
 }
 
-void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project) {
+void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project, const(char)[] phases) {
     import db : openDb, sqlite3_exec, sqlite3_prepare_v2, sqlite3_bind_int64,
                     sqlite3_bind_text, sqlite3_step, sqlite3_finalize, sqlite3_close,
                     sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
@@ -167,7 +167,6 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
             sqlite3_bind_text(stmt, 2, hookEvent.ptr, cast(int) hookEvent.length, SQLITE_TRANSIENT);
         if (project.length > 0)
             sqlite3_bind_text(stmt, 3, project.ptr, cast(int) project.length, SQLITE_TRANSIENT);
-        auto phases = getPhases();
         if (phases.length > 0)
             sqlite3_bind_text(stmt, 4, phases.ptr, cast(int) phases.length, SQLITE_TRANSIENT);
         sqlite3_step(stmt);
@@ -236,17 +235,32 @@ extern (C) int main(int argc, const(char)** argv) {
     const(char)[] eventName;
     const(char)[] project;
     bool skipTiming;
-    auto rc = run(eventName, project, skipTiming);
+    Outer outer;
+    auto rc = run(eventName, project, skipTiming, outer);
     auto elapsed = usecNow() - t0;
     printDuration(t0);
-    if (!skipTiming)
-        recordTiming(elapsed, eventName, project);
+    if (!skipTiming) {
+        import zbuf : ZBuf;
+        import phases : outerPhases;
+        __gshared ZBuf row;
+        row.reset();
+        outerPhases(row, outer.stdinUs, outer.attestUs,
+                    elapsed - outer.stdinUs - outer.attestUs, getPhases());
+        recordTiming(elapsed, eventName, project, row.slice());
+    }
     return rc;
 }
 
-int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming) {
+// What the handler cannot time: the read of its input and the attestation of
+// the event, both before it is called. The row used to carry the handler's
+// phases beside a duration the handler was a tenth of.
+struct Outer { long stdinUs; long attestUs; }
 
+int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming,
+        ref Outer outer) {
+    auto tIn = usecNow();
     auto input = readStdin();
+    outer.stdinUs = usecNow() - tIn;
     if (input is null) {
         fputs("ground: empty stdin\n", stderr);
         return 1;
@@ -267,11 +281,13 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     // Attest every event — even ones we don't handle yet
     {
         import db : openDb, attestEvent, sqlite3_close, dbUnusable, dbFailureMessage;
+        auto tAttest = usecNow();
         auto db = openDb();
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);
             sqlite3_close(db);
         }
+        outer.attestUs = usecNow() - tAttest;
         // Checked after the write, not only on a null handle: a damaged store
         // opens cleanly when its schema tree survived, and announces itself
         // only when real data moves through the broken ones.
