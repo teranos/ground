@@ -74,7 +74,7 @@ claude /plugin install ground@teranos-ground
 
 On first session, ground detects the binary isn't installed and tells Claude how to set it up — prebuilt binaries are available from [GitHub Releases](https://github.com/teranos/ground/releases).
 
-To build from source instead (requires [LDC](https://dlang.org/download.html) and libsqlite3):
+To build from source instead (requires [Nix](https://nixos.org/download/); `flake.lock` pins LDC, dub and libsqlite3):
 
 ```
 git clone https://github.com/teranos/ground.git

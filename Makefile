@@ -2,6 +2,27 @@
 
 PREFIX ?= $(HOME)/.local
 
+# Every recipe runs with the compiler, dub and sqlite flake.lock pins, the ones
+# CI and the releases build with. Homebrew's were x86_64 on an arm64 machine:
+# the build ran under Rosetta, 35s against 14s native, and so did every hook.
+# Outside the pinned shell make enters it and runs the same goals there.
+# --profile roots that toolchain, since the installed ground loads its sqlite
+# from the store and a garbage collection would otherwise take it away.
+PINNED := $(findstring /nix/store/,$(shell command -v ldc2))
+DEVSHELL := $(PREFIX)/lib/ground/devshell
+
+ifeq ($(PINNED),)
+GOALS := $(or $(MAKECMDGOALS),build)
+.PHONY: $(GOALS)
+$(firstword $(GOALS)):
+	mkdir -p $(dir $(DEVSHELL))
+	nix develop .#default --profile $(DEVSHELL) --command make $(GOALS)
+ifneq ($(words $(GOALS)),1)
+$(wordlist 2,$(words $(GOALS)),$(GOALS)):
+	@:
+endif
+else
+
 wind: tools/wind.d tools/filelist.d tools/openapi.d
 	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d tools/openapi.d
 
@@ -46,7 +67,7 @@ UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
 # sqlite3 is the one library ug links. ground owns every row it reads; ug only
 # ever issues SELECT.
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug $(UG_SOURCES) -L-lsqlite3 -L-L/usr/local/opt/sqlite/lib
+	ldc2 -betterC -of=ug/ug -I=ug $(UG_SOURCES) -L-lsqlite3
 
 test: test-tools test-ug
 	dub test
@@ -80,13 +101,20 @@ test-ug:
 
 # The row runs from PREFIX, not from the checkout: a status line pointed at a
 # build directory goes blank the moment that directory moves.
+#
+# A binary is renamed into place, never copied over the one already there. cp
+# onto an existing file keeps its inode. On 2026-09-14, arm64 macOS: the ground
+# cp wrote over the running one was SIGKILLed on every launch, codesign said
+# valid, and the same bytes copied to a new inode ran.
 install-ug: ug
 	mkdir -p $(PREFIX)/bin
-	cp ug/ug $(PREFIX)/bin/ug
+	cp ug/ug $(PREFIX)/bin/ug.new
+	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
 
 install: build install-ug
 	mkdir -p $(PREFIX)/bin
-	cp ground $(PREFIX)/bin/ground
+	cp ground $(PREFIX)/bin/ground.new
+	mv -f $(PREFIX)/bin/ground.new $(PREFIX)/bin/ground
 	./ground attest
 	./ground decay
 
@@ -150,3 +178,5 @@ annot: press
 # map is named after the job already, so it follows without being told.
 	cd doc && latexmk -xelatex -silent -interaction=nonstopmode -jobname=annot book.tex
 	@echo "annot: doc/annot.pdf is the A4 annotation copy"
+
+endif
