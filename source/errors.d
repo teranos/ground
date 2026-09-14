@@ -26,7 +26,10 @@ struct GroundError {
 }
 
 extern (C) {
-    int open(const(char)* path, int flags, uint mode);
+    // Variadic, as libc declares it. On arm64 macOS a variadic argument is
+    // passed on the stack; declared as a plain third parameter the mode went
+    // in a register open never reads, and every file was created mode 000.
+    int open(const(char)* path, int flags, ...);
     long read(int fd, void* buf, size_t count);
     long write(int fd, const(void)* buf, size_t count);
     int close(int fd);
@@ -580,5 +583,20 @@ private template octal(uint n) {
         enum uint octal = n;
     else
         enum uint octal = octal!(n / 10) * 8 + (n % 10);
+}
+
+unittest {
+    // A file open creates carries the mode it was asked for. The curl config
+    // holds a token and is written 0600, then read back by curl.
+    import core.sys.posix.sys.stat : stat_t, stat;
+    enum path = "/tmp/ground-open-mode-test\0";
+    unlink(path.ptr);
+    auto fd = open(path.ptr, O_WRONLY | O_CREAT | O_TRUNC, octal!600);
+    assert(fd >= 0, "open could not create the file");
+    close(fd);
+    stat_t st;
+    assert(stat(path.ptr, &st) == 0);
+    unlink(path.ptr);
+    assert((st.st_mode & octal!777) == octal!600, "the file carries the mode open was given");
 }
 

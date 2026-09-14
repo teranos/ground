@@ -3,10 +3,9 @@ module stopfailure;
 // https://code.claude.com/docs/en/hooks — StopFailure fires "When the turn
 // ends due to an API error", and its "Output and exit code are ignored".
 
-import errors : O_WRONLY, O_CREAT, O_APPEND;
+import errors : O_WRONLY, O_CREAT, O_APPEND, open;
 
 extern (C) {
-    int open(const(char)* path, int flags, uint mode);
     long write(int fd, const(void)* buf, size_t count);
     int close(int fd);
     int mkdir(const(char)* path, uint mode);
