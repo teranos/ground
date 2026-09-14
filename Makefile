@@ -56,7 +56,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/filelist.d tools/filelist_test.d
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/cases_test.d
 	ldc2 -c -od=/tmp -I=tools tools/concept.d tools/concept_test.d
-	ldc2 -c -od=/tmp -I=tools tools/bind.d tools/bind_test.d
+	ldc2 -c -od=/tmp -I=tools -J=doc tools/bind.d tools/bind_test.d
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
@@ -96,8 +96,10 @@ install: build install-ug
 press: tools/press.d tools/cases.d tools/concept.d source/fmt.d
 	ldc2 -of=tools/press -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d
 
-binder: tools/binder.d tools/bind.d
-	ldc2 -of=tools/binder -I=tools tools/binder.d tools/bind.d
+# -J=doc lets bind.d carry doc/book.css, so the stylesheet is a file to read
+# and the pages still stand on their own.
+binder: tools/binder.d tools/bind.d doc/book.css
+	ldc2 -of=tools/binder -I=tools -J=doc tools/binder.d tools/bind.d
 
 # The notes, editable in a browser and written back into the comment they came
 # from. A note is found again by what it says, at the moment you save it, so

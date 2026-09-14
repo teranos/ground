@@ -164,46 +164,6 @@ private string numeral(size_t n) {
 // The sheet arrives already laid out, down to the point. Nothing here may set
 // type: it draws the paper the leaves sit on and the way to the next spread.
 // A line is placed against its own page, so the page is what it is placed in.
-private enum CSS = `body {
-  margin: 0;
-  padding: 2rem 1rem 4rem;
-  background: #6b6b73;
-  font-family: Charter, "Bitstream Charter", Cambria, Georgia, serif;
-}
-div.spread { display: flex; justify-content: center; align-items: flex-start; gap: 2px; }
-div.spread > div {
-  position: relative;
-  overflow: hidden;
-  background: #fff;
-  box-shadow: 0 2px 14px rgba(0,0,0,0.35);
-}
-div.spread p { position: absolute; white-space: pre; margin: 0; }
-div.spread > div.cover { box-shadow: none; background: transparent; }
-nav.turn, p.folio, div.title, nav.pages { max-width: 34em; margin: 0 auto; color: #f0efec; }
-nav.turn { display: flex; justify-content: space-between; margin-top: 1.5rem;
-  font-variant: small-caps; letter-spacing: 0.04em; font-size: 0.9rem; }
-nav.turn a { color: inherit; text-decoration: none; }
-nav.turn a:hover { text-decoration: underline; }
-p.folio { text-align: center; margin-top: 0.8rem; font-size: 0.8rem; opacity: 0.7; }
-div.title { text-align: center; padding: 4rem 0 2rem; }
-h1 { font-size: 2.2rem; font-weight: 400; font-variant: small-caps;
-  letter-spacing: 0.04em; margin: 0; }
-p.draft { font-variant: small-caps; letter-spacing: 0.08em; margin: 0.4rem 0 0; }
-dl.prov { display: grid; grid-template-columns: auto auto; gap: 0 0.6rem;
-  justify-content: center; margin: 2rem 0 0; font-size: 0.8rem; }
-dl.prov dt { font-variant: small-caps; text-align: right; }
-dl.prov dd { margin: 0; font-family: "Fira Code", Menlo, monospace; font-size: 0.9em; }
-nav.pages h2 { font-size: 0.95rem; font-weight: 400; font-variant: small-caps;
-  letter-spacing: 0.06em; margin: 0 0 1rem; }
-nav.pages ul { list-style: none; margin: 0; padding: 0;
-  display: flex; flex-wrap: wrap; gap: 0.4rem; }
-nav.pages a { display: block; min-width: 2.4em; padding: 0.3rem 0.5rem;
-  text-align: center; color: inherit; text-decoration: none;
-  border: 1px solid rgba(255,255,255,0.25); }
-nav.pages a:hover { background: rgba(255,255,255,0.12); }
-@media print {
-  body { background: #fff; padding: 0; }
-  nav.turn, p.folio { display: none; }
-  div.spread > div { box-shadow: none; }
-}
-`;
+// "For some reason it feels like I want to be able to look at the CSS separately"
+// It is doc/book.css, read at build, and each page still carries its own copy.
+private enum CSS = import("book.css");
