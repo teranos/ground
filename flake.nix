@@ -69,6 +69,17 @@
           static = pkgs.mkShell {
             buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub pkgs.glibc.static ];
           };
+
+          # -static doesn't exist for userspace on Darwin — Apple's ld
+          # reserves it for the kernel, and libSystem ships as a dylib only.
+          # The closest equivalent there is linking third-party libraries
+          # statically while leaving libSystem dynamic, same as here: sqlite
+          # named by its .a path instead of -lsqlite3, so ld never has the
+          # choice to resolve the dylib instead.
+          static-sqlite = pkgs.mkShell {
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub ];
+            SQLITE_STATIC_LIB = "${pkgs.sqlite.out}/lib/libsqlite3.a";
+          };
         }
       );
     };
