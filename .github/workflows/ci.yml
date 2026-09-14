@@ -14,7 +14,9 @@ jobs:
           fetch-depth: 0
       - uses: cachix/install-nix-action@v30
       - run: nix build .#ground
-      - run: nix develop .#default --command sh -c 'ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d && dub test'
+      # The Makefile's wind rule is the one list of wind's files. A copy of
+      # it here fell behind and CI linked wind without openapi.d.
+      - run: nix develop .#default --command sh -c 'make wind && dub test'
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
