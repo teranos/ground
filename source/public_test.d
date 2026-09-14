@@ -30,7 +30,10 @@ static assert(publicParsed.scopes[0].publicOnly);
 enum quietInput = `
 scope {
   event: "PreToolUse"
-  control { name: "anywhere" msg: "hi" }
+  control {
+    name: "anywhere"
+    msg: "hi"
+  }
 }
 `;
 enum quietParsed = parsePbt(quietInput);

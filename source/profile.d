@@ -69,6 +69,7 @@ const(char)[] sliceArg(const(char)* ptr) {
     return ptr[0 .. len];
 }
 
+// BOOK_COMMAND **ground profile**: The timing table: every hook event's average, median and worst by project, and the phases of the slow ones.
 int handleProfile(int argc, const(char)** argv) {
     auto db = openDb();
     if (db is null) { fputs("ground profile: cannot open db\n", stderr); return 1; }

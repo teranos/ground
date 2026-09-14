@@ -1,7 +1,7 @@
 module rite_script_test;
 
 // The text a rite actually runs.
-// Brandon: "wouldnt the pipefail need to be present essentially everywhere?"
+// "wouldnt the pipefail need to be present essentially everywhere?"
 
 import rite : buildRiteScript, RiteScript, RITE_UNREACHED, runRite;
 

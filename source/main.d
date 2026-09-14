@@ -32,6 +32,8 @@ module main;
 //   permission_mode — "default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"
 //   tool_use_id     — unique per tool call, could track tool call chains
 
+// BOOK_COMMAND **ground**: Run by Claude Code on every hook event, with the event's JSON on stdin; given a word instead, it is one of the commands below.
+
 import parse : extractCwd, extractSessionId, extractHookEventName, extractSource;
 import controls : HookEvent;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fwrite, FILE;
@@ -205,6 +207,10 @@ extern (C) int main(int argc, const(char)** argv) {
         if (cmd == "events") {
             import events : handleEvents;
             return handleEvents();
+        }
+        if (cmd == "fmt") {
+            import fmtcmd : handleFmt;
+            return handleFmt(argc, argv);
         }
         if (cmd == "decay") {
             import decay : decayDb;

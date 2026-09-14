@@ -1,6 +1,6 @@
 module delivery_test;
 
-// Brandon: "WHY DONT WE HAVE MORE ABSOLUTE CONTROL OVER WHAT GOES WHERE"
+// "WHY DONT WE HAVE MORE ABSOLUTE CONTROL OVER WHAT GOES WHERE"
 
 import ritual.position : Position, start;
 import ritual.delivery : Receiver, sessionOf, deliverable, wants, both, PARENT;
@@ -36,18 +36,29 @@ static assert(both(Receiver.Human, Receiver.HostLlm) == PARENT);
 // Nobody to tell is not a delivery. A performance started from a terminal has
 // no parent, and the rite lines it produces have nowhere to go.
 enum orphan = { auto q = perf(); q.parent = ""; return q; }();
-static assert(!deliverable(orphan, Receiver.HostLlm, false));
-static assert(deliverable(orphan, Receiver.AgentLlm, false));
+static assert(!deliverable(orphan, Receiver.HostLlm, null));
+static assert(deliverable(orphan, Receiver.AgentLlm, null));
 
 // The bug this exists to make unwriteable: an agent handed its own last
 // message, framed as somebody quoting it and asking for work.
 enum solo = { auto q = perf(); q.parent = "same"; q.agentSession = "same"; return q; }();
-static assert(!deliverable(solo, Receiver.HostLlm, true));
+static assert(!deliverable(solo, Receiver.HostLlm, "same"));
 
 // Ground's own words to that same session are fine — a briefing is not a
 // quotation, and the agent has to be told which rite is open.
-static assert(deliverable(solo, Receiver.HostLlm, false));
-static assert(deliverable(solo, Receiver.AgentLlm, false));
+static assert(deliverable(solo, Receiver.HostLlm, null));
+static assert(deliverable(solo, Receiver.AgentLlm, null));
+
+// "THIS KEEPS REPORTING BACK FOR NO FUCKING REASON"
+// q-deploy has no agent. The session that started it stops in the checkout it
+// performs in, so it was the one speaking, and its own words came back to it.
+enum echo = { auto q = perf(); q.agentSession = ""; return q; }();
+static assert(!deliverable(echo, Receiver.HostLlm, "parent-session"));
+
+// The agent's words still cross to the parent, and the parent's to the agent.
+static assert(deliverable(p, Receiver.HostLlm, "agent-session"));
+static assert(!deliverable(p, Receiver.AgentLlm, "agent-session"));
+static assert(deliverable(p, Receiver.AgentLlm, "parent-session"));
 
 // --- "to both the agent and parent" ---
 
@@ -101,8 +112,10 @@ unittest {
 }
 
 unittest {
-    // "to: agent doesnt make sense" / "not part of the api" — a rite that names
-    // nobody is silent to the parent and still answers the one that ran it.
+    // "to: agent doesnt make sense"
+    // "not part of the api"
+    // A rite that names nobody is silent to the parent and still answers the
+    // one that ran it.
     auto db = memDb();
     auto q = perf();
     assert(deliver(db, q, Receiver.None, "rite:willow-1:CHERRY", "CHERRY passed"));

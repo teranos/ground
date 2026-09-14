@@ -11,8 +11,12 @@ import std.path : baseName;
 import std.stdio : stderr;
 
 import cases : extractCases, Case, splitLines, unmark, flow,
-               extractGlossary, Entry;
+               extractGlossary, extractCommands, Entry;
 import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners;
+import fmt : isCanonical;
+
+// Room for the canonical form of one fixture. A page holds 54 lines.
+__gshared char[16384] fmtScratch;
 
 // A case and where its chapter puts it. The rank and the file are asked once,
 // when the case is collected, because the file is only known here.
@@ -72,6 +76,11 @@ int main(string[] argv) {
     Entry[][string] glossary;
     Refused[] refused;
 
+    // The commands, each from the module that implements it, and ug and
+    // wind from their own.
+    Entry[] commands;
+    string[] commandFiles;
+
     // A module's own first heading, kept by subject. A chapter opens on the
     // one belonging to the module its order names first, so the reader is told
     // what the concept is before being shown an example of it.
@@ -96,6 +105,15 @@ int main(string[] argv) {
             glossary[stem(f.name)] ~= e;
         }
 
+        foreach (e; extractCommands(text)) {
+            if (e.term.length == 0) {
+                refused ~= Refused(f.name, "carries a command line without a name: " ~ e.text);
+                continue;
+            }
+            commands ~= e;
+            commandFiles ~= f.name;
+        }
+
         auto found = extractCases(text);
         if (found.length == 0) continue;
 
@@ -110,12 +128,23 @@ int main(string[] argv) {
         // with no pbt form contributes to no chapter rather than becoming one.
         foreach (c; found) {
             if (c.heading) continue;
-            auto ch = conceptOf(c.pbt);
-            if (ch.length == 0) continue;
+            auto ch = chapterFor(c, stem(f.name));
+            if (ch.length == 0) {
+                // The operator spoke and no chapter owns the module. Said,
+                // and the book stops, rather than filed somewhere plausible.
+                if (c.said.length > 0 && c.pbt.length == 0)
+                    refused ~= Refused(f.name, "quotes the operator and no chapter owns " ~ stem(f.name));
+                continue;
+            }
 
             auto tall = splitLines(c.pbt).length;
             if (tall > PAGE_LINES)
                 overflowing ~= Overflow(baseName(f.name), ch, tall);
+
+            // A fixture that reads badly on the page reads badly in the file
+            // until fmt is run on it. The book quotes, it does not reshape.
+            if (c.pbt.length > 0 && !isCanonical(c.pbt ~ "\n", fmtScratch))
+                refused ~= Refused(f.name, "carries a fixture ground fmt would change: " ~ c.subject);
 
             if (ch !in chapters) present ~= ch;
             chapters[ch] ~= Placed(rank(ch, stem(f.name)), baseName(f.name), c);
@@ -125,6 +154,34 @@ int main(string[] argv) {
         foreach (c; found) if (!c.heading) proved++;
         totalCases += proved;
         stderr.writefln("press: %s (%d cases)", baseName(f.name), proved);
+    }
+
+    // ug and wind are their own binaries, outside source/, and say what
+    // they are in their own files.
+    foreach (extra; ["ug/main.d", "tools/wind.d"]) {
+        if (!exists(extra)) continue;
+        foreach (e; extractCommands(readText(extra))) {
+            if (e.term.length == 0) {
+                refused ~= Refused(extra, "carries a command line without a name: " ~ e.text);
+                continue;
+            }
+            commands ~= e;
+            commandFiles ~= extra;
+        }
+    }
+
+    // What main.d answers to is read from main.d. A command the book names
+    // exists, and a command that exists is in the book, or the book stops.
+    {
+        auto answers = dispatched(readText("source/main.d"));
+        foreach (a; answers)
+            if (!hasTerm(commands, "ground " ~ a))
+                refused ~= Refused("source/main.d", "answers to " ~ a ~ " and no module says what ground " ~ a ~ " is");
+        foreach (i, c; commands) {
+            if (binaryOf(c.term) != "ground" || c.term == "ground") continue;
+            if (!contains(answers, c.term["ground ".length .. $]))
+                refused ~= Refused(commandFiles[i], "describes " ~ c.term ~ ", which main.d does not answer to");
+        }
     }
 
     // Nothing is written while an example does not fit. A reader takes an
@@ -142,7 +199,7 @@ int main(string[] argv) {
     // was written on purpose, so the book says which one and stops.
     if (refused.length > 0) {
         foreach (r; refused) stderr.writefln("press: %s %s", r.file, r.why);
-        stderr.writeln("press: a glossary line the book cannot set. Nothing written.");
+        stderr.writeln("press: a line the book cannot place. Nothing written.");
         return 1;
     }
 
@@ -163,7 +220,16 @@ int main(string[] argv) {
     foreach (p; present)
         if (!contains(wanted, p)) order ~= p;
 
+    // "i would have expeced to see the commands as a chapeter before scope"
+    // The binaries first, then the grammar they read. ground's commands are
+    // in the order main.d answers to them.
     string list;
+    auto cmdTex = renderCommands(inDispatchOrder(commands, dispatched(readText("source/main.d"))));
+    if (cmdTex.length > 0) {
+        write("doc/tex/commands.tex", cmdTex);
+        list ~= "\\input{tex/commands}\n";
+    }
+
     foreach (o; order) {
         // Stable, so modules the chapter's order does not name keep the order
         // they were found in instead of trading places on every build.
@@ -193,6 +259,17 @@ int main(string[] argv) {
     stderr.writefln("press: %d chapters, %d cases, %d terms",
         order.length, totalCases, terms);
     return 0;
+}
+
+// Where a case is set. A pbt example is placed by its block word. A case with
+// none is placed by the chapter that owns its module, and only when the
+// operator's words stand above it. Everything else the compiler proved stays
+// off the page.
+string chapterFor(const Case c, string mod) {
+    auto ch = conceptOf(c.pbt);
+    if (ch.length > 0) return ch;
+    if (c.said.length > 0 && c.pbt.length == 0) return chapterOf(mod);
+    return "";
 }
 
 // The glossary chapter. Empty when no module defines a term, so the book has
@@ -228,6 +305,83 @@ string renderGlossary(const(string)[] order, Entry[][string] glossary) {
     return "\\chapter{glossary}\n\n\\begin{gcolumns}\n" ~ out_ ~ "\\end{gcolumns}\n";
 }
 
+// Several quotes are several lines of the one box, in the order they were said.
+string saidLines(string said) {
+    string out_;
+    foreach (i, line; splitLines(said)) {
+        if (i > 0) out_ ~= "\\par ";
+        out_ ~= escape(line);
+    }
+    return out_;
+}
+
+// The commands chapter. A binary heads its block and its commands are the
+// subs, in the order the modules stated them. Empty when nothing says so.
+string renderCommands(Entry[] cmds) {
+    string[] bins;
+    foreach (c; cmds) {
+        auto b = binaryOf(c.term);
+        if (!contains(bins, b)) bins ~= b;
+    }
+
+    string out_;
+    foreach (b; bins) {
+        string main_;
+        string section;
+        foreach (c; cmds) {
+            if (binaryOf(c.term) != b) continue;
+            if (c.term == b && main_.length == 0) {
+                main_ = "\\gmain{" ~ escape(c.term) ~ "}{" ~ escape(c.text) ~ "}\n";
+                continue;
+            }
+            section ~= "\\gterm{" ~ escape(c.term) ~ "}{" ~ escape(c.text) ~ "}\n";
+        }
+        auto head = main_.length > 0 ? "\\begin{gglossary}\n" ~ main_
+                                     : "\\gsection{" ~ escape(b) ~ "}\n\\begin{gglossary}\n";
+        out_ ~= head ~ section ~ "\\end{gglossary}\n\n";
+    }
+    if (out_.length == 0) return "";
+    return "\\chapter{commands}\n\n\\begin{gcolumns}\n" ~ out_ ~ "\\end{gcolumns}\n";
+}
+
+// ground first, then its commands as main.d lists them, then every other
+// binary as its file stated it.
+Entry[] inDispatchOrder(Entry[] cmds, string[] answers) {
+    Entry[] out_;
+    foreach (c; cmds) if (c.term == "ground") out_ ~= c;
+    foreach (a; answers)
+        foreach (c; cmds) if (c.term == "ground " ~ a) out_ ~= c;
+    foreach (c; cmds) if (binaryOf(c.term) != "ground") out_ ~= c;
+    return out_;
+}
+
+private bool hasTerm(Entry[] es, string term) {
+    foreach (e; es) if (e.term == term) return true;
+    return false;
+}
+
+// The binary a command belongs to is its first word.
+string binaryOf(string term) {
+    foreach (i, c; term) if (c == ' ') return term[0 .. i];
+    return term;
+}
+
+// What main.d answers to: every name it compares the first argument against.
+string[] dispatched(string mainSource) {
+    enum probe = "cmd == \"";
+    string[] out_;
+    size_t i = 0;
+    while (i + probe.length <= mainSource.length) {
+        if (mainSource[i .. i + probe.length] != probe) { i++; continue; }
+        auto start = i + probe.length;
+        auto e = start;
+        while (e < mainSource.length && mainSource[e] != '"') e++;
+        out_ ~= mainSource[start .. e];
+        i = e;
+    }
+    return out_;
+}
+
 // A term is the chapter's word when it is that word with its first letter
 // raised: Scope for scope.
 bool isWord(string term, string chapter) {
@@ -257,21 +411,26 @@ string renderBody(Placed[] found) {
             out_ ~= "\n" ~ renderProse(c.text) ~ "\n";
             continue;
         }
-        // The example is the pbt. The D that parses it and the assertions that
-        // prove it are how it is checked, not what a control author reads.
+        // The example is the pbt. A case the operator's words earned its page
+        // without one names the symbol it proves; the D stays in the source.
         // The block and what it is for are one row. A minipage is a box, so
         // the page break falls between rows and never through an example.
-        if (c.pbt.length > 0) {
-            out_ ~= "\n\\par\\noindent\n";
-            out_ ~= "\\begin{minipage}[t]{\\gpbtw}\n";
-            out_ ~= "\\begin{gcode}\n" ~ c.pbt ~ "\n\\end{gcode}\n";
-            out_ ~= "\\end{minipage}\\hfill\n";
-            out_ ~= "\\begin{minipage}[t]{\\gnotew}\n";
-            out_ ~= "\\gnote{" ~ escape(c.prose) ~ "}\n";
-            out_ ~= "\\end{minipage}\n\\par\\vspace{10pt}\n";
-            continue;
-        }
-        out_ ~= "\n\\begin{gcode}\n" ~ c.text ~ "\n\\end{gcode}\n";
+        // What was said hangs above the row, between the two.
+        // The card and its row are one outer box, so a page never falls
+        // between what was said and what was built for it.
+        if (c.pbt.length == 0 && c.said.length == 0) continue;
+        auto hung = c.said.length > 0;
+        if (hung) out_ ~= "\n\\par\\noindent\\begin{minipage}{\\textwidth}\n\\gsaidprep{" ~ saidLines(c.said) ~ "}\n\\noindent";
+        else out_ ~= "\n\\par\\noindent\n";
+        out_ ~= "\\begin{minipage}[t]{\\gpbtw}\n";
+        if (c.pbt.length > 0) out_ ~= "\\begin{gcode}\n" ~ c.pbt ~ "\n\\end{gcode}\n";
+        else out_ ~= "\\gproved{" ~ escape(c.subject) ~ "}\n";
+        out_ ~= "\\end{minipage}\\hfill\n";
+        out_ ~= "\\begin{minipage}[t]{\\gnotew}\n";
+        out_ ~= (hung ? "\\gsaidhung" : "") ~ "\\gnote{" ~ escape(c.prose) ~ "}\n";
+        out_ ~= "\\end{minipage}\n";
+        if (hung) out_ ~= "\\end{minipage}\n";
+        out_ ~= "\\par\\vspace{10pt}\n";
     }
     return out_;
 }
@@ -303,6 +462,9 @@ string escape(string s) {
     // Charter has no arrow, and a glyph the font lacks is a gap on the page
     // with a warning nobody reads. The math arrow is in every setup.
     enum arrow = "\xE2\x86\x92";
+    // The status line is drawn in block elements and a check mark, and a
+    // quote of it carries them. Charter has none; the code font does.
+    static immutable string[4] blocks = ["\xE2\x96\x91", "\xE2\x96\x93", "\xE2\x96\x8F", "\xE2\x9C\x93"];
     size_t i = 0;
     while (i < s.length) {
         if (i + arrow.length <= s.length && s[i .. i + arrow.length] == arrow) {
@@ -310,6 +472,16 @@ string escape(string s) {
             i += arrow.length;
             continue;
         }
+        bool drawn = false;
+        foreach (b; blocks) {
+            if (i + b.length <= s.length && s[i .. i + b.length] == b) {
+                out_ ~= "{\\ttfamily " ~ b ~ "}";
+                i += b.length;
+                drawn = true;
+                break;
+            }
+        }
+        if (drawn) continue;
         auto c = s[i];
         i++;
         if (c == '\\') { out_ ~= "\\textbackslash{}"; continue; }

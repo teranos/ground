@@ -89,6 +89,25 @@
 % Justifying a column this measure opens rivers no reader should have to cross.
 \newcommand{\gnote}[1]{\raggedright\small #1\par}
 
+% What the operator said hangs above the row, between the example and the
+% note: a card in the signature gray. It is measured before the row so the
+% row leaves room for it, and placed from the note column, reaching back.
+\newsavebox{\gsaidbox}
+\newlength{\gsaidw}
+\newlength{\gsaidhang}
+\newlength{\gsaidback}
+\setlength{\gsaidw}{0.5\textwidth}
+\setlength{\gsaidhang}{14pt}
+\setlength{\gsaidback}{0.27\textwidth}
+\newcommand{\gsaidprep}[1]{%
+  \sbox{\gsaidbox}{\fcolorbox{grule}{gsigbg}{%
+    \begin{minipage}[b]{\dimexpr\gsaidw-2\fboxsep-2\fboxrule\relax}\small\raggedright #1\end{minipage}}}%
+  \vspace{\dimexpr\ht\gsaidbox+\dp\gsaidbox+\gsaidhang-4pt\relax}}
+\newcommand{\gsaidhung}{\makebox[0pt][l]{\hspace*{-\gsaidback}\raisebox{\gsaidhang}[0pt][0pt]{\usebox{\gsaidbox}}}}
+
+% A case with no pbt names the symbol it proves. The D stays in the source.
+\newcommand{\gproved}[1]{\raggedright\small\texttt{#1}\par}
+
 
 % Which sheet carries which printed number. The reader asks for the number on
 % the paper, and only the typesetter that broke the pages knows where it fell.
@@ -113,12 +132,22 @@
   \vspace{4mm}
   {\large\scshape draft\par}
   \vfill
-  \begin{tabular}{r@{\hspace{8pt}}l}
-    \textsc{\small commit}  & \texttt{\groundcommit} \\
-    \textsc{\small built}   & \texttt{\groundbuilt} \\
-  \end{tabular}
-  \vspace{12mm}
 \end{titlepage}
+
+% The verso of the title page is where a reader looks for the licence and the
+% edition. The licence is the file, set as it is, so the page can never say
+% something LICENSE does not.
+\clearpage
+\thispagestyle{empty}
+\vspace*{\fill}
+\VerbatimInput[fontsize=\small, formatcom=\rmfamily]{../LICENSE}
+\vspace{8mm}
+\noindent
+\begin{tabular}{@{}r@{\hspace{8pt}}l}
+  \textsc{\small commit}  & \texttt{\groundcommit} \\
+  \textsc{\small built}   & \texttt{\groundbuilt} \\
+\end{tabular}
+\vspace{4mm}
 
 \tableofcontents
 

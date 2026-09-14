@@ -1,8 +1,7 @@
 module rite_test;
 
 // What a rite's exit code means.
-// Brandon: "if its non 0/1 we should just stop and halt the agent and leave
-// on the screen the non 0 non 1 was and its message"
+// "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message"
 
 import proto : parsePbt;
 import rite : classify, Verdict;
@@ -10,7 +9,9 @@ import rite : classify, Verdict;
 // A rite that declares nothing takes the defaults: 0 advances, 1 holds.
 enum defaultsInput = `
 rites d {
-  plain { eval: "true" }
+  plain {
+    eval: "true"
+  }
 }
 `;
 enum plain = parsePbt(defaultsInput).rites[0].rites[0];
@@ -35,7 +36,11 @@ static assert(classify(130, plain) == Verdict.Halt);
 // a pass. Declared instead of inverted.
 enum invertedInput = `
 rites g {
-  scratch { eval: "test -f /var/lib/qntx/qntx-operational.db"  pass: 1  catch: 0 }
+  scratch {
+    eval: "test -f /var/lib/qntx/qntx-operational.db"
+    pass: 1
+    catch: 0
+  }
 }
 `;
 enum scratch = parsePbt(invertedInput).rites[0].rites[0];
@@ -47,7 +52,10 @@ static assert(classify(2, scratch) == Verdict.Halt);
 // error. Both mean the box is not answering yet, neither means it failed.
 enum multiInput = `
 rites b {
-  answers { eval: "curl -sf x"  catch: [7, 22] }
+  answers {
+    eval: "curl -sf x"
+    catch: [7, 22]
+  }
 }
 `;
 enum answers = parsePbt(multiInput).rites[0].rites[0];
@@ -60,8 +68,14 @@ static assert(classify(6,  answers) == Verdict.Halt);
 // is a separate question from what the code meant.
 enum gotoInput = `
 rites b {
-  target   { eval: "true" }
-  survived { eval: "curl -sf z"  catch: 22  goto: target }
+  target {
+    eval: "true"
+  }
+  survived {
+    eval: "curl -sf z"
+    catch: 22
+    goto: target
+  }
 }
 `;
 enum survived = parsePbt(gotoInput).rites[0].rites[1];

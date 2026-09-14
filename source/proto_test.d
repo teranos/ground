@@ -142,12 +142,12 @@ scope {
   control {
     name: "test-stop-list"
     stop: [
-        "each conversation starts fresh",
-        "each session starts fresh",
-        "don't have access to previous conversation",
-        "don't have access to previous session",
-        "don't have access to conversation history",
-        "dialogue isn't stored anywhere"
+      "each conversation starts fresh",
+      "each session starts fresh",
+      "don't have access to previous conversation",
+      "don't have access to previous session",
+      "don't have access to conversation history",
+      "dialogue isn't stored anywhere"
     ]
     msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The ground db at ~/.local/share/ground/ground.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
   }
@@ -172,16 +172,6 @@ enum testInput = cmdInput ~ stopRepeatInput ~ deferInput
 // Six parts, six scopes: the whole is what the pieces say it is.
 enum testParsed = parsePbt(testInput);
 static assert(testParsed.scopeCount == 6);
-
-// BUG: advisory filepath controls must not auto-approve edits.
-// Filepath controls inject context — they are not permission decisions.
-// A scope with no explicit decision: must not produce "allow" in the response.
-import pretooluse : advisoryDecision;
-static assert(advisoryDecision("allow") == "");   // default "allow" → no decision
-static assert(advisoryDecision("") == "");         // empty → no decision
-// "aut-accept should not litigate ever"
-static assert(advisoryDecision("ask") == "");      // ground never says ask
-static assert(advisoryDecision("deny") == "deny"); // explicit deny → preserved
 
 // A part keeps its own place in the whole: last one written, last one parsed.
 static assert(testParsed.scopes[5].event == "Stop");
@@ -352,12 +342,10 @@ static assert(perm(permMultiParsed, 0, 1).msg == "No destructive ops");
 // Top-level permission (no scope) — defaults to path "/"
 enum permTopLevelInput = `
 permission {
-
   allow: ["go build*", "make*"]
 }
 
 permission {
-
   deny: ["*--force*"]
   msg: "No force pushes"
 }

@@ -33,6 +33,63 @@ static assert(one[0].text ==
     `static assert(sessionMatches("m", "default"));` ~ "\n" ~
     `static assert(!sessionMatches("m", "acceptEdits"));`);
 
+// "try to increase coverage"
+// A case with no pbt is still in the book when the operator's own words stand
+// above it: a comment line that is nothing but a quote.
+enum said = extractCases(
+    "// \"a control can't invalidate a permission\"\n" ~
+    `static assert(combine("ask", Decision.allow) == "allow");` ~ "\n");
+static assert(said[0].said == `"a control can't invalidate a permission"`);
+
+// What was said is not prose about it, so the note beside the example is
+// only the prose, and the quote is set apart from it.
+static assert(said[0].prose == "");
+enum both = extractCases(
+    "// \"the unnamed one actually wins\"\n" ~
+    "// \"the named one is the explicit edge case\"\n" ~
+    "// A bare project is the default.\n" ~
+    "static assert(pick(\"grove\") == 0);\n");
+static assert(both[0].said == "\"the unnamed one actually wins\"\n\"the named one is the explicit edge case\"");
+static assert(both[0].prose == "A bare project is the default.");
+
+// "arent most of these just D code ?"
+// A case that builds a value and asserts about it is about what built it,
+// since that is the symbol the page names in place of the D.
+enum built = extractCases(
+    "// \"green is passed\"\n" ~
+    "enum passedOne = step(fresh, Verdict.Advance);\n" ~
+    "static assert(passedOne.current == 1);\n");
+static assert(built[0].subject == "step");
+
+// Two quotes on one line, joined by a slash, are two things said.
+enum slashed = extractCases(
+    "// \"so catch means hold, until true\" / \"lighter gray is pending ran before\"\n" ~
+    "static assert(f(1));\n");
+static assert(slashed[0].said == "\"so catch means hold, until true\"\n\"lighter gray is pending ran before\"");
+static assert(slashed[0].prose == "");
+
+// A fixture is a declaration whose value opens with a mark. A mark inside a
+// quoted string is a character of that string.
+enum stringed = extractCases(
+    "// What fmt makes of it.\n" ~
+    "enum after = \"enum x = `scope { }`;\";\n" ~
+    "static assert(after.length > 0);\n");
+static assert(stringed[0].pbt == "");
+static assert(stringed[0].subject == "after");
+
+// A mark on a line that declares nothing is punctuation in a message, not a
+// fixture. An assert quoting `ritual { }` in its text set a ritual example.
+enum marked = extractCases(
+    "// The block needs a name.\n" ~
+    "assert(name.length > 0, \"a control carrying `ritual { }` needs a name\");\n");
+static assert(marked[0].pbt == "");
+
+// A quote inside a sentence is commentary, not the operator speaking.
+static assert(one[0].said == "");
+enum welded = extractCases("// x \"said\" y\nstatic assert(f(1));\n");
+static assert(welded[0].said == "");
+static assert(welded[0].prose == "x \"said\" y");
+
 // A blank line ends a case. Two paragraphs of assertions are two cases, and
 // running them together would attach one comment to assertions it never made.
 enum two = extractCases(
@@ -194,6 +251,24 @@ static assert(block[0].subject == "checkCommand");
 
 // A unittest that asserts nothing is scaffolding.
 static assert(extractCases("unittest {\n    setUp();\n}\n").length == 0);
+
+// "book should have a page about the ground subcommands and ug and wind as well"
+// A command is in the book the way a term is: one line in the module that
+// implements it, same shape, its own marker.
+import cases : extractCommands;
+enum cmd = extractCommands("// BOOK_COMMAND **ground fmt**: Sets pbt in the one layout.\n");
+static assert(cmd.length == 1);
+static assert(cmd[0].term == "ground fmt");
+static assert(cmd[0].text == "Sets pbt in the one layout.");
+static assert(extractGlossary("// BOOK_COMMAND **ground fmt**: Sets pbt.\n").length == 0);
+static assert(extractCommands("// BOOK_GLOSSARY **Rite**: A rite.\n").length == 0);
+
+// A command line is not part of the case beneath it either.
+enum cmdCase = extractCases(
+    "// BOOK_COMMAND **ground fmt**: Sets pbt.\n" ~
+    "// The whole file.\n" ~
+    "static assert(f(1));\n");
+static assert(cmdCase[0].prose == "The whole file.");
 
 // "the first one should be about control as a concept"
 // A chapter opens on a paragraph. Where a source comment wraps is a width the

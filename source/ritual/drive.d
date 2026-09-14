@@ -30,6 +30,7 @@ bool mayRemoveTree(RitualState ended, const(char)[] declaredTree) {
 // ground drive <performance> — the loop that keeps a performance moving. The
 // watcher cannot: delivery is `exit 2`, so it dies every time it speaks, and
 // an agent working a rite reaches neither a Stop nor a new watcher.
+// BOOK_COMMAND **ground drive**: The loop that keeps one performance moving, forked by ground ritual and ended when the performance ends.
 int handleDrive(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import core.stdc.time : time;

@@ -180,6 +180,7 @@ void printLine(const Position p, const Flattened f) {
 
 // ground abort <name>. Until this existed the only way to stop a runaway
 // performance was to know the schema and write the UPDATE yourself.
+// BOOK_COMMAND **ground abort**: Ends a live performance, named by its ritual or its handle, stops its agent, and leaves the tree as evidence.
 int handleAbort(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fwrite;
     import controls : allParsed;
@@ -273,6 +274,7 @@ int handleAbort(int argc, const(char)** argv) {
 }
 
 // ground ritual <name>.
+// BOOK_COMMAND **ground ritual**: Starts a performance of a ritual, named by one word or by a project and a ritual, and refuses two candidates.
 int handleRitual(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fwrite;
     import core.stdc.time : time;

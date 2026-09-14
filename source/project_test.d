@@ -78,11 +78,7 @@ static assert(ctrl(projectWithControlParsed, 0, 0).name == "direct-ctrl");
 enum projectWithFilesInput = `
 project {
   path: "/Users/me/code/ground"
-  files: [
-    "source/main.d",
-    "source/proto.d",
-    "controls/controls.pbt"
-  ]
+  files: ["source/main.d", "source/proto.d", "controls/controls.pbt"]
 }
 `;
 enum projectWithFilesParsed = parsePbt(projectWithFilesInput);
@@ -141,16 +137,11 @@ static assert(singleFiles.files[2] == "controls/controls.pbt");
 enum multiProjectInput = `
 project {
   path: "/Users/me/code/alpha"
-  files: [
-    "src/a.d",
-    "src/b.d"
-  ]
+  files: ["src/a.d", "src/b.d"]
 }
 project {
   path: "/Users/me/code/beta"
-  files: [
-    "lib/c.d"
-  ]
+  files: ["lib/c.d"]
 }
 `;
 enum multiProjectParsed = parsePbt(multiProjectInput);

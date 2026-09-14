@@ -11,6 +11,7 @@ static assert(combine("allow", Decision.deny) == "deny");
 static assert(combine("deny", Decision.allow) == "deny");
 
 // "a control can't invalidate a permission"
+// A permission's allow stands over a control's ask: the person granted it.
 static assert(combine("ask", Decision.allow) == "allow");
 static assert(combine("", Decision.allow) == "allow");
 
@@ -35,3 +36,11 @@ static assert(spoken("ask") == "");
 static assert(spoken("deny") == "deny");
 static assert(spoken("allow") == "allow");
 static assert(spoken("") == "");
+
+// An advisory control injects context and decides nothing, so only an
+// explicit deny is sent as the decision. A default allow is no decision.
+import pretooluse : advisoryDecision;
+static assert(advisoryDecision("allow") == "");
+static assert(advisoryDecision("") == "");
+static assert(advisoryDecision("ask") == "");
+static assert(advisoryDecision("deny") == "deny");

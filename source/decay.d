@@ -5,6 +5,7 @@ import db : sqlite3, sqlite3_exec, sqlite3_prepare_v2, sqlite3_step, sqlite3_fin
             sqlite3_stmt, sqlite3_close, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, ZBuf;
 import core.stdc.stdio : stderr, fputs, fprintf, fwrite;
 
+// BOOK_COMMAND **ground decay**: Strips the bulk out of the db, PostToolUse, PreToolUse, SubagentStop and old timing rows, and says what it freed.
 int decayDb(sqlite3* db) {
     // Get before stats
     long beforeToolUse = countRows(db, "PostToolUse");

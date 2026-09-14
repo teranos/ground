@@ -16,6 +16,9 @@ struct Case {
     string pbt;
     // The comment lines above the example, without their markers.
     string prose;
+    // The operator's own words above it: every comment line that is nothing
+    // but a quote, one per line. That is what earns a case with no pbt its page.
+    string said;
 }
 
 // The symbol an assertion is about: the first thing it calls. A negation is
@@ -47,19 +50,35 @@ struct Entry {
 // pairs of asterisks, and the sentence follows the colon.
 enum GLOSSARY_MARK = "BOOK_GLOSSARY";
 
-bool isGlossary(string line) {
+// A command is in the book the same way: one line in the module that
+// implements it, under its own marker.
+enum COMMAND_MARK = "BOOK_COMMAND";
+
+bool isMarked(string line, string mark) {
     auto s = trimLeft(line);
     if (!startsAt(s, 0, "//")) return false;
     s = unmark(line);
-    return startsAt(s, 0, GLOSSARY_MARK ~ " ");
+    return startsAt(s, 0, mark ~ " ");
 }
 
-// Every glossary line in the module, in the order the file states them.
+bool isGlossary(string line) {
+    return isMarked(line, GLOSSARY_MARK) || isMarked(line, COMMAND_MARK);
+}
+
 Entry[] extractGlossary(string source) {
+    return extractMarked(source, GLOSSARY_MARK);
+}
+
+Entry[] extractCommands(string source) {
+    return extractMarked(source, COMMAND_MARK);
+}
+
+// Every marked line in the module, in the order the file states them.
+Entry[] extractMarked(string source, string mark) {
     Entry[] found;
     foreach (line; splitLines(source)) {
-        if (!isGlossary(line)) continue;
-        auto s = unmark(line)[GLOSSARY_MARK.length .. $];
+        if (!isMarked(line, mark)) continue;
+        auto s = unmark(line)[mark.length .. $];
         s = trimLeft(s);
 
         if (!startsAt(s, 0, "**")) { found ~= Entry("", trimLeft(line)); continue; }
@@ -104,6 +123,15 @@ Case[] extractCases(string source) {
             break;
         }
 
+        // The symbol a case is about is the first thing it calls: what built
+        // the value when there is a setup line, else what the assertion tests.
+        string about;
+        foreach (line; block) {
+            if (startsAt(trimLeft(line), 0, "//")) continue;
+            about = calleeOf(line);
+            if (about.length > 0) break;
+        }
+
         if (asserted.length == 0) {
             // Comment lines with nothing proved under them are the file's own
             // headings. Anything else with no assertion is setup.
@@ -114,9 +142,9 @@ Case[] extractCases(string source) {
             return;
         }
 
-        found ~= Case(fixture.length > 0 ? fixture : asserted,
+        found ~= Case(fixture.length > 0 ? fixture : about.length > 0 ? about : asserted,
                       join(undent(block)), false,
-                      liftPbt(block), liftProse(block));
+                      liftPbt(block), liftProse(block), liftSaid(block));
     }
 
     auto all = splitLines(source);
@@ -155,7 +183,8 @@ Case[] extractCases(string source) {
             bool proves = false;
             foreach (b; body_) if (subject(b).length > 0) { proves = true; break; }
             if (proves && named.length > 0)
-                found ~= Case(named, join(undent(body_)));
+                found ~= Case(named, join(undent(body_)), false, "",
+                              liftProse(body_), liftSaid(body_));
             continue;
         }
 
@@ -184,17 +213,17 @@ Case[] extractCases(string source) {
         if (isComment && fixture.length > 0 && proves(block)) flush();
 
         // A second example is a second lesson, not a continuation of the first.
-        if (isEnum && fixture.length > 0 && holdsMark(t)) flush();
+        if (isEnum && fixture.length > 0 && opensFixture(t)) flush();
 
         block ~= line;
 
         // A one-line literal names the example too. Requiring a continuation
         // left `enum a = ` ~ "`x`;" ~ ` unnamed.
-        if (isEnum && fixture.length == 0 && holdsMark(t)) fixture = enumName(t);
+        if (isEnum && fixture.length == 0 && opensFixture(t)) fixture = enumName(t);
 
         // A block literal spans lines. Its body is pbt, not D, so nothing in
         // it is read as code and the run does not end until the mark closes.
-        if (isEnum && opensLiteral(t)) {
+        if (isEnum && opensFixture(t) && opensLiteral(t)) {
             if (fixture.length == 0) fixture = enumName(t);
             i++;
             while (i < all.length) {
@@ -216,6 +245,10 @@ string liftPbt(string[] block) {
     string[] body_;
     bool inside = false;
     foreach (line; block) {
+        // Only a declaration whose value opens with a mark is a fixture. A
+        // mark in an assertion's message or inside a quoted string is a
+        // character, and reading it set a block nobody wrote.
+        if (!inside && !opensFixture(trimLeft(line))) continue;
         if (holdsMark(line)) {
             if (inside) break;
             inside = true;
@@ -232,12 +265,54 @@ string liftPbt(string[] block) {
     return join(body_);
 }
 
-// The comment lines above the example, without their markers.
+// A comment line that is nothing but a quote. A quote welded into a sentence
+// is commentary; on its own line it is the operator.
+private bool isSaid(string line) {
+    if (!startsAt(trimLeft(line), 0, "//")) return false;
+    auto s = unmark(line);
+    return s.length >= 3 && s[0] == '"' && s[$ - 1] == '"';
+}
+
+// What the operator said above the case, one quote per line, in order. Two
+// quotes joined by a slash on one line are two things said.
+string liftSaid(string[] block) {
+    string out_;
+    foreach (line; block) {
+        if (!isSaid(line)) continue;
+        foreach (q; splitSlashed(unmark(line))) {
+            if (out_.length > 0) out_ ~= "\n";
+            out_ ~= q;
+        }
+    }
+    return out_;
+}
+
+private string[] splitSlashed(string s) {
+    enum joint = `" / "`;
+    string[] out_;
+    size_t start = 0;
+    size_t i = 0;
+    while (i + joint.length <= s.length) {
+        if (s[i .. i + joint.length] == joint) {
+            out_ ~= s[start .. i + 1];
+            start = i + joint.length - 1;
+            i = start;
+            continue;
+        }
+        i++;
+    }
+    out_ ~= s[start .. $];
+    return out_;
+}
+
+// The comment lines above the example, without their markers. What the
+// operator said is not prose about it and is lifted apart.
 string liftProse(string[] block) {
     string out_;
     foreach (line; block) {
         auto s = trimLeft(line);
         if (!startsAt(s, 0, "//")) continue;
+        if (isSaid(line)) continue;
         s = s[2 .. $];
         while (s.length > 0 && (s[0] == ' ' || s[0] == '-')) s = s[1 .. $];
         while (s.length > 0 && (s[$ - 1] == ' ' || s[$ - 1] == '-')) s = s[0 .. $ - 1];
@@ -302,6 +377,18 @@ string enumName(string trimmed) {
 // An opening mark with nothing closing it on the same line.
 bool opensLiteral(string trimmed) {
     return countMarks(trimmed) == 1;
+}
+
+// A declaration whose value is a mark literal: `enum name = ` then the mark.
+bool opensFixture(string trimmed) {
+    if (!startsAt(trimmed, 0, "enum ")) return false;
+    auto s = trimmed["enum ".length .. $];
+    size_t n = 0;
+    while (n < s.length && isNameChar(s[n])) n++;
+    s = trimLeft(s[n .. $]);
+    if (!startsAt(s, 0, "=")) return false;
+    s = trimLeft(s[1 .. $]);
+    return startsAt(s, 0, "`");
 }
 
 bool holdsMark(string line) {

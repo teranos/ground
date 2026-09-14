@@ -1,7 +1,7 @@
 module ritual_test;
 
 // Where we are, and what each rite has already been.
-// Brandon: "see where we are INSIDE of the ritual"
+// "see where we are INSIDE of the ritual"
 
 import rite : Verdict;
 import ritual : Position, RiteState, RitualState, start, step, jump,

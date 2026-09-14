@@ -47,6 +47,16 @@ immutable Reading[] readings = [
     // What a project is, then what one can name: its spec, and the routes
     // wind writes back from it.
     Reading("project", ["project", "routes"]),
+    // The grammar first, then the mode it is read under, then what a
+    // control's answer and a permission's answer make together.
+    Reading("permission", ["permission", "sessionmode", "decide"]),
+    // What a ritual is written as, then what a rite is, then how one is chosen,
+    // walked, spoken and ended. A case the operator argued for stands where its
+    // module stands, not at the front for being said.
+    Reading("ritual", ["proto_ritual", "ritual", "rite", "rite_script", "choose",
+                       "ritual_resolve", "advance", "briefing", "mic", "contend",
+                       "consent", "delivery", "notification", "dispatch",
+                       "apierror", "reap"]),
 ];
 
 // "so its deliberate which terms deserve a glossary entry"
@@ -58,13 +68,17 @@ struct Owner {
 }
 
 immutable Owner[] owners = [
-    Owner("scope",       ["matcher", "scratchdir", "audience"]),
-    Owner("control",     ["hooks", "strop", "exec"]),
+    Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git"]),
+    Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "deferred"]),
     Owner("project",     ["project", "routes"]),
-    Owner("permission",  ["permission", "sessionmode"]),
+    Owner("permission",  ["permission", "sessionmode", "decide"]),
+    // A test module beside source/ritual/ is that module's, so it is named
+    // as the file is named: delivery is ritual/delivery's cases.
     Owner("ritual",      ["ritual/resolve", "rite", "ritual/position", "ritual/run",
                           "ritual/drive", "mic", "receiver", "ritual/delivery",
-                          "dispatch"]),
+                          "dispatch", "ritual", "ritual_resolve", "proto_ritual",
+                          "rite_script", "advance", "briefing", "choose", "contend",
+                          "consent", "delivery", "notification", "reap", "apierror"]),
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued"]),
 ];
 

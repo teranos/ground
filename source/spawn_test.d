@@ -7,14 +7,24 @@ import proto : parsePbt;
 import ritual : repoRoot, spawnScript;
 
 enum src = `
-project { path: "/home/u/src/proj" }
-project { path: "/home/u/src/other" }
+project {
+  path: "/home/u/src/proj"
+}
+project {
+  path: "/home/u/src/other"
+}
 
-rites walk { START { eval: "true" } }
+rites walk {
+  START {
+    eval: "true"
+  }
+}
 
 project {
   path: "/src/proj"
-  ritual probe { walk }
+  ritual probe {
+    walk
+  }
 }
 `;
 enum parsed = parsePbt(src);

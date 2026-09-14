@@ -25,18 +25,25 @@ static assert(cuesOf(parsePbt("")).len == 0);
 
 enum src = `
 rites deployment {
-  BRANCH { eval: "true" }
-  SACRED { eval: "true"  to: parent }
+  BRANCH {
+    eval: "true"
+  }
+  SACRED {
+    eval: "true"
+    to: parent
+  }
 }
 
 scope {
-  path:  ["/teranos/QNTX", "!/teranos/QNTX-App"]
+  path: ["/teranos/QNTX", "!/teranos/QNTX-App"]
   event: "PostToolUse"
-  cmd:   "git push"
+  cmd: "git push"
 
   control {
     name: "q-deploy"
-    ritual { deployment }
+    ritual {
+      deployment
+    }
   }
 }
 `;
@@ -81,15 +88,21 @@ static assert(drawnLen!"/Users/x/other"() == 0);
 // A scope with no cmd is started by the event alone, and the sentence says so
 // rather than leaving an empty pair of backticks.
 enum eventOnly = `
-rites watch { LOOK { eval: "true" } }
+rites watch {
+  LOOK {
+    eval: "true"
+  }
+}
 
 scope {
-  path:  "/abcd-nl/grove"
+  path: "/abcd-nl/grove"
   event: "Stop"
 
   control {
     name: "vigil"
-    ritual { watch }
+    ritual {
+      watch
+    }
   }
 }
 `;
@@ -114,7 +127,11 @@ static assert(eventDrawn!"/x/abcd-nl/grove"()[0 .. eventWant.length] == eventWan
 // command. A session told the ritual performs here, and not told a push is what
 // performs it, learns the deploy is something other than the push it just made.
 enum onControl = `
-rites deployment { WEB { eval: "true" } }
+rites deployment {
+  WEB {
+    eval: "true"
+  }
+}
 
 project {
   origin: "teranos/QNTX"
@@ -124,7 +141,9 @@ project {
     name: "q-deploy"
     event: "PostToolUse"
     cmd: "git push"
-    ritual { deployment }
+    ritual {
+      deployment
+    }
   }
 }
 `;

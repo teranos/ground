@@ -9,17 +9,26 @@ import ritual : flatten, indexOfRite;
 enum src = `
 rites parity {
   params: [row]
-  parity { eval: "make parity" }
+  parity {
+    eval: "make parity"
+  }
 }
 
 rites live {
-  sealed { eval: "git diff --quiet" }
-  ci     { eval: "gh pr checks 833"  catch: 1 }
+  sealed {
+    eval: "git diff --quiet"
+  }
+  ci {
+    eval: "gh pr checks 833"
+    catch: 1
+  }
 }
 
 project {
   path: "/src/proj"
-  env { api: "https://api.coin.flip.example" }
+  env {
+    api: "https://api.coin.flip.example"
+  }
 
   ritual probe {
     parity { row: "watchers" }
@@ -78,15 +87,23 @@ import ritual.resolve : indexOfRiteFrom;
 
 enum twinSrc = `
 rites first {
-  TRAMPOLINE1 { goto: END }
-  HEDGE1 { }
-  END { }
+  TRAMPOLINE1 {
+    goto: END
+  }
+  HEDGE1 {
+  }
+  END {
+  }
 }
 
 rites second {
-  TRAMPOLINE2 { goto: END }
-  HEDGE2 { }
-  END { }
+  TRAMPOLINE2 {
+    goto: END
+  }
+  HEDGE2 {
+  }
+  END {
+  }
 }
 
 project {

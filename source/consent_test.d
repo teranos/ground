@@ -1,8 +1,7 @@
 module consent_test;
 
-// "agent should never be blocked, period, this is the definition and its not
-// going to change" / "if a deny needs to be given, it should not have to come
-// from the user, that needs to get into the stuck session"
+// "agent should never be blocked, period, this is the definition and its not going to change"
+// "if a deny needs to be given, it should not have to come from the user, that needs to get into the stuck session"
 
 import ritual : performanceAnswers, RitualState;
 import sessionmode : SessionMode;

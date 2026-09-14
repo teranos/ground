@@ -13,6 +13,9 @@ import input : readStdin;
 import head : statushead;
 import report : ritualLines;
 
+// BOOK_COMMAND **ug**: The status line, ground's own: one line drawn from the session on stdin and the db, about once a second, reading only.
+// BOOK_COMMAND **ug tmux**: Draws the QNTX row for the tmux bar, visible whether or not a session is open.
+// BOOK_COMMAND **ug expand**: What a click on a range of the tmux bar asked about.
 extern (C) int main(int argc, char** argv) {
     import core.stdc.stdlib : getenv;
     import tmux : tmuxMain, expandMain;
