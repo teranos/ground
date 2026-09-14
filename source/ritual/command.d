@@ -20,7 +20,7 @@ struct Staged {
 // Everything a performance is before anything is written or spawned. A control
 // firing one has no argv and no terminal, so this is the half both callers
 // share.
-Position preparePerformance(PR)(const PR parsed, size_t ritualIdx,
+Position preparePerformance(PR)(auto ref const PR parsed, size_t ritualIdx,
                                 const(char)[] root, long unixSeconds,
                                 ref Staged st) {
     import worktree : worktreePath, branchOf;
@@ -58,7 +58,7 @@ Position preparePerformance(PR)(const PR parsed, size_t ritualIdx,
 
 // Writes the row and nothing else. The caller decides what to spawn, because
 // a person at a terminal and a control firing on a push want different things.
-bool startPerformance(DB, PR)(DB db, const PR parsed, size_t ritualIdx,
+bool startPerformance(DB, PR)(DB db, auto ref const PR parsed, size_t ritualIdx,
                               const(char)[] root, long unixSeconds) {
     Staged st;
     auto p = preparePerformance(parsed, ritualIdx, root, unixSeconds, st);

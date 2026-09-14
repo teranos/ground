@@ -15,7 +15,7 @@ struct Chosen {
     string why;
 }
 
-private size_t projectOf(PR)(const PR r, size_t ritualIdx) {
+private size_t projectOf(PR)(auto ref const PR r, size_t ritualIdx) {
     auto rit = r.rituals[ritualIdx];
     foreach (pi; 0 .. r.projectCount) {
         if (r.projects[pi].path != rit.projectPath) continue;
@@ -27,7 +27,7 @@ private size_t projectOf(PR)(const PR r, size_t ritualIdx) {
 
 // Two words are a project and one of its rituals. One word is looked up as
 // both, and the unnamed block wins when it is one of the candidates.
-Chosen chooseRitual(PR)(const PR r, const(char)[] first, const(char)[] second) {
+Chosen chooseRitual(PR)(auto ref const PR r, const(char)[] first, const(char)[] second) {
     if (second.length > 0) {
         foreach (i; 0 .. r.ritualCount) {
             if (r.rituals[i].projectName != first) continue;
@@ -113,7 +113,7 @@ import ritual.position : MAX_RITES;
 
 // A ritual's project path is a locator, not a test against cwd — it is named
 // from anywhere. The declared projects say where that path is on disk.
-const(char)[] repoRoot(PR)(const PR r, const(char)[] projectPath) {
+const(char)[] repoRoot(PR)(auto ref const PR r, const(char)[] projectPath) {
     if (projectPath.length == 0) return "";
     const(char)[] best = "";
     foreach (i; 0 .. r.projectCount) {
@@ -167,7 +167,7 @@ struct Flattened {
     size_t maxGoto;
 }
 
-Flattened flatten(PR)(const PR r, size_t ritualIdx) {
+Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
     Flattened f;
     if (ritualIdx >= r.ritualCount) return f;
     auto rit = r.rituals[ritualIdx];
