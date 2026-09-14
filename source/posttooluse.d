@@ -2,9 +2,10 @@ module posttooluse;
 
 import matcher : hasSegment, contains, envSubst;
 import hooks : Control, scopeMatches;
-import parse : extractCommand, extractFilePath, extractToolName, writeJsonString;
+import parse : extractCommand, extractFilePath, extractToolName, extractToolOutput, writeJsonString;
 import core.stdc.stdio : stdout, fputs, stderr;
 import db : ZBuf;
+import sessionmode : SessionMode;
 
 void putInt(ref ZBuf buf, long v) {
     char[20] digits = 0;
@@ -59,23 +60,12 @@ bool modeMatches(const(char)[] mode, const(char)[] toolName) {
     return false;
 }
 
-// A session letter and the mode it stands for on the wire. `a` is both
-// permissive modes, because a rule written for one almost always means the
-// other; the full name is there when it does not.
-bool sessionLetterMatches(char letter, const(char)[] mode) {
-    switch (letter) {
-        case 'm': return mode == "default";
-        case 'p': return mode == "plan";
-        case 'a': return mode == "acceptEdits" || mode == "auto";
-        case 'd': return mode == "dontAsk";
-        case 'b': return mode == "bypassPermissions";
-        default: return false;
-    }
+bool sessionLetterMatches(char letter, SessionMode mode) {
+    import sessionmode : letterOf;
+    if (mode == SessionMode.unknown) return false;
+    return letter == letterOf(mode);
 }
 
-// Whether every character is a session letter. Each of the six mode names
-// carries one outside this set, so a name can never read as a letter set and
-// the two forms need no lookahead to tell apart.
 bool isSessionLetterSet(const(char)[] seg) {
     if (seg.length == 0) return false;
     foreach (c; seg) {
@@ -84,16 +74,14 @@ bool isSessionLetterSet(const(char)[] seg) {
     return true;
 }
 
-// Whether this session segment covers the mode the session is in. An absent
-// segment is every mode, which is what every block written before the session
-// axis existed means.
-bool sessionMatches(const(char)[] seg, const(char)[] mode) {
-    if (seg.length == 0) return true;
+bool sessionMatches(const(char)[] seg, SessionMode mode) {
+    import sessionmode : nameOf, grants;
+    if (seg.length == 0) return grants(mode);
     if (isSessionLetterSet(seg)) {
         foreach (c; seg) if (sessionLetterMatches(c, mode)) return true;
         return false;
     }
-    return seg == mode;
+    return seg == nameOf(mode);
 }
 
 // Does this Bash command contain a `git push` invocation? Uses hasSegment
@@ -121,7 +109,6 @@ bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] file
     return false;
 }
 
-// TODO: extract `tool_response` — the actual result the tool returned (ground only reads tool_input today)
 int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
     auto t0 = usecNow();
@@ -143,6 +130,9 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
+    // What the tool printed, for the floor. Read once here: the buffer behind
+    // it is shared, and the whole payload below is still `input`.
+    auto toolOutput = extractToolOutput(input);
 
     // Blue is "the agent is doing something", so it is stamped where the agent
     // does something. Collet read this off the attestation table before, which
@@ -208,8 +198,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         auto edb = openDb();
         // Where the command ran, not where the session sits. `cd X && git push`
         // is work done in X, and a scope naming X was skipped before this.
-        import matcher : effectiveCwd;
-        auto where = effectiveCwd(detail, cwd);
+        import matcher : effectiveCwd, shellHome;
+        auto where = effectiveCwd(detail, cwd, shellHome());
         foreach (ref sc; postToolUseScopes) {
             if (!scopeMatches(sc, where)) continue;
             if (sc.cmdCount > 0) {
@@ -270,7 +260,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (edb !is null && toolUseId.length > 0)
                         attestExecFire(edb, c.name, where, sessionId, toolUseId);
                     import ritual : performFromControl;
-                    cast(void) performFromControl(c.ritual, sessionId, where);
+                    cast(void) performFromControl(c.ritual, sessionId, where, input, toolOutput);
                     continue;
                 }
                 if (c.exec.length == 0) continue;
@@ -308,7 +298,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     timeoutSec,
                     c.envKeys[0 .. c.envCount],
                     c.envValues[0 .. c.envCount],
-                    cast(string) sessionId, cwd, input,
+                    cast(string) sessionId, cwd, input, toolOutput,
                 );
             }
         }

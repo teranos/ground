@@ -1,8 +1,7 @@
 module rite_test;
 
 // What a rite's exit code means.
-// Brandon: "if its non 0/1 we should just stop and halt the agent and leave
-// on the screen the non 0 non 1 was and its message"
+// "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message"
 
 import proto : parsePbt;
 import rite : classify, Verdict;
@@ -10,7 +9,9 @@ import rite : classify, Verdict;
 // A rite that declares nothing takes the defaults: 0 advances, 1 holds.
 enum defaultsInput = `
 rites d {
-  plain { eval: "true" }
+  plain {
+    eval: "true"
+  }
 }
 `;
 enum plain = parsePbt(defaultsInput).rites[0].rites[0];
@@ -35,7 +36,11 @@ static assert(classify(130, plain) == Verdict.Halt);
 // a pass. Declared instead of inverted.
 enum invertedInput = `
 rites g {
-  scratch { eval: "test -f /var/lib/qntx/qntx-operational.db"  pass: 1  catch: 0 }
+  scratch {
+    eval: "test -f /var/lib/qntx/qntx-operational.db"
+    pass: 1
+    catch: 0
+  }
 }
 `;
 enum scratch = parsePbt(invertedInput).rites[0].rites[0];
@@ -47,7 +52,10 @@ static assert(classify(2, scratch) == Verdict.Halt);
 // error. Both mean the box is not answering yet, neither means it failed.
 enum multiInput = `
 rites b {
-  answers { eval: "curl -sf x"  catch: [7, 22] }
+  answers {
+    eval: "curl -sf x"
+    catch: [7, 22]
+  }
 }
 `;
 enum answers = parsePbt(multiInput).rites[0].rites[0];
@@ -60,10 +68,70 @@ static assert(classify(6,  answers) == Verdict.Halt);
 // is a separate question from what the code meant.
 enum gotoInput = `
 rites b {
-  target   { eval: "true" }
-  survived { eval: "curl -sf z"  catch: 22  goto: target }
+  target {
+    eval: "true"
+  }
+  survived {
+    eval: "curl -sf z"
+    catch: 22
+    goto: target
+  }
 }
 `;
 enum survived = parsePbt(gotoInput).rites[0].rites[1];
 static assert(classify(22, survived) == Verdict.Hold);
 static assert(classify(0,  survived) == Verdict.Advance);
+
+// "A DISPATCH ISNT A QUESTION BEING ASKED"
+// long-coin knows three rigs: none, heads, tails. Asked to rig an edge, GitHub
+// refuses at the door and the dispatch exits 1.
+enum edgeInput = `
+rites toss {
+  params: [rig]
+
+  FLIP {
+    dispatch: "teranos/ground long-coin.yml"
+    inputs:   ` ~ "`" ~ `echo "rig=$rig"` ~ "`" ~ `
+    to:       parent
+  }
+  REST {
+    run: "sleep 30"
+    to:  parent
+  }
+}
+`;
+// Silence about catch is not the honest no it is for an eval: sent, or not.
+enum flip = parsePbt(edgeInput).rites[0].rites[0];
+static assert(flip.catchCount == 0);
+static assert(classify(0, flip) == Verdict.Advance);
+static assert(classify(1, flip) == Verdict.Halt);
+
+// "i want APP to be silent about its non zero exit"
+// The author foresaw the refusal. Caught, it holds and goes to REST, and what
+// is said about it is the author's sentence, not the exit.
+enum foreseenInput = `
+rites toss {
+  params: [rig]
+
+  FLIP {
+    dispatch: "teranos/ground long-coin.yml"
+    inputs:   ` ~ "`" ~ `echo "rig=$rig"` ~ "`" ~ `
+    catch:    1
+    goto:     REST
+    msg:      "a coin has no edge to rig, going to: REST"
+    to:       parent
+  }
+  REST {
+    run: "sleep 30"
+    to:  parent
+  }
+}
+`;
+enum foreseen = parsePbt(foreseenInput).rites[0].rites[0];
+static assert(classify(0, foreseen) == Verdict.Advance);
+static assert(classify(1, foreseen) == Verdict.Hold);
+static assert(foreseen.goto_ == "REST");
+static assert(foreseen.msg == "a coin has no edge to rig, going to: REST");
+// A code nobody foresaw still halts.
+static assert(classify(2, foreseen) == Verdict.Halt);
+

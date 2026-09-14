@@ -63,8 +63,23 @@ static assert(riteLine("coinflip", "FLIP1", Verdict.Advance, "", "", "",
 
 // gh could not send it, so nothing was dispatched and the act is not claimed.
 static assert(riteLine("coinflip", "FLIP1", Verdict.Halt, "", "", "",
-                       "sbvh-nl/grove long-coin.yml").text()
+                       "abcd-nl/grove long-coin.yml").text()
     == "coinflip FLIP1 halted");
+
+// "unconditionally replace it with something we say"
+// A rite holding says what its author wrote for holding, and its mic when it
+// went through. The refusal was foreseen, so the line carries the sentence.
+import notification : riteWords;
+static assert(riteWords(Verdict.Hold, "", "a coin has no edge to rig, going to: REST")
+    == "a coin has no edge to rig, going to: REST");
+static assert(riteWords(Verdict.Advance, "The coin is in the air.", "a coin has no edge to rig, going to: REST")
+    == "The coin is in the air.");
+// Nothing written for holding falls back to the mic, as it always did.
+static assert(riteWords(Verdict.Hold, "The coin is in the air.", "") == "The coin is in the air.");
+static assert(riteLine("coinflip", "FLIP", Verdict.Hold, "", "",
+                       riteWords(Verdict.Hold, "", "a coin has no edge to rig, going to: REST"),
+                       "teranos/ground long-coin.yml").text()
+    == "coinflip FLIP held · a coin has no edge to rig, going to: REST");
 
 // --- What the handler decides, against a real store ---
 

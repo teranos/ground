@@ -111,6 +111,14 @@ int handleSessionDump(const(char)[] sessionId) {
     return 0;
 }
 
+enum BOOK_COMMAND = q"EOS
+# search past hook events by wildcard pattern
+# (see: ground events)
+ground shovel PostToolUse "*pr create*"
+# or dump a session's transcript:
+ground shovel session ses90l3m
+EOS";
+
 int handleShovel(int argc, const(char)** argv) {
     // ground shovel <event> <pattern>
     // ground shovel session <id>

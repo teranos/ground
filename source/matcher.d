@@ -1,5 +1,12 @@
 module matcher;
 
+// BOOK_GLOSSARY **Scope**: Where a rule stands: the path it stands in, the event it answers to, and the command it waits for.
+
+// A scope is where a rule stands. It carries the path it stands in, the event
+// it answers to, and the command it waits for, and everything written inside
+// it is bound by all three. A scope inside a scope inherits what the outer one
+// said and may say otherwise, so the narrower answer is the one that holds.
+
 import controls;
 import hooks : scopeMatches;
 
@@ -137,8 +144,13 @@ int maxCommentRun(const(char)[] text) {
 
         if (opens) inBlock = true;
 
+        // `///` is the reference this repo publishes, not commentary hiding a
+        // claim. It neither counts nor continues a run, so alternating markers
+        // cannot smuggle a block past the count.
+        bool ddoc = rest.length >= 3 && rest[0 .. 3] == "///";
+
         bool isComment = false;
-        if (!scaffold && p < line.length) {
+        if (!scaffold && !ddoc && p < line.length) {
             if (line[p] == '#') isComment = true;
             else if (line[p] == '/' && p + 1 < line.length && line[p + 1] == '/')
                 isComment = true;
@@ -165,9 +177,43 @@ int maxCommentRun(const(char)[] text) {
 // Where a command actually ran. checkAllCommands has tracked this per segment
 // since it existed; this is the same walk with the answer at the end, for
 // callers that gate on a place before they look at any segment.
-const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
+// The home the shell expands a tilde to, for the callers that read a command
+// at runtime. Empty leaves a tilde alone, which is what CTFE tests want.
+const(char)[] shellHome() {
+    if (__ctfe) return "";
+    import db : getenv;
+    auto h = getenv("HOME\0".ptr);
+    if (h is null) return "";
+    size_t n;
+    while (h[n] != 0) n++;
+    return h[0 .. n];
+}
+
+// The shell expands a tilde before cd sees it, and ground reads the text the
+// shell was given. Two pushes made as `cd ~/...; git push` started no ritual:
+// the literal went to git, which found no repo there. Written into a buffer
+// the caller owns, so CTFE and betterC both have somewhere to put it.
+const(char)[] tildeExpanded(const(char)[] target, const(char)[] home, char[] joined) {
+    if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
+    if (target.length == 1) return home;
+    if (target[1] != '/') return target;
+    size_t n;
+    foreach (c; home) { if (n < joined.length) joined[n++] = c; }
+    foreach (c; target[1 .. $]) { if (n < joined.length) joined[n++] = c; }
+    return joined[0 .. n];
+}
+
+const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd, const(char)[] home = "") {
     auto eff = cwd;
     auto shell = cwd;
+
+    // The buffer is reached only for a tilde with a home to expand it to, so a
+    // compile-time caller with neither never touches static storage.
+    __gshared char[4096] joined = 0;
+    const(char)[] expanded(const(char)[] target) {
+        if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
+        return tildeExpanded(target, home, joined[]);
+    }
     bool sawGit = false;
     size_t start = 0;
     size_t i = 0;
@@ -189,7 +235,7 @@ const(char)[] effectiveCwd(const(char)[] command, const(char)[] cwd) {
         if (isSep) {
             auto segment = strip(command[start .. i]);
             auto target = extractLeadingCd(segment);
-            if (target.length > 0) shell = target;
+            if (target.length > 0) shell = expanded(target);
             // Only a git invocation names where git work happened. A `| tail`
             // names nothing, and reading it as a place moved a push to wherever
             // the session stood.
@@ -743,14 +789,17 @@ Buf applyClamp(string spec, const(char)[] segment) {
 
     // Replace [numStart..numEnd] with minValue's decimal form.
     buf.put(segment[0 .. numStart]);
+    putDecimal(buf, minValue);
+    buf.put(segment[numEnd .. $]);
+    return buf;
+}
 
+private void putDecimal(ref Buf buf, int v) {
     char[20] tbuf = 0;
     int tlen = 0;
-    int v = minValue;
     if (v == 0) { tbuf[0] = '0'; tlen = 1; }
     else {
         while (v > 0 && tlen < 19) { tbuf[tlen++] = cast(char)('0' + v % 10); v /= 10; }
-        // Reverse in place.
         foreach (i; 0 .. tlen / 2) {
             auto tmp = tbuf[i];
             tbuf[i] = tbuf[tlen - 1 - i];
@@ -758,9 +807,71 @@ Buf applyClamp(string spec, const(char)[] segment) {
         }
     }
     buf.put(tbuf[0 .. tlen]);
+}
 
-    buf.put(segment[numEnd .. $]);
+// A non-negative decimal, or -1 when the text is not one.
+private int decimalOf(const(char)[] s) {
+    if (s.length == 0) return -1;
+    int n = 0;
+    foreach (c; s) {
+        if (c < '0' || c > '9') return -1;
+        n = n * 10 + (c - '0');
+    }
+    return n;
+}
+
+// A range read starts at the top and reaches past where it was aimed. Spec
+// "<start>,+<more>", e.g. "1,+10": the first `A,Bp` in the segment becomes
+// `<start>,<B+more>p`. No range in the segment, unchanged.
+Buf applyRange(string spec, const(char)[] segment) {
+    Buf buf;
+
+    auto sep = indexOf(spec, ",+");
+    if (sep < 0) { buf.put(segment); return buf; }
+    auto start = decimalOf(spec[0 .. cast(size_t) sep]);
+    auto more = decimalOf(spec[cast(size_t) sep + 2 .. $]);
+    if (start < 0 || more < 0) { buf.put(segment); return buf; }
+
+    static bool digit(char c) { return c >= '0' && c <= '9'; }
+
+    size_t i = 0;
+    while (i < segment.length) {
+        if (!digit(segment[i])) { i++; continue; }
+        size_t aStart = i;
+        while (i < segment.length && digit(segment[i])) i++;
+        if (i >= segment.length || segment[i] != ',') continue;
+
+        size_t bStart = i + 1;
+        size_t j = bStart;
+        while (j < segment.length && digit(segment[j])) j++;
+        if (j == bStart || j >= segment.length || segment[j] != 'p') continue;
+
+        auto end = decimalOf(segment[bStart .. j]);
+        buf.put(segment[0 .. aStart]);
+        putDecimal(buf, start);
+        buf.put(",");
+        putDecimal(buf, end + more);
+        buf.put(segment[j .. $]);
+        return buf;
+    }
+
+    buf.put(segment);
     return buf;
+}
+
+unittest {
+    // A range read starts at the top and reaches ten lines past where it
+    // was aimed. A fraction of a file is how a file gets spoken about unread.
+    assert(applyRange("1,+10", "sed -n 300,340p source/db.d").slice() == "sed -n 1,350p source/db.d");
+    assert(applyRange("1,+10", "sed -n '300,340p' source/db.d").slice() == "sed -n '1,350p' source/db.d");
+    assert(applyRange("1,+10", "sed -n 1,10p x").slice() == "sed -n 1,20p x");
+
+    // A single line, or no range at all, is left alone.
+    assert(applyRange("1,+10", "sed -n 5p x").slice() == "sed -n 5p x");
+    assert(applyRange("1,+10", "sed -i 's/a/b/' x").slice() == "sed -i 's/a/b/' x");
+
+    // A spec that is not two parts is no instruction.
+    assert(applyRange("1", "sed -n 300,340p x").slice() == "sed -n 300,340p x");
 }
 
 // Strips the entire line containing the needle.

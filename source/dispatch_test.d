@@ -37,8 +37,20 @@ static assert(contains(s.text(), "%{http_code}"));
 static assert(!contains(s.text(), "*'rate limit'*"));
 static assert(!contains(s.text(), "*'HTTP 5'*"));
 
-// The ref is stated rather than resolved, so no second round-trip can fail.
 static assert(contains(s.text(), "\\\"ref\\\":"));
+
+// master was a guess that held for one repo and sent another a 422.
+static assert(!contains(s.text(), "ref=master"));
+
+// The ref is the target's own default branch, asked of the repo.
+static assert(contains(s.text(), "https://api.github.com/repos/$repo\""));
+static assert(contains(s.text(), "'\"default_branch\"'"));
+
+// GROUND_REF, when set, still says otherwise.
+static assert(contains(s.text(), "^GROUND_REF="));
+
+// A repo that cannot be asked has not been dispatched to: unreached, not guessed.
+static assert(contains(s.text(), "could not read the default branch of"));
 
 // "the dispatch happened thus we move on from the rite". It sends the job and
 // ends. No run id, no status, no waiting — none of that is the rite's.

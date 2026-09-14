@@ -1,5 +1,7 @@
 module db;
 
+// BOOK_GLOSSARY **Attestation**: The record of one event with its full payload, in the store ground refuses to operate without.
+
 import matcher : indexOf, contains;
 import core.stdc.stdio : FILE;
 import core.stdc.time : time, time_t, tm, gmtime;
@@ -307,6 +309,14 @@ bool applySchema(sqlite3* db) {
 
     enum idxTiming = "CREATE INDEX IF NOT EXISTS idx_timing_event_project ON timing(hook_event, project, id)\0";
     sqlite3_exec(db, idxTiming.ptr, null, null, null);
+
+    // Whether a repository is public, by origin, as GitHub last said. Asked
+    // once per repository and kept, so a scope that stands in public costs a
+    // write nothing after the first.
+    enum visibilitySchema = "CREATE TABLE IF NOT EXISTS repo_visibility ("
+        ~ "origin TEXT PRIMARY KEY, visibility INTEGER NOT NULL, "
+        ~ "asked_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
+    sqlite3_exec(db, visibilitySchema.ptr, null, null, null);
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
@@ -631,9 +641,10 @@ void attestEvent(
     const(char)[] eventName,
     const(char)[] cwd,
     const(char)[] sessionId,
-    const(char)[] payload
+    const(char)[] payload,
+    const(char)[] idTag = ""
 ) {
-    attestEventAt(db, eventName, cwd, sessionId, payload, formatTimestamp(), getpid());
+    attestEventAt(db, eventName, cwd, sessionId, payload, formatTimestamp(), getpid(), idTag);
 }
 
 // Same, with the two values that differ between concurrent hooks supplied
@@ -647,7 +658,8 @@ void attestEventAt(
     const(char)[] sessionId,
     const(char)[] payload,
     const(char)[] ts,
-    int pid
+    int pid,
+    const(char)[] idTag = ""
 ) {
     auto branch = getBranch(cwd);
     if (branch is null) branch = "unknown";
@@ -726,6 +738,12 @@ void attestEventAt(
     idBuf.put(ts);
     idBuf.put(":");
     idBuf.putUint(pid);
+    // One process fires several controls in one Stop, and each is its own
+    // fact. The tag is what tells them apart within the second and the pid.
+    if (idTag.length > 0) {
+        idBuf.put(":");
+        idBuf.put(idTag);
+    }
 
     // Validate payload is valid JSON — truncated payloads (>64KB) break json_extract indexes
     if (payload.length > 0 && !jsonValid(db, payload)) {
@@ -785,6 +803,27 @@ unittest {
     sqlite3_close(db);
 }
 
+unittest {
+    // Two controls firing from one Stop are two facts. The id carried only the
+    // second and the pid, so the second receipt was dropped and that control
+    // fired again on the next turn.
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    attestControlFire(db, "GroundedStop", "openapi:/api/attestations", "/tmp", "sess-two");
+    attestControlFire(db, "GroundedStop", "openapi:/health", "/tmp", "sess-two");
+    assert(attestationExists(db, "GroundedStop", "openapi:/api/attestations", "sess-two"));
+    assert(attestationExists(db, "GroundedStop", "openapi:/health", "sess-two"),
+           "the second control's receipt must land");
+
+    // Still one row for one control said twice.
+    attestControlFire(db, "GroundedStop", "openapi:/health", "/tmp", "sess-two");
+    assert(attestationRowCount(db) == 2);
+
+    sqlite3_close(db);
+}
+
 version (unittest)
 private long attestationRowCount(sqlite3* db) {
     enum countSql = "SELECT COUNT(*) FROM attestations\0";
@@ -813,7 +852,7 @@ void attestControlFire(sqlite3* db, const(char)[] predicate, const(char)[] contr
         db = openDb();
         if (db is null) return;
     }
-    attestEvent(db, predicate, cwd, sessionId, cfAttrs.slice());
+    attestEvent(db, predicate, cwd, sessionId, cfAttrs.slice(), controlName);
     if (ownDb) sqlite3_close(db);
 }
 

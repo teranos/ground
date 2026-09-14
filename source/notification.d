@@ -92,6 +92,14 @@ Notice riteLine(V)(const(char)[] ritual, const(char)[] rite, V verdict,
     return n;
 }
 
+// "unconditionally replace it with something we say"
+// What a rite's line carries: holding, the words its author wrote for holding;
+// otherwise its mic. A rite with no words for holding keeps its mic.
+const(char)[] riteWords(V)(V verdict, const(char)[] mic, const(char)[] msg) {
+    if (cast(size_t) verdict == 1 && msg.length > 0) return msg;
+    return mic;
+}
+
 // The row carries rite names comma-joined so it renders without the pbt.
 const(char)[] nthRite(const(char)[] rites, size_t n) {
     size_t start;

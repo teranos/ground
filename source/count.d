@@ -11,6 +11,7 @@ struct PbtCounts {
     int totalPerms;
     int totalProjects;
     int totalEnvs;
+    int totalRoutes;
 }
 
 PbtCounts countPbt(string input) {
@@ -54,7 +55,7 @@ PbtCounts countPbt(string input) {
             expect(input, pos, '{');
             r.totalProjects++;
             countProject(input, pos, r);
-        } else if (wm.base == "qntx" || wm.base == "attestation") {
+        } else if (wm.base == "attestation") {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
@@ -178,6 +179,17 @@ void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
             expect(input, pos, '{');
             skipBlock(input, pos);
             r.totalEnvs++;
+        } else if (wm.base == "route") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
+            r.totalRoutes++;
+        } else if (wm.base == "attestation") {
+            // Sized by its own fixed array; consumed so its braces are not read
+            // as the project's.
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
         } else if (wm.base == "ritual") {
             // Named block, same as rites — consumed, not counted.
             skipWS(input, pos);

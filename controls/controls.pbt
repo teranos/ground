@@ -114,13 +114,6 @@ scope {
       check_handler: "branchNotRequested"
       msg: "The developer did not ask for a branch. A branch nobody asked for has to be merged, pushed and deleted to be rid of. Work where you are."
     }
-
-    control {
-      name: "pr-not-requested"
-      cmd: "gh pr"
-      check_handler: "prNotRequested"
-      msg: "The developer did not say pr. They always say it when they want anything to do with a pull request, so its absence means they do not."
-    }
   }
 
   # Checkpoints — require manual approval.
@@ -191,7 +184,7 @@ scope {
 
   control {
     name: "merged-branch-is-done"
-    msg: "for this user, it's convention to delete merged branches locally and remotely. When a branch is merged, its considered DONE, not something to return to. Fixes happen SEPARATELY as their own commit or on their own branch. Branch is merged means its DONE."
+    msg: "for this user, it's convention to delete merged branches locally and remotely. When a branch is merged, its considered DONE, not something to return to. Branch is merged means its DONE."
   }
 }
 
@@ -392,17 +385,6 @@ scope {
   }
 }
 
-# UserPromptSubmit — sbvh-nl reminder
-scope {
-  path: "!/sbvh-nl"
-  event: "UserPromptSubmit"
-
-  control {
-    name: "sbvh-nl-reminder"
-    userprompt: "sbvh-nl"
-    msg: "sbvh-nl is at ~/SBVH/sbvh-nl/ — private repos under the sbvh-nl GitHub org. Read ~/SBVH/sbvh-nl/CLAUDE.md for the repo table and conventions. These are independent repos, not part of QNTX."
-  }
-}
 
 
 # Stop — pattern matching on last assistant message

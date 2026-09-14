@@ -1269,7 +1269,7 @@ unittest {
 
     enum m1 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('lc-1', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx\"]', '2026-05-11 20:00:00', 'qntx', '{\"detail\":\"QNTX started\",\"after\":0}')\0";
     enum m2 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('pl-1', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx\"]', '2026-05-11 20:00:01', 'qntx', '{\"detail\":\"spindle started\",\"after\":0}')\0";
-    enum m3 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('pl-2', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx\"]', '2026-05-11 20:00:02', 'qntx', '{\"detail\":\"raven started\",\"after\":0}')\0";
+    enum m3 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('pl-2', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx\"]', '2026-05-11 20:00:02', 'qntx', '{\"detail\":\"beacon started\",\"after\":0}')\0";
     sqlite3_exec(db, m1.ptr, null, null, null);
     sqlite3_exec(db, m2.ptr, null, null, null);
     sqlite3_exec(db, m3.ptr, null, null, null);
@@ -1289,7 +1289,7 @@ unittest {
     // Third
     auto r3 = readImmediateMessage(db, "/Users/test/SBVH/teranos/QNTX", "sess-X");
     assert(r3.message !is null, "third message with same name was dropped");
-    assert(r3.message == "raven started");
+    assert(r3.message == "beacon started");
     markImmediateDelivered(db, r3.msgId, r3.projectContext, "sess-X");
 
     // No more

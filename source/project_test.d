@@ -1,11 +1,13 @@
 module project_test;
 
+// BOOK_GLOSSARY **Project**: A repo ground knows about, by path, whose controls and rituals live beside the code they govern.
+
 import proto : parsePbt;
 import proto_test : ctrl, perm;
 
 // --- Project block tests ---
 
-// Standalone project — just a path for wind
+// A project is a repo ground knows about, by the path of its checkout.
 enum projectStandaloneInput = `
 project {
   path: "/Users/me/code/ground"
@@ -71,15 +73,12 @@ static assert(projectWithControlParsed.projectCount == 1);
 static assert(projectWithControlParsed.scopeCount == 1);
 static assert(ctrl(projectWithControlParsed, 0, 0).name == "direct-ctrl");
 
-// Project with files list (wind-generated)
+// Every file git tracks in the checkout, written into the block by wind at
+// build. A file named in a reply is then a file ground can ask about.
 enum projectWithFilesInput = `
 project {
   path: "/Users/me/code/ground"
-  files: [
-    "source/main.d",
-    "source/proto.d",
-    "controls/controls.pbt"
-  ]
+  files: ["source/main.d", "source/proto.d", "controls/controls.pbt"]
 }
 `;
 enum projectWithFilesParsed = parsePbt(projectWithFilesInput);
@@ -90,10 +89,11 @@ static assert(projectWithFilesParsed.projects[0].files[0] == "source/main.d");
 static assert(projectWithFilesParsed.projects[0].files[1] == "source/proto.d");
 static assert(projectWithFilesParsed.projects[0].files[2] == "controls/controls.pbt");
 
-// Project with env block
+// Values a project's controls may use by name, such as the port its server
+// listens on.
 enum projectWithEnvInput = `
 project {
-  path: "/Users/me/code/qntx"
+  path: "/Users/Alice/projects/hygrometer-server"
   env {
     port: "8771"
   }
@@ -101,12 +101,26 @@ project {
 `;
 enum projectWithEnvParsed = parsePbt(projectWithEnvInput);
 static assert(projectWithEnvParsed.projectCount == 1);
-static assert(projectWithEnvParsed.projects[0].path == "/Users/me/code/qntx");
+static assert(projectWithEnvParsed.projects[0].path == "/Users/Alice/projects/hygrometer-server");
 static assert(projectWithEnvParsed.envCount == 1);
-static assert(projectWithEnvParsed.envs[0].path == "/Users/me/code/qntx");
+static assert(projectWithEnvParsed.envs[0].path == "/Users/Alice/projects/hygrometer-server");
 static assert(projectWithEnvParsed.envs[0].keys[0] == "port");
 static assert(projectWithEnvParsed.envs[0].values[0] == "8771");
 static assert(projectWithEnvParsed.envs[0].count == 1);
+
+// "A project can have qntx set to its backend url."
+// Alice runs her own QNTX. Her clone of it names that deployment, and her
+// attestations go there.
+enum backedInput = `
+project {
+  origin: "alice/QNTX"
+  path: "/Users/Alice/projects/QNTX"
+  qntx: "https://qntx.alice.example"
+  openapi: "server/openapi/openapi.json"
+}
+`;
+enum backedParsed = parsePbt(backedInput);
+static assert(backedParsed.projects[0].qntx == "https://qntx.alice.example");
 
 // --- extractProjectFiles: flatten all project file lists into one array ---
 
@@ -123,16 +137,11 @@ static assert(singleFiles.files[2] == "controls/controls.pbt");
 enum multiProjectInput = `
 project {
   path: "/Users/me/code/alpha"
-  files: [
-    "src/a.d",
-    "src/b.d"
-  ]
+  files: ["src/a.d", "src/b.d"]
 }
 project {
   path: "/Users/me/code/beta"
-  files: [
-    "lib/c.d"
-  ]
+  files: ["lib/c.d"]
 }
 `;
 enum multiProjectParsed = parsePbt(multiProjectInput);

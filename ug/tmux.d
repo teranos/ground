@@ -112,7 +112,7 @@ int tmuxMain(const(char)[] home, long now) {
     import probe : fetch;
     import qntx : State;
 
-    auto answer = fetch(home, "/statusline?format=tmux");
+    auto answer = fetch(home, "/am/statusline?format=tmux");
 
     __gshared char[8192] line = void;
     size_t n;
@@ -160,7 +160,7 @@ int expandMain(const(char)[] home, const(char)[] name) {
 
     __gshared char[512] path = void;
     size_t p = 0;
-    foreach (c; "/statusline/") path[p++] = c;
+    foreach (c; "/am/statusline/") path[p++] = c;
     foreach (c; name) {
         if (p + 1 >= path.length) break;
         // A name is a plugin's own, and anything that could steer the request

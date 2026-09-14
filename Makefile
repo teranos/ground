@@ -1,9 +1,9 @@
-.PHONY: build test test-tools test-ug install install-ug wind ug
+.PHONY: build test test-tools test-ug install install-ug wind ug book annot press binder editor
 
 PREFIX ?= $(HOME)/.local
 
-wind: tools/wind.d tools/filelist.d
-	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d
+wind: tools/wind.d tools/filelist.d tools/openapi.d
+	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d tools/openapi.d
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
@@ -54,6 +54,12 @@ test: test-tools test-ug
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/filelist.d tools/filelist_test.d
+	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/cases_test.d
+	ldc2 -c -od=/tmp -I=tools tools/concept.d tools/concept_test.d
+	ldc2 -c -od=/tmp -I=tools -J=doc tools/bind.d tools/bind_test.d
+	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
+	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
+	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
 
 # Same shape for ug/*_test.d.
 test-ug:
@@ -83,3 +89,64 @@ install: build install-ug
 	cp ground $(PREFIX)/bin/ground
 	./ground attest
 	./ground decay
+
+# The book is generated from the source it documents, so it cannot describe a
+# ground that does not exist. Both comment kinds are prose: a // line and a
+# /// line reach the page alike.
+press: tools/press.d tools/cases.d tools/concept.d source/fmt.d
+	ldc2 -of=tools/press -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d
+
+# -J=doc lets bind.d carry doc/book.css, so the stylesheet is a file to read
+# and the pages still stand on their own.
+binder: tools/binder.d tools/bind.d doc/tokens.css doc/book.css
+	ldc2 -of=tools/binder -I=tools -J=doc tools/binder.d tools/bind.d
+
+# The notes, editable in a browser and written back into the comment they came
+# from. A note is found again by what it says, at the moment you save it, so
+# nothing here stores a position that the next edit would make wrong.
+editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d doc/tokens.css doc/author.css
+	ldc2 -of=tools/editor -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d
+
+# One typesetter, and the web copy is bound from what it set. Page 12 on the
+# screen is the sheet carrying 12 on paper, because it is that sheet and not a
+# second rendering of the same source.
+book: press binder
+	mkdir -p doc/tex
+# press clears doc/tex itself, once it has proved every example fits a page.
+# Clearing here meant a halt deleted the last good book on its way out.
+	./tools/press
+	rm -f doc/html/*.html
+# B5, and the margin is only what keeps the ink off the edge.
+	@printf '%s\n' \
+	  "\\usepackage[paperwidth=176mm,paperheight=250mm," \
+	  "            inner=20mm,outer=16mm,top=18mm,bottom=20mm]{geometry}" \
+	  > doc/edition.tex
+	@printf '%s\n' \
+	  "\\newcommand{\\groundcommit}{`git rev-parse --short HEAD`}" \
+	  "\\newcommand{\\groundbuilt}{`date -u +%Y-%m-%dT%H:%M:%SZ`}" \
+	  "\\newcommand{\\groundapi}{Claude Code hooks}" \
+	  > doc/provenance.tex
+	cd doc && latexmk -xelatex -silent -interaction=nonstopmode -jobname=book book.tex
+	GROUND_COMMIT=`git rev-parse --short HEAD` \
+	GROUND_BUILT=`date -u +%Y-%m-%dT%H:%M:%SZ` \
+	./tools/binder
+
+# The annotation copy. A4, and the 70mm outer margin is the whole point of it:
+# a column to write in beside every row, down every page. No web copy — this
+# edition is read on paper or not at all.
+annot: press
+	mkdir -p doc/tex
+	./tools/press
+	@printf '%s\n' \
+	  "\\usepackage[paperwidth=210mm,paperheight=297mm," \
+	  "            inner=20mm,outer=70mm,top=18mm,bottom=20mm]{geometry}" \
+	  > doc/edition.tex
+	@printf '%s\n' \
+	  "\\newcommand{\\groundcommit}{`git rev-parse --short HEAD`}" \
+	  "\\newcommand{\\groundbuilt}{`date -u +%Y-%m-%dT%H:%M:%SZ`}" \
+	  "\\newcommand{\\groundapi}{Claude Code hooks}" \
+	  > doc/provenance.tex
+# Its own jobname, so the two editions cannot overwrite each other. The folio
+# map is named after the job already, so it follows without being told.
+	cd doc && latexmk -xelatex -silent -interaction=nonstopmode -jobname=annot book.tex
+	@echo "annot: doc/annot.pdf is the A4 annotation copy"

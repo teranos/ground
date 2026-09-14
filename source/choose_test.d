@@ -6,20 +6,43 @@ module choose_test;
 import proto : parsePbt;
 import ritual.resolve : chooseRitual;
 
+// Four groups, one rite each, for four projects to name.
+enum groups = `
+rites one {
+  A {
+    eval: "true"
+  }
+}
+rites two {
+  B {
+    eval: "true"
+  }
+}
+rites three {
+  C {
+    eval: "true"
+  }
+}
+rites four {
+  D {
+    eval: "true"
+  }
+}
+`;
+
 // Four project blocks and no more: `ParseResult.projects` is sized from the
 // pbt files wind finds plus four headroom, so four is the floor on a machine
 // that has none. A fifth passed here and failed in CI.
-enum src = `
-rites one { A { eval: "true" } }
-rites two { B { eval: "true" } }
-rites three { C { eval: "true" } }
-rites four { D { eval: "true" } }
-
+enum projects = `
 project {
   path: "/p"
 
-  ritual sun { one }
-  ritual moon { two }
+  ritual sun {
+    one
+  }
+  ritual moon {
+    two
+  }
 }
 
 project tightgrove {
@@ -27,22 +50,33 @@ project tightgrove {
 
   max_goto: 2
 
-  ritual sun { one }
+  ritual sun {
+    one
+  }
 }
 
 project busy {
   path: "/r"
 
-  ritual xray { three }
-  ritual yankee { four }
+  ritual xray {
+    three
+  }
+  ritual yankee {
+    four
+  }
 }
 
 project moon {
   path: "/s"
 
-  ritual zulu { four }
+  ritual zulu {
+    four
+  }
 }
 `;
+
+// The whole is what the parts say, composed rather than written twice.
+enum src = groups ~ projects;
 enum parsed = parsePbt(src);
 
 // "# Can also be just the ritual: in case it resolves to only a single ritual."

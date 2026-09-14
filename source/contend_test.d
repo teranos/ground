@@ -2,7 +2,7 @@ module contend_test;
 
 // Two drivers, one position. `advance` is called from stop.d, watch.d and
 // drive.d, and nothing coordinated them.
-// Brandon: "fix 79"
+// "fix 79"
 
 import proto : parsePbt;
 import ritual : advance, flatten, start, writePosition, readPosition,

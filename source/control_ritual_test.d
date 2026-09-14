@@ -84,10 +84,14 @@ unittest {
 // A ritual that writes wants its own tree, and says so. This is what every
 // ritual got without asking, and what only the ones that need it get now.
 enum cutSrc = `
-rites obedience2 { MARK { eval: "true" } }
+rites obedience2 {
+  MARK {
+    eval: "true"
+  }
+}
 
 scope {
-  path:  "/sbvh-nl/grove"
+  path: "/sbvh-nl/grove"
   event: "PostToolUse"
 
   control {
@@ -119,15 +123,21 @@ unittest {
 // A scope naming two paths says when the control fires, not where a ritual
 // performs. Refused at compile time rather than guessed at on a push.
 enum twoPaths = `
-rites obedience { MARK { eval: "true" } }
+rites obedience {
+  MARK {
+    eval: "true"
+  }
+}
 
 scope {
-  path:  ["/sbvh-nl/grove", "/QNTX"]
+  path: ["/sbvh-nl/grove", "/QNTX"]
   event: "PostToolUse"
 
   control {
     name: "two-paths"
-    ritual { obedience }
+    ritual {
+      obedience
+    }
   }
 }
 `;
@@ -136,15 +146,21 @@ static assert(!__traits(compiles, { enum bad = parsePbt(twoPaths); }));
 // A negation narrows where the control fires and says nothing about where the
 // ritual performs, so one of them beside a real path is not an ambiguity.
 enum narrowed = `
-rites obedience { MARK { eval: "true" } }
+rites obedience {
+  MARK {
+    eval: "true"
+  }
+}
 
 scope {
-  path:  ["/teranos/QNTX", "!/teranos/QNTX-App"]
+  path: ["/teranos/QNTX", "!/teranos/QNTX-App"]
   event: "PostToolUse"
 
   control {
     name: "narrowed"
-    ritual { obedience }
+    ritual {
+      obedience
+    }
   }
 }
 `;
@@ -159,15 +175,21 @@ static assert(narrowedParsed.rituals[cast(size_t) nidx].projectPath == "/teranos
 
 // A negated path is a place a ritual must not be, which resolves to nowhere.
 enum negated = `
-rites obedience { MARK { eval: "true" } }
+rites obedience {
+  MARK {
+    eval: "true"
+  }
+}
 
 scope {
-  path:  "!/ground"
+  path: "!/ground"
   event: "PostToolUse"
 
   control {
     name: "negated"
-    ritual { obedience }
+    ritual {
+      obedience
+    }
   }
 }
 `;
@@ -202,21 +224,25 @@ unittest {
 // `ground ritual <name>` does.
 enum namedSrc = `
 rites obedience {
-  MARK { eval: "true" }
+  MARK {
+    eval: "true"
+  }
 }
 
 project {
   path: "/sbvh-nl/grove"
-  ritual elsewhere { obedience }
+  ritual elsewhere {
+    obedience
+  }
 }
 
 scope {
-  path:  "/QNTX"
+  path: "/QNTX"
   event: "PostToolUse"
-  cmd:   "git push"
+  cmd: "git push"
 
   control {
-    name:   "qntx-landed"
+    name: "qntx-landed"
     ritual: "elsewhere"
   }
 }

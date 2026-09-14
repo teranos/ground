@@ -362,6 +362,11 @@ void removePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
     remove(&pathBuf[0]);
 }
 
+enum BOOK_COMMAND = q"EOS
+# the asyncRewake watcher
+ground watch $PWD
+EOS";
+
 int handleWatch(int argc, const(char)** argv) {
     if (argc < 3) {
         fputs("usage: ground watch <cwd>\n", stderr);

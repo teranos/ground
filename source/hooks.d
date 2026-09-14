@@ -1,5 +1,14 @@
 module hooks;
 
+// BOOK_GLOSSARY **Control**: A named rule and a message: what it matches on, and what the operator reads at the moment it matches.
+// BOOK_GLOSSARY **Rewrite**: A correction to what was run, made silently, with a message saying why.
+// BOOK_GLOSSARY **Substitute for read**: A command reaching for a file is handed the file instead of being run.
+
+// A control is a named rule and a message: what it matches on, and what the
+// operator reads at the moment it matches. The event it declares is the set
+// that collects it, so a control nobody collects never runs, however well it
+// matches.
+
 enum HookEvent {
     SessionStart,       // scoped controls via sessionstart(), optional check functions, arch context
                         // TODO: watchPaths (arms FileChanged), initialUserMessage, sessionTitle, reloadSkills
@@ -85,6 +94,12 @@ struct OmitLine {
 // e.g. "tail -N>=40". When matched, raises a too-small N to <min>.
 // See matcher.applyClamp for semantics.
 struct Clamp {
+    string value;
+}
+
+// A range read pinned to the top and stretched past its end. Spec:
+// "<start>,+<more>" — e.g. "1,+10". See matcher.applyRange.
+struct Range {
     string value;
 }
 
@@ -246,6 +261,7 @@ struct Control {
     Omit omit;
     OmitLine omitLine;
     Clamp clamp;
+    Range range;
     Trigger trigger;
     FilePath filepath;
     PushedPath pushedPath;
@@ -348,8 +364,14 @@ struct Scope {
     ubyte cmdCount;
     string decision;
     string mcpTool;
+    // Stands only where the repository is public. Not a path: the answer to a
+    // question ground asks about the repository the tool call reaches into.
+    bool publicOnly;
     const(Control)[] controls;
 }
+
+// What ground knows about a repository's audience.
+enum Visibility { Unknown, Public, Private }
 
 // A path names directories, so it ends where one ends. A raw substring made
 // QNTX-App contain QNTX, which is why every sibling needed its own negation.
@@ -394,6 +416,14 @@ bool scopeMatches(S)(const ref S sc, const(char)[] cwd) {
 // Where the command runs, and the repository that place belongs to. A worktree
 // is the project it was cut from, wherever on disk somebody put it.
 bool scopeMatchesIn(S)(const ref S sc, const(char)[] cwd, const(char)[] root) {
+    // The audience is asked only of a scope that cares, so a scope that never
+    // said `public` costs no lookup. Test structs carry no such field.
+    static if (__traits(hasMember, S, "publicOnly")) {
+        if (sc.publicOnly) {
+            import audience : audienceOf, internetSees;
+            if (!internetSees(audienceOf(root, false))) return false;
+        }
+    }
     if (sc.pathCount == 0) return true;
 
     bool here(const(char)[] pattern) {

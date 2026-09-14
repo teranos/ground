@@ -49,8 +49,17 @@ Bill cuesOf(PR)(const PR parsed) {
             cue.event = sc.event;
             cue.paths = sc.paths;
             cue.pathCount = sc.pathCount;
-            cue.cmds = sc.cmds;
-            cue.cmdCount = sc.cmdCount;
+
+            // A project block names a path and no command, so the control under
+            // it carries the command. Reading only the scope drops it, and the
+            // cue then names a ritual without naming what performs it.
+            if (parsed.ctrlPool[ci].cmdCount > 0) {
+                cue.cmds = parsed.ctrlPool[ci].cmds;
+                cue.cmdCount = parsed.ctrlPool[ci].cmdCount;
+            } else {
+                cue.cmds = sc.cmds;
+                cue.cmdCount = sc.cmdCount;
+            }
 
             foreach (ri; 0 .. parsed.ritualCount) {
                 if (parsed.rituals[ri].name != name) continue;

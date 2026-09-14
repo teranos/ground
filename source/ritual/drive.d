@@ -1,5 +1,7 @@
 module ritual.drive;
 
+// BOOK_GLOSSARY **Driver**: The loop that keeps a performance moving, one per performance, forked when it starts.
+
 import ritual.position : RitualState;
 import ritual.resolve : flatten;
 import ritual.run : advance, briefing;
@@ -28,6 +30,11 @@ bool mayRemoveTree(RitualState ended, const(char)[] declaredTree) {
 // ground drive <performance> — the loop that keeps a performance moving. The
 // watcher cannot: delivery is `exit 2`, so it dies every time it speaks, and
 // an agent working a rite reaches neither a Stop nor a new watcher.
+enum BOOK_COMMAND = q"EOS
+# the driver ground ritual forks, one per performance, by the performance id:
+ground drive ground-coinflip-1786812152
+EOS";
+
 int handleDrive(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import core.stdc.time : time;
@@ -140,13 +147,15 @@ int handleDrive(int argc, const(char)** argv) {
             // driver walks most of them, and walked all of them silently.
             // Only on a move: a held rite is re-run every cycle.
             if (moved) {
-                import notification : riteLine;
+                import notification : riteLine, riteWords;
                 import ritual.delivery : deliver;
                 import db : ZBuf;
 
                 auto rite = flat.rites[found.p.current].name;
                 auto line = riteLine(found.p.ritual, rite, res.verdict, "", found.p.id,
-                                     flat.rites[found.p.current].mic,
+                                     riteWords(res.verdict,
+                                               flat.rites[found.p.current].mic,
+                                               flat.rites[found.p.current].msg),
                                      flat.rites[found.p.current].dispatch);
 
                 // The note id is the key, so the revision keeps a rite asked

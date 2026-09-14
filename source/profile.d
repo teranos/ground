@@ -69,6 +69,13 @@ const(char)[] sliceArg(const(char)* ptr) {
     return ptr[0 .. len];
 }
 
+enum BOOK_COMMAND = q"EOS
+# timing table:
+ground profile
+# one event, its phases and its worst runs:
+ground profile PreToolUse
+EOS";
+
 int handleProfile(int argc, const(char)** argv) {
     auto db = openDb();
     if (db is null) { fputs("ground profile: cannot open db\n", stderr); return 1; }
@@ -246,66 +253,8 @@ int handleProfile(int argc, const(char)** argv) {
     return 0;
 }
 
-struct PhaseEntry {
-    const(char)[] key;
-    long val;
-    bool isSub; // indented sub-phase
-}
-
-// Parse phases into flat array of entries (including sub-phases).
-int parsePhases(const(char)[] phases, ref PhaseEntry[32] entries) {
-    if (phases.length == 0) return 0;
-    int count = 0;
-    size_t i = 0;
-    while (i < phases.length && count < 32) {
-        auto keyStart = i;
-        while (i < phases.length && phases[i] != '=') i++;
-        if (i >= phases.length) break;
-        auto key = phases[keyStart .. i];
-        i++;
-
-        // Check for non-numeric value (e.g. exit=deny)
-        if (i < phases.length && (phases[i] < '0' || phases[i] > '9')) {
-            while (i < phases.length && phases[i] != ' ') i++;
-            if (i < phases.length && phases[i] == ' ') i++;
-            continue;
-        }
-
-        long val = 0;
-        while (i < phases.length && phases[i] >= '0' && phases[i] <= '9') {
-            val = val * 10 + (phases[i] - '0');
-            i++;
-        }
-        if (i + 1 < phases.length && phases[i] == 'u' && phases[i + 1] == 's') i += 2;
-
-        if (key != "exit" && key != "total")
-            entries[count++] = PhaseEntry(key, val, false);
-
-        // Sub-phases in parens
-        if (i < phases.length && phases[i] == '(') {
-            i++;
-            while (i < phases.length && phases[i] != ')' && count < 32) {
-                auto sk = i;
-                while (i < phases.length && phases[i] != '=') i++;
-                if (i >= phases.length) break;
-                auto skey = phases[sk .. i];
-                i++;
-                long sval = 0;
-                while (i < phases.length && phases[i] >= '0' && phases[i] <= '9') {
-                    sval = sval * 10 + (phases[i] - '0');
-                    i++;
-                }
-                if (i + 1 < phases.length && phases[i] == 'u' && phases[i + 1] == 's') i += 2;
-                if (i < phases.length && phases[i] == ' ') i++;
-                entries[count++] = PhaseEntry(skey, sval, true);
-            }
-            if (i < phases.length && phases[i] == ')') i++;
-        }
-
-        if (i < phases.length && phases[i] == ' ') i++;
-    }
-    return count;
-}
+// The grammar of the phases column is phases.d's; this reads rows in it.
+import phases : PhaseEntry, parsePhases;
 
 void emitUsVal(ref Buf out_, long val) {
     if (val >= 1_000_000) {

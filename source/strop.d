@@ -1,5 +1,7 @@
 module strop;
 
+// BOOK_GLOSSARY **Strop**: A denial computed from the shape of a value that was seen.
+
 // Value-shape validator on an extracted Bash flag value. Fifth Control field
 // alongside arg/omit/omitLine/clamp — the first pure validator (the others
 // rewrite the command; strop denies on shape mismatch).

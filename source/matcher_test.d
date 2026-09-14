@@ -4,7 +4,7 @@ import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
                  applySubstituteForCmd,
                  wildcardContains, containsExact, extractLeadingCd,
-                 maxCommentRun, effectiveCwd;
+                 maxCommentRun, effectiveCwd, tildeExpanded;
 
 // --- where a command actually ran ---
 // PostToolUse matched scopes against the session cwd alone, so a control
@@ -23,6 +23,15 @@ static assert(effectiveCwd("cd /a && echo x && cd /b && echo y", "/home/u") == "
 
 // A quoted path still resolves.
 static assert(effectiveCwd(`cd "/srv/my app" && echo hi`, "/home/u") == "/srv/my app");
+
+// The shell expands a tilde before cd ever sees it, and ground reads the
+// command text. Two pushes made as `cd ~/... ; git push` started no ritual:
+// the literal was handed to git, which found no repo there.
+static assert(() { char[64] b; return tildeExpanded("~/work/proj", "/home/u", b[]) == "/home/u/work/proj"; }());
+static assert(() { char[64] b; return tildeExpanded("~", "/home/u", b[]) == "/home/u"; }());
+static assert(() { char[64] b; return tildeExpanded("/srv/app", "/home/u", b[]) == "/srv/app"; }());
+static assert(() { char[64] b; return tildeExpanded("~user/x", "/home/u", b[]) == "~user/x"; }());
+static assert(() { char[64] b; return tildeExpanded("~/x", "", b[]) == "~/x"; }());
 
 // cd is not the only way a command says where it works. A push aimed elsewhere
 // with -C was recorded where the session stood: one started a QNTX deploy from
@@ -682,6 +691,16 @@ unittest {
     // // counts as well as #, since this has to hold in D, Go and TS too.
     assert(maxCommentRun("// a\n// b\n// c\n// d") == 4);
     assert(maxCommentRun("  // indented\n  // still a comment") == 2);
+}
+
+unittest {
+    // `///` is the reference, not commentary. The book is generated from it,
+    // so it is reviewed as the book rather than buried where nothing reads it.
+    assert(maxCommentRun("/// a\n/// b\n/// c\n/// d\n/// e") == 0);
+
+    // It is not scaffolding either: a run of `//` ends where the doc begins,
+    // so alternating the two markers cannot smuggle a block past the count.
+    assert(maxCommentRun("// a\n/// doc\n// b") == 1);
 }
 
 unittest {

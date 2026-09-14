@@ -1,7 +1,7 @@
 module intent_test;
 
-// Brandon: "its not coming here" / "you made it at some point, and it worked
-// at some point, and now its gone again"
+// "its not coming here"
+// "you made it at some point, and it worked at some point, and now its gone again"
 
 import ritual.intent : nameable, writeIntent, takeIntent;
 

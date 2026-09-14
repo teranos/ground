@@ -73,8 +73,19 @@ session 103 turns.
 > is designed probably"
 
 The floor a rite is given is `GROUND_SESSION_ID`, `GROUND_BRANCH`,
-`GROUND_TOOL_INPUT`. `GROUND_CWD` is gone — a rite that cannot name a place
-cannot leave the one it was given.
+`GROUND_TOOL_INPUT`, `GROUND_TOOL_OUTPUT`. `GROUND_CWD` is gone — a rite that
+cannot name a place cannot leave the one it was given.
+
+`GROUND_TOOL_OUTPUT` is what the tool printed, `tool_response.stdout` of the
+PostToolUse that fired the control, unescaped. A push says what it did in git's
+own words — `[new tag]`, `[new branch]`, `abc..def` — and a rite reads those
+rather than guessing from the command that was typed.
+
+> "if we have TOOL_INPUT, it makes sense to have TOOL_OUTPUT, seems predictable"
+
+A ritual's driver inherits the floor and every rite inherits the driver. The
+driver used to be started with nothing, so a rite in a ritual read an empty
+`GROUND_TOOL_INPUT`; the tool call now reaches it.
 
 One token: `QNTX_TOKEN`, else `~/.qntx/token`.
 

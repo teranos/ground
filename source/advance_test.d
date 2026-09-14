@@ -13,23 +13,53 @@ import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK,
 
 enum src = `
 rites walk {
-  START { eval: "true" }
-  HOLD  { eval: "false"  catch: 1 }
-  BACK  { eval: "false"  catch: 1  goto: START }
-  WEIRD { eval: "exit 3" }
-  SLOW  { eval: "echo short-moon Successful in 8s"  wait: 20  to: parent }
-  AFTER { eval: "true" }
+  START {
+    eval: "true"
+  }
+  HOLD {
+    eval: "false"
+    catch: 1
+  }
+  BACK {
+    eval: "false"
+    catch: 1
+    goto: START
+  }
+  WEIRD {
+    eval: "exit 3"
+  }
+  SLOW {
+    eval: "echo short-moon Successful in 8s"
+    wait: 20
+    to: parent
+  }
+  AFTER {
+    eval: "true"
+  }
 
   # "a different rite that runs a tool unconditionally"
-  ACTED { run: "true" }
-  BOTH  { run: "true"   eval: "false"  catch: 1 }
-  BROKE { run: "exit 4" eval: "true" }
-  LAST  { eval: "true" }
+  ACTED {
+    run: "true"
+  }
+  BOTH {
+    run: "true"
+    eval: "false"
+    catch: 1
+  }
+  BROKE {
+    run: "exit 4"
+    eval: "true"
+  }
+  LAST {
+    eval: "true"
+  }
 }
 
 project {
   path: "/src/proj"
-  ritual probe { walk }
+  ritual probe {
+    walk
+  }
 }
 `;
 enum parsed = parsePbt(src);
@@ -176,13 +206,21 @@ import ritual : MAX_GOTOS, MAX_EVALS, RitualState;
 
 enum loopSrc = `
 rites spin {
-  HERE { eval: "true" }
-  BACK { eval: "false"  catch: 1  goto: HERE }
+  HERE {
+    eval: "true"
+  }
+  BACK {
+    eval: "false"
+    catch: 1
+    goto: HERE
+  }
 }
 
 project {
   path: "/src/proj"
-  ritual spinner { spin }
+  ritual spinner {
+    spin
+  }
 }
 `;
 enum loopFlat = flatten(parsePbt(loopSrc), 0);
@@ -191,14 +229,22 @@ enum loopFlat = flatten(parsePbt(loopSrc), 0);
 // a ritual, so a project says how long its agentic loops may run.
 enum boundSrc = `
 rites spin2 {
-  THERE { eval: "true" }
-  AWAY  { eval: "false"  catch: 1  goto: THERE }
+  THERE {
+    eval: "true"
+  }
+  AWAY {
+    eval: "false"
+    catch: 1
+    goto: THERE
+  }
 }
 
 project {
   path: "/src/bound"
   max_goto: 3
-  ritual bounded { spin2 }
+  ritual bounded {
+    spin2
+  }
 }
 `;
 enum boundFlat = flatten(parsePbt(boundSrc), 0);
@@ -230,12 +276,16 @@ unittest {
 // one, held 103 turns of a session, and would have held forever.
 enum stuckSrc = `
 rites stuck {
-  ASKS { eval: "false" }
+  ASKS {
+    eval: "false"
+  }
 }
 
 project {
   path: "/src/stuck"
-  ritual asking { stuck }
+  ritual asking {
+    stuck
+  }
 }
 `;
 enum stuckFlat = flatten(parsePbt(stuckSrc), 0);
@@ -426,15 +476,24 @@ unittest {
 
 enum speakSrc = `
 rites talk {
-  SPEAK { run: "echo pr-comment-body" }
-  QUIET { eval: "echo eval-said-this" }
+  SPEAK {
+    run: "echo pr-comment-body"
+  }
+  QUIET {
+    eval: "echo eval-said-this"
+  }
 
-  AGAIN { eval: "echo the-same-comment; exit 1"  catch: 1 }
+  AGAIN {
+    eval: "echo the-same-comment; exit 1"
+    catch: 1
+  }
 }
 
 project {
   path: "/src/proj"
-  ritual talker { talk }
+  ritual talker {
+    talk
+  }
 }
 `;
 enum speakFlat = flatten(parsePbt(speakSrc), 0);
@@ -502,16 +561,25 @@ unittest {
 
 enum hopSrc = `
 rites hop {
-  WAIT       { run: "true" }
-  TRAMPOLINE { goto: END }
-  HEDGE1 { }
-  HEDGE2 { }
-  END { }
+  WAIT {
+    run: "true"
+  }
+  TRAMPOLINE {
+    goto: END
+  }
+  HEDGE1 {
+  }
+  HEDGE2 {
+  }
+  END {
+  }
 }
 
 project {
   path: "/src/proj"
-  ritual jumper { hop }
+  ritual jumper {
+    hop
+  }
 }
 `;
 enum hopFlat = flatten(parsePbt(hopSrc), 0);

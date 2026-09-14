@@ -3,6 +3,32 @@ module attest;
 import core.stdc.stdio : stderr, fputs, fwrite, fprintf;
 import db : ZBuf;
 
+enum RETRY_ATTEMPTS = 5;
+
+// "QNTX RESTARTS SOEMTHIMES"
+// "BUT THERE ISNT REALLY AN INSTANCE WHERE ITS DOWN FOR MORE THAN 5 MINUTES"
+bool shouldRetry(int code) {
+    return code == 0 || (code >= 500 && code < 600);
+}
+
+extern (C) uint sleep(uint seconds);
+
+void sleepSeconds(int secs) {
+    if (__ctfe || secs <= 0) return;
+    sleep(cast(uint) secs);
+}
+
+int backoffSeconds(int attempt) {
+    switch (attempt) {
+        case 0: return 2;
+        case 1: return 5;
+        case 2: return 15;
+        case 3: return 45;
+        case 4: return 90;
+        default: return 0;
+    }
+}
+
 // One token. A second name for the same credential is a second thing to
 // rotate, and the one nobody rotated went stale and was refused for weeks.
 // What tells these attestations apart is actors ["ground"], not the filename.
@@ -37,15 +63,20 @@ private const(char)[] qntxToken() {
     return trimToken(tokBuf[0 .. cast(size_t) n]);
 }
 
-int handleAttest() {
-    import controls : qntxNodes, attestations;
+enum BOOK_COMMAND = q"EOS
+# post the pbt's attestations to their backends (make install does):
+ground attest
+EOS";
 
-    if (qntxNodes.length == 0) {
-        fputs("ground attest: no qntx nodes defined\n", stderr);
-        return 0;
-    }
+int handleAttest() {
+    import controls : postingList, attestations;
+
     if (attestations.length == 0) {
         fputs("ground attest: no attestations defined\n", stderr);
+        return 0;
+    }
+    if (postingList.length == 0) {
+        fputs("ground attest: no project names a qntx: backend\n", stderr);
         return 0;
     }
 
@@ -54,8 +85,9 @@ int handleAttest() {
 
     auto token = qntxToken();
 
-    foreach (ref node; qntxNodes) {
-        foreach (ref a; attestations) {
+    foreach (ref p; postingList) {
+        {
+            auto a = attestations[p.attestation];
             __gshared ZBuf body_;
             body_.reset();
             body_.put(`{"subjects":["`);
@@ -73,20 +105,27 @@ int handleAttest() {
 
             __gshared ZBuf url;
             url.reset();
-            url.put(node.url);
+            url.put(p.url);
             url.put("/api/attestations");
 
-            // http:// goes over the in-process socket; anything else needs
-            // DNS and TLS, which is curl's job.
-            import http : httpPost, curlPost, needsCurl;
-            auto remote = needsCurl(node.url);
-            auto code = remote
-                ? curlPost(url.slice(), body_.slice(), token)
-                : httpPost(url.slice(), body_.slice(), 400);
+            import http : curlPost;
+
+            int code;
+            int tries = 0;
+            while (true) {
+                code = curlPost(url.slice(), body_.slice(), token);
+                if (!shouldRetry(code) || tries >= RETRY_ATTEMPTS - 1) break;
+
+                auto wait = backoffSeconds(tries);
+                fprintf(stderr, "  %s %s -> %d, retrying in %ds\n".ptr,
+                        url.ptr(), a.subject.ptr, code, wait);
+                sleepSeconds(wait);
+                tries++;
+            }
 
             // Report
             fputs("  ", stderr);
-            fputs2(node.url);
+            fputs2(p.url);
             fputs(" ", stderr);
             fputs2(a.subject);
             fputs(" -> ", stderr);
@@ -102,7 +141,7 @@ int handleAttest() {
                     stderr);
                 failed++;
             } else if (code == 0) {
-                fputs(remote ? "unreachable (curl)\n" : "unreachable\n", stderr);
+                fputs("unreachable (curl)\n", stderr);
                 failed++;
             } else {
                 fprintf(stderr, "%d failed\n".ptr, code);

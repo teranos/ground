@@ -1,11 +1,12 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applyRange, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
 import strop : stropDispatch;
 import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
 import core.stdc.stdio : stdout, fputs, fwrite, stderr, fprintf;
 import db : ZBuf;
+import sessionmode : SessionMode;
 
 void emitProfile(ref ZBuf buf) {
     import main : setPhases;
@@ -23,25 +24,78 @@ void putInt(ref ZBuf buf, long v) {
 }
 
 // Advisory controls inject context without overriding permission prompts.
-// Only explicit "ask" or "deny" should be sent as permissionDecision.
+// Only an explicit deny is sent as permissionDecision: ground never says ask.
 const(char)[] advisoryDecision(const(char)[] decision) {
-    if (decision == "ask" || decision == "deny") return decision;
+    if (decision == "deny") return decision;
     return "";
 }
 
 // --- JSON response writers (PreToolUse format) ---
 
-// Context-only response for non-Bash tools (no updatedInput).
-void writeContextResponse(const(char)[] context, const(char)[] decision) {
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`, stdout);
-    if (decision.length > 0) {
-        fputs(`,"permissionDecision":"`, stdout);
-        fputs2(decision);
-        fputs(`"`, stdout);
+// The rewritten tool_input for the call in flight, computed once before any
+// control is asked, and the reason. Every answer the handler gives carries it:
+// a permission rule that allowed a write used to answer before the rewrite was
+// reached, and in auto mode that was every write.
+__gshared const(char)[] pendingRewrite;
+__gshared const(char)[] pendingWhy;
+
+// Appends a JSON string with the same escaping writeJsonString prints.
+private void putJsonString(ref char[] dest, ref size_t n, const(char)[] s) {
+    void one(const(char)[] piece) { foreach (c; piece) if (n < dest.length) dest[n++] = c; }
+    foreach (c; s) {
+        switch (c) {
+            case '"': one(`\"`); break;
+            case '\\': one(`\\`); break;
+            case '\n': one(`\n`); break;
+            case '\r': one(`\r`); break;
+            case '\t': one(`\t`); break;
+            default: if (n < dest.length) dest[n++] = c; break;
+        }
     }
-    fputs(`,"additionalContext":"`, stdout);
-    writeJsonString(context);
-    fputs(`"}}`, stdout);
+}
+
+// The PreToolUse answer, built into a buffer the caller owns so a test can
+// read it. An updated input rides along whenever there is one, whatever the
+// decision: the rewrite is the floor, and the floor is not conditional on
+// which rule happened to speak first.
+const(char)[] contextResponse(char[] dest, const(char)[] context, const(char)[] decision,
+                              const(char)[] updatedInput) {
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < dest.length) dest[n++] = c; }
+    put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`);
+    if (decision.length > 0) {
+        put(`,"permissionDecision":"`);
+        put(decision);
+        put(`"`);
+    }
+    if (updatedInput.length > 0) {
+        put(`,"updatedInput":`);
+        put(updatedInput);
+    }
+    put(`,"additionalContext":"`);
+    putJsonString(dest, n, context);
+    put(`"}}`);
+    return dest[0 .. n];
+}
+
+// Context response for non-Bash tools. Carries the pending rewrite, and says
+// why beside whatever else there was to say.
+void writeContextResponse(const(char)[] context, const(char)[] decision) {
+    __gshared char[262144] out_ = 0;
+    __gshared char[4096] said = 0;
+    size_t sn;
+    void say(const(char)[] s) { foreach (c; s) if (sn < said.length) said[sn++] = c; }
+    say(context);
+    if (pendingWhy.length > 0) {
+        if (sn > 0) say(" ");
+        say(pendingWhy);
+    }
+    // A write the floor changed is allowed as changed; a decision that was
+    // only advisory does not turn into a prompt for it.
+    auto verdict = decision;
+    if (pendingRewrite.length > 0 && verdict.length == 0) verdict = "allow";
+    auto r = contextResponse(out_[], said[0 .. sn], verdict, pendingRewrite);
+    fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
 }
 
@@ -109,10 +163,39 @@ bool needsCorpus(const(char)[] toolName, const(char)[] command) {
 // authoring any, so rewriting it can only stop the edit from matching.
 private static immutable string[2] WRITTEN_FIELDS = ["content", "new_string"];
 
-// True when the whole tool_input was reissued with the home directory taken
-// out of it. False leaves the call exactly as it arrived.
-bool rewroteHome(const(char)[] input, const(char)[] toolName) {
-    import homedir : rewriteField, isScratch, HOME_TOKEN;
+struct StandingPair {
+    const(char)[] pair;
+    const(char)[] msg;
+    bool done;
+}
+
+// A rewrite is a control, and a control fires where its scope stands. Walked by
+// index so nothing has to be sized to hold the answer.
+StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
+                               const(char)[] root, size_t want) {
+    import hooks : scopeMatchesIn;
+
+    size_t seen = 0;
+    foreach (si; 0 .. parsed.scopeCount) {
+        auto sc = parsed.scopes[si];
+        if (!scopeMatchesIn(sc, cwd, root)) continue;
+        foreach (ci; sc.controlStart .. sc.controlEnd) {
+            auto c = parsed.ctrlPool[ci];
+            foreach (pi; 0 .. c.rewriteCount) {
+                if (seen == want) return StandingPair(c.rewrites[pi], c.msg, false);
+                seen++;
+            }
+        }
+    }
+    return StandingPair(null, null, true);
+}
+
+// Computes the rewritten tool_input for a Write or Edit and leaves it in
+// pendingRewrite, with the reason in pendingWhy. True when something changed.
+// Nothing is written here: whichever answer the handler gives carries it.
+bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] cwd) {
+    import homedir : rewriteField, HOME_TOKEN;
+    import audience : audienceOf, internetSees, Audience;
     import hooks : rewriteFrom, rewriteTo;
     import controls : allParsed;
     import parse : extractToolInputRegion;
@@ -120,9 +203,11 @@ bool rewroteHome(const(char)[] input, const(char)[] toolName) {
 
     if (toolName != "Write" && toolName != "Edit") return false;
 
-    // Scratch is where a fixture carrying a real path belongs, and rewriting
-    // one there breaks the fixture without protecting anything.
-    if (isScratch(extractFilePath(input))) return false;
+    // Nobody sees it, nothing to protect: scratch, a file outside any
+    // repository, a private one.
+    auto target = extractFilePath(input);
+    auto where = target.length > 0 ? target : cwd;
+    if (!internetSees(audienceOf(where, false))) return false;
 
     auto region = extractToolInputRegion(input);
     if (region is null) return false;
@@ -144,53 +229,61 @@ bool rewroteHome(const(char)[] input, const(char)[] toolName) {
 
     static immutable parsed = allParsed;
 
-    foreach (si; 0 .. parsed.scopeCount) {
-        auto sc = parsed.scopes[si];
-        foreach (ci; sc.controlStart .. sc.controlEnd) {
-            auto c = parsed.ctrlPool[ci];
-            foreach (pi; 0 .. c.rewriteCount) {
-                auto pair = c.rewrites[pi];
-                auto from = rewriteFrom(pair);
-                auto to = rewriteTo(pair);
-                if (from == HOME_TOKEN) from = home;
-                if (from.length == 0 || to.length == 0) continue;
+    // The scope is asked about the file being changed, not about where the
+    // session stands. A session in a public repo writing into a private one
+    // was scrubbing the private file for being in the wrong company.
+    import git : repoRoot;
+    auto root = repoRoot(where);
 
-                foreach (key; WRITTEN_FIELDS) {
-                    auto dest = inA ? bufA[] : bufB[];
-                    auto r = rewriteField(current, key, from, to, dest);
-                    // Not fitting is not a rewrite. The call goes through as
-                    // it arrived rather than through a value cut short.
-                    if (!r.fit) return false;
-                    if (r.found == 0) continue;
-                    found += r.found;
-                    current = dest[0 .. r.len];
-                    inA = !inA;
-                    if (why.length == 0) why = c.msg;
-                }
-            }
+    for (size_t i = 0;; i++) {
+        auto sp = standingRewrite(parsed, where, root, i);
+        if (sp.done) break;
+
+        auto from = rewriteFrom(sp.pair);
+        auto to = rewriteTo(sp.pair);
+        if (from == HOME_TOKEN) from = home;
+        if (from.length == 0 || to.length == 0) continue;
+
+        foreach (key; WRITTEN_FIELDS) {
+            auto dest = inA ? bufA[] : bufB[];
+            auto r = rewriteField(current, key, from, to, dest);
+            // Not fitting is not a rewrite. The call goes through as
+            // it arrived rather than through a value cut short.
+            if (!r.fit) return false;
+            if (r.found == 0) continue;
+            found += r.found;
+            current = dest[0 .. r.len];
+            inA = !inA;
+            if (why.length == 0) why = sp.msg;
         }
     }
 
     if (found == 0) return false;
 
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":`, stdout);
-    fwrite(current.ptr, 1, current.length, stdout);
-    fputs(`,"additionalContext":"`, stdout);
-    writeJsonString(why);
-    fputs(`"}}` ~ "\n", stdout);
+    // "gitignored files should be excempt from the golem rewrite rule"
+    // Asked here and not earlier, so a write nothing would rewrite never forks git.
+    if (audienceOf(where, true) == Audience.Ignored) return false;
+
+    // current is a slice of one of the two __gshared buffers, which outlive
+    // this call, so the handler reads it whenever it answers.
+    pendingRewrite = current;
+    pendingWhy = why;
     return true;
 }
 
 // Called only where ground would otherwise leave the decision to a human, so
-// the common allow and deny paths pay nothing for it.
-private bool inLivePerformance(const(char)[] cwd) {
+// the common allow and deny paths pay nothing for it. A manual session is
+// refused before the row is read: the mode alone decides, no lookup needed.
+private bool inLivePerformance(const(char)[] cwd, SessionMode sessionMode) {
     import ritual : performanceAnswers, readPositionAt;
+    import sessionmode : grants;
     import db : openDb, sqlite3_close;
+    if (!grants(sessionMode)) return false;
     auto pdb = openDb();
     if (pdb is null) return false;
     auto perf = readPositionAt(pdb, cwd);
     sqlite3_close(pdb);
-    return performanceAnswers(perf.valid, perf.p.state);
+    return performanceAnswers(perf.valid, perf.p.state, sessionMode);
 }
 
 // --- PreToolUse handler ---
@@ -200,13 +293,31 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     import parse : extractPermissionMode;
     auto t0 = usecNow();
     long tParse, tBinary, tMatch, tDb, tPerm;
+    const(char)[] exitLabel = "none";
+
+    // One row for every exit. A deny or an early answer used to leave the
+    // phases blank, and a third of the table said nothing about itself.
+    scope (exit) {
+        import phases : phaseChain;
+        static immutable string[5] KEYS = ["parse", "binary", "match", "db", "perm"];
+        long[5] stamps = [tParse, tBinary, tMatch, tDb, tPerm];
+        __gshared ZBuf prof;
+        prof.reset();
+        phaseChain(prof, t0, KEYS[], stamps[], usecNow(), exitLabel);
+        emitProfile(prof);
+    }
 
     auto toolName = extractToolName(input);
-    // Which mode the session is in, so a permission block can name one. Absent,
-    // a block that names a mode grants nothing.
-    auto sessionMode = extractPermissionMode(input);
+    import sessionmode : parseSessionMode;
+    auto sessionMode = parseSessionMode(extractPermissionMode(input));
     auto toolUseId = extractToolUseId(input);
     if (toolUseId is null) toolUseId = "unknown";
+
+    // The floor comes first. What the file will hold is decided before any
+    // rule is asked, so no rule's answer can leave the original in place.
+    pendingRewrite = null;
+    pendingWhy = null;
+    computeRewrite(input, toolName, cwd);
 
     auto command = extractCommand(input);
 
@@ -272,6 +383,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 denyMsg.put("Binary file detected: ");
                 denyMsg.put(binaryFile);
                 denyMsg.put(". Binary files must not be committed.");
+                exitLabel = "binary-deny";
                 writeDenyResponse(denyMsg.slice());
                 return 0;
             }
@@ -283,14 +395,14 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         {
             import substitute : readTargets, handOver;
             import controls : allScopes;
-            import matcher : effectiveCwd;
+            import matcher : effectiveCwd, shellHome;
 
             foreach (ref sc; allScopes) {
                 foreach (ref ctrl; sc.controls) {
                     auto utils = ctrl.substituteForRead.values();
                     if (utils.length == 0) continue;
 
-                    auto eff = effectiveCwd(command, cwd);
+                    auto eff = effectiveCwd(command, cwd, shellHome());
                     auto targets = readTargets(command, utils);
                     if (targets.count == 0) continue;
 
@@ -304,6 +416,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         if (handOver(handed, targets.paths[i], eff)) any = true;
                     if (!any) continue;
 
+                    exitLabel = "handed";
                     writeDenyResponse(handed.slice());
                     return 0;
                 }
@@ -361,7 +474,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.bg.value) hasBg = true;
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
-                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.substituteForCmd.value.length == 0;
+                bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.range.value.length == 0 && c.substituteForCmd.value.length == 0;
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -397,6 +510,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         amended = applyOmit(c, m.segment);
                     else if (c.clamp.value.length > 0)
                         amended = applyClamp(c.clamp.value, m.segment);
+                    else if (c.range.value.length > 0)
+                        amended = applyRange(c.range.value, m.segment);
                     else
                         amended = applyArg(c, m.segment);
 
@@ -421,29 +536,34 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
             if (db !is null) sqlite3_close(db);
             tDb = usecNow();
-
-            __gshared ZBuf prof;
-            prof.reset();
-            prof.put("parse="); putInt(prof, tParse-t0);
-            prof.put("us binary="); putInt(prof, tBinary-tParse);
-            prof.put("us match="); putInt(prof, tMatch-tBinary);
-            prof.put("us db="); putInt(prof, tDb-tMatch);
-            prof.put("us total="); putInt(prof, tDb-t0);
-            if (hasDeny) prof.put("us exit=deny");
-            else prof.put("us exit=control");
-            emitProfile(prof);
+            exitLabel = hasDeny ? "deny" : "control";
 
             if (hasDeny) {
                 writeDenyResponse(allMessages.slice());
                 return 0;
             }
 
+            // "a control can't invalidate a permission"
+            {
+                import controls : permissionScopes;
+                import permission : evaluatePermission, Decision;
+                import decide : combine;
+                auto pr = evaluatePermission(permissionScopes, cwd, toolName, command, sessionMode);
+                if (pr.decision == Decision.deny) {
+                    exitLabel = "deny";
+                    writeDenyResponse(pr.msg);
+                    return 0;
+                }
+                finalDecision = combine(finalDecision, pr.decision);
+            }
+
             // A deny is ground answering; an ask is ground handing the question
             // to someone who has walked away. The rewrites above still applied.
-            if (finalDecision == "ask" && inLivePerformance(cwd)) finalDecision = "allow";
+            if (finalDecision == "ask" && inLivePerformance(cwd, sessionMode)) finalDecision = "allow";
 
             if (takesUpdatedInput(toolName)) {
-                writeResponse(finalCommand.slice(), allMessages.slice(), finalDecision,
+                import decide : spoken;
+                writeResponse(finalCommand.slice(), allMessages.slice(), spoken(finalDecision),
                     hasBg, maxTmo);
                 return 0;
             }
@@ -480,29 +600,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         auto permResult = evaluatePermission(permissionScopes, cwd, toolName, seg, sessionMode);
                         if (permResult.decision == Decision.deny) {
                             tPerm = usecNow();
-                            __gshared ZBuf prof;
-                            prof.reset();
-                            prof.put("parse="); putInt(prof, tParse-t0);
-                            prof.put("us binary="); putInt(prof, tBinary-tParse);
-                            prof.put("us match="); putInt(prof, tMatch-tBinary);
-                            prof.put("us perm="); putInt(prof, tPerm-tMatch);
-                            prof.put("us total="); putInt(prof, tPerm-t0);
-                            prof.put("us exit=perm-deny");
-                            emitProfile(prof);
+                            exitLabel = "perm-deny";
                             writeDenyResponse(permResult.msg);
                             return 0;
                         }
                         if (permResult.decision == Decision.allow) {
                             tPerm = usecNow();
-                            __gshared ZBuf prof;
-                            prof.reset();
-                            prof.put("parse="); putInt(prof, tParse-t0);
-                            prof.put("us binary="); putInt(prof, tBinary-tParse);
-                            prof.put("us match="); putInt(prof, tMatch-tBinary);
-                            prof.put("us perm="); putInt(prof, tPerm-tMatch);
-                            prof.put("us total="); putInt(prof, tPerm-t0);
-                            prof.put("us exit=perm-allow");
-                            emitProfile(prof);
+                            exitLabel = "perm-allow";
                             if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
                             else writeContextResponse("", "allow");
                             return 0;
@@ -519,21 +623,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         }
 
         tPerm = usecNow();
-        {
-            __gshared ZBuf prof;
-            prof.reset();
-            prof.put("parse="); putInt(prof, tParse-t0);
-            prof.put("us binary="); putInt(prof, tBinary-tParse);
-            prof.put("us match="); putInt(prof, tMatch-tBinary);
-            prof.put("us perm="); putInt(prof, tPerm-tMatch);
-            prof.put("us total="); putInt(prof, tPerm-t0);
-            prof.put("us exit=bash-none");
-            emitProfile(prof);
-        }
+        exitLabel = "bash-none";
 
         // Saying nothing is what let Claude Code ask. Inside a performance
         // there is nobody to ask, so ground answers instead.
-        if (inLivePerformance(cwd)) {
+        if (inLivePerformance(cwd, sessionMode)) {
             if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
             else writeContextResponse("", "allow");
         }
@@ -556,6 +650,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     sqlite3_close(pdb);
                 }
             }
+            exitLabel = "file-perm-deny";
             writeDenyResponse(permResult.msg);
             return 0;
         }
@@ -564,6 +659,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         // deny and never permit. Which meant where a session launched decided
         // whether an edit asked, and no rule could say otherwise.
         if (permResult.decision == Decision.allow) {
+            exitLabel = "file-perm-allow";
             writeContextResponse("", "allow");
             return 0;
         }
@@ -613,6 +709,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (db !is null) sqlite3_close(db);
 
         if (mcpMsgBuf.len > 0) {
+            exitLabel = "mcp";
             writeContextResponse(mcpMsgBuf.slice(), "");
             return 0;
         }
@@ -727,31 +824,28 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (db !is null) sqlite3_close(db);
 
         if (fileMsgBuf.len > 0) {
+            exitLabel = "file-control";
             writeContextResponse(fileMsgBuf.slice(), advisoryDecision(fileDecision));
             return 0;
         }
     }
 
-    // The author's home directory is rewritten out of what is about to be
-    // written. file_path is left alone: rewriting that sends the write to a
-    // path that does not exist.
-    if (rewroteHome(input, toolName)) return 0;
+    // Nothing else spoke. A pending rewrite is the whole answer; file_path is
+    // left alone, since rewriting that sends the write to a path that does
+    // not exist.
+    if (pendingRewrite.length > 0) {
+        exitLabel = "rewrite";
+        writeContextResponse("", "allow");
+        return 0;
+    }
 
     // Every non-Bash tool lands here — a Write among them, which is what a
     // performance with nobody at its session gets stopped on.
-    if (inLivePerformance(cwd)) {
+    if (inLivePerformance(cwd, sessionMode)) {
+        exitLabel = "live";
         writeContextResponse("allowed by the live performance", "allow");
         return 0;
     }
 
-    auto tEnd = usecNow();
-    {
-        __gshared ZBuf prof;
-        prof.reset();
-        prof.put("parse="); putInt(prof, tParse-t0);
-        prof.put("us total="); putInt(prof, tEnd-t0);
-        prof.put("us exit=none");
-        emitProfile(prof);
-    }
     return 0;
 }

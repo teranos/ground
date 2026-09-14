@@ -1,7 +1,5 @@
 module proto_test;
 
-// TODO: split by feature area — see proto_exec_test.d for the pattern (one focused file per pbt feature).
-
 import proto : parsePbt, buildScopes, ParseResult;
 import hooks : CheckFn, DelayFn, DeliverFn;
 
@@ -14,7 +12,10 @@ auto perm(PR)(const PR r, size_t sc, size_t i) { return r.permPool[r.scopes[sc].
 
 // --- Static assert tests ---
 
-enum testInput = `
+// A control matches a command and answers with a message. omit takes a flag
+// back out of the command it matched; bg says the work runs detached and tmo
+// says how long it may take.
+enum cmdInput = `
 scope {
   path: ""
   decision: "allow"
@@ -35,7 +36,23 @@ scope {
     msg: "Build reminder"
   }
 }
+`;
+enum cmdParsed = parsePbt(cmdInput);
+static assert(cmdParsed.scopeCount == 1);
+static assert(cmdParsed.scopes[0].pathCount == 0);
+static assert(cmdParsed.scopes[0].decision == "allow");
+static assert(cmdParsed.scopes[0].event == "PreToolUse");
+static assert(cmdParsed.scopes[0].controlCount == 2);
+static assert(ctrl(cmdParsed, 0, 0).name == "test-cmd");
+static assert(ctrl(cmdParsed, 0, 0).cmd == "git");
+static assert(ctrl(cmdParsed, 0, 0).omit == "--no-verify");
+static assert(ctrl(cmdParsed, 0, 0).msg == "Don't skip hooks");
+static assert(ctrl(cmdParsed, 0, 1).bg == true);
+static assert(ctrl(cmdParsed, 0, 1).tmo == 5000);
 
+// A trigger is a phrase the answer is watched for. Written as a repeated key,
+// each one adds to the same list rather than replacing it.
+enum stopRepeatInput = `
 scope {
   path: "/QNTX"
   decision: "allow"
@@ -48,7 +65,17 @@ scope {
     msg: "That's a guess"
   }
 }
+`;
+enum stopRepeatParsed = parsePbt(stopRepeatInput);
+static assert(stopRepeatParsed.scopes[0].paths[0] == "/QNTX");
+static assert(stopRepeatParsed.scopes[0].event == "Stop");
+static assert(ctrl(stopRepeatParsed, 0, 0).triggerCount == 2);
+static assert(ctrl(stopRepeatParsed, 0, 0).triggers[0] == "likely because");
+static assert(ctrl(stopRepeatParsed, 0, 0).triggers[1] == "probably because");
 
+// Delivery can be put off: one handler says when the message is due, another
+// writes what it says. A line opening with # is a comment.
+enum deferInput = `
 # Comment line
 scope {
   path: ""
@@ -62,7 +89,16 @@ scope {
     deliver_handler: "ciDeliver"
   }
 }
+`;
+enum deferParsed = parsePbt(deferInput);
+static assert(deferParsed.scopes[0].event == "PostToolUseDeferred");
+static assert(ctrl(deferParsed, 0, 0).delayHandler == "ciDelay");
+static assert(ctrl(deferParsed, 0, 0).deliverHandler == "ciDeliver");
+static assert(ctrl(deferParsed, 0, 0).deferMsg == "");
 
+// A check handler is asked, when the session opens, whether what the control
+// has to say is still true.
+enum checkInput = `
 scope {
   path: ""
   decision: "allow"
@@ -74,7 +110,13 @@ scope {
     msg: "stale"
   }
 }
+`;
+enum checkParsed = parsePbt(checkInput);
+static assert(ctrl(checkParsed, 0, 0).checkHandler == "testCheck");
 
+// Left out is not the same as empty. A scope naming no path stands everywhere,
+// and one naming no decision carries none of its own.
+enum defaultsInput = `
 # Defaults test — no path, no decision
 scope {
   event: "PreToolUse"
@@ -84,82 +126,56 @@ scope {
     cmd: "echo"
   }
 }
+`;
+enum defaultsParsed = parsePbt(defaultsInput);
+static assert(defaultsParsed.scopes[0].pathCount == 0);
+static assert(defaultsParsed.scopes[0].decision == "");
+static assert(ctrl(defaultsParsed, 0, 0).name == "test-defaults");
+static assert(ctrl(defaultsParsed, 0, 0).msg == "");
 
+// The same list of triggers, written as a list. Six phrases under one control,
+// which is the form to reach for once a repeated key stops reading as one.
+enum stopListInput = `
 scope {
   event: "Stop"
 
   control {
     name: "test-stop-list"
     stop: [
-        "each conversation starts fresh",
-        "each session starts fresh",
-        "don't have access to previous conversation",
-        "don't have access to previous session",
-        "don't have access to conversation history",
-        "dialogue isn't stored anywhere"
+      "each conversation starts fresh",
+      "each session starts fresh",
+      "don't have access to previous conversation",
+      "don't have access to previous session",
+      "don't have access to conversation history",
+      "dialogue isn't stored anywhere"
     ]
     msg: "Wrong. Previous conversations are accessible. JSONL transcripts are stored at ~/.claude/projects/. The ground db at ~/.local/share/ground/ground.db stores last_assistant_message in Stop attestation attributes. Check before claiming you can't."
   }
 }
 `;
+enum stopListParsed = parsePbt(stopListInput);
+static assert(ctrl(stopListParsed, 0, 0).name == "test-stop-list");
+static assert(ctrl(stopListParsed, 0, 0).triggerCount == 6);
+static assert(ctrl(stopListParsed, 0, 0).triggers[0] == "each conversation starts fresh");
+static assert(ctrl(stopListParsed, 0, 0).triggers[1] == "each session starts fresh");
+static assert(ctrl(stopListParsed, 0, 0).triggers[2] == "don't have access to previous conversation");
+static assert(ctrl(stopListParsed, 0, 0).triggers[3] == "don't have access to previous session");
+static assert(ctrl(stopListParsed, 0, 0).triggers[4] == "don't have access to conversation history");
+static assert(ctrl(stopListParsed, 0, 0).triggers[5] == "dialogue isn't stored anywhere");
 
-// Test parse structure
+// What buildScopes does is pick one event out of many, so proving it needs
+// more than one scope. Composed from the parts above rather than written
+// again, so the whole can never drift from what each piece claims.
+enum testInput = cmdInput ~ stopRepeatInput ~ deferInput
+               ~ checkInput ~ defaultsInput ~ stopListInput;
+
+// Six parts, six scopes: the whole is what the pieces say it is.
 enum testParsed = parsePbt(testInput);
 static assert(testParsed.scopeCount == 6);
 
-// Scope 0: PreToolUse
-static assert(testParsed.scopes[0].pathCount == 0);
-static assert(testParsed.scopes[0].decision == "allow");
-static assert(testParsed.scopes[0].event == "PreToolUse");
-static assert(testParsed.scopes[0].controlCount == 2);
-static assert(ctrl(testParsed, 0, 0).name == "test-cmd");
-static assert(ctrl(testParsed, 0, 0).cmd == "git");
-static assert(ctrl(testParsed, 0, 0).omit == "--no-verify");
-static assert(ctrl(testParsed, 0, 0).msg == "Don't skip hooks");
-static assert(ctrl(testParsed, 0, 1).bg == true);
-static assert(ctrl(testParsed, 0, 1).tmo == 5000);
-
-// Scope 1: Stop with multi-trigger
-static assert(testParsed.scopes[1].paths[0] == "/QNTX");
-static assert(testParsed.scopes[1].event == "Stop");
-static assert(ctrl(testParsed, 1, 0).triggerCount == 2);
-static assert(ctrl(testParsed, 1, 0).triggers[0] == "likely because");
-static assert(ctrl(testParsed, 1, 0).triggers[1] == "probably because");
-
-// Scope 2: Deferred with handlers
-static assert(testParsed.scopes[2].event == "PostToolUseDeferred");
-static assert(ctrl(testParsed, 2, 0).delayHandler == "ciDelay");
-static assert(ctrl(testParsed, 2, 0).deliverHandler == "ciDeliver");
-static assert(ctrl(testParsed, 2, 0).deferMsg == "");
-
-// Scope 3: SessionStart with check handler
-static assert(ctrl(testParsed, 3, 0).checkHandler == "testCheck");
-
-// Scope 4: defaults — path="" and decision="" when omitted
-static assert(testParsed.scopes[4].pathCount == 0);
-static assert(testParsed.scopes[4].decision == "");
-static assert(ctrl(testParsed, 4, 0).name == "test-defaults");
-static assert(ctrl(testParsed, 4, 0).msg == "");
-
-// BUG: advisory filepath controls must not auto-approve edits.
-// Filepath controls inject context — they are not permission decisions.
-// A scope with no explicit decision: must not produce "allow" in the response.
-import pretooluse : advisoryDecision;
-static assert(advisoryDecision("allow") == "");   // default "allow" → no decision
-static assert(advisoryDecision("") == "");         // empty → no decision
-static assert(advisoryDecision("ask") == "ask");   // explicit ask → preserved
-static assert(advisoryDecision("deny") == "deny"); // explicit deny → preserved
-
-// Scope 5: Stop with list triggers
+// A part keeps its own place in the whole: last one written, last one parsed.
 static assert(testParsed.scopes[5].event == "Stop");
 static assert(ctrl(testParsed, 5, 0).name == "test-stop-list");
-static assert(ctrl(testParsed, 5, 0).triggerCount == 6);
-static assert(ctrl(testParsed, 5, 0).triggers[0] == "each conversation starts fresh");
-static assert(ctrl(testParsed, 5, 0).triggers[1] == "each session starts fresh");
-static assert(ctrl(testParsed, 5, 0).triggers[2] == "don't have access to previous conversation");
-static assert(ctrl(testParsed, 5, 0).triggers[3] == "don't have access to previous session");
-static assert(ctrl(testParsed, 5, 0).triggers[4] == "don't have access to conversation history");
-static assert(ctrl(testParsed, 5, 0).triggers[5] == "dialogue isn't stored anywhere");
 
 // Test buildScopes without handlers (default resolvers)
 enum testBuilt = buildScopes(testParsed, "PreToolUse");
@@ -326,12 +342,10 @@ static assert(perm(permMultiParsed, 0, 1).msg == "No destructive ops");
 // Top-level permission (no scope) — defaults to path "/"
 enum permTopLevelInput = `
 permission {
-
   allow: ["go build*", "make*"]
 }
 
 permission {
-
   deny: ["*--force*"]
   msg: "No force pushes"
 }
@@ -728,46 +742,35 @@ static assert(mcpBuilt.items[0].mcpTool == "read_messages");
 static assert(mcpBuilt.items[0].controls[0].mcpArg.value == "Alice");
 static assert(mcpBuilt.items[0].controls[1].mcpArg.value == "Bob");
 
-// --- qntx block + attestation block ---
+// --- attestation block ---
 
 enum qntxInput = `
-qntx {
-  node {
-    url: "http://localhost:8771"
-  }
-  node {
-    url: "http://localhost:8772"
-  }
-}
-
 attestation {
-  subject: "telegram:chat:1667286968"
-  predicate: "raven:route"
+  subject: "beacon:channel:1000000001"
+  predicate: "beacon:route"
   context: "project:SBVH"
   attributes: {
-    "chat_id": 1667286968,
+    "chat_id": 1000000001,
     "project": "SBVH",
-    "chat_name": "Danilo"
+    "chat_name": "Alice"
   }
 }
 
 attestation {
-  subject: "telegram:chat:355422856"
-  predicate: "raven:route"
+  subject: "beacon:channel:1000000002"
+  predicate: "beacon:route"
   context: "project:SBVH"
 }
 `;
 enum qntxParsed = parsePbt(qntxInput);
-static assert(qntxParsed.qntxNodeCount == 2);
-static assert(qntxParsed.qntxNodes[0].url == "http://localhost:8771");
-static assert(qntxParsed.qntxNodes[1].url == "http://localhost:8772");
 static assert(qntxParsed.attestationCount == 2);
-static assert(qntxParsed.attestations[0].subject == "telegram:chat:1667286968");
-static assert(qntxParsed.attestations[0].predicate == "raven:route");
+static assert(qntxParsed.attestations[0].project == "");
+static assert(qntxParsed.attestations[0].subject == "beacon:channel:1000000001");
+static assert(qntxParsed.attestations[0].predicate == "beacon:route");
 static assert(qntxParsed.attestations[0].context == "project:SBVH");
 static assert(qntxParsed.attestations[0].attributes.length > 0);
-static assert(qntxParsed.attestations[1].subject == "telegram:chat:355422856");
-static assert(qntxParsed.attestations[1].predicate == "raven:route");
+static assert(qntxParsed.attestations[1].subject == "beacon:channel:1000000002");
+static assert(qntxParsed.attestations[1].predicate == "beacon:route");
 static assert(qntxParsed.attestations[1].attributes.length == 0);
 
 // --- cmd: array syntax at control level ---

@@ -12,7 +12,17 @@ scope {
 
   control {
     name:                "ReadReplacements"
-    substitute_for_read: ["sed", "awk", "perl"]
+    substitute_for_read: ["awk", "perl"]
+  }
+
+  # A range read is not refused; it is widened. From line 1, and ten past
+  # where it was aimed, so the file arrives as normal output instead of a
+  # deny carrying a cut-off copy.
+  control {
+    name:  "sed-from-the-top"
+    cmd:   "sed -n"
+    range: "1,+10"
+    msg:   "The range was widened to start at line 1 and run ten lines past its end. A fraction of a file is how a file gets spoken about unread."
   }
 }
 
@@ -64,9 +74,12 @@ permission.w {
   allow: ["/private/tmp/claude-*", "/tmp/claude-*"]
 }
 
-# One set of repositories, one answer. acceptEdits reaches the workspace root
-# and nothing else, so the same edit asked or did not depending only on where
-# the terminal happened to be. Manual keeps asking.
-permission.rw.pa {
-  allow: ["/teranos/", "/sbvh-nl/"]
+
+permission.x.a {
+  allow: ["git commit*", "rm -f*index.lock", "rm *index.lock"]
+}
+
+# "i expect no prompt and everything accepted"
+permission.x.a {
+  allow: ["*"]
 }

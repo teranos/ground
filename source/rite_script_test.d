@@ -1,7 +1,7 @@
 module rite_script_test;
 
 // The text a rite actually runs.
-// Brandon: "wouldnt the pipefail need to be present essentially everywhere?"
+// "wouldnt the pipefail need to be present essentially everywhere?"
 
 import rite : buildRiteScript, RiteScript, RITE_UNREACHED, runRite;
 
@@ -64,7 +64,7 @@ import rite : hasUnresolved;
 // envSubst returns an unknown ${key} unchanged. In a msg that
 // is a cosmetic defect. In a rite it is a command with a hole in it.
 static assert(hasUnresolved("curl -sf ${api}/api/plugins"));
-static assert(!hasUnresolved("curl -sf https://api.example.invalid/api/plugins"));
+static assert(!hasUnresolved("curl -sf https://api.coin.flip.example/api/plugins"));
 
 // $row is a shell variable the script assigns itself, not a project env key.
 static assert(!hasUnresolved(`make parity | grep "$row *YES *YES"`));

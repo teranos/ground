@@ -1,5 +1,8 @@
 module rite;
 
+// BOOK_GLOSSARY **Rite**: Defined in a rites{ .. } block, composable specified behaviour and execution.
+// BOOK_GLOSSARY **Verdict**: A rite's exit code read as one of three answers: advance, hold, or halt.
+
 // A rite's exit code is a verdict with three readings, not a boolean.
 enum Verdict {
     Advance,  // the declared pass code — this rite is answered

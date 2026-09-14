@@ -1,5 +1,7 @@
 module queued;
 
+// BOOK_GLOSSARY **Queued prompt**: A message typed while a turn was running, which fired no hook and is read from the transcript instead.
+
 // "fix that, the corpus should have what i typed"
 
 // A message typed while a turn is running fires no hook, so ground never saw

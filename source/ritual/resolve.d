@@ -1,5 +1,8 @@
 module ritual.resolve;
 
+// BOOK_GLOSSARY **Ritual**: A ritual is one or more sequences of rites{ .. } blocks.
+// BOOK_GLOSSARY **Rites block**: A named group of rites, with the params it takes, that does not finish while a dispatch it made is outstanding.
+
 import receiver : Receiver;
 
 // Which ritual a word or two words name. "ground should refuse if it cant

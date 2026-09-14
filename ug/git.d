@@ -11,7 +11,10 @@ const(char)[] readPorcelain(const(char)[] cwd) {
 
     __gshared char[8192] cmd = void;
     enum head = "cd '";
-    enum tail = "' 2>/dev/null && git status --porcelain 2>/dev/null";
+    // --no-optional-locks: status refreshes the index and takes .git/index.lock
+    // to write it back. Once a frame, in every repo on the row, against whatever
+    // the operator is running in the same repo.
+    enum tail = "' 2>/dev/null && git --no-optional-locks status --porcelain 2>/dev/null";
     if (cwd.length + head.length + tail.length + 1 > cmd.length) return null;
 
     // A path holding a quote would end the quoting and run what follows.
