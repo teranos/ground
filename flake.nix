@@ -58,7 +58,7 @@
         let pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.mkShell {
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub ];
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub pkgs.glibc.static ];
           };
         }
       );
