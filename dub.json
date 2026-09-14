@@ -18,6 +18,11 @@
         {
             "name": "production",
             "excludedSourceFiles": ["source/*_test.d"]
+        },
+        {
+            "name": "production-static",
+            "excludedSourceFiles": ["source/*_test.d"],
+            "lflags": ["-static"]
         }
     ]
 }

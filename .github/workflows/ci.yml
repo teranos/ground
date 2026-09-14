@@ -17,6 +17,13 @@ jobs:
       # The Makefile's wind rule is the one list of wind's files. A copy of
       # it here fell behind and CI linked wind without openapi.d.
       - run: nix develop .#default --command sh -c 'make wind && dub test'
+      # glibc.static breaks a plain link if it's on the search path, so wind
+      # (already built above, in the shell where that's not true) is reused
+      # rather than rebuilt here. The grep fails the job if dub ever stops
+      # honoring production-static's -static lflag instead of leaving that
+      # silent until someone needs the binary and finds out by hand.
+      - run: nix develop .#static --command dub build --build=release --config=production-static
+      - run: file ground | grep -q "statically linked" || (echo "ground was not statically linked" && exit 1)
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
