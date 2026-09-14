@@ -17,6 +17,33 @@ jobs:
       # The Makefile's wind rule is the one list of wind's files. A copy of
       # it here fell behind and CI linked wind without openapi.d.
       - run: nix develop .#default --command sh -c 'make wind && dub test'
+      # glibc.static breaks a plain link if it's on the search path, so wind
+      # (already built above, in the shell where that's not true) is reused
+      # rather than rebuilt here. The grep fails the job if dub ever stops
+      # honoring production-static's -static lflag instead of leaving that
+      # silent until someone needs the binary and finds out by hand.
+      - run: nix develop .#static --command dub build --build=release --config=production-static
+      - run: file ground | grep -q "statically linked" || (echo "ground was not statically linked" && exit 1)
+
+  # -static is kernel-only on Darwin — Apple never ships a static libSystem,
+  # so the Linux static job above has no equivalent here. This is the ceiling
+  # instead: sqlite linked by its .a path so ld can't reach for the dylib,
+  # libSystem left alone. Unlike every other check in this file, nothing
+  # here was verified locally first — there's no Darwin builder available
+  # off this runner, so this job on real Apple hardware is the only proof
+  # that exists, not a rerun of one.
+  test-darwin-static-sqlite:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v30
+      - run: nix develop .#default --command make wind
+      - run: nix develop .#static-sqlite --command dub build --build=release --config=production-static-sqlite
+      - run: otool -L ground
+      - run: otool -L ground | grep -qi libsqlite3 && (echo "sqlite still dynamically linked" && exit 1) || true
+      - run: otool -L ground | grep -q libSystem || (echo "libSystem missing — binary looks broken, not just static" && exit 1)
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
