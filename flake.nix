@@ -33,7 +33,9 @@
               echo "${version}" > .version
               date -u +%Y-%m-%dT%H:%M:%SZ > .builddate
               mkdir -p tools
-              ${pkgs.ldc}/bin/ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d
+              # The same three files as the Makefile's wind rule. openapi.d was
+              # added there and not here, and CI linked wind without it.
+              ${pkgs.ldc}/bin/ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d tools/openapi.d
               # --config=production must match the Makefile. Without it the
               # shipped binary is built from a source set that includes
               # source/*_test.d, whose static asserts are CTFE work the release
