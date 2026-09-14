@@ -1,5 +1,4 @@
 /// wind — pre-build tool that produces sand for ground's CTFE.
-/// BOOK_COMMAND **wind**: Folds every controls directory into .ctfe/sand for ground's CTFE, with each project's files and its OpenAPI routes written into its block.
 ///
 /// 1. Concatenates controls/*.pbt and controls/local/*.pbt into .ctfe/sand.
 /// 2. Parses project { path: "..." } blocks from sand.

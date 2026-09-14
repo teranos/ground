@@ -253,22 +253,34 @@ static assert(block[0].subject == "checkCommand");
 static assert(extractCases("unittest {\n    setUp();\n}\n").length == 0);
 
 // "book should have a page about the ground subcommands and ug and wind as well"
-// A command is in the book the way a term is: one line in the module that
-// implements it, same shape, its own marker.
-import cases : extractCommands;
-enum cmd = extractCommands("// BOOK_COMMAND **ground fmt**: Sets pbt in the one layout.\n");
-static assert(cmd.length == 1);
-static assert(cmd[0].term == "ground fmt");
-static assert(cmd[0].text == "Sets pbt in the one layout.");
-static assert(extractGlossary("// BOOK_COMMAND **ground fmt**: Sets pbt.\n").length == 0);
-static assert(extractCommands("// BOOK_GLOSSARY **Rite**: A rite.\n").length == 0);
+// "how can this be any clearer ?"
+// A command is a shell block in the module that implements it: a # line
+// saying what for, the command under it with real arguments. The example is
+// the whole entry. It is a string declaration, read by press, so a block of
+// five lines is not a run of comment lines.
+import cases : extractCommandBlocks;
+enum shovel = extractCommandBlocks(
+    "enum BOOK_COMMAND = q\"EOS\n" ~
+    "# search past hook events by wildcard pattern\n" ~
+    "ground shovel PostToolUse \"*pr create*\"\n" ~
+    "EOS\";\n" ~
+    "int handleShovel() { return 0; }\n");
+static assert(shovel.length == 1);
+static assert(shovel[0] == "# search past hook events by wildcard pattern\nground shovel PostToolUse \"*pr create*\"\n");
 
-// A command line is not part of the case beneath it either.
-enum cmdCase = extractCases(
-    "// BOOK_COMMAND **ground fmt**: Sets pbt.\n" ~
-    "// The whole file.\n" ~
-    "static assert(f(1));\n");
-static assert(cmdCase[0].prose == "The whole file.");
+// A module with two commands declares two, told apart by a suffix, in the
+// order the file states them.
+enum twoCmds = extractCommandBlocks(
+    "enum BOOK_COMMAND_RITUAL = q\"EOS\nground ritual grove\nEOS\";\n" ~
+    "enum BOOK_COMMAND_ABORT = q\"EOS\nground abort grove\nEOS\";\n");
+static assert(twoCmds.length == 2);
+static assert(twoCmds[0] == "ground ritual grove\n");
+static assert(twoCmds[1] == "ground abort grove\n");
+
+// Nothing declared is nothing found, and a declaration that is not a block
+// is not one either.
+static assert(extractCommandBlocks("enum x = 1;\n").length == 0);
+static assert(extractCommandBlocks("enum BOOK_COMMAND = \"ground fmt\";\n").length == 0);
 
 // "the first one should be about control as a concept"
 // A chapter opens on a paragraph. Where a source comment wraps is a width the

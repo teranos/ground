@@ -50,10 +50,6 @@ struct Entry {
 // pairs of asterisks, and the sentence follows the colon.
 enum GLOSSARY_MARK = "BOOK_GLOSSARY";
 
-// A command is in the book the same way: one line in the module that
-// implements it, under its own marker.
-enum COMMAND_MARK = "BOOK_COMMAND";
-
 bool isMarked(string line, string mark) {
     auto s = trimLeft(line);
     if (!startsAt(s, 0, "//")) return false;
@@ -62,15 +58,39 @@ bool isMarked(string line, string mark) {
 }
 
 bool isGlossary(string line) {
-    return isMarked(line, GLOSSARY_MARK) || isMarked(line, COMMAND_MARK);
+    return isMarked(line, GLOSSARY_MARK);
 }
 
 Entry[] extractGlossary(string source) {
     return extractMarked(source, GLOSSARY_MARK);
 }
 
-Entry[] extractCommands(string source) {
-    return extractMarked(source, COMMAND_MARK);
+// "how can this be any clearer ?"
+// A command is a shell block in the module that implements it: a # line
+// saying what for, the command under it with real arguments. It is a string
+// declaration named for the marker, so five lines of it are not five lines
+// of comment, and the compiler carries it without reading it.
+enum COMMAND_DECL = "enum BOOK_COMMAND";
+enum BLOCK_OPEN = "q\"EOS";
+enum BLOCK_CLOSE = "EOS\"";
+
+string[] extractCommandBlocks(string source) {
+    string[] found;
+    auto lines = splitLines(source);
+    size_t i = 0;
+    while (i < lines.length) {
+        auto t = trimLeft(lines[i]);
+        i++;
+        if (!startsAt(t, 0, COMMAND_DECL)) continue;
+        if (t.length < BLOCK_OPEN.length || t[$ - BLOCK_OPEN.length .. $] != BLOCK_OPEN) continue;
+        string block;
+        while (i < lines.length && !startsAt(trimLeft(lines[i]), 0, BLOCK_CLOSE)) {
+            block ~= lines[i] ~ "\n";
+            i++;
+        }
+        found ~= block;
+    }
+    return found;
 }
 
 // Every marked line in the module, in the order the file states them.

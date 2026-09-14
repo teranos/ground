@@ -148,7 +148,12 @@ private int formatPath(const(char)[] path) {
     return 0;
 }
 
-// BOOK_COMMAND **ground fmt**: Sets a .pbt, or the pbt fixtures in a .d, in the one layout, and writes only what would change.
+enum BOOK_COMMAND = q"EOS
+# set a .pbt in the one layout, or the pbt fixtures in a .d:
+ground fmt controls/controls.pbt
+ground fmt source/proto_test.d
+EOS";
+
 int handleFmt(int argc, const(char)** argv) {
     if (argc <= 2) {
         __gshared char[CAP] in_ = 0;

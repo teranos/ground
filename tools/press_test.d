@@ -82,39 +82,40 @@ static assert(renderGlossary(["scope", "control"],
 static assert(renderGlossary(["scope"], ["hooks": [Entry("Control", "x")]]) == "");
 
 // "book should have a page about the ground subcommands and ug and wind as well"
-// Each binary heads its block and its commands are the subs, the glossary's
-// shape. The order is the order the modules stated them.
-import press : renderCommands, dispatched;
-enum cmds = renderCommands([
-    Entry("ground", "The hook binary."),
-    Entry("ground fmt", "Sets pbt."),
-    Entry("wind", "Makes sand."),
-]);
-static assert(cmds ==
-    "\\chapter{commands}\n\n\\begin{gcolumns}\n"
-    ~ "\\begin{gglossary}\n"
-    ~ "\\gmain{ground}{The hook binary.}\n"
-    ~ "\\gterm{ground fmt}{Sets pbt.}\n"
-    ~ "\\end{gglossary}\n\n"
-    ~ "\\begin{gglossary}\n"
-    ~ "\\gmain{wind}{Makes sand.}\n"
-    ~ "\\end{gglossary}\n\n"
-    ~ "\\end{gcolumns}\n");
+// "this style: ground shovel PostToolUse "*pr create*" also tells you everything you need to know"
+// The chapter is the shell blocks, set as code, one after the other. No
+// note beside them: the example is the whole entry.
+import press : renderCommands, dispatched, verbsOf, inDispatchOrder, renderSkill;
+enum blocks = ["# timing table:\nground profile\n", "# the watcher:\nground watch $PWD\n"];
+static assert(renderCommands(blocks) ==
+    "\\chapter{commands}\n"
+    ~ "\n\\begin{gcode}\n# timing table:\nground profile\n\\end{gcode}\n\\vspace{10pt}\n"
+    ~ "\n\\begin{gcode}\n# the watcher:\nground watch $PWD\n\\end{gcode}\n\\vspace{10pt}\n");
+static assert(renderCommands([]) == "");
 
 // What main.d answers to is read from main.d, so a command the book names
 // exists and a command that exists is in the book.
 static assert(dispatched("if (cmd == \"shovel\")\n  return x;\nif (cmd == \"fmt\") {\n") == ["shovel", "fmt"]);
 
-// The page lists ground's commands in the order main.d answers to them,
-// whatever order the files were read in.
-import press : inDispatchOrder;
-enum ordered = inDispatchOrder([
-    Entry("ground fmt", "F."), Entry("wind", "W."), Entry("ground shovel", "S."), Entry("ground", "G."),
-], ["shovel", "fmt"]);
-static assert(ordered[0].term == "ground");
-static assert(ordered[1].term == "ground shovel");
-static assert(ordered[2].term == "ground fmt");
-static assert(ordered[3].term == "wind");
+// The verbs a block runs: the word after ground on each command line. A
+// comment line names none, and a bare ground is the binary itself.
+static assert(verbsOf("# search\nground shovel PostToolUse \"*x*\"\n# or\nground shovel session s\n") == ["shovel", "shovel"]);
+static assert(verbsOf("ground < event.json\n") == [""]);
+
+// The page lists the blocks in the order main.d answers to their verbs,
+// the binary itself first, whatever order the files were read in.
+enum ordered = inDispatchOrder(["ground fmt x\n", "ground shovel a b\n", "ground < e\n"], ["shovel", "fmt"]);
+static assert(ordered[0] == "ground < e\n");
+static assert(ordered[1] == "ground shovel a b\n");
+static assert(ordered[2] == "ground fmt x\n");
+
+// "maybe it should just move out of the claude.md and into a skill and that press creates the skill"
+// The skill is the same blocks in one shell fence, under the front matter a
+// skill carries, and nothing else.
+static assert(renderSkill(blocks) ==
+    "---\nname: ground-commands\n"
+    ~ "description: Every ground subcommand with a working example. Written by press from the modules that implement them.\n"
+    ~ "---\n\n```sh\n# timing table:\nground profile\n\n# the watcher:\nground watch $PWD\n```\n");
 
 // "the term should be bold."
 // press names the parts and book.tex sets them, so the term is escaped as a

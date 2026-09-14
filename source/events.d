@@ -6,7 +6,11 @@ import core.stdc.stdio : stdout, fwrite;
 // The recognized event set, straight from the enum — nothing hand-copied.
 immutable string[] eventNames = [__traits(allMembers, HookEvent)];
 
-// BOOK_COMMAND **ground events**: Prints every hook event ground recognises, straight from the enum.
+enum BOOK_COMMAND = q"EOS
+# every hook event ground answers to:
+ground events
+EOS";
+
 int handleEvents() {
     foreach (name; eventNames) {
         fwrite(name.ptr, 1, name.length, stdout);

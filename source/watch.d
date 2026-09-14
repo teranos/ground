@@ -362,7 +362,11 @@ void removePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
     remove(&pathBuf[0]);
 }
 
-// BOOK_COMMAND **ground watch**: The watcher for one session: polls the db for messages owed to it and wakes the session by exiting 2.
+enum BOOK_COMMAND = q"EOS
+# the asyncRewake watcher
+ground watch $PWD
+EOS";
+
 int handleWatch(int argc, const(char)** argv) {
     if (argc < 3) {
         fputs("usage: ground watch <cwd>\n", stderr);

@@ -32,7 +32,10 @@ module main;
 //   permission_mode — "default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"
 //   tool_use_id     — unique per tool call, could track tool call chains
 
-// BOOK_COMMAND **ground**: Run by Claude Code on every hook event, with the event's JSON on stdin; given a word instead, it is one of the commands below.
+enum BOOK_COMMAND = q"EOS
+# run by Claude Code on every hook event, the event's JSON on stdin:
+ground < event.json
+EOS";
 
 import parse : extractCwd, extractSessionId, extractHookEventName, extractSource;
 import controls : HookEvent;

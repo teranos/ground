@@ -11,7 +11,7 @@ import std.path : baseName;
 import std.stdio : stderr;
 
 import cases : extractCases, Case, splitLines, unmark, flow,
-               extractGlossary, extractCommands, Entry;
+               extractGlossary, extractCommandBlocks, Entry;
 import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners;
 import fmt : isCanonical;
 
@@ -76,9 +76,8 @@ int main(string[] argv) {
     Entry[][string] glossary;
     Refused[] refused;
 
-    // The commands, each from the module that implements it, and ug and
-    // wind from their own.
-    Entry[] commands;
+    // The commands, each a shell block in the module that implements it.
+    string[] commands;
     string[] commandFiles;
 
     // A module's own first heading, kept by subject. A chapter opens on the
@@ -105,12 +104,8 @@ int main(string[] argv) {
             glossary[stem(f.name)] ~= e;
         }
 
-        foreach (e; extractCommands(text)) {
-            if (e.term.length == 0) {
-                refused ~= Refused(f.name, "carries a command line without a name: " ~ e.text);
-                continue;
-            }
-            commands ~= e;
+        foreach (b; extractCommandBlocks(text)) {
+            commands ~= b;
             commandFiles ~= f.name;
         }
 
@@ -156,32 +151,22 @@ int main(string[] argv) {
         stderr.writefln("press: %s (%d cases)", baseName(f.name), proved);
     }
 
-    // ug and wind are their own binaries, outside source/, and say what
-    // they are in their own files.
-    foreach (extra; ["ug/main.d", "tools/wind.d"]) {
-        if (!exists(extra)) continue;
-        foreach (e; extractCommands(readText(extra))) {
-            if (e.term.length == 0) {
-                refused ~= Refused(extra, "carries a command line without a name: " ~ e.text);
-                continue;
-            }
-            commands ~= e;
-            commandFiles ~= extra;
-        }
-    }
-
-    // What main.d answers to is read from main.d. A command the book names
+    // What main.d answers to is read from main.d. A command the book runs
     // exists, and a command that exists is in the book, or the book stops.
+    auto answers = dispatched(readText("source/main.d"));
     {
-        auto answers = dispatched(readText("source/main.d"));
-        foreach (a; answers)
-            if (!hasTerm(commands, "ground " ~ a))
-                refused ~= Refused("source/main.d", "answers to " ~ a ~ " and no module says what ground " ~ a ~ " is");
-        foreach (i, c; commands) {
-            if (binaryOf(c.term) != "ground" || c.term == "ground") continue;
-            if (!contains(answers, c.term["ground ".length .. $]))
-                refused ~= Refused(commandFiles[i], "describes " ~ c.term ~ ", which main.d does not answer to");
+        string[] shown;
+        foreach (i, b; commands) {
+            foreach (v; verbsOf(b)) {
+                if (v.length == 0) continue;
+                shown ~= v;
+                if (!contains(answers, v))
+                    refused ~= Refused(commandFiles[i], "runs ground " ~ v ~ ", which main.d does not answer to");
+            }
         }
+        foreach (a; answers)
+            if (!contains(shown, a))
+                refused ~= Refused("source/main.d", "answers to " ~ a ~ " and no module shows ground " ~ a);
     }
 
     // Nothing is written while an example does not fit. A reader takes an
@@ -221,13 +206,16 @@ int main(string[] argv) {
         if (!contains(wanted, p)) order ~= p;
 
     // "i would have expeced to see the commands as a chapeter before scope"
-    // The binaries first, then the grammar they read. ground's commands are
-    // in the order main.d answers to them.
+    // The binary first, then the grammar it reads. The blocks are in the
+    // order main.d answers to them, and the skill is the same blocks.
     string list;
-    auto cmdTex = renderCommands(inDispatchOrder(commands, dispatched(readText("source/main.d"))));
+    auto ordered = inDispatchOrder(commands, answers);
+    auto cmdTex = renderCommands(ordered);
     if (cmdTex.length > 0) {
         write("doc/tex/commands.tex", cmdTex);
         list ~= "\\input{tex/commands}\n";
+        mkdirRecurse(".claude/skills/ground-commands");
+        write(".claude/skills/ground-commands/SKILL.md", renderSkill(ordered));
     }
 
     foreach (o; order) {
@@ -315,55 +303,65 @@ string saidLines(string said) {
     return out_;
 }
 
-// The commands chapter. A binary heads its block and its commands are the
-// subs, in the order the modules stated them. Empty when nothing says so.
-string renderCommands(Entry[] cmds) {
-    string[] bins;
-    foreach (c; cmds) {
-        auto b = binaryOf(c.term);
-        if (!contains(bins, b)) bins ~= b;
-    }
-
-    string out_;
-    foreach (b; bins) {
-        string main_;
-        string section;
-        foreach (c; cmds) {
-            if (binaryOf(c.term) != b) continue;
-            if (c.term == b && main_.length == 0) {
-                main_ = "\\gmain{" ~ escape(c.term) ~ "}{" ~ escape(c.text) ~ "}\n";
-                continue;
-            }
-            section ~= "\\gterm{" ~ escape(c.term) ~ "}{" ~ escape(c.text) ~ "}\n";
-        }
-        auto head = main_.length > 0 ? "\\begin{gglossary}\n" ~ main_
-                                     : "\\gsection{" ~ escape(b) ~ "}\n\\begin{gglossary}\n";
-        out_ ~= head ~ section ~ "\\end{gglossary}\n\n";
-    }
-    if (out_.length == 0) return "";
-    return "\\chapter{commands}\n\n\\begin{gcolumns}\n" ~ out_ ~ "\\end{gcolumns}\n";
-}
-
-// ground first, then its commands as main.d lists them, then every other
-// binary as its file stated it.
-Entry[] inDispatchOrder(Entry[] cmds, string[] answers) {
-    Entry[] out_;
-    foreach (c; cmds) if (c.term == "ground") out_ ~= c;
-    foreach (a; answers)
-        foreach (c; cmds) if (c.term == "ground " ~ a) out_ ~= c;
-    foreach (c; cmds) if (binaryOf(c.term) != "ground") out_ ~= c;
+// The commands chapter: the shell blocks, set as code, one after the other.
+// No note beside them, since the example is the whole entry.
+string renderCommands(string[] blocks) {
+    if (blocks.length == 0) return "";
+    string out_ = "\\chapter{commands}\n";
+    foreach (b; blocks)
+        out_ ~= "\n\\begin{gcode}\n" ~ b ~ "\\end{gcode}\n\\vspace{10pt}\n";
     return out_;
 }
 
-private bool hasTerm(Entry[] es, string term) {
-    foreach (e; es) if (e.term == term) return true;
-    return false;
+// "maybe it should just move out of the claude.md and into a skill and that press creates the skill"
+// The same blocks in one shell fence, under the front matter a skill carries.
+string renderSkill(string[] blocks) {
+    string out_ = "---\nname: ground-commands\n"
+        ~ "description: Every ground subcommand with a working example. Written by press from the modules that implement them.\n"
+        ~ "---\n\n```sh\n";
+    foreach (i, b; blocks) {
+        if (i > 0) out_ ~= "\n";
+        out_ ~= b;
+    }
+    return out_ ~ "```\n";
 }
 
-// The binary a command belongs to is its first word.
-string binaryOf(string term) {
-    foreach (i, c; term) if (c == ' ') return term[0 .. i];
-    return term;
+// The verbs a block runs: the word after ground on each command line. A
+// comment line names none, and a bare ground is the binary itself.
+string[] verbsOf(string block) {
+    string[] out_;
+    foreach (line; splitLines(block)) {
+        if (line.length == 0 || line[0] == '#') continue;
+        if (line.length < 6 || line[0 .. 6] != "ground") continue;
+        auto rest = line[6 .. $];
+        if (rest.length == 0 || rest[0] != ' ') { out_ ~= ""; continue; }
+        size_t a = 1;
+        while (a < rest.length && rest[a] == ' ') a++;
+        size_t e = a;
+        while (e < rest.length && rest[e] != ' ') e++;
+        auto w = rest[a .. e];
+        auto c = w.length > 0 ? w[0] : ' ';
+        bool named = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        out_ ~= named ? w : "";
+    }
+    return out_;
+}
+
+// The binary itself first, then the blocks as main.d lists their verbs,
+// then whatever is left, each in the order the files were read.
+string[] inDispatchOrder(string[] blocks, string[] answers) {
+    string[] out_;
+    bool[] placed = new bool[](blocks.length);
+    foreach (i, b; blocks)
+        if (contains(verbsOf(b), "")) { out_ ~= b; placed[i] = true; }
+    foreach (a; answers)
+        foreach (i, b; blocks) {
+            if (placed[i]) continue;
+            auto vs = verbsOf(b);
+            if (vs.length > 0 && vs[0] == a) { out_ ~= b; placed[i] = true; }
+        }
+    foreach (i, b; blocks) if (!placed[i]) out_ ~= b;
+    return out_;
 }
 
 // What main.d answers to: every name it compares the first argument against.

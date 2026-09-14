@@ -63,7 +63,11 @@ private const(char)[] qntxToken() {
     return trimToken(tokBuf[0 .. cast(size_t) n]);
 }
 
-// BOOK_COMMAND **ground attest**: Posts every attestation the pbt declares to the backend its project names, retrying while QNTX restarts.
+enum BOOK_COMMAND = q"EOS
+# post the pbt's attestations to their backends (make install does):
+ground attest
+EOS";
+
 int handleAttest() {
     import controls : postingList, attestations;
 
