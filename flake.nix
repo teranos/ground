@@ -58,6 +58,15 @@
         let pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.mkShell {
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub ];
+          };
+
+          # glibc.static on the default shell's search path breaks the plain
+          # (non -static) link: ld finds libc.a ahead of libc.so and leaves
+          # __tls_get_addr unresolved even when nothing asked for -static.
+          # Kept apart so the ordinary build the Makefile and CI run stays
+          # untouched, and a -static build has archives only when asked for.
+          static = pkgs.mkShell {
             buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub pkgs.glibc.static ];
           };
         }
