@@ -16,15 +16,19 @@ import std.conv : to;
 
 import cases : extractCases, Case, splitLines;
 import concept : conceptOf;
-import edit : rewriteProse, runSaying, ending;
+import edit : rewriteCase, Was, ending;
+import fmt : formatInto;
 
 enum PORT = 7777;
 
+// A row is one case: what was said above it, the note beside it, and the
+// example. All three are the author's to change.
 struct Row {
     string file;
     string chapter;
-    string pbt;
+    string said;
     string prose;
+    string pbt;
 }
 
 Row[] gather() {
@@ -39,7 +43,7 @@ Row[] gather() {
             if (c.heading || c.pbt.length == 0) continue;
             auto ch = conceptOf(c.pbt);
             if (ch.length == 0) continue;
-            rows ~= Row(baseName(f.name), ch, c.pbt, c.prose);
+            rows ~= Row(baseName(f.name), ch, c.said, c.prose, c.pbt);
         }
     }
     return rows;
@@ -56,7 +60,7 @@ void main() {
     listener.bind(new InternetAddress("127.0.0.1", PORT));
     listener.listen(8);
 
-    stderr.writefln("editor: http://127.0.0.1:%d — the notes, editable", PORT);
+    stderr.writefln("http://127.0.0.1:%d", PORT);
 
     while (true) {
         auto conn = listener.accept();
@@ -72,29 +76,47 @@ void main() {
             respond(conn, "text/plain", save(body_));
             continue;
         }
+        if (startsWith(req, "POST /fmt")) {
+            auto body_ = afterHeaders(req);
+            respond(conn, "text/plain", setPbt(body_));
+            continue;
+        }
         respond(conn, "text/html; charset=utf-8", page(gather()));
     }
 }
 
-// What the browser sent back: three fields, each length-prefixed, because a
-// note carries newlines and quotes and every separator is in the text itself.
+// "i expect there to be a small fmt button in, lets say a footerbar, where save should also be"
+// The example in the one layout, or the text as it was when fmt cannot read it.
+string setPbt(string pbt) {
+    auto buf = new char[](65536);
+    auto n = formatInto(pbt ~ "\n", buf);
+    if (n < 0) return pbt;
+    auto set = buf[0 .. cast(size_t) n];
+    if (set.length > 0 && set[$ - 1] == '\n') set = set[0 .. $ - 1];
+    return set.idup;
+}
+
+// What the browser sent back: the file and the case as it was and as it is
+// now, each field length-prefixed, because a note carries newlines and quotes
+// and every separator is in the text itself.
 string save(string body_) {
     auto parts = unpack(body_);
-    if (parts.length != 3) return "editor: malformed save";
+    if (parts.length != 7) return "malformed save";
 
     auto file = "source/" ~ baseName(parts[0]);
-    auto was = parts[1];
-    auto now = parts[2];
+    auto was = Was(parts[1], parts[2], parts[3]);
+    auto now = Was(parts[4], parts[5], parts[6]);
 
-    if (!exists(file)) return "editor: no " ~ file;
+    if (!exists(file)) return "no " ~ file;
     if (was == now) return "unchanged";
 
     auto text = readText(file);
     auto lines = splitLines(text);
-    if (!runSaying(lines, was).found)
-        return "editor: " ~ baseName(file) ~ " no longer says that — reload";
+    auto out_ = rewriteCase(lines, was, now);
+    if (out_ == lines)
+        return baseName(file) ~ " moved on";
 
-    write(file, join(rewriteProse(lines, was, now), "\n") ~ ending(text));
+    write(file, join(out_, "\n") ~ ending(text));
     return "saved to " ~ baseName(file);
 }
 
@@ -151,41 +173,27 @@ string esc(string s) {
     return out_;
 }
 
+// "i dont want to think about anything else than the task of authoring"
+// A row: the quotes above, the example on the left, the note on the right,
+// and a footer bar with fmt and save. Nothing on the page but the cases.
 string page(Row[] rows) {
     string body_;
-    string current;
 
-    size_t writable = 0;
     foreach (i, r; rows) {
-        if (r.chapter != current) {
-            current = r.chapter;
-            body_ ~= "<h2>" ~ esc(current) ~ "</h2>\n";
-        }
-
         auto id = to!string(i);
+        body_ ~= "<div class=\"case\" id=\"c" ~ id ~ "\">\n";
+        body_ ~= "<span class=\"file\">" ~ esc(r.file) ~ "</span>\n";
+        body_ ~= "<textarea class=\"said\" id=\"q" ~ id ~ "\">" ~ esc(r.said) ~ "</textarea>\n";
         body_ ~= "<div class=\"row\">\n";
-        body_ ~= "<pre>" ~ esc(r.pbt) ~ "</pre>\n";
-        body_ ~= "<div class=\"side\">\n";
-
-        if (r.prose.length > 0) {
-            writable++;
-            body_ ~= "<textarea id=\"t" ~ id ~ "\">" ~ esc(r.prose) ~ "</textarea>\n";
-            body_ ~= "<button onclick=\"save(" ~ id ~ ")\">Save</button>\n";
-            body_ ~= "<span class=\"said\" id=\"s" ~ id ~ "\"></span>\n";
-            body_ ~= "<script>W[" ~ id ~ "]=" ~ jsString(r.file)
-                   ~ ";O[" ~ id ~ "]=" ~ jsString(r.prose) ~ ";</script>\n";
-        } else {
-            body_ ~= "<p class=\"none\">No note. Nothing to find this row by yet, "
-                   ~ "so it is written in " ~ esc(r.file) ~ " by hand.</p>\n";
-        }
-
-        body_ ~= "</div>\n</div>\n";
+        body_ ~= "<textarea class=\"pbt\" id=\"p" ~ id ~ "\">" ~ esc(r.pbt) ~ "</textarea>\n";
+        body_ ~= "<textarea class=\"prose\" id=\"t" ~ id ~ "\">" ~ esc(r.prose) ~ "</textarea>\n";
+        body_ ~= "</div>\n";
+        body_ ~= "<script>W[" ~ id ~ "]=" ~ jsString(r.file)
+               ~ ";O[" ~ id ~ "]=[" ~ jsString(r.said) ~ "," ~ jsString(r.prose) ~ "," ~ jsString(r.pbt) ~ "];</script>\n";
+        body_ ~= "</div>\n";
     }
 
-    return HEAD
-         ~ "<p class=\"count\">" ~ to!string(writable) ~ " of "
-         ~ to!string(rows.length) ~ " rows carry a note.</p>\n"
-         ~ body_ ~ TAIL;
+    return HEAD ~ body_ ~ FOOT ~ TAIL;
 }
 
 // A D string as a JavaScript one. The notes carry quotes and backslashes, and
@@ -204,42 +212,59 @@ string jsString(string s) {
 
 enum HEAD = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Book of Ground — notes</title>
+<title>author</title>
 <style>
-body { font: 15px/1.5 Charter, Georgia, serif; margin: 0; padding: 2rem 3rem 6rem;
-       background: #f6f5f2; color: #1a1a1a; }
-h1 { font-size: 1.6rem; font-weight: 400; font-variant: small-caps; }
-h2 { font-variant: small-caps; letter-spacing: .04em; font-weight: 400;
-     border-bottom: 1px solid #cfcdc7; padding-bottom: .2rem; margin-top: 2.5rem; }
-p.count { color: #6b6b63; font-size: .85rem; }
-div.row { display: flex; gap: 1.5rem; align-items: flex-start; margin: 1.2rem 0;
-          padding-bottom: 1.2rem; border-bottom: 1px solid #e6e4de; }
-pre { flex: 0 0 52%; margin: 0; padding: .8rem 1rem; background: #fff;
-      border-left: 2px solid #cfcdc7; font: 12px/1.45 "Fira Code", Menlo, monospace;
-      overflow-x: auto; }
-div.side { flex: 1; }
-textarea { width: 100%; min-height: 5.5rem; font: 14px/1.5 Charter, Georgia, serif;
-           padding: .5rem; border: 1px solid #cfcdc7; background: #fff; resize: vertical; }
-button { margin-top: .4rem; font: inherit; font-size: .85rem; padding: .2rem .8rem;
-         border: 1px solid #cfcdc7; background: #fff; cursor: pointer; }
-button:hover { background: #efeee9; }
-span.said { margin-left: .6rem; font-size: .8rem; color: #6b6b63; }
-p.none { color: #8a8a80; font-size: .85rem; font-style: italic; margin: 0; }
-</style></head><body>
-<h1>Book of Ground — notes</h1>
-<script>var W = {}, O = {};
-function save(i) {
-  var t = document.getElementById("t" + i).value;
-  var f = W[i], o = O[i];
-  var b = f.length + ":" + f + o.length + ":" + o + t.length + ":" + t;
+` ~ import("tokens.css") ~ import("author.css") ~ `</style></head><body>
+<script>var W = {}, O = {}, sel = -1;
+function field(s) { return s.length + ":" + s; }
+function read(i) {
+  return [document.getElementById("q" + i).value,
+          document.getElementById("t" + i).value,
+          document.getElementById("p" + i).value];
+}
+function same(a, b) { return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]; }
+function section(i) { return document.getElementById("c" + i); }
+function status(m) { document.getElementById("status").textContent = m; }
+function select(i) {
+  if (sel >= 0) section(sel).classList.remove("on");
+  sel = i;
+  section(i).classList.add("on");
+}
+function dirty(i) { section(i).classList.toggle("dirty", !same(read(i), O[i])); }
+function save() {
+  if (sel < 0) return;
+  var i = sel, n = read(i), o = O[i], f = W[i];
+  var b = field(f) + field(o[0]) + field(o[1]) + field(o[2]) + field(n[0]) + field(n[1]) + field(n[2]);
   fetch("/save", { method: "POST", body: b })
     .then(function (r) { return r.text(); })
     .then(function (m) {
-      document.getElementById("s" + i).textContent = m;
-      if (m.indexOf("saved") === 0) O[i] = t;
+      status(m);
+      if (m.indexOf("saved") === 0) { O[i] = n; dirty(i); }
     });
 }
+function fmt() {
+  if (sel < 0) return;
+  var i = sel, p = document.getElementById("p" + i);
+  fetch("/fmt", { method: "POST", body: p.value })
+    .then(function (r) { return r.text(); })
+    .then(function (m) { p.value = m; fit(p); dirty(i); });
+}
+function fit(t) { t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }
+document.addEventListener("DOMContentLoaded", function () {
+  var all = document.querySelectorAll("textarea");
+  for (var k = 0; k < all.length; k++) {
+    fit(all[k]);
+    var i = parseInt(all[k].id.substring(1), 10);
+    all[k].addEventListener("input", (function (i) { return function (e) { fit(e.target); dirty(i); }; })(i));
+    all[k].addEventListener("focus", (function (i) { return function () { select(i); }; })(i));
+  }
+});
 </script>
+`;
+
+// One footer bar for the page: fmt and save act on the section being
+// written in.
+enum FOOT = `<div class="foot"><button onclick="fmt()">fmt</button><button onclick="save()">save</button><span class="status" id="status"></span></div>
 `;
 
 enum TAIL = "</body></html>\n";

@@ -79,3 +79,57 @@ static assert(tightened[1] == "static assert(f(x));");
 
 // Nothing said is nothing written: a module that moved on is left as it is.
 static assert(rewriteProse(src, "Not here.", "New.") == src);
+
+// "I see, i would expect to be able to also edit the pbt left side, and also to just insert a quote or edit quote or add more pose"
+// A case is three things: what was said, the note, and the example. A save
+// writes all three back, and the case is found by what it was.
+import edit : rewriteCase, Was;
+
+enum full = [
+    "module x;",
+    "",
+    "// \"the unnamed one wins\"",
+    "// A bare project is the default.",
+    "enum x = `",
+    "project { path: \"/p\" }",
+    "`;",
+    "static assert(f(x));",
+];
+
+// The quote changes, a second is added, the note is rewritten, and the pbt is
+// set differently. Everything either side stays.
+enum edited = rewriteCase(full,
+    Was("\"the unnamed one wins\"", "A bare project is the default.", "project { path: \"/p\" }"),
+    Was("\"the unnamed one actually wins\"\n\"the named one is the explicit edge case\"",
+        "A bare project is the default one.",
+        "project {\n  path: \"/p\"\n}"));
+static assert(edited == [
+    "module x;",
+    "",
+    "// \"the unnamed one actually wins\"",
+    "// \"the named one is the explicit edge case\"",
+    "// A bare project is the default one.",
+    "enum x = `",
+    "project {",
+    "  path: \"/p\"",
+    "}",
+    "`;",
+    "static assert(f(x));",
+]);
+
+// A case with no note yet gets one written above its example.
+enum bare = ["enum y = `scope { }`;", "static assert(g(y));"];
+static assert(rewriteCase(bare, Was("", "", "scope { }"), Was("", "Where a rule stands.", "scope { }")) == [
+    "// Where a rule stands.",
+    "enum y = `scope { }`;",
+    "static assert(g(y));",
+]);
+
+// A one-line literal stays on its line when the pbt is still one line.
+static assert(rewriteCase(bare, Was("", "", "scope { }"), Was("", "", "scope { path: \"/\" }")) == [
+    "enum y = `scope { path: \"/\" }`;",
+    "static assert(g(y));",
+]);
+
+// A module that no longer holds the case is left as it is.
+static assert(rewriteCase(full, Was("", "Gone.", "nope"), Was("", "New.", "nope")) == full);

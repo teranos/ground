@@ -4,7 +4,7 @@ module edit;
 // never by where it sits: the run is located again at the moment of the save,
 // so nothing an edit above it did can send the write to the wrong lines.
 
-import cases : splitLines, unmark;
+import cases : splitLines, unmark, opensFixture, holdsMark, liftSaid, liftProse;
 
 // The lines of one comment run, joined the way the book joins them.
 private string spoken(string[] lines, size_t from, size_t to) {
@@ -80,6 +80,114 @@ Span runSaying(string[] lines, string prose) {
         i = j;
     }
     return Span(0, 0, false);
+}
+
+// "I see, i would expect to be able to also edit the pbt left side, and also to just insert a quote or edit quote or add more pose"
+// A case is three things: what was said above it, the note, and the example.
+struct Was {
+    string said;
+    string prose;
+    string pbt;
+}
+
+// Where a fixture's literal stands: the declaring line, the body lines, and
+// the line holding the closing mark. A one-line literal is all three at once.
+private struct Literal {
+    size_t open;    // the enum line
+    size_t close;   // the line holding the closing mark
+    bool oneLine;
+    string text;
+    bool found;
+}
+
+private string trimLeft(string s) {
+    size_t n = 0;
+    while (n < s.length && (s[n] == ' ' || s[n] == '\t')) n++;
+    return s[n .. $];
+}
+
+private string trimEdges(string[] body_) {
+    size_t a = 0;
+    size_t b = body_.length;
+    while (a < b && trimLeft(body_[a]).length == 0) a++;
+    while (b > a && trimLeft(body_[b - 1]).length == 0) b--;
+    string out_;
+    foreach (i; a .. b) {
+        if (i > a) out_ ~= "\n";
+        out_ ~= body_[i];
+    }
+    return out_;
+}
+
+private Literal literalAt(string[] lines, size_t i) {
+    Literal l;
+    auto t = trimLeft(lines[i]);
+    if (!opensFixture(t)) return l;
+    size_t marks = 0;
+    foreach (c; lines[i]) if (c == '`') marks++;
+    if (marks >= 2) {
+        size_t a = 0;
+        while (lines[i][a] != '`') a++;
+        size_t b = a + 1;
+        while (lines[i][b] != '`') b++;
+        return Literal(i, i, true, lines[i][a + 1 .. b], true);
+    }
+    size_t j = i + 1;
+    string[] body_;
+    while (j < lines.length && !holdsMark(lines[j])) { body_ ~= lines[j]; j++; }
+    if (j >= lines.length) return l;
+    return Literal(i, j, false, trimEdges(body_), true);
+}
+
+// The case whose example reads as this, and the comment run above it.
+private Literal findCase(string[] lines, string pbt) {
+    foreach (i; 0 .. lines.length) {
+        auto l = literalAt(lines, i);
+        if (l.found && l.text == pbt) return l;
+    }
+    return Literal.init;
+}
+
+// The module with one case said and shown differently. The case is found by
+// its example and its run by what it said, so an edit anywhere else in the
+// file cannot misplace this one. A module that moved on is left as it is.
+string[] rewriteCase(string[] lines, Was was, Was now, size_t width = 78) {
+    auto lit = findCase(lines, was.pbt);
+    if (!lit.found) return lines;
+
+    size_t runFrom = lit.open;
+    while (runFrom > 0 && isComment(lines[runFrom - 1])) runFrom--;
+    auto run = lines[runFrom .. lit.open];
+    if (liftSaid(run) != was.said || liftProse(run) != was.prose) return lines;
+
+    auto indent = indentOf(lines[lit.open]);
+    string[] out_;
+    foreach (i; 0 .. runFrom) out_ ~= lines[i];
+    foreach (q; splitLines(now.said)) if (q.length > 0) out_ ~= indent ~ "// " ~ q;
+    foreach (l; speak(now.prose, indent, width)) out_ ~= l;
+
+    bool multi = false;
+    foreach (c; now.pbt) if (c == '\n') { multi = true; break; }
+    auto openLine = lines[lit.open];
+    if (lit.oneLine) {
+        size_t a = 0;
+        while (openLine[a] != '`') a++;
+        size_t b = a + 1;
+        while (openLine[b] != '`') b++;
+        if (multi) {
+            out_ ~= openLine[0 .. a + 1];
+            foreach (l; splitLines(now.pbt)) out_ ~= l;
+            out_ ~= openLine[b .. $];
+        } else {
+            out_ ~= openLine[0 .. a + 1] ~ now.pbt ~ openLine[b .. $];
+        }
+    } else {
+        out_ ~= openLine;
+        foreach (l; splitLines(now.pbt)) out_ ~= l;
+        out_ ~= lines[lit.close];
+    }
+    foreach (i; lit.close + 1 .. lines.length) out_ ~= lines[i];
+    return out_;
 }
 
 // The module with one run said differently. The run is named by what it says,

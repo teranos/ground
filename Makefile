@@ -98,14 +98,14 @@ press: tools/press.d tools/cases.d tools/concept.d source/fmt.d
 
 # -J=doc lets bind.d carry doc/book.css, so the stylesheet is a file to read
 # and the pages still stand on their own.
-binder: tools/binder.d tools/bind.d doc/book.css
+binder: tools/binder.d tools/bind.d doc/tokens.css doc/book.css
 	ldc2 -of=tools/binder -I=tools -J=doc tools/binder.d tools/bind.d
 
 # The notes, editable in a browser and written back into the comment they came
 # from. A note is found again by what it says, at the moment you save it, so
 # nothing here stores a position that the next edit would make wrong.
-editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d
-	ldc2 -of=tools/editor -I=tools tools/editor.d tools/edit.d tools/cases.d tools/concept.d
+editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d doc/tokens.css doc/author.css
+	ldc2 -of=tools/editor -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d
 
 # One typesetter, and the web copy is bound from what it set. Page 12 on the
 # screen is the sheet carrying 12 on paper, because it is that sheet and not a

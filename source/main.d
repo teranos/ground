@@ -214,6 +214,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import fmtcmd : handleFmt;
             return handleFmt(argc, argv);
         }
+        if (cmd == "author") {
+            import author : handleAuthor;
+            return handleAuthor();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;

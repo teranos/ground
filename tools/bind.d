@@ -165,5 +165,7 @@ private string numeral(size_t n) {
 // type: it draws the paper the leaves sit on and the way to the next spread.
 // A line is placed against its own page, so the page is what it is placed in.
 // "For some reason it feels like I want to be able to look at the CSS separately"
-// It is doc/book.css, read at build, and each page still carries its own copy.
-private enum CSS = import("book.css");
+// "css should be shared. there ought to be a tokens.css"
+// The palette is doc/tokens.css, shared with the author's tool; the rest is
+// doc/book.css. Both are read at build, and each page carries its own copy.
+private enum CSS = import("tokens.css") ~ import("book.css");

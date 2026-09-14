@@ -1,0 +1,22 @@
+/* The one palette and the two faces, shared by the book's web copy and the
+   author's tool. The ink, the rule and the card are book.tex's own values. */
+:root {
+  --ink: #1a1a1a;
+  --rule: #b4b4b4;
+  --hairline: #e6e4de;
+  --card: #f4f3f0;
+  --paper: #fff;
+  --desk: #f6f5f2;
+  --ground: #6b6b73;
+  --on-ground: #f0efec;
+  --muted: #6b6b63;
+  --faint: #8a8a80;
+  --hover: #efeee9;
+  --serif: Charter, "Bitstream Charter", Cambria, Georgia, serif;
+  --mono: "Fira Code", Menlo, monospace;
+  /* One measure for margins: the page's gutter, the gap between things
+     side by side, and the stack between things one above the other. */
+  --gutter: 1.5rem;
+  --gap: 1.5rem;
+  --stack: 1.5rem;
+}
