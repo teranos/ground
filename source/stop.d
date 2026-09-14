@@ -245,7 +245,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         saidKey.put(":said:");
                         putInt(saidKey, spoken < 0 ? -spoken : spoken);
                         auto line = agentLine(found.p.ritual, rite.name, words, found.p.id);
-                        deliver(db, found.p, rite.to, saidKey.slice(), line.text(), true);
+                        deliver(db, found.p, rite.to, saidKey.slice(), line.text(), sessionId);
                     }
                 }
 
