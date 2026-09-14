@@ -1,58 +1,52 @@
-name: long-coin
-
-# Fifteen seconds, then a coin. Half of its runs fail, so a rite waiting on it
-# has to survive a real red and not only a slow green. Dispatched by a rite and
-# never by a push: a job that fails half the time should not fire on its own.
-
-# A workflow_dispatch returns no run id, so the only way to know which run is
-# yours is for it to carry a name you chose.
-run-name: long-coin ${{ inputs.ground }}
-
-on:
-  workflow_dispatch:
-    inputs:
-      ground:
-        description: the performance and rite that dispatched this
-        type: string
-        default: ''
-      rig:
-        description: which face both sides carry
-        type: choice
-        default: none
-        options: [none, heads, tails]
-
-jobs:
-  coinflip:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: wait
-        run: sleep 15
-
-      # Coins with the same face on both sides. Half of a real coin's runs are
-      # green, so building the path a red takes means waiting on chance.
-      - name: rigged tails
-        if: ${{ inputs.rig == 'tails' }}
-        run: |
-          echo "tails"
-          exit 1
-      - name: rigged heads
-        if: ${{ inputs.rig == 'heads' }}
-        run: echo "heads"
-
-      # Skipped when a rig is named, or the honest coin would overrule it.
-      - name: flip
-        if: ${{ inputs.rig == '' || inputs.rig == 'none' }}
-        run: |
-          # One in a thousand it lands on its side: neither face, and it stays
-          # there until the job is cancelled out from under it.
-          if [ $((RANDOM % 1000)) -eq 0 ]; then
-            echo "the coin is standing on its edge"
-            sleep 3600
-          fi
-          if [ $((RANDOM % 2)) -eq 0 ]; then
-            echo "heads"
-            exit 0
-          fi
-          echo "tails"
-          exit 1
+{
+  "jobs": {
+    "coinflip": {
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "name": "wait",
+          "run": "sleep 15"
+        },
+        {
+          "if": "${{ inputs.rig == 'tails' }}",
+          "name": "rigged tails",
+          "run": "echo \"tails\"\nexit 1\n"
+        },
+        {
+          "if": "${{ inputs.rig == 'heads' }}",
+          "name": "rigged heads",
+          "run": "echo \"heads\""
+        },
+        {
+          "if": "${{ inputs.rig == '' || inputs.rig == 'none' }}",
+          "name": "flip",
+          "run": "# One in a thousand it lands on its side: neither face, and it stays\n# there until the job is cancelled out from under it.\nif [ $((RANDOM % 1000)) -eq 0 ]; then\n  echo \"the coin is standing on its edge\"\n  sleep 3600\nfi\nif [ $((RANDOM % 2)) -eq 0 ]; then\n  echo \"heads\"\n  exit 0\nfi\necho \"tails\"\nexit 1\n"
+        }
+      ],
+      "timeout-minutes": 20
+    }
+  },
+  "name": "long-coin",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "ground": {
+          "default": "",
+          "description": "the performance and rite that dispatched this",
+          "type": "string"
+        },
+        "rig": {
+          "default": "none",
+          "description": "which face both sides carry",
+          "options": [
+            "none",
+            "heads",
+            "tails"
+          ],
+          "type": "choice"
+        }
+      }
+    }
+  },
+  "run-name": "long-coin ${{ inputs.ground }}"
+}

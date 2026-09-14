@@ -1,56 +1,102 @@
-name: CI
-on:
-  push:
-    branches: [main, count-one]
-    tags: ['*']
-  pull_request:
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: cachix/install-nix-action@v30
-      - run: nix build .#ground
-      # The Makefile's wind rule is the one list of wind's files. A copy of
-      # it here fell behind and CI linked wind without openapi.d.
-      - run: nix develop .#default --command sh -c 'make wind && dub test'
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: test
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-linux
-          - os: macos-latest
-            target: aarch64-darwin
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: cachix/install-nix-action@v30
-      - run: nix build .#ground
-      - run: cp result/bin/ground ground-${{ matrix.target }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ground-${{ matrix.target }}
-          path: ground-${{ matrix.target }}
-
-  github-release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-      - run: ls -R
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ground-*/ground-*
+{
+  "jobs": {
+    "github-release": {
+      "if": "startsWith(github.ref, 'refs/tags/')",
+      "needs": "release",
+      "permissions": {
+        "contents": "write"
+      },
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "uses": "actions/download-artifact@v8"
+        },
+        {
+          "run": "ls -R"
+        },
+        {
+          "uses": "softprops/action-gh-release@v2",
+          "with": {
+            "files": "ground-*/ground-*\n"
+          }
+        }
+      ]
+    },
+    "release": {
+      "if": "startsWith(github.ref, 'refs/tags/')",
+      "needs": "test",
+      "runs-on": "${{ matrix.os }}",
+      "steps": [
+        {
+          "uses": "actions/checkout@v6",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "uses": "cachix/install-nix-action@v30"
+        },
+        {
+          "run": "nix build .#ground"
+        },
+        {
+          "run": "cp result/bin/ground ground-${{ matrix.target }}"
+        },
+        {
+          "uses": "actions/upload-artifact@v7",
+          "with": {
+            "name": "ground-${{ matrix.target }}",
+            "path": "ground-${{ matrix.target }}"
+          }
+        }
+      ],
+      "strategy": {
+        "matrix": {
+          "include": [
+            {
+              "os": "ubuntu-latest",
+              "target": "x86_64-linux"
+            },
+            {
+              "os": "macos-latest",
+              "target": "aarch64-darwin"
+            }
+          ]
+        }
+      }
+    },
+    "test": {
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "uses": "actions/checkout@v6",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "uses": "cachix/install-nix-action@v30"
+        },
+        {
+          "run": "nix build .#ground"
+        },
+        {
+          "run": "nix develop .#default --command sh -c 'make wind && dub test'"
+        }
+      ]
+    }
+  },
+  "name": "CI",
+  "on": {
+    "pull_request": null,
+    "push": {
+      "branches": [
+        "main",
+        "count-one"
+      ],
+      "tags": [
+        "*"
+      ]
+    }
+  }
+}
