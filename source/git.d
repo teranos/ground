@@ -614,6 +614,41 @@ unittest {
 }
 
 unittest {
+    // One answer per process. The rewrite walks every scope once per pair and
+    // each walk asked again: thirteen opens of the store for one Edit.
+    import core.sys.posix.unistd : rmdir;
+    import errors : mkdir, unlink, open, write, close, O_WRONLY, O_CREAT, O_TRUNC;
+
+    enum base = "/tmp/ground-vis-memo-test";
+    enum gitDir = base ~ "/.git";
+    enum headFile = gitDir ~ "/HEAD";
+    enum cfgFile = gitDir ~ "/config";
+    mkdir(base.ptr, 0x1ED);
+    mkdir(gitDir.ptr, 0x1ED);
+    auto fd = open(headFile.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    assert(fd >= 0);
+    enum head = "ref: refs/heads/main\n";
+    write(fd, head.ptr, head.length);
+    close(fd);
+    fd = open(cfgFile.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    assert(fd >= 0);
+    enum cfg = "[remote \"origin\"]\n\turl = git@gitlab.example:foo/bar.git\n";
+    write(fd, cfg.ptr, cfg.length);
+    close(fd);
+    scope (exit) {
+        unlink(cfgFile.ptr);
+        unlink(headFile.ptr);
+        rmdir(gitDir.ptr);
+        rmdir(base.ptr);
+    }
+
+    auto before = visibilityReads;
+    assert(repoVisibility(base) == Visibility.Unknown, "off GitHub is unknown");
+    assert(repoVisibility(base) == Visibility.Unknown);
+    assert(visibilityReads == before + 1, "the store is asked once per process");
+}
+
+unittest {
     assert(branchFromHead("ref: refs/heads/main\n") == "main");
 
     // A branch name is a path, and the whole of it is the name.
@@ -798,8 +833,30 @@ unittest {
 // repoVisibility is the widest audience of the repository at root, over every
 // remote it pushes to. Each GitHub remote is asked once and remembered; the
 // rule applies to wherever the information ends up.
+// How many times the config and the store were read, so a test can see the
+// answer is given once per process.
+__gshared size_t visibilityReads = 0;
+
+private __gshared char[1024] visAsked = 0;
+private __gshared size_t visAskedLen = 0;
+private __gshared Visibility visFound = Visibility.Unknown;
+private __gshared bool visCached = false;
+
 Visibility repoVisibility(const(char)[] root) {
     if (__ctfe || root.length == 0) return Visibility.Unknown;
+    if (visCached && visAskedLen == root.length && visAsked[0 .. visAskedLen] == root)
+        return visFound;
+    visFound = visibilityWalk(root);
+    if (root.length < visAsked.length) {
+        foreach (i, c; root) visAsked[i] = c;
+        visAskedLen = root.length;
+        visCached = true;
+    }
+    return visFound;
+}
+
+private Visibility visibilityWalk(const(char)[] root) {
+    visibilityReads++;
 
     __gshared char[1024] cfgPath = 0;
     auto cp = configPathInto(root, cfgPath[]);
