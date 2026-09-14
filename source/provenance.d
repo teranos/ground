@@ -102,8 +102,8 @@ private bool isWs(char c) {
 
 // True when the span's own two lines carry nothing but the quote. A comment
 // marker is where the line begins, so it is the one prefix that is not company.
-// `///` opens the same comment `//` does, and it is what the reference is
-// written in. A quote that cannot stand on a ddoc line cannot reach the book.
+// `///` opens the same comment `//` does, and press reads both as prose. A
+// quote that cannot stand on a `///` line cannot reach the book.
 bool isDdoc(const(char)[] prefix, const(char)[] marker) {
     if (marker != "//" || prefix.length < 3) return false;
     foreach (c; prefix) if (c != '/') return false;
@@ -149,7 +149,7 @@ unittest {
     // A marker from another language is just text in front of the quote.
     assert(!standsAlone(`# "a"`, Span(true, 3, 4), "//"));
 
-    // Ddoc is the same marker: the reference is written in `///`, and a quote
+    // `///` is the same marker. press reads it as prose like `//`, so a quote
     // that cannot stand on a `///` line cannot reach the book at all.
     assert(standsAlone(`/// "a"`, Span(true, 5, 6), "//"));
     assert(!standsAlone(`/// x "a"`, Span(true, 7, 8), "//"));
