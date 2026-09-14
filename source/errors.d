@@ -40,11 +40,10 @@ extern (C) {
     char* getenv(const(char)* name);
 }
 
-enum O_WRONLY = 1;
-enum O_RDONLY = 0;
-enum O_CREAT  = 0x0200; // macOS
-enum O_TRUNC  = 0x0400; // macOS
-enum O_APPEND = 8;
+// The flags are the platform's, from druntime's headers, not numbers copied
+// off one machine. O_CREAT is 0x200 on macOS and 0x40 on Linux; with the
+// macOS number, Linux never created the file and every fallback write failed.
+public import core.sys.posix.fcntl : O_WRONLY, O_RDONLY, O_CREAT, O_TRUNC, O_APPEND;
 enum STDERR_FD = 2;
 
 // Grace period added to a control's timeoutSec before scanVanishedWrappers
