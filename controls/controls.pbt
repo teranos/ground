@@ -23,12 +23,12 @@ scope {
       clamp: "tail -N>=40"
     }
 
-    control {
-      name: "no-co-authored-by"
-      cmd: "git commit"
-      omit_line: "Co-Authored-By:"
-      msg: "Co-Authored-By line stripped from commit. Do not amend."
-    }
+  #  control {
+  #    name: "no-co-authored-by"
+  #    cmd: "git commit"
+  #    omit_line: "Co-Authored-By:"
+  #    msg: "Co-Authored-By line stripped from commit. Do not amend."
+  #  }
 
     control {
       name: "short-commit-message-reminder"
