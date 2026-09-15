@@ -17,6 +17,9 @@ scope {
 
     ritual {
       system: "You do the one thing the rite names."
+      models {
+        model: haiku
+      }
 
       obedience
     }
@@ -53,6 +56,9 @@ static assert(flat.count == 2);
 static assert(flat.rites[0].name == "MARK");
 static assert(flat.rites[1].name == "CLEAR");
 static assert(flat.system == "You do the one thing the rite names.");
+
+// The models the inline ritual names are its nearest layer.
+static assert(flat.models[0].model == "haiku");
 
 // Everything a performance needs before anything is written or spawned. A
 // control has no terminal to print to and no argv, so this is the half of
@@ -249,3 +255,30 @@ scope {
 `;
 enum namedParsed = parsePbt(namedSrc);
 static assert(namedParsed.ctrlPool[namedParsed.scopes[0].controlStart].ritual == "elsewhere");
+
+// A ritual that names no model runs on the model of the session controlling it.
+// That session said its model when it started, and ground recorded the payload.
+// A compaction or a resume says it again, and the latest one stands.
+import ritual : sessionModel;
+import db : attestEventAt;
+
+unittest {
+    auto db = memDb();
+    attestEventAt(db, "SessionStart", "/tmp", "sess-parent",
+        `{"session_id":"sess-parent","model":"claude-opus-5[1m]","source":"startup"}`,
+        "2026-09-12T09:00:00Z", 5101);
+    attestEventAt(db, "SessionStart", "/tmp", "sess-parent",
+        `{"session_id":"sess-parent","model":"claude-fable-5-1","source":"compact"}`,
+        "2026-09-12T10:00:00Z", 5102);
+    attestEventAt(db, "SessionStart", "/tmp", "sess-other",
+        `{"session_id":"sess-other","model":"claude-sonnet-5","source":"startup"}`,
+        "2026-09-12T11:00:00Z", 5103);
+
+    assert(sessionModel(db, "sess-parent") == "claude-fable-5-1");
+    assert(sessionModel(db, "sess-other") == "claude-sonnet-5");
+
+    // A session ground never saw start has no model to hand on.
+    assert(sessionModel(db, "sess-unseen") is null);
+    assert(sessionModel(db, "") is null);
+    sqlite3_close(db);
+}

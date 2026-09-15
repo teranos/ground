@@ -59,6 +59,11 @@ PbtCounts countPbt(string input) {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
+        } else if (wm.base == "models") {
+            // Sized by its own fixed array; consumed so its braces are not read.
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
         } else if (wm.base == "rites") {
             // Named block. Rites are sized by their own fixed arrays, so
             // nothing is counted — but it must be consumed, or the next
@@ -187,6 +192,10 @@ void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
         } else if (wm.base == "attestation") {
             // Sized by its own fixed array; consumed so its braces are not read
             // as the project's.
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            skipBlock(input, pos);
+        } else if (wm.base == "models") {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);

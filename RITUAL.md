@@ -34,6 +34,14 @@ project {
     # agent already is, not a replacement for it.
     system: "You are a release engineer. You never merge, and you say which commit you are looking at."
 
+    # The model this performer runs on. Rules are asked before any plain model,
+    # from this ritual out to its project and the top level. Nothing set anywhere,
+    # it runs on the model of the session that performed it.
+    models {
+      model: sonnet
+      seven_day: ">80"   model: haiku
+    }
+
     green
     shipped
   }

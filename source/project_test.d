@@ -122,6 +122,19 @@ project {
 enum backedParsed = parsePbt(backedInput);
 static assert(backedParsed.projects[0].qntx == "https://qntx.alice.example");
 
+// "yes, thats the shape, and you can set it top level or inside of project or inside of ritual"
+// Every ritual in this project runs under sonnet, unless the ritual sets its own.
+enum projectModelsInput = `
+project {
+  path: "/Users/Alice/projects/hygrometer-server"
+
+  models {
+    model: "sonnet"
+  }
+}
+`;
+static assert(parsePbt(projectModelsInput).projects[0].models.model == "sonnet");
+
 // --- extractProjectFiles: flatten all project file lists into one array ---
 
 import proto : extractProjectFiles;

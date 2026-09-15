@@ -218,6 +218,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import author : handleAuthor;
             return handleAuthor();
         }
+        if (cmd == "usage") {
+            import usagecmd : handleUsage;
+            return handleUsage();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;

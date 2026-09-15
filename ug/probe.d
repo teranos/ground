@@ -7,6 +7,17 @@ import qntx : State, classify, indexOf;
 
 enum HOST = "https://api.q.sbvh.nl";
 
+// QNTX_HOST replaces HOST for one process. The live test points it at an
+// address that never answers, so no test request reaches the real node.
+const(char)[] host() {
+    import core.stdc.stdlib : getenv;
+    auto e = getenv("QNTX_HOST\0".ptr);
+    if (e is null) return HOST;
+    size_t n = 0;
+    while (e[n] != 0) n++;
+    return n > 0 ? e[0 .. n] : HOST;
+}
+
 // Pinned by absolute path: PATH belongs to whichever shell started the row,
 // and a credential must not be handed to whatever curl that PATH resolves.
 enum CURL = "/usr/bin/curl";
@@ -135,7 +146,7 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     putCmd(" --config ");
     putCmd(conf[0 .. c]);
     putCmd(" --write-out '\\nHTTP %{http_code}' ");
-    putCmd(HOST);
+    putCmd(host());
     putCmd(path);
     putCmd(" 2>/dev/null");
     cmd[m] = 0;
@@ -158,6 +169,95 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     auto curlExit = (status & 0x7f) == 0 ? (status >> 8) & 0xff : status;
 
     return split(out_[0 .. total], curlExit);
+}
+
+// What a POST came back with. curlExit is -1 when no token was there to send,
+// which is a request never made rather than one that failed.
+struct Posted {
+    int status;
+    int curlExit;
+}
+
+// One POST of a JSON body. The token and the body both go through files, so
+// neither is on a command line another process can read.
+Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
+    import core.stdc.stdio : FILE, fopen, fwrite, fclose, fread, remove;
+    import core.sys.posix.stdio : popen, pclose;
+    import core.sys.posix.unistd : getpid;
+
+    auto tok = readToken(home);
+    if (!tok.ok) return Posted(0, -1);
+
+    __gshared char[256] conf = void;
+    __gshared char[256] data = void;
+    size_t c = 0, b = 0;
+    {
+        char[12] d = void;
+        size_t dl = 0;
+        int v = getpid();
+        if (v <= 0) d[dl++] = '0';
+        while (v > 0 && dl < 11) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach (ch; "/tmp/ug-post-") { conf[c++] = ch; data[b++] = ch; }
+        foreach_reverse (i; 0 .. dl) { conf[c++] = d[i]; data[b++] = d[i]; }
+        foreach (ch; ".conf") conf[c++] = ch;
+        foreach (ch; ".json") data[b++] = ch;
+        conf[c] = 0;
+        data[b] = 0;
+    }
+
+    {
+        auto f = fopen(&data[0], "wb");
+        if (f is null) return Posted(0, 0);
+        fwrite(body_.ptr, 1, body_.length, f);
+        fclose(f);
+    }
+    {
+        auto f = fopen(&conf[0], "wb");
+        if (f is null) { remove(&data[0]); return Posted(0, 0); }
+        void line(const(char)[] s) { fwrite(s.ptr, 1, s.length, f); }
+        line("silent\nshow-error\nmax-time = 3\nrequest = \"POST\"\n");
+        line("header = \"Content-Type: application/json\"\n");
+        line("header = \"Authorization: Bearer ");
+        line(tok.value);
+        line("\"\ndata-binary = \"@");
+        line(data[0 .. b]);
+        line("\"\n");
+        fclose(f);
+    }
+
+    __gshared char[512] cmd = void;
+    size_t m = 0;
+    bool overflowed = false;
+    void putCmd(const(char)[] s) {
+        if (m + s.length + 1 > cmd.length) { overflowed = true; return; }
+        foreach (ch; s) cmd[m++] = ch;
+    }
+    putCmd(CURL);
+    putCmd(" --config ");
+    putCmd(conf[0 .. c]);
+    putCmd(" --write-out '\\nHTTP %{http_code}' ");
+    putCmd(host());
+    putCmd(path);
+    putCmd(" 2>/dev/null");
+    cmd[m] = 0;
+    if (overflowed) { remove(&conf[0]); remove(&data[0]); return Posted(0, 0); }
+
+    auto pipe = popen(&cmd[0], "r");
+    if (pipe is null) { remove(&conf[0]); remove(&data[0]); return Posted(0, 0); }
+
+    __gshared char[4096] out_ = void;
+    size_t total = 0;
+    while (total < out_.length) {
+        auto n = fread(&out_[total], 1, out_.length - total, cast(FILE*) pipe);
+        if (n == 0) break;
+        total += n;
+    }
+    auto status = pclose(pipe);
+    remove(&conf[0]);
+    remove(&data[0]);
+    auto curlExit = (status & 0x7f) == 0 ? (status >> 8) & 0xff : status;
+
+    return Posted(split(out_[0 .. total], curlExit).status, curlExit);
 }
 
 // Surrounding whitespace is not part of a credential; a file written by echo

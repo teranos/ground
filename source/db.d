@@ -318,6 +318,19 @@ bool applySchema(sqlite3* db) {
         ~ "asked_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
     sqlite3_exec(db, visibilitySchema.ptr, null, null, null);
 
+    // "i want to record the usage that is left in ground itself"
+    // The rate limit windows reach the status line and no hook, so ug inserts
+    // these rows and ground reads them. qntx_status and qntx_exit are what the
+    // attempt to attest the reading into QNTX answered; qntx_exit -1 means no
+    // token was there to send, and -2 that the attempt never said how it went.
+    enum usageSchema = "CREATE TABLE IF NOT EXISTS usage (id INTEGER PRIMARY KEY, "
+        ~ "window TEXT NOT NULL, used_percentage REAL NOT NULL, resets_at INTEGER, "
+        ~ "seen_at INTEGER NOT NULL, session TEXT, "
+        ~ "qntx_status INTEGER NOT NULL DEFAULT 0, qntx_exit INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, usageSchema.ptr, null, null, null);
+    enum idxUsage = "CREATE INDEX IF NOT EXISTS idx_usage_window_seen ON usage(window, seen_at)\0";
+    sqlite3_exec(db, idxUsage.ptr, null, null, null);
+
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";
@@ -821,6 +834,30 @@ unittest {
     attestControlFire(db, "GroundedStop", "openapi:/health", "/tmp", "sess-two");
     assert(attestationRowCount(db) == 2);
 
+    sqlite3_close(db);
+}
+
+unittest {
+    // ug records the rate limit windows it is handed. The store owns the shape;
+    // ug only inserts into it, and asks when it last did.
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    enum insert = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit) "
+        ~ "VALUES ('five_hour', '23.5', 1738425600, 1738400000, 'sess-usage', 201, 0)\0";
+    assert(sqlite3_exec(db, insert.ptr, null, null, null) == SQLITE_OK,
+           "ug's insert lands in the product schema");
+
+    enum last = "SELECT MAX(seen_at), used_percentage FROM usage WHERE window = 'five_hour'\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, last.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 1738400000);
+    auto pct = sqlite3_column_text(stmt, 1);
+    assert(pct !is null && pct[0] == '2' && pct[1] == '3' && pct[2] == '.' && pct[3] == '5' && pct[4] == 0,
+           "the percentage reads back as it was sent");
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
 }
 

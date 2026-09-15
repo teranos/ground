@@ -114,6 +114,8 @@ struct ParsedProject {
     string openapi;
     // The QNTX this project attests to. Empty means it attests nowhere.
     string qntx;
+    // The models every ritual in this project sets, between its own and the top level's.
+    ParsedModels models;
 }
 
 // One path of a project's spec: the word a reply is matched on, and the text
@@ -201,6 +203,22 @@ struct ParsedRiteRef {
     size_t valueCount;
 }
 
+// One rule of a models block: the input it reads, what that input must be, and
+// the model it picks when that holds.
+struct ModelRule {
+    string input;   // five_hour, seven_day or plan
+    string value;   // ">90", ">=80", "<10", "<=5", or a plan name
+    string model;
+}
+
+// The one place a model is set, at the top level, in a project or in a ritual.
+struct ParsedModels {
+    bool present;
+    string model;
+    ModelRule[8] rules;
+    size_t ruleCount;
+}
+
 // A ritual is the only thing that can be invoked, and it lives inside the
 // project whose env its rites read.
 struct ParsedRitual {
@@ -211,6 +229,8 @@ struct ParsedRitual {
     // "define a CLAUDE.md inline in a ritual" — appended to what the agent
     // already is, so a ritual says what this performer additionally knows.
     string system;
+    // The models this ritual sets, the nearest of the three layers.
+    ParsedModels models;
     // What kind of worktree it performs in. "empty" is an orphan onto the
     // empty tree, for a ritual with nothing to inspect.
     string tree;
@@ -240,6 +260,8 @@ struct ParseResult {
     size_t attestationCount;
     Strop[MAX_STROP_POOL] stropPool;
     size_t stropPoolLen;
+    // The top-level models block, the farthest layer.
+    ParsedModels models;
 }
 
 // What is wrong with a ritual, in a buffer rather than a concatenation. `~`
@@ -776,6 +798,12 @@ ParseResult parsePbt(string input) {
             assert(result.ritesCount < result.rites.length, "Rites group overflow");
             result.rites[result.ritesCount] = parseRites(input, pos, groupName);
             result.ritesCount++;
+        } else if (wm.base == "models") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(!result.models.present,
+                   "a second top-level models block would replace the first one");
+            result.models = parseModels(input, pos);
         } else if (wm.base == "include") {
             // A directive to wind, not a declaration. By the time ground parses
             // sand the directory has already been folded in, so all that is
@@ -783,7 +811,7 @@ ParseResult parsePbt(string input) {
             skipWS(input, pos);
             cast(void) readValue(input, pos);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', or 'include'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', 'models', or 'include'");
         }
     }
     return result;
@@ -960,6 +988,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
     string projectOpenapi;
     string projectQntx;
     size_t projectMaxGoto;
+    ParsedModels projectModels;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
     string[1024] files;
@@ -982,6 +1011,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             result.projects[result.projectCount].maxGoto = projectMaxGoto;
             result.projects[result.projectCount].openapi = projectOpenapi;
             result.projects[result.projectCount].qntx = projectQntx;
+            result.projects[result.projectCount].models = projectModels;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
@@ -1048,6 +1078,12 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             bindInlineRituals(result, sc, projectPath);
             result.scopes[result.scopeCount] = sc;
             result.scopeCount++;
+        } else if (wm.base == "models") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(!projectModels.present,
+                   "a second models block in a project would replace the first one");
+            projectModels = parseModels(input, pos);
         } else if (wm.base == "permission") {
             // Permission directly in project — wrap in scope with path "/"
             skipWS(input, pos);
@@ -1149,6 +1185,61 @@ void parseEnvBlock(ref string input, ref size_t pos,
         count++;
     }
     assert(0, "Unterminated env block");
+}
+
+// A plain model:, and rules that each name an input and what it must be, with
+// the model: that follows. A rule with no model after it is refused, and so is
+// a window compared to something that is not a number.
+ParsedModels parseModels(ref string input, ref size_t pos) {
+    ParsedModels m;
+    m.present = true;
+    string pendingInput;
+    string pendingValue;
+
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') {
+            pos++;
+            assert(pendingInput.length == 0, "a models rule needs a model: after it");
+            return m;
+        }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+
+        if (key == "model") {
+            if (pendingInput.length > 0) {
+                assert(m.ruleCount < m.rules.length, "Models rule overflow");
+                m.rules[m.ruleCount++] = ModelRule(pendingInput, pendingValue, val);
+                pendingInput = null;
+                pendingValue = null;
+            } else {
+                m.model = val;
+            }
+        } else if (key == "five_hour" || key == "seven_day" || key == "plan") {
+            assert(pendingInput.length == 0, "a models rule needs a model: after it");
+            if (key != "plan") {
+                size_t n = 0;
+                assert(val.length > 1 && (val[0] == '>' || val[0] == '<'),
+                       "a window is compared with >, >=, < or <=");
+                n = 1;
+                if (val[n] == '=') n++;
+                assert(n < val.length, "a window is compared to a number");
+                foreach (ch; val[n .. $])
+                    assert((ch >= '0' && ch <= '9') || ch == '.', "a window is compared to a number");
+            }
+            pendingInput = key;
+            pendingValue = val;
+        } else {
+            assert(0, "Unknown models field");
+        }
+    }
+    assert(0, "Unterminated models block");
 }
 
 void parseHandlerParamsBlock(ref string input, ref size_t pos,
@@ -1552,6 +1643,16 @@ ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string p
                 continue;
             }
             pos = save;
+        }
+
+        // A block, like a rites reference, but the one word here that is not one.
+        if (refName == "models") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(!r.models.present,
+                   "a second models block in a ritual would replace the first one");
+            r.models = parseModels(input, pos);
+            continue;
         }
 
         assert(r.refCount < r.refs.length, "Ritual reference overflow");

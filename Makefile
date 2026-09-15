@@ -62,10 +62,11 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d
+             ug/tmux.d ug/usage.d
 
-# sqlite3 is the one library ug links. ground owns every row it reads; ug only
-# ever issues SELECT.
+# sqlite3 is the one library ug links. ground owns the schema and every row ug
+# reads. ug writes one thing: the usage reading from its input, which no hook
+# is handed, every four hours and once per new session.
 ug: $(UG_SOURCES)
 	ldc2 -betterC -of=ug/ug -I=ug $(UG_SOURCES) -L-lsqlite3
 
@@ -98,6 +99,13 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
+	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/usage.d ug/usage_test.d
+
+# ug the way Claude Code runs it: frames cancelled mid-run, against a QNTX that
+# never answers. Not part of make test, because it waits on curl's timeout.
+test-ug-live: build ug
+	ldc2 -betterC -of=/tmp/ug-live-test ug/live_test.d -L-lsqlite3
+	/tmp/ug-live-test ug/ug ./ground
 
 # The row runs from PREFIX, not from the checkout: a status line pointed at a
 # build directory goes blank the moment that directory moves.

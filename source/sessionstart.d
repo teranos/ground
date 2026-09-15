@@ -43,48 +43,17 @@ bool isNewerVersion(const(char)[] remote, const(char)[] local) {
     return false;
 }
 
-// Check if a newer release exists on GitHub.
-// Returns the newer version string, or null if current is up to date.
-const(char)[] checkTagStaleness() {
-    // Strip VERSION to just the tag part (e.g. "0.6.0-3-gabcdef\n" → "0.6.0")
+// The installed ground's tag, without what git describe adds after it.
+const(char)[] localTag() {
     __gshared char[64] localVer;
     size_t localLen = 0;
     foreach (c; VERSION) {
         if (c == '-' || c == '\n' || c == '\r' || c == '+') break;
         if (localLen < localVer.length) localVer[localLen++] = c;
     }
-    if (localLen == 0) return null;
-
-    auto pipe = popen("curl -sf https://api.github.com/repos/teranos/ground/releases/latest 2>/dev/null", "r");
-    if (pipe is null) return null;
-
-    __gshared char[16384] buf;
-    auto n = fread(&buf[0], 1, buf.length, pipe);
-    pclose(pipe);
-    if (n == 0) return null;
-
-    // Extract "tag_name":"<value>" from JSON
-    auto data = buf[0 .. n];
-    auto idx = indexOf(data, `"tag_name"`);
-    if (idx < 0) return null;
-
-    // Find the value after the colon and opening quote
-    auto start = cast(size_t)idx + 10; // skip "tag_name"
-    while (start < data.length && data[start] != '"') start++;
-    start++; // skip opening quote
-    auto end = start;
-    while (end < data.length && data[end] != '"') end++;
-    if (end <= start) return null;
-
-    auto remoteTag = data[start .. end];
-    __gshared char[64] remoteBuf;
-    if (remoteTag.length > remoteBuf.length) return null;
-    foreach (j, c; remoteTag) remoteBuf[j] = c;
-
-    if (isNewerVersion(remoteBuf[0 .. remoteTag.length], localVer[0 .. localLen]))
-        return remoteBuf[0 .. remoteTag.length];
-    return null;
+    return localVer[0 .. localLen];
 }
+
 
 // Grounded Types — QNTX Attestation Schema
 //
@@ -203,9 +172,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     bool isStartup = source is null || contains(source, "startup") || contains(source, "clear");
 
-    const(char)[] newerTag = isStartup ? checkTagStaleness() : null;
-
-    auto tVersion = usecNow();
+    // Set from the last release check, below, not fetched here.
+    const(char)[] newerTag = null;
 
     // Iterate sessionstart controls
     import controls : sessionStartScopes;
@@ -276,6 +244,46 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     auto tControls = usecNow();
 
+    // The uptime on every start. The plan and the latest release are checked
+    // when their last check is a day old, and the start waits for those.
+    __gshared ZBuf startLine;
+    {
+        import checks : bootTime, shouldCheck, lastCheck, askPlan, fetchRelease, sendDetached,
+                        putStart, putUptime, Check, EVERY;
+        import core.stdc.time : time;
+        import db : openDb, sqlite3_close;
+
+        auto now = cast(long) time(null);
+        auto boot = bootTime();
+        long up = boot > 0 ? now - boot : -1;
+        startLine.reset();
+
+        auto sdb = openDb();
+        if (sdb !is null) {
+            __gshared Check plan;
+            __gshared Check release;
+            plan = lastCheck(sdb, "plan");
+            bool asked = shouldCheck(plan.found ? plan.at : 0, now, EVERY);
+            if (asked) plan = askPlan(sdb, now);
+            release = lastCheck(sdb, "release");
+            bool fetched = shouldCheck(release.found ? release.at : 0, now, EVERY);
+            if (fetched) release = fetchRelease(sdb, now);
+            sqlite3_close(sdb);
+
+            if (asked || fetched)
+                sendDetached(asked ? "plan" : "", fetched ? "release" : "", now);
+
+            putStart(startLine, up, plan.value, plan.exit, plan.found);
+            if (isStartup && release.value.length > 0 && isNewerVersion(release.value, localTag()))
+                newerTag = release.value;
+        } else {
+            putUptime(startLine, up);
+            startLine.put(" | plan unknown: ground could not open its database");
+        }
+    }
+
+    auto tPlan = usecNow();
+
     if (newerTag !is null) {
         if (any) ctx.put(" | ");
         ctx.put("ground ");
@@ -292,8 +300,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         prof.put("types="); putInt(prof, tTypes-t0);
         prof.put("us session="); putInt(prof, tSession-tTypes);
         prof.put("us deferred="); putInt(prof, tDeferred-tSession);
-        prof.put("us version="); putInt(prof, tVersion-tDeferred);
-        prof.put("us controls="); putInt(prof, tControls-tVersion);
+        prof.put("us controls="); putInt(prof, tControls-tDeferred);
+        prof.put("us checks="); putInt(prof, tPlan-tControls);
         prof.put("us total="); putInt(prof, usecNow()-t0);
         prof.put("us");
         setPhases(prof.slice());
@@ -382,7 +390,9 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         import parse : writeJsonString;
         if (any) ctx.put(" | ");
         // projectNews needs JSON escaping — write directly
-        fputs(`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
+        fputs(`{"systemMessage":"`, stdout);
+        writeJsonString(startLine.slice());
+        fputs(`","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
         fwrite(&ctx.data[0], 1, ctx.len, stdout);
         writeJsonString(projectNews);
         fputs(`"}}` ~ "\n", stdout);
@@ -391,13 +401,22 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     }
 
     if (any) {
-        fputs(`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
+        import parse : writeJsonString;
+        fputs(`{"systemMessage":"`, stdout);
+        writeJsonString(startLine.slice());
+        fputs(`","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
         fwrite(&ctx.data[0], 1, ctx.len, stdout);
         fputs(`"}}` ~ "\n", stdout);
         emitSessionProfile();
         return 0;
     }
 
+    {
+        import parse : writeJsonString;
+        fputs(`{"systemMessage":"`, stdout);
+        writeJsonString(startLine.slice());
+        fputs(`"}` ~ "\n", stdout);
+    }
     emitSessionProfile();
     return 0;
 }

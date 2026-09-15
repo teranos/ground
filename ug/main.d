@@ -52,5 +52,12 @@ extern (C) int main(int argc, char** argv) {
     // call. `ug tmux` draws it.
     statushead(session, now);
     ritualLines(session, now);
+
+    {
+        import core.stdc.stdio : fflush, stdout;
+        import usage : recordUsage;
+        fflush(stdout);
+        recordUsage(home, session, cast(long) now);
+    }
     return 0;
 }

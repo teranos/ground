@@ -282,6 +282,24 @@ ptrdiff_t formatInto(const(char)[] s, char[] out_) {
                 auto v = scalar(s, pos);
                 if (v is null) return -1;
                 w.put(v);
+
+                // A models rule is its condition and the model it picks, and
+                // the two stay on one line wherever the author broke them.
+                if (head == "five_hour" || head == "seven_day" || head == "plan") {
+                    auto look = pos;
+                    while (look < s.length && isWs(s[look])) look++;
+                    auto next = word(s, look);
+                    skipBlank(s, look);
+                    if (next == "model" && look < s.length && s[look] == ':') {
+                        look++;
+                        skipBlank(s, look);
+                        auto m = scalar(s, look);
+                        if (m is null) return -1;
+                        w.put("  model: ");
+                        w.put(m);
+                        pos = look;
+                    }
+                }
             }
             trailing(s, pos, w);
             w.put("\n");

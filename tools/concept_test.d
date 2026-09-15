@@ -6,7 +6,7 @@ module concept_test;
 import concept : conceptOf, isConcept, chapters, rank, opener, chapterOf, moduleName;
 
 // "most chapters arent supposed to be their own standalone chapters"
-static assert(chapters.length == 6);
+static assert(chapters.length == 7);
 
 // "i still think it should come first, if its not its own chapter it would
 // otherwise still be something you introduce before talking about controls"
@@ -14,8 +14,22 @@ static assert(chapters[0] == "scope");
 static assert(chapters[1] == "control");
 static assert(chapters[2] == "project");
 static assert(chapters[3] == "permission");
-static assert(chapters[4] == "ritual");
-static assert(chapters[5] == "attestation");
+static assert(chapters[4] == "models");
+static assert(chapters[5] == "ritual");
+static assert(chapters[6] == "attestation");
+
+// Models is met before the rituals whose examples set one.
+static assert(isConcept("models"));
+
+// A models block standing alone at the top level is the models chapter's own
+// example. Inside a project or a ritual it is an example of that block instead.
+static assert(conceptOf("models {\n  model: \"opus\"\n}") == "models");
+static assert(conceptOf("project {\n  path: \"/x\"\n  models {\n    model: \"opus\"\n  }\n}") == "project");
+static assert(conceptOf("project {\n  ritual r {\n    models {\n      model: \"opus\"\n    }\n  }\n}") == "ritual");
+
+// The chapter opens on the module that says what models are, and owns its terms.
+static assert(opener("models") == "models");
+static assert(chapterOf("models") == "models");
 
 static assert(isConcept("control"));
 static assert(isConcept("project"));

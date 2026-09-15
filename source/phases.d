@@ -1,6 +1,6 @@
 module phases;
 
-// BOOK_GLOSSARY **Phases**: Where a hook's time went, as its timing row remembers it: key=NNus pairs, the total, and the exit taken.
+// Phases: where a hook's time went, as its timing row remembers it: key=NNus pairs, the total, and the exit taken.
 
 // "perhaps its better to focus on improving the instrument?"
 // A row said how long the process took and how long the handler took, and

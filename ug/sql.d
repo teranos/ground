@@ -1,7 +1,8 @@
 module sql;
 
-// Reading ground's store. ug never writes it — ground owns every row here and
-// the row on screen is a view of it.
+// Reading ground's store, and one write. ground owns the schema and every row
+// the row on screen is a view of. The one row ug inserts is a usage reading,
+// because the status line is the only place Claude Code hands one out.
 
 extern (C) {
     struct sqlite3;
@@ -16,6 +17,10 @@ extern (C) {
     long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
     int sqlite3_bind_text(sqlite3_stmt* stmt, int idx, const(char)* text, int n, void* destructor);
+    int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
+    int sqlite3_exec(sqlite3* db, const(char)* sql, void* callback, void* arg, char** errmsg);
+    int sqlite3_changes(sqlite3* db);
+    long sqlite3_last_insert_rowid(sqlite3* db);
 }
 
 enum SQLITE_OK   = 0;
@@ -23,7 +28,8 @@ enum SQLITE_ROW  = 100;
 enum SQLITE_DONE = 101;
 
 // READONLY cannot create the -shm a WAL database needs, so it fails to open
-// and every count silently reads as zero. ug only ever issues SELECT.
+// and every count silently reads as zero. Read-write is also what the usage
+// insert needs.
 enum SQLITE_READWRITE = 0x00000002;
 
 // ground writes while ug reads. Without a wait, a contended prepare comes back

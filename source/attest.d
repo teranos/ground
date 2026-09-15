@@ -32,7 +32,7 @@ int backoffSeconds(int attempt) {
 // One token. A second name for the same credential is a second thing to
 // rotate, and the one nobody rotated went stale and was refused for weeks.
 // What tells these attestations apart is actors ["ground"], not the filename.
-private const(char)[] qntxToken() {
+const(char)[] qntxToken() {
     import errors : getenv, open, read, close, O_RDONLY;
     import http : trimToken;
 

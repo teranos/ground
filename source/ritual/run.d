@@ -465,9 +465,6 @@ Brief briefing(const Position p, const Flattened f) {
         b.put("x");
         b.putNum(p.throws);
     }
-    // > I cannot make rite WEB exit 0 — it has no eval.
-    // Ground sends the job and reads the run, so there is no condition for an
-    // agent to meet. A rite that passes is not interesting; one that fails is.
     if (r.dispatch.length > 0) {
         b.put(". Ground is running this rite itself: it dispatches ");
         b.put(r.dispatch);
@@ -540,7 +537,7 @@ SpawnScript reapScript(const(char)[] agentSession) {
 
 SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
                         const(char)[] perfId, const(char)[] prompt,
-                        const(char)[] system = "") {
+                        const(char)[] system = "", const(char)[] model = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
@@ -562,6 +559,12 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
     // ask, and one asked anyway sits blocked until the machine runs out of
     // memory.
     s.put("--permission-mode dontAsk ");
+    // The model is already resolved: the ritual's, or the controlling session's.
+    if (model.length > 0) {
+        s.put("--model ");
+        s.putQuoted(model);
+        s.put(" ");
+    }
     // Appended rather than replacing: what a ritual declares is what this
     // agent additionally is, the way a CLAUDE.md is.
     if (system.length > 0) {

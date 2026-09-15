@@ -299,6 +299,28 @@ static assert(validateRituals(systemParsed).text() == "");
 // A ritual that says nothing carries nothing, and the spawn is unchanged.
 static assert(ritualParsed.rituals[0].system == "");
 
+// A ritual sets its own model, nearer than its project or the top level.
+enum ritualModelsInput = `
+rites page {
+  WRITE {
+    eval: "true"
+  }
+}
+
+project {
+  path: "/src/proj"
+
+  ritual campaign {
+    models { model: "fable" }
+    page
+  }
+}
+`;
+enum ritualModelsParsed = parsePbt(ritualModelsInput);
+static assert(ritualModelsParsed.rituals[0].models.model == "fable");
+static assert(validateRituals(ritualModelsParsed).text() == "");
+
+
 // A word with a colon that names no field is refused by name, rather than
 // being read as a rites group that does not exist.
 enum badFieldInput = `

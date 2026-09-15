@@ -71,6 +71,24 @@ static assert(sys.text() ==
 // A ritual that says nothing about it spawns exactly as before.
 static assert(spawnScript("/r", "p-1", "p-1", "go", "").text() == bg.text());
 
+// The model already resolved for this performance goes to claude as its flag.
+enum model = spawnScript("/r", "p-1", "p-1", "go", "", "sonnet");
+static assert(model.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "export GROUND_PERFORMANCE='p-1'\n"
+    ~ "claude -w 'p-1' --bg --permission-mode dontAsk --model 'sonnet' 'go'\n");
+
+// A model and a system prompt together, each its own flag.
+enum both = spawnScript("/r", "p-1", "p-1", "go", "Be brief.", "fable");
+static assert(both.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "export GROUND_PERFORMANCE='p-1'\n"
+    ~ "claude -w 'p-1' --bg --permission-mode dontAsk --model 'fable' "
+    ~ "--append-system-prompt 'Be brief.' 'go'\n");
+
+// No model resolved is no flag.
+static assert(spawnScript("/r", "p-1", "p-1", "go", "", "").text() == bg.text());
+
 // No tree named, no -w. The flag is the whole of the request, so leaving it off
 // is how an agent works in the place the push happened rather than beside it.
 enum here = spawnScript("/r", "", "p-2", "go");

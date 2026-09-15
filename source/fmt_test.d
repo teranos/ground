@@ -100,5 +100,17 @@ enum reference = "project {\n  ritual r {\n    parity {\n      row: \"watchers\"
 static assert(formatPbt(reference).text() ==
     "project {\n  ritual r {\n    parity { row: \"watchers\" }\n  }\n}\n");
 
+// A rule in a models block is a condition and the model it picks, one line. Set
+// apart, the model reads as the block's own plain model.
+enum rules = "models {\n  model: \"opus\"\n  five_hour: \">90\"\n  model: \"haiku\"\n"
+    ~ "  seven_day: \">80\"   model: \"sonnet\"\n}\n";
+static assert(formatPbt(rules).text() ==
+    "models {\n  model: \"opus\"\n  five_hour: \">90\"  model: \"haiku\"\n"
+    ~ "  seven_day: \">80\"  model: \"sonnet\"\n}\n");
+
+// A plan rule is a rule too, and the canonical form comes back unchanged.
+enum planRule = "models {\n  plan: \"pro\"  model: \"sonnet\"\n}\n";
+static assert(formatPbt(planRule).text() == planRule);
+
 // include names a file and carries no colon.
 static assert(formatPbt("include   \"other.pbt\"\n").text() == "include \"other.pbt\"\n");

@@ -4,6 +4,7 @@ module ritual.resolve;
 // BOOK_GLOSSARY **Rites block**: A named group of rites, with the params it takes, that does not finish while a dispatch it made is outstanding.
 
 import receiver : Receiver;
+import proto : ParsedModels;
 
 // Which ritual a word or two words name. "ground should refuse if it cant
 // resolve to a single one cleanly".
@@ -162,6 +163,8 @@ struct Flattened {
     size_t count;
     // spawnScript is built from the walk, not from the pbt.
     string system;
+    // Ritual, project, top level: the nearest first.
+    ParsedModels[3] models;
     // Per performance, a full run of a ritual. The project says how long its
     // loops may go; MAX_GOTOS is what a project that says nothing gets.
     size_t maxGoto;
@@ -172,6 +175,8 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
     if (ritualIdx >= r.ritualCount) return f;
     auto rit = r.rituals[ritualIdx];
     f.system = rit.system;
+    f.models[0] = rit.models;
+    f.models[2] = r.models;
 
     // Matched on name as well as path: four blocks share `/sbvh-nl/grove`, and
     // by path alone the first one's number would govern all of them.
@@ -181,6 +186,7 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
         if (r.projects[pi].path != rit.projectPath) continue;
         if (r.projects[pi].name != rit.projectName) continue;
         if (r.projects[pi].maxGoto > 0) f.maxGoto = r.projects[pi].maxGoto;
+        f.models[1] = r.projects[pi].models;
         break;
     }
 
@@ -265,4 +271,97 @@ long indexOfRiteFrom(const Flattened f, const(char)[] group, const(char)[] name)
     foreach (i; 0 .. f.count)
         if (f.rites[i].group == group && f.rites[i].name == name) return cast(long) i;
     return indexOfRite(f, name);
+}
+
+// What the spawn knows when it picks: the plan the last ask found, the latest
+// reading of each window in tenths, and the model of the session performing it.
+struct ModelInputs {
+    bool planKnown;
+    const(char)[] plan;
+    bool fiveKnown;
+    long fiveTenths;
+    bool sevenKnown;
+    long sevenTenths;
+    const(char)[] session;
+}
+
+struct ModelChoice {
+    const(char)[] model;
+    // The rule that picked it, empty when no rule held.
+    const(char)[] ruleInput;
+    const(char)[] ruleValue;
+    // The first rule that could not be asked, for want of its input.
+    const(char)[] missing;
+}
+
+// Every rule, nearest layer first, then the nearest plain model, then the
+// model of the session that performed it.
+ModelChoice resolveModel(const ParsedModels[3] layers, const ModelInputs i) {
+    ModelChoice c;
+    foreach (ref layer; layers) {
+        foreach (k; 0 .. layer.ruleCount) {
+            auto rule = layer.rules[k];
+            bool known;
+            bool holds;
+            if (rule.input == "plan") {
+                known = i.planKnown;
+                holds = known && i.plan == rule.value;
+            } else {
+                bool five = rule.input == "five_hour";
+                known = five ? i.fiveKnown : i.sevenKnown;
+                holds = known && compares(five ? i.fiveTenths : i.sevenTenths, rule.value);
+            }
+            if (!known) {
+                if (c.missing.length == 0) c.missing = rule.input;
+                continue;
+            }
+            if (holds) {
+                c.model = rule.model;
+                c.ruleInput = rule.input;
+                c.ruleValue = rule.value;
+                return c;
+            }
+        }
+    }
+    foreach (ref layer; layers) {
+        if (layer.model.length == 0) continue;
+        c.model = layer.model;
+        return c;
+    }
+    c.model = i.session is null ? "" : i.session;
+    return c;
+}
+
+// ">90" and the like, against a reading in tenths of a percent.
+bool compares(long tenths, const(char)[] want) {
+    size_t n = 0;
+    bool gt = false;
+    bool lt = false;
+    bool orEqual = false;
+    if (n < want.length && want[n] == '>') { gt = true; n++; }
+    else if (n < want.length && want[n] == '<') { lt = true; n++; }
+    if (!gt && !lt) return false;
+    if (n < want.length && want[n] == '=') { orEqual = true; n++; }
+
+    long whole = 0;
+    long tenth = 0;
+    bool dot = false;
+    bool gotTenth = false;
+    bool digits = false;
+    foreach (ch; want[n .. $]) {
+        if (ch == '.') {
+            if (dot) return false;
+            dot = true;
+            continue;
+        }
+        if (ch < '0' || ch > '9') return false;
+        digits = true;
+        if (!dot) whole = whole * 10 + (ch - '0');
+        else if (!gotTenth) { tenth = ch - '0'; gotTenth = true; }
+    }
+    if (!digits) return false;
+
+    auto limit = whole * 10 + tenth;
+    if (gt) return orEqual ? tenths >= limit : tenths > limit;
+    return orEqual ? tenths <= limit : tenths < limit;
 }
