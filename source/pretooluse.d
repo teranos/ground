@@ -167,6 +167,8 @@ struct StandingPair {
     const(char)[] pair;
     const(char)[] msg;
     bool done;
+    // What the control holding the pair says no rewrite may change.
+    const(char[])[] keeps;
 }
 
 // A rewrite is a control, and a control fires where its scope stands. Walked by
@@ -182,7 +184,9 @@ StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
         foreach (ci; sc.controlStart .. sc.controlEnd) {
             auto c = parsed.ctrlPool[ci];
             foreach (pi; 0 .. c.rewriteCount) {
-                if (seen == want) return StandingPair(c.rewrites[pi], c.msg, false);
+                if (seen == want)
+                    return StandingPair(c.rewrites[pi], c.msg, false,
+                        parsed.ctrlPool[ci].keeps[0 .. c.keepCount]);
                 seen++;
             }
         }
@@ -246,7 +250,7 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
 
         foreach (key; WRITTEN_FIELDS) {
             auto dest = inA ? bufA[] : bufB[];
-            auto r = rewriteField(current, key, from, to, dest);
+            auto r = rewriteField(current, key, from, to, dest, sp.keeps);
             // Not fitting is not a rewrite. The call goes through as
             // it arrived rather than through a value cut short.
             if (!r.fit) return false;

@@ -7,6 +7,8 @@ import pretooluse : standingRewrite;
 struct FakeControl {
     string[2] rewrites;
     size_t rewriteCount;
+    string[1] keeps;
+    size_t keepCount;
     string msg;
 }
 
@@ -73,4 +75,56 @@ FakeParsed public_only() {
 static immutable t = public_only();
 
 static assert(standingRewrite(t, "/u/geology/teranos/QNTX/am.toml", "", 0).pair == "$HOME|/home/golem");
-static assert(standingRewrite(t, "/u/geology/sbvh-nl/q.sbvh.nl/infra/am.toml", "", 0).done);
+static assert(standingRewrite(t, "/u/geology/abcd-nl/q.abcd.nl/infra/am.toml", "", 0).done);
+
+// "so the rewrite rule still applies, but, i want to exclude this string
+// specifically from any rewrite rulese"
+// A control's kept strings stand beside every pair it declares.
+FakeParsed keeping() {
+    auto p = golem();
+    p.ctrlPool[0].keeps[0] = "https://api.acme.example";
+    p.ctrlPool[0].keepCount = 1;
+    return p;
+}
+
+static immutable k = keeping();
+
+static assert(standingRewrite(k, "/x/teranos/ground", "", 0).keeps == ["https://api.acme.example"]);
+static assert(standingRewrite(k, "/x/teranos/ground", "", 1).keeps == ["https://api.acme.example"]);
+static assert(standingRewrite(g, "/x/teranos/ground", "", 0).keeps.length == 0);
+
+// The pbt says it as a list beside rewrite.
+import proto : parsePbt;
+
+enum keepInput = `
+scope {
+  event: "PreToolUse"
+
+  control {
+    name: "golem"
+    rewrite: ["acme|golem"]
+    keep: ["https://api.acme.example", "https://www.acme.example"]
+    msg: "taken out"
+  }
+}
+`;
+enum keepParsed = parsePbt(keepInput);
+static assert(keepParsed.ctrlPool[0].keepCount == 2);
+static assert(keepParsed.ctrlPool[0].keeps[0] == "https://api.acme.example");
+static assert(keepParsed.ctrlPool[0].keeps[1] == "https://www.acme.example");
+
+enum keepOneInput = `
+scope {
+  event: "PreToolUse"
+
+  control {
+    name: "golem"
+    rewrite: ["acme|golem"]
+    keep: "https://api.acme.example"
+    msg: "taken out"
+  }
+}
+`;
+enum keepOneParsed = parsePbt(keepOneInput);
+static assert(keepOneParsed.ctrlPool[0].keepCount == 1);
+static assert(keepOneParsed.ctrlPool[0].keeps[0] == "https://api.acme.example");

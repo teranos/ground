@@ -56,6 +56,9 @@ struct ParsedControl {
     ubyte userpromptCount;
     string[32] rewrites;
     ubyte rewriteCount;
+    // Written as they are, whichever of the rewrites above would change them.
+    string[8] keeps;
+    ubyte keepCount;
     bool bg;
     int tmo;
     string checkHandler, delayHandler, deliverHandler;
@@ -1333,6 +1336,21 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
                     }
                 } else {
                     c.rewrites[0] = val; c.rewriteCount = 1;
+                }
+                break;
+            case "keep":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.keepCount < 8, "Control keep list overflow");
+                        c.keeps[c.keepCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.keeps[0] = val; c.keepCount = 1;
                 }
                 break;
             case "substitute_for_read":

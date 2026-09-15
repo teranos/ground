@@ -17,8 +17,20 @@ struct Rewrite {
     bool fit = true;
 }
 
-// Every occurrence of `from` replaced by `to`.
-Rewrite replaceAll(const(char)[] text, const(char)[] from, const(char)[] to, char[] dest) {
+// The length of the longest kept string that starts at `at`, 0 when none does.
+private size_t keptAt(const(char)[] text, size_t at, const(char[])[] keeps) {
+    size_t longest = 0;
+    foreach (k; keeps) {
+        if (k.length == 0 || k.length <= longest || at + k.length > text.length) continue;
+        if (text[at .. at + k.length] == k) longest = k.length;
+    }
+    return longest;
+}
+
+// Every occurrence of `from` replaced by `to`. A kept string is written as it
+// is, and a match that would reach into one is no match.
+Rewrite replaceAll(const(char)[] text, const(char)[] from, const(char)[] to, char[] dest,
+                   const(char[])[] keeps = null) {
     size_t o = 0;
     size_t found = 0;
 
@@ -33,9 +45,22 @@ Rewrite replaceAll(const(char)[] text, const(char)[] from, const(char)[] to, cha
         return Rewrite(0, o, true);
     }
 
+    bool reachesKept(size_t start) {
+        foreach (j; start + 1 .. start + from.length)
+            if (keptAt(text, j, keeps) > 0) return true;
+        return false;
+    }
+
     size_t i = 0;
     while (i < text.length) {
-        if (i + from.length <= text.length && text[i .. i + from.length] == from) {
+        auto k = keptAt(text, i, keeps);
+        if (k > 0) {
+            if (!put(text[i .. i + k])) return Rewrite(0, 0, false);
+            i += k;
+            continue;
+        }
+        if (i + from.length <= text.length && text[i .. i + from.length] == from
+            && !reachesKept(i)) {
             if (!put(to)) return Rewrite(0, 0, false);
             i += from.length;
             found++;
@@ -52,7 +77,8 @@ Rewrite replaceAll(const(char)[] text, const(char)[] from, const(char)[] to, cha
 // through untouched. file_path carries these strings too, and rewriting that
 // would send the write somewhere that does not exist.
 Rewrite rewriteField(const(char)[] region, const(char)[] key,
-                     const(char)[] from, const(char)[] to, char[] dest) {
+                     const(char)[] from, const(char)[] to, char[] dest,
+                     const(char[])[] keeps = null) {
     import matcher : indexOf;
 
     size_t o = 0;
@@ -96,7 +122,7 @@ Rewrite rewriteField(const(char)[] region, const(char)[] key,
 
     if (!put(region[0 .. start])) return Rewrite(0, 0, false);
 
-    auto inner = replaceAll(region[start .. end], from, to, dest[o .. $]);
+    auto inner = replaceAll(region[start .. end], from, to, dest[o .. $], keeps);
     if (!inner.fit) return Rewrite(0, 0, false);
     o += inner.len;
 

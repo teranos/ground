@@ -91,3 +91,56 @@ Rewrite tightField(const(char)[] region, size_t room) {
 
 static assert(!tightField(write, 10).fit);
 static assert(tightField(write, 10).found == 0);
+
+// "so the rewrite rule still applies, but, i want to exclude this string
+// specifically from any rewrite rulese"
+enum KFROM = "acme";
+enum KTO = "golem";
+enum KEPT = "https://api.acme.example";
+static immutable string[1] KEEPS = [KEPT];
+
+char[512] kept(const(char)[] text, const(char)[] from = KFROM)() {
+    char[512] buf = 0;
+    replaceAll(text, from, KTO, buf[], KEEPS[]);
+    return buf;
+}
+
+Rewrite keptR(const(char)[] text, const(char)[] from = KFROM) {
+    char[512] buf = 0;
+    return replaceAll(text, from, KTO, buf[], KEEPS[]);
+}
+
+// The kept string is written as it is. The same text outside it still goes,
+// and only what went is counted.
+enum mixed = `host = "https://api.acme.example"; // acme`;
+enum mixedWant = `host = "https://api.acme.example"; // golem`;
+static assert(keptR(mixed).found == 1);
+static assert(kept!mixed()[0 .. mixedWant.length] == mixedWant);
+
+// What follows the kept string is not part of it, and does not unkeep it.
+enum pathed = "https://api.acme.example/api/acme";
+enum pathedWant = "https://api.acme.example/api/golem";
+static assert(keptR(pathed).found == 1);
+static assert(kept!pathed()[0 .. pathedWant.length] == pathedWant);
+
+// A match that starts before the kept string and reaches into it would cut
+// it, so it is not a match.
+enum reaching = "url:https://api.acme.example";
+static assert(keptR(reaching, ":https").found == 0);
+static assert(kept!(reaching, ":https")()[0 .. reaching.length] == reaching);
+
+// A match that holds the kept string whole would remove it just the same.
+enum holding = "<https://api.acme.example>";
+static assert(keptR(holding, holding).found == 0);
+static assert(kept!(holding, holding)()[0 .. holding.length] == holding);
+
+// Nothing kept is the rewrite as it always was.
+static assert(allR("https://api.acme.example", "acme").found == 1);
+
+// A field carries the kept strings to the value it rewrites.
+Rewrite keptField(const(char)[] region) {
+    char[512] buf = 0;
+    return rewriteField(region, "content", KFROM, KTO, buf[], KEEPS[]);
+}
+
+static assert(keptField(`{"content":"https://api.acme.example acme"}`).found == 1);
