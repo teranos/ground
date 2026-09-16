@@ -593,7 +593,7 @@ CheckResult branchNotRequested(const(char)[] cwd, const(char)[] input) {
             if (text !is null) {
                 size_t tlen = 0;
                 while (text[tlen] != 0) tlen++;
-                if (containsCI(text[0 .. tlen], "branch")) {
+                if (containsCI(text[0 .. tlen], "branch") || containsWord(text[0 .. tlen], "pr")) {
                     userSaid = true;
                     break;
                 }
