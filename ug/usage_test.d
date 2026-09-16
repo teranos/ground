@@ -54,7 +54,7 @@ static assert(bodyOf!(both, 0, "s-1")()[wantBody.length] == 0);
 // "so if ug sees this, it can say, with 2h left, i will decide to attest every 10 min"
 // Only the weekly window, and only in its last two hours. Everything else keeps
 // the four-hour rhythm, and a window already reset is not near its reset.
-import usage : intervalFor, NEAR_RESET, NEAR_EVERY, CLOSE_RESET, CLOSE_EVERY;
+import usage : intervalFor, NEAR_RESET, NEAR_EVERY, CLOSE_RESET, CLOSE_EVERY, SHORT_EVERY;
 
 enum RESET = 1789592400;
 static assert(NEAR_RESET == 7200);
@@ -62,7 +62,15 @@ static assert(NEAR_EVERY == 600);
 static assert(intervalFor("seven_day", RESET, RESET - 7200) == 600);
 static assert(intervalFor("seven_day", RESET, RESET - 60) == 600);
 static assert(intervalFor("seven_day", RESET, RESET) == 14400);
-static assert(intervalFor("five_hour", RESET, RESET - 60) == 14400);
+
+// A five-hour window read every four hours is stale for most of its life. It is
+// read every quarter of an hour, and every ten minutes in its last two.
+static assert(SHORT_EVERY == 900);
+static assert(intervalFor("five_hour", RESET, RESET - 60) == 600);
+static assert(intervalFor("five_hour", RESET, RESET - 7200) == 600);
+static assert(intervalFor("five_hour", RESET, RESET - 7201) == 900);
+static assert(intervalFor("five_hour", RESET, RESET - 4 * 3600) == 900);
+static assert(intervalFor("five_hour", RESET, RESET) == 900);
 
 // "you could even say, we go from 4h cadence to 1h cadence if the time to hit limit is less than 48h"
 // Between two days and two hours out, the weekly window is read every hour.
@@ -71,7 +79,6 @@ static assert(CLOSE_EVERY == 3600);
 static assert(intervalFor("seven_day", RESET, RESET - 7201) == 3600);
 static assert(intervalFor("seven_day", RESET, RESET - 172800) == 3600);
 static assert(intervalFor("seven_day", RESET, RESET - 172801) == 14400);
-static assert(intervalFor("five_hour", RESET, RESET - 7201) == 14400);
 
 private bool contains(const(char)[] haystack, const(char)[] needle) {
     if (needle.length > haystack.length) return false;

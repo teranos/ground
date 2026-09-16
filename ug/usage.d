@@ -19,14 +19,19 @@ enum CLOSE_EVERY = 60 * 60;
 enum NEAR_RESET = 2 * 60 * 60;
 enum NEAR_EVERY = 10 * 60;
 
-// How long a window's last reading stays current. A window already reset is
-// not near its reset, and the five-hour window keeps the four-hour rhythm.
+// The five-hour window lives five hours. Read every four it was stale for most
+// of its life: on screen 5% while the account was at 22%.
+enum SHORT_EVERY = 15 * 60;
+
+// How long a window's last reading stays current. Every window is read every
+// ten minutes in its last two hours; otherwise each keeps its own rhythm.
 long intervalFor(const(char)[] window, long resetsAt, long now) {
-    if (window != "seven_day" || resetsAt <= now) return RECORD_EVERY;
+    auto base = window == "five_hour" ? SHORT_EVERY : RECORD_EVERY;
+    if (resetsAt <= now) return base;
     auto left = resetsAt - now;
     if (left <= NEAR_RESET) return NEAR_EVERY;
-    if (left <= CLOSE_RESET) return CLOSE_EVERY;
-    return RECORD_EVERY;
+    if (base == RECORD_EVERY && left <= CLOSE_RESET) return CLOSE_EVERY;
+    return base;
 }
 
 // One window as Claude Code sent it. The percentage stays the text it arrived
