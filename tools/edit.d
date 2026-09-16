@@ -4,7 +4,7 @@ module edit;
 // never by where it sits: the run is located again at the moment of the save,
 // so nothing an edit above it did can send the write to the wrong lines.
 
-import cases : splitLines, unmark, opensFixture, holdsMark, liftSaid, liftProse;
+import cases : splitLines, unmark, opensFixture, holdsMark, extractCases, join, Case, isSaid, isGlossary;
 
 // The lines of one comment run, joined the way the book joins them.
 private string spoken(string[] lines, size_t from, size_t to) {
@@ -139,35 +139,85 @@ private Literal literalAt(string[] lines, size_t i) {
     return Literal(i, j, false, trimEdges(body_), true);
 }
 
-// The case whose example reads as this, and the comment run above it.
-private Literal findCase(string[] lines, string pbt) {
-    foreach (i; 0 .. lines.length) {
-        auto l = literalAt(lines, i);
-        if (l.found && l.text == pbt) return l;
+// The case as the page read it: the same walk, so the save looks where the
+// page looked. The run is every line the case was read from, not the comment
+// lines that happen to sit above its example.
+private Case findCase(string[] lines, Was was) {
+    foreach (c; extractCases(join(lines))) {
+        if (c.heading) continue;
+        if (c.pbt == was.pbt && c.prose == was.prose && c.said == was.said) return c;
     }
-    return Literal.init;
+    return Case.init;
+}
+
+private bool among(size_t i, size_t[] at) {
+    foreach (a; at) if (a == i) return true;
+    return false;
 }
 
 // The module with one case said and shown differently. The case is found by
-// its example and its run by what it said, so an edit anywhere else in the
-// file cannot misplace this one. A module that moved on is left as it is.
+// what it was, so an edit anywhere else in the file cannot misplace this one.
+// A module that no longer holds it is left as it is.
+//
+// What did not change is not touched. What did is written where it stood: the
+// quotes at the first quote, the note at the first line of it. A case with
+// neither gets them above its example.
 string[] rewriteCase(string[] lines, Was was, Was now, size_t width = 78) {
-    auto lit = findCase(lines, was.pbt);
+    auto c = findCase(lines, was);
+    if (c.to == 0) return lines;
+
+    Literal lit;
+    foreach (i; c.from .. c.to) {
+        lit = literalAt(lines, i);
+        if (lit.found) break;
+    }
     if (!lit.found) return lines;
 
-    size_t runFrom = lit.open;
-    while (runFrom > 0 && isComment(lines[runFrom - 1])) runFrom--;
-    auto run = lines[runFrom .. lit.open];
-    if (liftSaid(run) != was.said || liftProse(run) != was.prose) return lines;
+    size_t[] saidAt, proseAt;
+    foreach (i; c.from .. c.to) {
+        if (i >= lit.open && i <= lit.close) continue;
+        if (!isComment(lines[i]) || isGlossary(lines[i])) continue;
+        if (isSaid(lines[i])) saidAt ~= i;
+        else if (unmark(lines[i]).length > 0) proseAt ~= i;
+    }
 
-    auto indent = indentOf(lines[lit.open]);
+    bool saidChanged = was.said != now.said;
+    bool proseChanged = was.prose != now.prose;
+    auto proseAnchor = proseAt.length > 0 ? proseAt[0] : lit.open;
+    auto saidAnchor = saidAt.length > 0 ? saidAt[0] : proseAnchor;
+
     string[] out_;
-    foreach (i; 0 .. runFrom) out_ ~= lines[i];
-    foreach (q; splitLines(now.said)) if (q.length > 0) out_ ~= indent ~ "// " ~ q;
-    foreach (l; speak(now.prose, indent, width)) out_ ~= l;
+    foreach (i; 0 .. c.from) out_ ~= lines[i];
 
+    size_t i = c.from;
+    while (i < c.to) {
+        if (i == saidAnchor && saidChanged) {
+            auto indent = indentOf(lines[i]);
+            foreach (q; splitLines(now.said)) if (q.length > 0) out_ ~= indent ~ "// " ~ q;
+        }
+        if (i == proseAnchor && proseChanged)
+            foreach (l; speak(now.prose, indentOf(lines[i]), width)) out_ ~= l;
+
+        if (saidChanged && among(i, saidAt)) { i++; continue; }
+        if (proseChanged && among(i, proseAt)) { i++; continue; }
+
+        if (i == lit.open) {
+            out_ ~= literal(lines, lit, now.pbt);
+            i = lit.close + 1;
+            continue;
+        }
+        out_ ~= lines[i];
+        i++;
+    }
+    foreach (k; c.to .. lines.length) out_ ~= lines[k];
+    return out_;
+}
+
+// The example set again between its own marks.
+private string[] literal(string[] lines, Literal lit, string pbt) {
+    string[] out_;
     bool multi = false;
-    foreach (c; now.pbt) if (c == '\n') { multi = true; break; }
+    foreach (ch; pbt) if (ch == '\n') { multi = true; break; }
     auto openLine = lines[lit.open];
     if (lit.oneLine) {
         size_t a = 0;
@@ -176,17 +226,16 @@ string[] rewriteCase(string[] lines, Was was, Was now, size_t width = 78) {
         while (openLine[b] != '`') b++;
         if (multi) {
             out_ ~= openLine[0 .. a + 1];
-            foreach (l; splitLines(now.pbt)) out_ ~= l;
+            foreach (l; splitLines(pbt)) out_ ~= l;
             out_ ~= openLine[b .. $];
         } else {
-            out_ ~= openLine[0 .. a + 1] ~ now.pbt ~ openLine[b .. $];
+            out_ ~= openLine[0 .. a + 1] ~ pbt ~ openLine[b .. $];
         }
     } else {
         out_ ~= openLine;
-        foreach (l; splitLines(now.pbt)) out_ ~= l;
+        foreach (l; splitLines(pbt)) out_ ~= l;
         out_ ~= lines[lit.close];
     }
-    foreach (i; lit.close + 1 .. lines.length) out_ ~= lines[i];
     return out_;
 }
 

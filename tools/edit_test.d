@@ -133,3 +133,39 @@ static assert(rewriteCase(bare, Was("", "", "scope { }"), Was("", "", "scope { p
 
 // A module that no longer holds the case is left as it is.
 static assert(rewriteCase(full, Was("", "Gone.", "nope"), Was("", "New.", "nope")) == full);
+
+// "moved on ?"
+// The page reads a case the way the book does: every comment in its run,
+// wherever in the run it stands. The save only looked directly above the
+// example, found another case's comment there, and said the module had moved
+// on when it had not.
+enum afterExample = [
+    "// About the first.",
+    "enum a = `",
+    "x {}",
+    "`;",
+    "",
+    "// That has none.",
+    "enum b = `",
+    "y {}",
+    "`;",
+    "",
+    "// The whole is what the parts say.",
+    "enum src = a ~ b;",
+    "",
+    "// \"a quote\"",
+    "static assert(f(src));",
+];
+
+// The quote is rewritten where it stands, and the comment above the example,
+// which is not this case's, is left alone.
+static assert(rewriteCase(afterExample,
+    Was("\"a quote\"", "The whole is what the parts say.", "y {}"),
+    Was("\"READER NOTE: is this what we do NOT want?\"", "The whole is what the parts say.", "y {}"))
+    == afterExample[0 .. 13] ~ ["// \"READER NOTE: is this what we do NOT want?\""] ~ afterExample[14 .. $]);
+
+// The note too.
+static assert(rewriteCase(afterExample,
+    Was("\"a quote\"", "The whole is what the parts say.", "y {}"),
+    Was("\"a quote\"", "Composed, not written twice.", "y {}"))
+    == afterExample[0 .. 10] ~ ["// Composed, not written twice."] ~ afterExample[11 .. $]);

@@ -6,7 +6,18 @@ div.case { margin: 0 0 var(--stack); padding: var(--gap); border: 1px solid tran
 div.case.on { background: var(--hover); border-color: var(--hairline); }
 span.file { display: block; color: var(--faint); font-family: var(--mono); font-size: .8rem;
             margin-bottom: var(--gap); }
-div.case.dirty span.file { text-decoration: underline; text-underline-offset: .2em; }
+/* Unsaved, saved and failed each look like themselves. A failure is the one
+   thing on the page that shouts. */
+span.state { display: block; font-family: var(--mono); font-size: .8rem; margin: -1rem 0 var(--gap);
+             min-height: 1em; }
+div.case.unsaved span.file { text-decoration: underline; text-underline-offset: .2em; }
+div.case.unsaved span.state { color: var(--ink); }
+div.case.saved span.state { color: var(--muted); }
+div.case.failed { border: 2px solid var(--fail); }
+div.case.failed span.state { color: var(--fail); font-weight: bold; }
+div.strays { margin: 0 0 var(--stack); padding: var(--gap); border: 2px solid var(--fail); }
+div.strays span.state { color: var(--fail); font-weight: bold; margin: 0 0 var(--gap); }
+div.strays pre { white-space: pre-wrap; font: 14px/1.5 var(--serif); margin: 0; }
 div.row { display: flex; gap: var(--gap); align-items: flex-start; }
 /* A field is as tall as what it holds. Nothing scrolls inside a case. */
 textarea { font: 14px/1.5 var(--serif); padding: .5rem; border: 1px solid var(--rule);
@@ -22,3 +33,4 @@ button { font: inherit; font-size: .8rem; padding: .15rem .7rem; border: 1px sol
          background: var(--paper); cursor: pointer; }
 button:hover { background: var(--hover); }
 span.status { color: var(--muted); }
+span.status.failed { color: var(--fail); font-weight: bold; }

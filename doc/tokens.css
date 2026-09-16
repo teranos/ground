@@ -12,6 +12,7 @@
   --muted: #6b6b63;
   --faint: #8a8a80;
   --hover: #efeee9;
+  --fail: #b00020;
   --serif: Charter, "Bitstream Charter", Cambria, Georgia, serif;
   --mono: "Fira Code", Menlo, monospace;
   /* One measure for margins: the page's gutter, the gap between things

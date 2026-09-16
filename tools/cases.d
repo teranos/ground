@@ -19,6 +19,10 @@ struct Case {
     // The operator's own words above it: every comment line that is nothing
     // but a quote, one per line. That is what earns a case with no pbt its page.
     string said;
+    // The lines the run was read from, end exclusive. The editor writes a case
+    // back where it was read, not where it guesses the comments should be.
+    size_t from;
+    size_t to;
 }
 
 // The symbol an assertion is about: the first thing it calls. A negation is
@@ -122,9 +126,16 @@ Case[] extractCases(string source) {
     Case[] found;
     string[] block;
     string fixture;
+    size_t from = size_t.max;
+    size_t to;
+
+    void take(size_t at) {
+        if (from == size_t.max) from = at;
+        to = at + 1;
+    }
 
     void flush() {
-        scope (exit) { block = null; fixture = null; }
+        scope (exit) { block = null; fixture = null; from = size_t.max; }
 
         // A glossary line defines a word; it is not about the stretch beneath
         // it and not part of any case, so it leaves the run before the run is
@@ -158,13 +169,13 @@ Case[] extractCases(string source) {
             foreach (line; block)
                 if (!startsAt(trimLeft(line), 0, "//")) return;
             if (block.length == 0) return;
-            found ~= Case("", join(undent(block)), true);
+            found ~= Case("", join(undent(block)), true, "", "", "", from, to);
             return;
         }
 
         found ~= Case(fixture.length > 0 ? fixture : about.length > 0 ? about : asserted,
                       join(undent(block)), false,
-                      liftPbt(block), liftProse(block), liftSaid(block));
+                      liftPbt(block), liftProse(block), liftSaid(block), from, to);
     }
 
     auto all = splitLines(source);
@@ -179,6 +190,7 @@ Case[] extractCases(string source) {
         if (startsAt(t, 0, "unittest")) {
             flush();
             string[] body_;
+            size_t bodyFrom = size_t.max, bodyTo;
             int depth = 0;
             bool opened = false;
             while (i < all.length) {
@@ -189,6 +201,8 @@ Case[] extractCases(string source) {
                     continue;
                 }
                 if (opened && depth == 0) break;
+                if (bodyFrom == size_t.max) bodyFrom = i;
+                bodyTo = i + 1;
                 body_ ~= all[i];
                 i++;
             }
@@ -204,7 +218,7 @@ Case[] extractCases(string source) {
             foreach (b; body_) if (subject(b).length > 0) { proves = true; break; }
             if (proves && named.length > 0)
                 found ~= Case(named, join(undent(body_)), false, "",
-                              liftProse(body_), liftSaid(body_));
+                              liftProse(body_), liftSaid(body_), bodyFrom, bodyTo);
             continue;
         }
 
@@ -217,6 +231,7 @@ Case[] extractCases(string source) {
         // it kept the assertions and threw the example away.
         if (t.length == 0 && fixture.length > 0) {
             block ~= line;
+            take(i);
             i++;
             continue;
         }
@@ -236,6 +251,7 @@ Case[] extractCases(string source) {
         if (isEnum && fixture.length > 0 && opensFixture(t)) flush();
 
         block ~= line;
+        take(i);
 
         // A one-line literal names the example too. Requiring a continuation
         // left `enum a = ` ~ "`x`;" ~ ` unnamed.
@@ -248,6 +264,7 @@ Case[] extractCases(string source) {
             i++;
             while (i < all.length) {
                 block ~= all[i];
+                take(i);
                 if (holdsMark(all[i])) break;
                 i++;
             }
@@ -287,7 +304,7 @@ string liftPbt(string[] block) {
 
 // A comment line that is nothing but a quote. A quote welded into a sentence
 // is commentary; on its own line it is the operator.
-private bool isSaid(string line) {
+bool isSaid(string line) {
     if (!startsAt(trimLeft(line), 0, "//")) return false;
     auto s = unmark(line);
     return s.length >= 3 && s[0] == '"' && s[$ - 1] == '"';

@@ -80,6 +80,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/concept.d tools/concept_test.d
 	ldc2 -c -od=/tmp -I=tools -J=doc tools/bind.d tools/bind_test.d
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
+	ldc2 -c -od=/tmp -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d tools/editor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
 
