@@ -74,8 +74,10 @@ private size_t weekday(long days) {
 private static immutable string[7] DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 void putReset(S)(ref S s, long resetsAt, long now, long offset) {
+    // Inside the column, or the bar on this row starts late and every row
+    // beside it reads as a different measurement.
     if (resetsAt <= now) {
-        s.put("no reading since the reset");
+        s.put("reset, no reading yet");
         return;
     }
     s.put("resets ");
@@ -111,28 +113,62 @@ void putBarMissing(S)(ref S s, const(char)[] label) {
     s.put("no reading recorded\n");
 }
 
-// The plan the last ask found, or why it found none, and when it asked.
-void putPlan(S)(ref S s, bool found, const(char)[] plan, long exit, long askedAt,
-                long now, long offset) {
+// The plan the last ask found, or why it found none.
+void putPlan(S)(ref S s, bool found, const(char)[] plan, long exit) {
     padded(s, "Plan", 18);
     if (!found) {
         s.put("no plan recorded\n");
         return;
     }
-    if (plan.length > 0) s.put(plan);
-    else {
-        s.put("unknown: claude auth status exited ");
-        putNum(s, exit);
+    if (plan.length > 0) {
+        s.put(plan);
+        s.put("\n");
+        return;
     }
-    s.put(" (asked ");
-    auto day = localDays(askedAt, offset);
-    s.put(day == localDays(now, offset) ? "today" : DAY_NAMES[weekday(day)]);
-    s.put(" ");
-    auto secs = localSecs(askedAt, offset);
-    put2(s, secs / 3600);
-    s.put(":");
-    put2(s, (secs / 60) % 60);
-    s.put(")\n");
+    s.put("unknown: claude auth status exited ");
+    putNum(s, exit);
+    s.put("\n");
+}
+
+// What a window stands at now. Claude Code hands some sessions a payload frozen
+// at the value their session started on, so the newest row can be days stale.
+// Inside one window the number only rises, so the highest of it is the true one.
+struct Current {
+    bool found;
+    bool readable = true;
+    long tenths;
+    long seenAt;
+    long resetsAt;
+}
+
+Current currentReading(DB)(DB db, const(char)[] window) {
+    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step, sqlite3_finalize,
+                sqlite3_column_text, sqlite3_column_int64, sqlite3_stmt,
+                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import profile : cstr;
+
+    // The current window is the one the newest row names, and every row of it
+    // carries the same resets_at whoever wrote it.
+    enum sql = "SELECT used_percentage, seen_at, resets_at FROM usage WHERE window = ?1 "
+        ~ "AND resets_at = (SELECT resets_at FROM usage WHERE window = ?1 "
+        ~ "ORDER BY seen_at DESC, id DESC LIMIT 1) "
+        ~ "ORDER BY CAST(used_percentage AS REAL) DESC, seen_at DESC LIMIT 1\0";
+
+    Current c;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        c.readable = false;
+        return c;
+    }
+    sqlite3_bind_text(stmt, 1, window.ptr, cast(int) window.length, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        c.found = true;
+        c.tenths = parseTenths(cstr(sqlite3_column_text(stmt, 0)));
+        c.seenAt = sqlite3_column_int64(stmt, 1);
+        c.resetsAt = sqlite3_column_int64(stmt, 2);
+    }
+    sqlite3_finalize(stmt);
+    return c;
 }
 
 // "the active day needs to be \/ pointed at"
@@ -222,34 +258,8 @@ int handleUsage() {
     auto now = time(null);
     long offset = localtime(&now).tm_gmtoff;
 
-    struct Latest {
-        bool found;
-        bool readable = true;
-        long tenths;
-        long resetsAt;
-    }
-
-    Latest latest(const(char)[] window) {
-        enum sql = "SELECT used_percentage, COALESCE(resets_at, 0) FROM usage "
-            ~ "WHERE window = ?1 ORDER BY seen_at DESC, id DESC LIMIT 1\0";
-        Latest l;
-        sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
-            l.readable = false;
-            return l;
-        }
-        sqlite3_bind_text(stmt, 1, window.ptr, cast(int) window.length, SQLITE_TRANSIENT);
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            l.found = true;
-            l.tenths = parseTenths(cstr(sqlite3_column_text(stmt, 0)));
-            l.resetsAt = sqlite3_column_int64(stmt, 1);
-        }
-        sqlite3_finalize(stmt);
-        return l;
-    }
-
-    auto session = latest("five_hour");
-    auto week = latest("seven_day");
+    auto session = currentReading(db, "five_hour");
+    auto week = currentReading(db, "seven_day");
     if (!session.readable || !week.readable) {
         sqlite3_close(db);
         fputs("ground usage: cannot read the usage table\n", stderr);
@@ -269,7 +279,7 @@ int handleUsage() {
         import checks : lastCheck, Check;
         __gshared Check plan;
         plan = lastCheck(db, "plan");
-        putPlan(out_, plan.found, plan.value, plan.exit, plan.at, now, offset);
+        putPlan(out_, plan.found, plan.value, plan.exit);
     }
 
     if (session.found) {

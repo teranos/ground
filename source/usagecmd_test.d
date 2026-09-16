@@ -30,7 +30,14 @@ static assert(() { Sink s; putReset(s, WEEK_END, NOW, 0); return s.slice() == "r
 static assert(() { Sink s; putReset(s, 1789578600, NOW, 0); return s.slice() == "resets today 17:10"; }());
 static assert(() { Sink s; putReset(s, 1789678800, NOW, 0); return s.slice() == "resets Thu 21:00"; }());
 // A reading whose window has already reset says so rather than a time gone by.
-static assert(() { Sink s; putReset(s, 1789570000, NOW, 0); return s.slice() == "no reading since the reset"; }());
+// It has to fit the column: longer than that and every bar on the row shifts.
+static assert(() { Sink s; putReset(s, 1789570000, NOW, 0); return s.slice() == "reset, no reading yet"; }());
+
+static assert(() {
+    Sink s;
+    putBar(s, "Current session", 230, "reset, no reading yet");
+    return s.slice() == "Current session   reset, no reading yet ██████░░░░░░░░░░░░░░░░░░░░░░   23% used\n";
+}());
 
 // The bars.
 static assert(() {
@@ -48,28 +55,46 @@ static assert(() {
     putBar(s, "Fable this week", 1000, "resets today 21:00");
     return s.slice() == "Fable this week   resets today 21:00    ████████████████████████████  100% used\n";
 }());
-// The plan the last ask found, above the bars, and when it was asked.
-static assert(() {
-    Sink s;
-    putPlan(s, true, "max", 0, NOW - 3600, NOW, 0);
-    return s.slice() == "Plan              max (asked today 14:45)\n";
-}());
-static assert(() {
-    Sink s;
-    putPlan(s, true, "max", 0, 1789504800, NOW, 0);
-    return s.slice() == "Plan              max (asked Tue 20:40)\n";
-}());
+// The plan the last ask found, above the bars. When it was asked is not what
+// the line is for, and reading it took longer than it was worth.
+static assert(() { Sink s; putPlan(s, true, "max", 0); return s.slice() == "Plan              max\n"; }());
+
 // An ask that failed says how, and nothing asked says so.
 static assert(() {
     Sink s;
-    putPlan(s, true, "", 1, NOW - 3600, NOW, 0);
-    return s.slice() == "Plan              unknown: claude auth status exited 1 (asked today 14:45)\n";
+    putPlan(s, true, "", 1);
+    return s.slice() == "Plan              unknown: claude auth status exited 1\n";
 }());
-static assert(() {
-    Sink s;
-    putPlan(s, false, "", 0, 0, NOW, 0);
-    return s.slice() == "Plan              no plan recorded\n";
-}());
+static assert(() { Sink s; putPlan(s, false, "", 0); return s.slice() == "Plan              no plan recorded\n"; }());
+
+// A session Claude Code hands a frozen payload writes the same percentage for
+// days. Inside one window the number only rises, so the highest reading of the
+// current window is the one that is true, whatever arrived last.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_exec, sqlite3_close, applySchema, SQLITE_OK;
+    import usagecmd : currentReading;
+
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    enum rows = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session) VALUES "
+        ~ "('seven_day', '84', 1789592400, 1789570000, 'live'), "
+        ~ "('seven_day', '91', 1789592400, 1789573000, 'live'), "
+        ~ "('seven_day', '59', 1789592400, 1789574000, 'frozen'), "
+        ~ "('seven_day', '99', 1788987600, 1788980000, 'old')\0";
+    assert(sqlite3_exec(db, rows.ptr, null, null, null) == SQLITE_OK);
+
+    auto r = currentReading(db, "seven_day");
+    assert(r.found);
+    assert(r.tenths == 910, "the highest of this window, not the newest row");
+    assert(r.resetsAt == 1789592400);
+    assert(r.seenAt == 1789573000, "and when that reading was taken");
+
+    // A window nothing recorded says so.
+    assert(!currentReading(db, "five_hour").found);
+    sqlite3_close(db);
+}
 
 // A window nothing recorded is said to be missing, not drawn empty.
 static assert(() {

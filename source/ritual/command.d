@@ -113,24 +113,11 @@ private struct WindowReading {
 
 private WindowReading latestReading(DB)(DB db, const(char)[] window) {
     import core.stdc.time : time;
-    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step, sqlite3_finalize,
-                sqlite3_column_text, sqlite3_column_int64, sqlite3_stmt,
-                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
-    import profile : cstr;
-    import usagecmd : parseTenths;
+    import usagecmd : currentReading;
 
-    enum sql = "SELECT used_percentage, COALESCE(resets_at, 0) FROM usage "
-        ~ "WHERE window = ?1 ORDER BY seen_at DESC, id DESC LIMIT 1\0";
-    WindowReading w;
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return w;
-    sqlite3_bind_text(stmt, 1, window.ptr, cast(int) window.length, SQLITE_TRANSIENT);
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 1) > cast(long) time(null)) {
-        w.found = true;
-        w.tenths = parseTenths(cstr(sqlite3_column_text(stmt, 0)));
-    }
-    sqlite3_finalize(stmt);
-    return w;
+    auto c = currentReading(db, window);
+    if (!c.found || c.resetsAt <= cast(long) time(null)) return WindowReading(false, 0);
+    return WindowReading(true, c.tenths);
 }
 
 // The agent starts knowing what it carries: its SessionStart reads the row
