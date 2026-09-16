@@ -166,3 +166,34 @@ char[512] controlDrawn(const(char)[] cwd)() {
 enum controlWant = "q-deploy performs here on `git push` (PostToolUse): WEB";
 static assert(controlLen!"/Users/x/teranos/QNTX"() == controlWant.length);
 static assert(controlDrawn!"/Users/x/teranos/QNTX"()[0 .. controlWant.length] == controlWant);
+
+// "we say it once during a compaction window, once, not every message"
+// The mark kept the row it was first written to, so every hook after a
+// compaction found the compaction newer than the mark and said the bill again.
+
+import playbill : unsaidBillInto;
+import db : sqlite3, sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
+
+unittest {
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    static immutable bill = controlBill;
+    auto cues = bill.cues[0 .. bill.len];
+    enum here = "/Users/x/teranos/QNTX";
+    char[512] buf;
+
+    assert(unsaidBillInto(db, "s1", here, buf[], cues) > 0, "a session is told once");
+    assert(unsaidBillInto(db, "s1", here, buf[], cues) == 0, "and not again");
+
+    enum compact = "INSERT INTO attestations "
+        ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ `VALUES ('pc1', '[]', '["PreCompact"]', '["session:s1"]', '[]', 't', 'test', '{}')` ~ "\0";
+    assert(sqlite3_exec(db, compact.ptr, null, null, null) == SQLITE_OK);
+
+    assert(unsaidBillInto(db, "s1", here, buf[], cues) > 0, "a compaction forgets it, so it is told once more");
+    assert(unsaidBillInto(db, "s1", here, buf[], cues) == 0, "once per compaction window, not every message");
+
+    sqlite3_close(db);
+}

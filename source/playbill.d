@@ -187,8 +187,8 @@ private bool saidAlready(DB)(DB db, const(char)[] sessionId, const(char)[] ritua
     return !compacted;
 }
 
-// A compaction has to be able to unset the mark, so a replace would hide the
-// older row the rowid comparison needs. Ignore keeps the first one.
+// Said again after a compaction, the mark moves past it. Ignore kept the first
+// row, so every hook after a compaction found it older and said the bill again.
 private void markSaid(DB)(DB db, const(char)[] sessionId, const(char)[] ritual) {
     import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step, sqlite3_finalize,
                 sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT, formatTimestamp, versionString;
@@ -210,7 +210,7 @@ private void markSaid(DB)(DB db, const(char)[] sessionId, const(char)[] ritual) 
     src.put("ground ");
     src.put(versionString());
 
-    enum sql = "INSERT OR IGNORE INTO attestations "
+    enum sql = "INSERT OR REPLACE INTO attestations "
         ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
 
@@ -232,13 +232,14 @@ private void markSaid(DB)(DB db, const(char)[] sessionId, const(char)[] ritual) 
 }
 
 // Said once per session, by whichever hook is standing where it performs.
-size_t unsaidBillInto(DB)(DB db, const(char)[] sessionId, const(char)[] cwd, char[] dest) {
+size_t unsaidBillInto(DB)(DB db, const(char)[] sessionId, const(char)[] cwd, char[] dest,
+                          const(Cue)[] cues = ritualCues) {
     import hooks : scopeMatches;
 
     if (db is null || sessionId.length == 0) return 0;
 
     size_t o = 0;
-    foreach (ref cue; ritualCues) {
+    foreach (ref cue; cues) {
         if (!scopeMatches(cue, cwd)) continue;
         if (saidAlready(db, sessionId, cue.ritual)) continue;
         markSaid(db, sessionId, cue.ritual);
