@@ -19,6 +19,9 @@ struct Cue {
     // says whether the ritual fires is the rule that says whether it is named.
     string[8] paths;
     ubyte pathCount;
+    // The repo a project names. Its scope carries no path, so without this the
+    // cue stood everywhere while the ritual fired only in a checkout of it.
+    string origin;
     string[8] cmds;
     ubyte cmdCount;
     // In walk order, which is the order a halt line counts to.
@@ -49,6 +52,7 @@ Bill cuesOf(PR)(const PR parsed) {
             cue.event = sc.event;
             cue.paths = sc.paths;
             cue.pathCount = sc.pathCount;
+            cue.origin = parsed.ctrlPool[ci].origin;
 
             // A project block names a path and no command, so the control under
             // it carries the command. Reading only the scope drops it, and the
@@ -111,13 +115,20 @@ size_t cueInto(const ref Cue cue, char[] dest) {
     return o;
 }
 
-// One sentence per cue that fires here, joined the way a session's context is.
-size_t billInto(const(Cue)[] cues, const(char)[] cwd, char[] dest) {
+// The gate posttooluse puts on the ritual itself: the repo this place is a
+// checkout of, then the scope. `here` is that repo, asked once by the caller.
+bool standsHere(const ref Cue cue, const(char)[] cwd, const(char)[] here) {
     import hooks : scopeMatches;
 
+    if (cue.origin.length > 0 && here != cue.origin) return false;
+    return scopeMatches(cue, cwd);
+}
+
+// One sentence per cue that fires here, joined the way a session's context is.
+size_t billInto(const(Cue)[] cues, const(char)[] cwd, const(char)[] here, char[] dest) {
     size_t o = 0;
     foreach (ref cue; cues) {
-        if (!scopeMatches(cue, cwd)) continue;
+        if (!standsHere(cue, cwd, here)) continue;
         if (o > 0) {
             foreach (c; " | ") if (o < dest.length) dest[o++] = c;
         }
@@ -234,13 +245,14 @@ private void markSaid(DB)(DB db, const(char)[] sessionId, const(char)[] ritual) 
 // Said once per session, by whichever hook is standing where it performs.
 size_t unsaidBillInto(DB)(DB db, const(char)[] sessionId, const(char)[] cwd, char[] dest,
                           const(Cue)[] cues = ritualCues) {
-    import hooks : scopeMatches;
+    import git : originOf;
 
     if (db is null || sessionId.length == 0) return 0;
 
+    auto here = originOf(cwd);
     size_t o = 0;
     foreach (ref cue; cues) {
-        if (!scopeMatches(cue, cwd)) continue;
+        if (!standsHere(cue, cwd, here)) continue;
         if (saidAlready(db, sessionId, cue.ritual)) continue;
         markSaid(db, sessionId, cue.ritual);
 

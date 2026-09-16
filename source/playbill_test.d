@@ -65,12 +65,12 @@ static assert(bill.cues[0].rites[1] == "SACRED");
 
 size_t drawnLen(const(char)[] cwd)() {
     char[512] buf = '.';
-    return billInto(bill.cues[0 .. bill.len], cwd, buf[]);
+    return billInto(bill.cues[0 .. bill.len], cwd, "", buf[]);
 }
 
 char[512] drawn(const(char)[] cwd)() {
     char[512] buf = '.';
-    billInto(bill.cues[0 .. bill.len], cwd, buf[]);
+    billInto(bill.cues[0 .. bill.len], cwd, "", buf[]);
     return buf;
 }
 
@@ -110,12 +110,12 @@ enum eventBill = cuesOf(parsePbt(eventOnly));
 
 size_t eventLen(const(char)[] cwd)() {
     char[512] buf = '.';
-    return billInto(eventBill.cues[0 .. eventBill.len], cwd, buf[]);
+    return billInto(eventBill.cues[0 .. eventBill.len], cwd, "", buf[]);
 }
 
 char[512] eventDrawn(const(char)[] cwd)() {
     char[512] buf = '.';
-    billInto(eventBill.cues[0 .. eventBill.len], cwd, buf[]);
+    billInto(eventBill.cues[0 .. eventBill.len], cwd, "", buf[]);
     return buf;
 }
 
@@ -152,20 +152,30 @@ enum controlBill = cuesOf(parsePbt(onControl));
 static assert(controlBill.cues[0].cmdCount == 1);
 static assert(controlBill.cues[0].cmds[0] == "git push");
 
-size_t controlLen(const(char)[] cwd)() {
+size_t controlLen(const(char)[] cwd, const(char)[] here)() {
     char[512] buf = '.';
-    return billInto(controlBill.cues[0 .. controlBill.len], cwd, buf[]);
+    return billInto(controlBill.cues[0 .. controlBill.len], cwd, here, buf[]);
 }
 
-char[512] controlDrawn(const(char)[] cwd)() {
+char[512] controlDrawn(const(char)[] cwd, const(char)[] here)() {
     char[512] buf = '.';
-    billInto(controlBill.cues[0 .. controlBill.len], cwd, buf[]);
+    billInto(controlBill.cues[0 .. controlBill.len], cwd, here, buf[]);
     return buf;
 }
 
 enum controlWant = "q-deploy performs here on `git push` (PostToolUse): WEB";
-static assert(controlLen!"/Users/x/teranos/QNTX"() == controlWant.length);
-static assert(controlDrawn!"/Users/x/teranos/QNTX"()[0 .. controlWant.length] == controlWant);
+static assert(controlLen!("/Users/x/teranos/QNTX", "teranos/QNTX")() == controlWant.length);
+static assert(controlDrawn!("/Users/x/teranos/QNTX", "teranos/QNTX")()[0 .. controlWant.length] == controlWant);
+
+// A project naming a repo gives its scope no path, so the path says yes
+// everywhere. The ritual fires only in a checkout of that repo, and it is
+// named only there: every other repo was told q-deploy performs on its push.
+static assert(controlLen!("/Users/x/teranos/ground", "teranos/ground")() == 0);
+static assert(controlLen!("/Users/x/abcd-nl/clean", "abcd-nl/clean")() == 0);
+static assert(controlLen!("/Users/x/scratch", "")() == 0);
+
+// A worktree of the repo, wherever on disk, is that repo.
+static assert(controlLen!("/tmp/qntx-chapter-1", "teranos/QNTX")() == controlWant.length);
 
 // "we say it once during a compaction window, once, not every message"
 // The mark kept the row it was first written to, so every hook after a
@@ -179,21 +189,22 @@ unittest {
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
     assert(applySchema(db));
 
-    static immutable bill = controlBill;
-    auto cues = bill.cues[0 .. bill.len];
-    enum here = "/Users/x/teranos/QNTX";
+    // A path-scoped cue: a made-up directory has no origin for a repo-keyed one.
+    static immutable scoped = bill;
+    auto cues = scoped.cues[0 .. scoped.len];
+    enum cwd = "/Users/x/teranos/QNTX";
     char[512] buf;
 
-    assert(unsaidBillInto(db, "s1", here, buf[], cues) > 0, "a session is told once");
-    assert(unsaidBillInto(db, "s1", here, buf[], cues) == 0, "and not again");
+    assert(unsaidBillInto(db, "s1", cwd, buf[], cues) > 0, "a session is told once");
+    assert(unsaidBillInto(db, "s1", cwd, buf[], cues) == 0, "and not again");
 
     enum compact = "INSERT INTO attestations "
         ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
         ~ `VALUES ('pc1', '[]', '["PreCompact"]', '["session:s1"]', '[]', 't', 'test', '{}')` ~ "\0";
     assert(sqlite3_exec(db, compact.ptr, null, null, null) == SQLITE_OK);
 
-    assert(unsaidBillInto(db, "s1", here, buf[], cues) > 0, "a compaction forgets it, so it is told once more");
-    assert(unsaidBillInto(db, "s1", here, buf[], cues) == 0, "once per compaction window, not every message");
+    assert(unsaidBillInto(db, "s1", cwd, buf[], cues) > 0, "a compaction forgets it, so it is told once more");
+    assert(unsaidBillInto(db, "s1", cwd, buf[], cues) == 0, "once per compaction window, not every message");
 
     sqlite3_close(db);
 }
