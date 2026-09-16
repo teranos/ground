@@ -282,20 +282,57 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
     _exit(0);
 }
 
-private struct timeval {
-    long tv_sec;
-    int tv_usec;
+// The whole seconds the first number of /proc/uptime carries, or -1 when the
+// text begins with something no number can be read from.
+long uptimeIn(const(char)[] text) {
+    if (text.length == 0 || text[0] < '0' || text[0] > '9') return -1;
+    long secs = 0;
+    foreach (c; text) {
+        if (c < '0' || c > '9') break;
+        secs = secs * 10 + (c - '0');
+    }
+    return secs;
 }
 
-extern (C) int sysctlbyname(const(char)* name, void* oldp, size_t* oldlenp, void* newp, size_t newlen);
+version (OSX) {
+    private struct timeval {
+        long tv_sec;
+        int tv_usec;
+    }
 
-// When the machine booted, from the kernel, with no process started. 0 when
-// the kernel would not say.
-long bootTime() {
-    timeval tv;
-    size_t len = timeval.sizeof;
-    if (sysctlbyname("kern.boottime\0".ptr, &tv, &len, null, 0) != 0) return 0;
-    return tv.tv_sec;
+    extern (C) int sysctlbyname(const(char)* name, void* oldp, size_t* oldlenp,
+                                void* newp, size_t newlen);
+
+    // When the machine booted, from the kernel, with no process started. 0
+    // when the kernel would not say.
+    long bootTime() {
+        timeval tv;
+        size_t len = timeval.sizeof;
+        if (sysctlbyname("kern.boottime\0".ptr, &tv, &len, null, 0) != 0) return 0;
+        return tv.tv_sec;
+    }
+} else version (linux) {
+    // Linux has no kern.boottime. The kernel says how long it has been up, and
+    // /proc/uptime is a file read rather than a process started.
+    long bootTime() {
+        import core.stdc.stdio : fopen, fread, fclose;
+        import core.stdc.time : time;
+
+        auto f = fopen("/proc/uptime\0".ptr, "rb\0".ptr);
+        if (f is null) return 0;
+        char[64] buf = 0;
+        auto n = fread(&buf[0], 1, buf.length - 1, f);
+        fclose(f);
+        if (n == 0) return 0;
+
+        auto up = uptimeIn(buf[0 .. n]);
+        if (up < 0) return 0;
+        return cast(long) time(null) - up;
+    }
+} else {
+    // A platform ground has no boot time for says so, rather than answering a
+    // number it did not read.
+    long bootTime() { return 0; }
 }
 
 void putUptime(S)(ref S s, long secs) {

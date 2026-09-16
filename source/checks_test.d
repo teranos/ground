@@ -5,7 +5,7 @@ module checks_test;
 // A copy goes to every QNTX backend a project names; its answer changes no age.
 
 import checks : EVERY, shouldCheck, planIn, tagIn, checkBody, recordCheck, lastCheck,
-                noteQntx, qntxBackends, putUptime, putStart, bootTime;
+                noteQntx, qntxBackends, putUptime, putStart, bootTime, uptimeIn;
 import proto : parsePbt;
 
 enum D = 86400;
@@ -55,6 +55,14 @@ unittest {
     assert(boot > 1577836800, "boot time was read");
     assert(boot <= time(null), "the machine booted before now");
 }
+
+// On Linux the kernel says how long it has been up, not when it started, and
+// /proc/uptime is the one file that carries it. Whole seconds are enough here.
+static assert(uptimeIn("12345.67 6789.01\n") == 12345);
+static assert(uptimeIn("0.42 0.10\n") == 0);
+static assert(uptimeIn("980 12\n") == 980);
+static assert(uptimeIn("") == -1);
+static assert(uptimeIn("not a number\n") == -1);
 
 // What QNTX is sent: the check, what it found, how the lookup exited, and when.
 static assert(() {
