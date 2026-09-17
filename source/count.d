@@ -59,7 +59,7 @@ PbtCounts countPbt(string input) {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
-        } else if (wm.base == "models") {
+        } else if (wm.base == "models" || wm.base == "sentry") {
             // Sized by its own fixed array; consumed so its braces are not read.
             skipWS(input, pos);
             expect(input, pos, '{');
@@ -195,7 +195,7 @@ void countProject(ref string input, ref size_t pos, ref PbtCounts r) {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
-        } else if (wm.base == "models") {
+        } else if (wm.base == "models" || wm.base == "sentry") {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);

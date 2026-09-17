@@ -59,6 +59,12 @@ struct Advanced {
     int code;
     const(char)[] output;
     Position after;
+    // What the position does not keep. A row reading gotos == max_goto cannot
+    // say that is why it halted, and nothing anywhere kept how long it took.
+    long tookUs;             // the rite's commands, run and eval together
+    const(char)[] jumpedTo;  // the goto that was taken, empty when none was
+    bool gotoSpent;          // halted because max_goto was reached
+    bool evalsSpent;         // halted because MAX_EVALS was reached
 }
 
 // The sequence nothing performed until now: read where we are, run that rite,
@@ -132,6 +138,11 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     import mic : wordsHash, freshWords;
     long spoken = 0;
 
+    // From here to the verdict is the rite's own commands and nothing else:
+    // the claim above and the bookkeeping below are ground's time, not its.
+    import stop : usecNow;
+    auto began = usecNow();
+
     // "a failed run: is critical enough for us not to want to continue and
     // return the error point blanc , keep the mic" — so nothing downstream of
     // it is asked, including an eval that would have passed.
@@ -147,6 +158,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         }
         auto did = runRite(act.script.text(), cast(string) r.name, cast(string) sessionId);
         if (!did.ran || did.code != 0) {
+            a.tookUs = usecNow() - began;
             a.ran = did.ran;
             a.code = did.code;
             a.output = did.output();
@@ -212,6 +224,8 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         a.verdict = classify(run.code, r);
     }
 
+    a.tookUs = usecNow() - began;
+
     // "no, it should have jumped over them" — a rite that asks nothing has no
     // verdict to condition a jump on, so its goto is the whole of what it says.
     bool asksNothing = r.eval.length == 0 && r.dispatch.length == 0;
@@ -223,6 +237,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             || (asksNothing && a.verdict == Verdict.Advance));
     if (wantsJump && p.gotos >= f.maxGoto) {
         a.verdict = Verdict.Halt;
+        a.gotoSpent = true;
         __gshared ZBuf spent;
         spent.reset();
         spent.put("goto taken ");
@@ -240,6 +255,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (a.verdict == Verdict.Hold && p.evals + 1 >= MAX_EVALS) {
         a.verdict = Verdict.Halt;
         spentEvals = true;
+        a.evalsSpent = true;
         __gshared ZBuf asked;
         asked.reset();
         asked.put("eval asked ");
@@ -272,6 +288,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         if (target >= 0) {
             moved = jump(moved, cast(size_t) target);
             moved.gotos = p.gotos + 1;
+            a.jumpedTo = r.goto_;
         }
     }
 

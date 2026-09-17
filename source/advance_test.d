@@ -332,6 +332,91 @@ unittest {
     sqlite3_close(db);
 }
 
+// What an advance knows and the position does not keep: which bound ended the
+// walk, where a jump went, and how long the command ran. A reader of the row
+// can see gotos == max_goto and still not know that is why it halted.
+unittest {
+    auto db = memDb();
+    auto p = start("bounded", boundFlat.count);
+    p.id = "bound-2";
+    p.repo = "/src/bound";
+    p.worktree = "/tmp";
+
+    bool sawJump;
+    size_t turns;
+    while (p.state == RitualState.Live && turns < 500) {
+        auto r = advance(db, "sess", p, boundFlat, 100 + cast(long) turns);
+        if (!r.ran) break;
+        if (r.jumpedTo == "THERE") sawJump = true;
+        if (r.after.state == RitualState.Live) {
+            assert(!r.gotoSpent && !r.evalsSpent, "a walk still going has spent nothing");
+        } else {
+            assert(r.gotoSpent, "the goto bound is what ended this walk, and it says so");
+            assert(!r.evalsSpent);
+            assert(r.jumpedTo.length == 0, "a jump refused is not a jump taken");
+        }
+        p = r.after;
+        turns++;
+    }
+    assert(sawJump, "a goto that was taken names where it went");
+    sqlite3_close(db);
+}
+
+unittest {
+    auto db = memDb();
+    auto p = start("asking", stuckFlat.count);
+    p.id = "stuck-2";
+    p.repo = "/src/stuck";
+    p.worktree = "/tmp";
+
+    bool ended;
+    size_t turns;
+    while (p.state == RitualState.Live && turns < 500) {
+        auto r = advance(db, "sess", p, stuckFlat, 100 + cast(long) turns);
+        if (!r.ran) break;
+        if (r.after.state != RitualState.Live) {
+            ended = true;
+            assert(r.evalsSpent, "the eval bound is what ended this walk, and it says so");
+            assert(!r.gotoSpent);
+        }
+        p = r.after;
+        turns++;
+    }
+    assert(ended);
+    sqlite3_close(db);
+}
+
+// The command's own time, not the driver's sleep around it.
+enum slowSrc = `
+rites slow {
+  NAP {
+    eval: "sleep 0.3"
+  }
+}
+
+project {
+  path: "/src/slow"
+  ritual napping {
+    slow
+  }
+}
+`;
+enum slowFlat = flatten(parsePbt(slowSrc), 0);
+
+unittest {
+    auto db = memDb();
+    auto p = start("napping", slowFlat.count);
+    p.id = "slow-1";
+    p.repo = "/src/slow";
+    p.worktree = "/tmp";
+
+    auto r = advance(db, "sess", p, slowFlat, 100);
+    assert(r.ran);
+    assert(r.tookUs >= 300_000, "a rite that slept 0.3s took at least that");
+    assert(r.tookUs < 5_000_000);
+    sqlite3_close(db);
+}
+
 unittest {
     auto db = memDb();
     // The budget is spent by jumping, not by running. A rite that advances

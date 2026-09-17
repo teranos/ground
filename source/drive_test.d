@@ -33,3 +33,12 @@ static assert(!mayRemoveTree(RitualState.Done, ""));
 static assert(!mayRemoveTree(RitualState.Halted, "checkout"));
 static assert(!mayRemoveTree(RitualState.Aborted, "checkout"));
 static assert(!mayRemoveTree(RitualState.Live, "checkout"));
+
+import ritual.drive : endingWord;
+
+// What sentry is told an ending was. Live is not an ending, so it has no word
+// and nothing is reported under one.
+static assert(endingWord(RitualState.Done) == "done");
+static assert(endingWord(RitualState.Halted) == "halted");
+static assert(endingWord(RitualState.Aborted) == "aborted");
+static assert(endingWord(RitualState.Live) == "");

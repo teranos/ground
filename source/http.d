@@ -27,10 +27,12 @@ enum CURL_BIN = "/usr/bin/curl";
 // line is readable by every process on the machine. The body goes in a file
 // for the same reason, and because JSON on a command line is a quoting bug.
 void buildCurlConfig(ref ZBuf cfg, const(char)[] bodyPath, const(char)[] token,
-                     int timeoutSec) {
+                     int timeoutSec, const(char)[] contentType = "application/json") {
     cfg.reset();
     cfg.put("silent\nshow-error\nrequest = \"POST\"\n");
-    cfg.put("header = \"Content-Type: application/json\"\n");
+    cfg.put("header = \"Content-Type: ");
+    cfg.put(contentType);
+    cfg.put("\"\n");
     putBearer(cfg, token);
     cfg.put("data-binary = \"@");
     cfg.put(bodyPath);
@@ -88,7 +90,7 @@ private bool writeSecret(const(char)* path, const(char)[] data) {
 // could not be run or produced no status: "no answer", never "answer was bad",
 // so a dead endpoint is not reported as a rejected credential.
 int curlPost(const(char)[] url, const(char)[] body_, const(char)[] token,
-             int timeoutSec = 10) {
+             int timeoutSec = 10, const(char)[] contentType = "application/json") {
     import core.stdc.stdio : FILE, fgetc, EOF;
     import core.sys.posix.unistd : getpid;
     import errors : unlink, popen, pclose;
@@ -100,7 +102,7 @@ int curlPost(const(char)[] url, const(char)[] body_, const(char)[] token,
     tempPath(cfgPath, "attest", pid, "conf");
 
     __gshared ZBuf cfg;
-    buildCurlConfig(cfg, bodyPath.slice(), token, timeoutSec);
+    buildCurlConfig(cfg, bodyPath.slice(), token, timeoutSec, contentType);
 
     scope (exit) {
         unlink(bodyPath.ptr());
@@ -189,6 +191,16 @@ unittest {
     assert(contains(s, "request = \"POST\"\n"));
     assert(contains(s, "write-out = \"%{http_code}\"\n"));
     assert(contains(s, "max-time = 10\n"));
+}
+
+unittest {
+    // An envelope is not JSON: it is lines of it, and sentry is told so. The
+    // type is the caller's to name, and naming none is still JSON.
+    import matcher : contains;
+    ZBuf cfg;
+    buildCurlConfig(cfg, "/tmp/b.envelope", null, 10, "application/x-sentry-envelope");
+    assert(contains(cfg.slice(), "header = \"Content-Type: application/x-sentry-envelope\"\n"));
+    assert(!contains(cfg.slice(), "application/json"));
 }
 
 unittest {

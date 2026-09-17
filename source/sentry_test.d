@@ -210,6 +210,13 @@ project {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(twoInRitualSrc); }));
 
+// Pass 1 walks the same text before the parser does, and every test above went
+// straight to parsePbt. The first real sentry block stopped the build in
+// countPbt: the word was skipped and the next readWord landed on its brace.
+import count : countPbt;
+static assert(countPbt(topOnlySrc).totalProjects == 1);
+static assert(countPbt(src).totalProjects == 1);
+
 // "i want to know what goes to sentry, thats importantto me"
 // Not the output a rite printed, not the agent's words, and no absolute path:
 // a worktree path names whose machine it is, and sentry is off that machine.
@@ -220,3 +227,150 @@ sentry {
 }
 `;
 static assert(parsePbt(commentedSrc).sentry.dsn == "https://top@o1.ingest.example/1");
+
+// "do we send things to sentry yet?"
+// A dsn is three things a sender needs apart: the key, the host and the
+// project. Anything that is not all three is nowhere to send.
+import sentry : parseDsn, envelopeUrl, traceId, riteEnvelope, performanceEnvelope;
+import rite : Verdict;
+
+enum sendDsn = "https://key123@o1.ingest.example/42";
+enum parts = parseDsn(sendDsn);
+static assert(parts.ok);
+static assert(parts.key == "key123");
+static assert(parts.host == "o1.ingest.example");
+static assert(parts.project == "42");
+static assert(envelopeUrl(parts).text() == "https://o1.ingest.example/api/42/envelope/");
+
+static assert(!parseDsn("").ok);
+static assert(!parseDsn("o1.ingest.example/42").ok, "no scheme");
+static assert(!parseDsn("https://o1.ingest.example/42").ok, "no key");
+static assert(!parseDsn("https://key123@o1.ingest.example/").ok, "no project");
+static assert(!parseDsn("https://key123@/42").ok, "no host");
+
+// One performance is one trace, so its rites thread together. The id is the
+// performance's own, read the same way every time, and sentry wants 32 hex.
+static assert(traceId("coinflip-1000").text().length == 32);
+static assert(traceId("coinflip-1000").text() == traceId("coinflip-1000").text());
+static assert(traceId("coinflip-1000").text() != traceId("coinflip-1001").text());
+static assert(() {
+    foreach (c; traceId("coinflip-1000").text())
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    return true;
+}());
+
+// "you would say, we can send some things to sentry before the end of a ritual right?"
+// A rite's verdict goes when it lands. An ending that never arrives then costs
+// only the ending, and the last rite sent is where the walk stood.
+import sentry : RiteReport;
+
+// "BUT I CARE ABOUT HOW LONG INDIVIDUAL RITES TAKE AND WHAT THEIR CATCHES ARE AND IF WE HIT MAX_GOTO"
+// How long the command ran this time, how long the rite has been open, what
+// the author declared it passes and catches on, and how far into its bounds
+// the walk is. A bound that was spent says so as a fact of its own.
+private RiteReport said(const(char)[] rite, Verdict v, int code) {
+    RiteReport r;
+    r.performance = "coinflip-1000";
+    r.ritual = "coinflip";
+    r.rite = rite;
+    r.verdict = v;
+    r.code = code;
+    r.pass = 0;
+    r.catches[0] = 1;
+    r.catches[1] = 22;
+    r.catchCount = 2;
+    r.tookMs = 250;
+    r.openMs = 31000;
+    r.evals = 3;
+    r.gotos = 2;
+    r.maxGoto = 16;
+    return r;
+}
+
+enum riteSent = riteEnvelope(sendDsn, 1000, said("T1FLIP1", Verdict.Advance, 0));
+static assert(riteSent.text() ==
+    `{"dsn":"https://key123@o1.ingest.example/42"}` ~ "\n"
+    ~ `{"type":"log","item_count":1,"content_type":"application/vnd.sentry.items.log+json"}` ~ "\n"
+    ~ `{"items":[{"timestamp":1000,"trace_id":"` ~ traceId("coinflip-1000").text()
+    ~ `","level":"info","body":"coinflip T1FLIP1 advance","attributes":{`
+    ~ `"performance":{"value":"coinflip-1000","type":"string"},`
+    ~ `"ritual":{"value":"coinflip","type":"string"},`
+    ~ `"rite":{"value":"T1FLIP1","type":"string"},`
+    ~ `"verdict":{"value":"advance","type":"string"},`
+    ~ `"catches":{"value":"1,22","type":"string"},`
+    ~ `"code":{"value":0,"type":"integer"},`
+    ~ `"pass":{"value":0,"type":"integer"},`
+    ~ `"took_ms":{"value":250,"type":"integer"},`
+    ~ `"open_ms":{"value":31000,"type":"integer"},`
+    ~ `"evals":{"value":3,"type":"integer"},`
+    ~ `"gotos":{"value":2,"type":"integer"},`
+    ~ `"max_goto":{"value":16,"type":"integer"},`
+    ~ `"max_goto_hit":{"value":false,"type":"boolean"},`
+    ~ `"max_evals_hit":{"value":false,"type":"boolean"}}}]}` ~ "\n");
+
+// A hold is the rite working as written. A halt is the one that needs a person.
+import matcher : contains;
+static assert(contains(riteEnvelope(sendDsn, 1000, said("R", Verdict.Hold, 1)).text(),
+                       `"level":"info"`));
+static assert(contains(riteEnvelope(sendDsn, 1000, said("R", Verdict.Halt, 127)).text(),
+                       `"level":"error"`));
+static assert(contains(riteEnvelope(sendDsn, 1000, said("R", Verdict.Halt, 127)).text(),
+                       `"code":{"value":127,"type":"integer"}`));
+
+// A name is the author's, and a quote in one must not end the string early.
+static assert(contains(riteEnvelope(sendDsn, 1000, said(`R"x`, Verdict.Advance, 0)).text(),
+                       `"rite":{"value":"R\"x","type":"string"}`));
+
+// A jump that was taken names where it went, in the line a person reads and
+// in a field a query can group on.
+enum jumped = () {
+    auto r = said("BACK", Verdict.Hold, 1);
+    r.jumpedTo = "HERE";
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(jumped.text(), `"body":"coinflip BACK hold, goto HERE"`));
+static assert(contains(jumped.text(), `"goto":{"value":"HERE","type":"string"}`));
+static assert(!contains(riteSent.text(), `"goto":`), "no jump, no field saying there was one");
+
+// The bound that ended a walk is the reason it ended, so it is said where the
+// halt is said rather than left to be worked out from two numbers.
+enum spentGoto = () {
+    auto r = said("BACK", Verdict.Halt, 1);
+    r.gotos = 16;
+    r.gotoSpent = true;
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(spentGoto.text(), `"body":"coinflip BACK halt, max_goto spent"`));
+static assert(contains(spentGoto.text(), `"max_goto_hit":{"value":true,"type":"boolean"}`));
+static assert(contains(spentGoto.text(), `"level":"error"`));
+
+enum spentEvals = () {
+    auto r = said("ASKS", Verdict.Halt, 1);
+    r.evalsSpent = true;
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(spentEvals.text(), `"body":"coinflip ASKS halt, max_evals spent"`));
+static assert(contains(spentEvals.text(), `"max_evals_hit":{"value":true,"type":"boolean"}`));
+
+// A rite that declares no catch still has the one silence gives it, and a
+// rite that catches nothing says so with an empty list, not a missing field.
+enum noCatch = () {
+    auto r = said("R", Verdict.Advance, 0);
+    r.catchCount = 0;
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(noCatch.text(), `"catches":{"value":"","type":"string"}`));
+
+// The start and the ending of a performance, in the ending's own word.
+enum began = performanceEnvelope(sendDsn, 1000, "coinflip-1000", "coinflip", "started");
+static assert(contains(began.text(), `"body":"coinflip started"`));
+static assert(contains(began.text(), `"level":"info"`));
+static assert(contains(began.text(), `"state":{"value":"started","type":"string"}`));
+static assert(contains(began.text(), `"trace_id":"` ~ traceId("coinflip-1000").text() ~ `"`));
+static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "done").text(), `"level":"info"`));
+static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "halted").text(), `"level":"error"`));
+static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "aborted").text(), `"level":"warn"`));
+
+// A dsn that is not one builds nothing, so nothing is posted anywhere.
+static assert(riteEnvelope("not a dsn", 1000, said("R", Verdict.Advance, 0)).text().length == 0);
+static assert(performanceEnvelope("", 1000, "c-1", "c", "done").text().length == 0);

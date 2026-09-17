@@ -27,6 +27,27 @@ bool mayRemoveTree(RitualState ended, const(char)[] declaredTree) {
     return ended == RitualState.Done && declaredTree.length > 0;
 }
 
+// Where a performance reports: the nearest dsn its ritual resolves to, or
+// empty when no pbt names one.
+private const(char)[] dsnOf(PR)(const ref PR parsed, const(char)[] ritual) {
+    import ritual.resolve : resolveSentry;
+    foreach (i; 0 .. parsed.ritualCount) {
+        if (parsed.rituals[i].name != ritual) continue;
+        return resolveSentry(flatten(parsed, i).sentry);
+    }
+    return "";
+}
+
+// The ending, in the word sentry is told. Live is not one.
+const(char)[] endingWord(RitualState s) {
+    final switch (s) {
+    case RitualState.Live:    return "";
+    case RitualState.Done:    return "done";
+    case RitualState.Halted:  return "halted";
+    case RitualState.Aborted: return "aborted";
+    }
+}
+
 // ground drive <performance> — the loop that keeps a performance moving. The
 // watcher cannot: delivery is `exit 2`, so it dies every time it speaks, and
 // an agent working a rite reaches neither a Stop nor a new watcher.
@@ -60,6 +81,13 @@ int handleDrive(int argc, const(char)** argv) {
     bool sawTree = false;
     __gshared ZBuf treePath;
 
+    // A driver is forked where a performance starts and nowhere else, so its
+    // first live pass is the start. Sent from here and not from the fork: that
+    // runs inside a hook, and a post is a network round trip.
+    bool announced = false;
+    size_t openRite = size_t.max;
+    long openedUs;
+
     for (;;) {
         auto db = openDb();
         if (db is null) return 0;
@@ -86,6 +114,16 @@ int handleDrive(int argc, const(char)** argv) {
                 break;
             }
             sqlite3_close(db);
+
+            // Before the tree goes and the agent is reaped: either of those can
+            // fail, and the ending happened whether or not they do.
+            {
+                import sentry : report, performanceEnvelope;
+                auto dsn = dsnOf(parsed, found.p.ritual);
+                report(dsn, performanceEnvelope(dsn, cast(long) time(null), found.p.id,
+                                                found.p.ritual, endingWord(ended)),
+                       found.p.parent, found.p.ritual);
+            }
 
             // Done takes its tree with it: the branch is pushed and the
             // commits are the record, so the checkout is spare. A halt keeps
@@ -118,12 +156,61 @@ int handleDrive(int argc, const(char)** argv) {
             return 0;
         }
 
+        // Posted after the store is closed: a post is a round trip, and nothing
+        // it waits on is the store's business.
+        import sentry : Envelope, report, performanceEnvelope, riteEnvelope;
+        auto dsn = dsnOf(parsed, found.p.ritual);
+        Envelope riteSaid;
+        bool riteRan = false;
+
+        // When the walk arrived at the rite it stands on. The row does not keep
+        // it, and one driver walks one performance, so it is kept here.
+        import stop : usecNow;
+        if (found.p.current != openRite) {
+            openRite = found.p.current;
+            openedUs = usecNow();
+        }
+
+        Envelope startSaid;
+        bool startNow = !announced;
+        if (startNow) {
+            announced = true;
+            startSaid = performanceEnvelope(dsn, cast(long) time(null), found.p.id,
+                                            found.p.ritual, "started");
+        }
+
         bool moved = false;
         foreach (i; 0 .. parsed.ritualCount) {
             if (parsed.rituals[i].name != found.p.ritual) continue;
             auto flat = flatten(parsed, i);
             auto res = advance(db, found.p.agentSession, found.p, flat, cast(long) time(null));
             if (!res.ran) break;
+
+            // Only a verdict that landed. One another driver walked past is
+            // theirs to report.
+            if (res.applied) {
+                import sentry : RiteReport;
+                auto rite = flat.rites[found.p.current];
+                RiteReport said;
+                said.performance = found.p.id;
+                said.ritual = found.p.ritual;
+                said.rite = rite.name;
+                said.verdict = res.verdict;
+                said.code = res.code;
+                said.pass = rite.pass;
+                said.catches = rite.catches;
+                said.catchCount = rite.catchCount;
+                said.tookMs = res.tookUs / 1000;
+                said.openMs = (usecNow() - openedUs) / 1000;
+                said.evals = found.p.evals + 1;
+                said.gotos = res.after.gotos;
+                said.maxGoto = flat.maxGoto;
+                said.jumpedTo = res.jumpedTo;
+                said.gotoSpent = res.gotoSpent;
+                said.evalsSpent = res.evalsSpent;
+                riteRan = true;
+                riteSaid = riteEnvelope(dsn, cast(long) time(null), said);
+            }
 
             // A held rite waits on the world, so asking twice a second is noise.
             nextSleep = res.verdict == Verdict.Hold ? 15 : 2;
@@ -180,6 +267,8 @@ int handleDrive(int argc, const(char)** argv) {
         }
 
         sqlite3_close(db);
+        if (startNow) report(dsn, startSaid, found.p.parent, found.p.ritual);
+        if (riteRan) report(dsn, riteSaid, found.p.parent, found.p.ritual);
         if (moved) nextSleep = 1;
         sleep(nextSleep);
     }
