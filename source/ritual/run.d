@@ -542,6 +542,69 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
 // The session ground bound to this performance, and no other. Selecting on the
 // tree ended every background agent standing in it, which in a ritual that
 // names no tree is whatever the person had running in their own checkout.
+// Who a start says it started. `claude --bg` answers with `backgrounded`, a
+// separator, and the id every other claude command takes. Read off that line
+// and no other: the lines under it begin with `claude`, which is nobody's id.
+const(char)[] agentIdFrom(const(char)[] printed) {
+    enum word = "backgrounded";
+    if (printed.length < word.length) return "";
+
+    static bool idChar(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')
+            || (c >= 'A' && c <= 'Z') || c == '-';
+    }
+
+    foreach (at; 0 .. printed.length - word.length + 1) {
+        if (printed[at .. at + word.length] != word) continue;
+        size_t i = at + word.length;
+        while (i < printed.length && printed[i] != '\n' && !idChar(printed[i])) i++;
+        size_t end = i;
+        while (end < printed.length && idChar(printed[end])) end++;
+        return printed[i .. end];
+    }
+    return "";
+}
+
+// Who an ending stops. The id the start printed is the one `claude stop` was
+// proven on; the session stands in for a row bound before there was one.
+const(char)[] reapTarget(const Position p) {
+    if (p.agent.length > 0) return p.agent;
+    return p.agentSession;
+}
+
+// What became of the agent when its performance ended.
+enum Reaped {
+    Stopped,  // `claude stop` answered for the agent the row names
+    Failed,   // it was asked and did not stop
+    Unbound,  // the row names nobody, so nobody was asked
+}
+
+immutable string[3] REAPED_WORD = ["stopped", "failed", "unbound"];
+
+// An ending ends the agent, and an ending that could not says so. Skipping the
+// reap for a row that named nobody left every agent of a day running, and the
+// only account of it was the machine running out of memory.
+Reaped reapNow(const Position p, string why) {
+    import rite : runRite;
+    import exec : emitError;
+
+    auto reap = reapScript(reapTarget(p));
+    if (reap.text().length == 0) {
+        emitError("ritual.reap.unbound",
+                  "the performance ended and ground never learned which agent carried it, so nothing was stopped",
+                  0, 1, cast(string) p.parent, cast(string) p.ritual, "",
+                  cast(string) p.id, "");
+        return Reaped.Unbound;
+    }
+    auto done = runRite(reap.text(), "ritual-reap", "");
+    if (!done.ran || done.code != 0) {
+        emitError("ritual.reap", why, 0, done.code, cast(string) p.parent,
+                  cast(string) p.ritual, "", cast(string) p.id, cast(string) done.output());
+        return Reaped.Failed;
+    }
+    return Reaped.Stopped;
+}
+
 SpawnScript reapScript(const(char)[] agentSession) {
     SpawnScript s;
     if (agentSession.length == 0) return s;
@@ -558,11 +621,11 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
-    // What this agent carries. The tree cannot say it when the tree is one a
-    // person is already working in.
-    s.put("\nexport GROUND_PERFORMANCE=");
-    s.putQuoted(perfId);
-    s.put("\nclaude ");
+    // What the start prints is kept, because it is the one account of who was
+    // started that comes from the start. An environment variable does not
+    // arrive: the agent is a spare the claude daemon warmed earlier, and it
+    // carries the daemon's environment, which named a performance hours dead.
+    s.put("\nsaid=$(claude ");
     // -w is the whole of the request for a tree. Unnamed, the agent works in
     // the place the cd already put it.
     if (treeName.length > 0) {
@@ -590,6 +653,12 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
         s.put(" ");
     }
     s.putQuoted(prompt);
+    s.put(")\n");
+    // Printed as it always was, so the exec record still holds it, and handed
+    // to ground, which binds the agent it names to the performance.
+    s.put("printf '%s\\n' \"$said\"\n");
+    s.put("printf '%s\\n' \"$said\" | ground bind ");
+    s.putQuoted(perfId);
     s.put("\n");
     return s;
 }

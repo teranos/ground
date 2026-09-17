@@ -38,6 +38,9 @@ private const(char)[] dsnOf(PR)(const ref PR parsed, const(char)[] ritual) {
     return "";
 }
 
+// How long an ending waits to learn who carried it before saying nobody did.
+enum BIND_WAIT_SEC = 10;
+
 // The ending, in the word sentry is told. Live is not one.
 const(char)[] endingWord(RitualState s) {
     final switch (s) {
@@ -115,13 +118,35 @@ int handleDrive(int argc, const(char)** argv) {
             }
             sqlite3_close(db);
 
-            // Before the tree goes and the agent is reaped: either of those can
-            // fail, and the ending happened whether or not they do.
+            // A walk can end before `ground bind` has said who carries it: the
+            // bind follows the start by the time `claude --bg` takes to answer.
+            // Bounded, because a start that failed never binds at all.
+            {
+                import ritual.run : reapTarget;
+                foreach (attempt; 0 .. BIND_WAIT_SEC) {
+                    if (reapTarget(found.p).length > 0) break;
+                    sleep(1);
+                    auto again = openDb();
+                    if (again is null) break;
+                    auto fresh = byPerformanceId(again, perfId);
+                    sqlite3_close(again);
+                    if (fresh.valid) found = fresh;
+                }
+            }
+
+            // Whatever the ending, the agent stops, and before the tree goes:
+            // Done removed the tree out from under one still running in it.
+            import ritual.run : reapNow, REAPED_WORD;
+            auto reaped = reapNow(found.p, "the performance ended and its agent did not");
+
+            // The ending and what became of the agent, said together. The tree
+            // going can still fail, and the ending happened whether it does.
             {
                 import sentry : report, performanceEnvelope;
                 auto dsn = dsnOf(parsed, found.p.ritual);
                 report(dsn, performanceEnvelope(dsn, cast(long) time(null), found.p.id,
-                                                found.p.ritual, endingWord(ended)),
+                                                found.p.ritual, endingWord(ended),
+                                                REAPED_WORD[cast(size_t) reaped]),
                        found.p.parent, found.p.ritual);
             }
 
@@ -133,25 +158,6 @@ int handleDrive(int argc, const(char)** argv) {
                 import worktree : removeWorktree;
                 auto root = repoRoot(parsed, repo);
                 if (root.length > 0) removeWorktree(root, tree);
-            }
-
-            // Whatever the ending, the agent stops. Done removed the tree out
-            // from under one that was still running in it.
-            if (found.p.id.length > 0) {
-                import rite : runRite;
-                import ritual.run : reapScript;
-                import exec : emitError;
-                auto reap = reapScript(found.p.agentSession);
-                if (reap.text().length > 0) {
-                    // The result was discarded here, so a reap that ended
-                    // nothing read exactly like one that ended the agent.
-                    auto done = runRite(reap.text(), "ritual-reap", "");
-                    if (!done.ran || done.code != 0)
-                        emitError("ritual.reap", "the performance ended and its agent did not",
-                                  0, done.code, cast(string) found.p.parent,
-                                  cast(string) found.p.ritual, "",
-                                  cast(string) found.p.worktree, cast(string) done.output());
-                }
             }
             return 0;
         }

@@ -329,19 +329,9 @@ int handleAbort(int argc, const(char)** argv) {
     // The row is not the performance. An agent left running keeps editing a
     // worktree and committing into a walk that ended.
     {
-        import rite : runRite;
-        import ritual.run : reapScript;
-        import exec : emitError;
-        auto reap = reapScript(p.agentSession);
-        if (reap.text().length > 0) {
-            // An abort that leaves the agent running has aborted nothing.
-            auto done = runRite(reap.text(), "ritual-reap", "");
-            if (!done.ran || done.code != 0)
-                emitError("ritual.reap", "the performance was aborted and its agent did not stop",
-                          0, done.code, cast(string) p.parent,
-                          cast(string) p.ritual, "",
-                          cast(string) p.worktree, cast(string) done.output());
-        }
+        // An abort that leaves the agent running has aborted nothing.
+        import ritual.run : reapNow;
+        cast(void) reapNow(p, "the performance was aborted and its agent did not stop");
     }
     if (!ok) {
         fputs("ground abort: could not write the position\n", stderr);
@@ -362,6 +352,70 @@ int handleAbort(int argc, const(char)** argv) {
     printLine(p, flatten(parsed, idx));
     fwrite(p.worktree.ptr, 1, p.worktree.length, stdout);
     fputs("\n", stdout);
+    return 0;
+}
+
+// ground bind <performance>, fed what `claude --bg` printed.
+enum BOOK_COMMAND_BIND = q"EOS
+# run by the script that starts a ritual's agent, what `claude --bg` printed on stdin:
+ground bind ground-coinflip-1786812152 < started.txt
+EOS";
+
+int handleBind(int argc, const(char)** argv) {
+    import core.stdc.stdio : stderr, fputs;
+    import db : openDb, sqlite3_close;
+    import exec : emitError;
+    import main : argLen, readStdin;
+    import ritual.position : RitualState;
+    import ritual.run : agentIdFrom;
+    import ritual.store : bindAgentId, bindAgent, sessionOfAgent, byPerformanceId;
+
+    if (argc < 3) {
+        fputs("usage: claude --bg … | ground bind <performance>\n", stderr);
+        return 1;
+    }
+    auto perfId = argv[2][0 .. argLen(argv[2])];
+
+    auto printed = readStdin();
+    auto agentId = agentIdFrom(printed);
+    if (agentId.length == 0) {
+        emitError("ritual.bind.unnamed",
+                  "the start printed no agent id, so this performance has an agent ground cannot stop",
+                  0, 1, "", "ritual", "", cast(string) perfId, cast(string) printed);
+        return 1;
+    }
+
+    auto db = openDb();
+    if (db is null) {
+        emitError("ritual.bind.db",
+                  "ground could not open its database, so the agent the start named is bound to nothing",
+                  0, 1, "", "ritual", "", cast(string) perfId, cast(string) agentId);
+        return 1;
+    }
+
+    if (!bindAgentId(db, perfId, agentId)) {
+        sqlite3_close(db);
+        emitError("ritual.bind.row",
+                  "no performance by that id took the agent the start named",
+                  0, 1, "", "ritual", "", cast(string) perfId, cast(string) agentId);
+        return 1;
+    }
+
+    // A spare that was already running when `claude --bg` returned has had its
+    // SessionStart, and found no id there to open.
+    auto found = byPerformanceId(db, perfId);
+    if (found.valid && found.p.agentSession.length == 0) {
+        auto session = sessionOfAgent(db, agentId);
+        if (session !is null) bindAgent(db, perfId, session, 0);
+        found = byPerformanceId(db, perfId);
+    }
+    sqlite3_close(db);
+
+    // Over before it was bound: the driver passed its reap with nobody to name.
+    if (found.valid && found.p.state != RitualState.Live) {
+        import ritual.run : reapNow;
+        cast(void) reapNow(found.p, "the performance had ended before its agent was bound, and the agent did not stop");
+    }
     return 0;
 }
 

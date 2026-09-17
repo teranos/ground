@@ -206,6 +206,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import ritual : handleDrive;
             return handleDrive(argc, argv);
         }
+        if (cmd == "bind") {
+            import ritual : handleBind;
+            return handleBind(argc, argv);
+        }
         if (cmd == "events") {
             import events : handleEvents;
             return handleEvents();

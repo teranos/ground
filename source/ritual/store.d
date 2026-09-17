@@ -14,10 +14,10 @@ bool writePosition(DB)(DB db, const Position p) {
 
     enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, mic, mic_at, said, holds, evals) "
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) ON CONFLICT(id) DO UPDATE SET "
-        // session and agent_pid are absent on purpose: bindAgent owns them, and
-        // a whole-row update from a stale copy erased them.
+        // session, agent and agent_pid are absent on purpose: the binds own
+        // them, and a whole-row update from a stale copy erased them.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
-        ~ "agent=?11, gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
+        ~ "gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
         ~ "mic=?17, mic_at=?18, said=?19, holds=?20, evals=?21, rev=rev+1, updated_at=CURRENT_TIMESTAMP\0";
 
     sqlite3_stmt* stmt;
@@ -194,9 +194,9 @@ bool writePositionIf(DB)(DB db, const Position p, long expectedRev) {
     // and a guarded UPDATE would refuse it for having no revision to match.
     enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals) "
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17 + 1, ?18, ?19, ?20, ?21, ?22) ON CONFLICT(id) DO UPDATE SET "
-        // session and agent_pid are absent on purpose: bindAgent owns them.
+        // session, agent and agent_pid are absent on purpose: the binds own them.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
-        ~ "agent=?11, gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
+        ~ "gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
         ~ "mic=?18, mic_at=?19, said=?20, holds=?21, evals=?22, rev=rev+1, updated_at=CURRENT_TIMESTAMP WHERE ritual_position.rev=?17\0";
 
     sqlite3_stmt* stmt;
@@ -259,6 +259,86 @@ void bindAgent(DB)(DB db, const(char)[] perfId, const(char)[] sessionId, long pi
     sqlite3_bind_int64(stmt, 3, pid);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+}
+
+// The id `claude --bg` printed when it started this performance's agent. Written
+// whatever state the row is in: a performance over before the bind arrives is
+// exactly the one whose agent still has to be stopped.
+bool bindAgentId(DB)(DB db, const(char)[] perfId, const(char)[] agentId) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+
+    if (perfId.length == 0 || agentId.length == 0) return false;
+    enum sql = "UPDATE ritual_position SET agent = ?2 WHERE id = ?1\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, perfId.ptr, cast(int) perfId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, agentId.ptr, cast(int) agentId.length, SQLITE_TRANSIENT);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db) > 0;
+}
+
+// The agent's own SessionStart. The id the start printed opens the session id
+// the agent runs under, so a session finds the performance it carries by being
+// the one that id opens. A person's session in the same tree opens nothing.
+bool bindSessionByAgent(DB)(DB db, const(char)[] sessionId, long pid) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_bind_int64, sqlite3_changes, sqlite3_stmt,
+                SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+
+    if (sessionId.length == 0) return false;
+    enum sql = "UPDATE ritual_position SET session = ?1, agent_pid = ?2 "
+        ~ "WHERE state = 'live' AND agent IS NOT NULL AND agent != '' "
+        ~ "AND (session IS NULL OR session = '') "
+        ~ "AND substr(?1, 1, length(agent)) = agent\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, sessionId.ptr, cast(int) sessionId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, pid);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db) > 0;
+}
+
+// How far back a start is looked for. A warm spare starts within seconds of
+// the `claude --bg` that claims it, and the store is too large to walk whole.
+enum START_LOOKBACK_ROWS = 20_000;
+
+// The session an agent id opens, read off the SessionStart ground recorded for
+// it. For the order the other bind cannot serve: the spare was already running
+// when `claude --bg` returned to say who it was.
+const(char)[] sessionOfAgent(DB)(DB db, const(char)[] agentId) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_bind_int64, sqlite3_column_text, sqlite3_stmt,
+                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+
+    if (agentId.length == 0) return null;
+    enum sql = "SELECT json_extract(attributes, '$.session_id') FROM attestations "
+        ~ "WHERE rowid > (SELECT IFNULL(MAX(rowid), 0) FROM attestations) - ?2 "
+        ~ "AND json_extract(predicates, '$[0]') = 'SessionStart' "
+        ~ "AND substr(json_extract(attributes, '$.session_id'), 1, length(?1)) = ?1 "
+        ~ "ORDER BY rowid DESC LIMIT 1\0";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return null;
+    sqlite3_bind_text(stmt, 1, agentId.ptr, cast(int) agentId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, START_LOOKBACK_ROWS);
+
+    __gshared char[80] found = 0;
+    size_t n;
+    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    sqlite3_finalize(stmt);
+    return n > 0 ? found[0 .. n] : null;
+}
+
+// The performance a session carries, once it is bound.
+Restored byAgentSession(DB)(DB db, const(char)[] sessionId) {
+    enum sql = "SELECT id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, rev, mic, mic_at, said, holds, evals "
+        ~ "FROM ritual_position WHERE session = ?1 ORDER BY updated_at DESC LIMIT 1\0";
+    return readOne(db, sql, sessionId);
 }
 
 void stampActed(DB)(DB db, const(char)[] sessionId, long unixSeconds) {

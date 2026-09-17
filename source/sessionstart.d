@@ -320,35 +320,24 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
         auto rdb = openDb();
         if (rdb !is null) {
-            // A session ground spawned was told which performance it carries.
-            // One that was not is a person's own, standing in the same tree.
-            import errors : getenv;
-            import ritual.store : byPerformanceId;
-            auto carriedPtr = getenv("GROUND_PERFORMANCE\0".ptr);
-            const(char)[] carried;
-            if (carriedPtr !is null) {
-                size_t cn = 0;
-                while (carriedPtr[cn] != 0) cn++;
-                carried = carriedPtr[0 .. cn];
-            }
+            // A session ground spawned opens with the id its start printed.
+            // One that does not is a person's own, standing in the same tree.
+            // The environment is not asked: the agent is a spare the claude
+            // daemon warmed earlier, and GROUND_PERFORMANCE reached it from the
+            // daemon, naming a performance that ended hours before.
+            //
+            // This hook runs inside the agent, so its parent is the agent.
+            // Nothing else knows the pid: with --bg the process belongs to the
+            // background host.
+            import watch : getppid;
+            import ritual.store : bindSessionByAgent, byAgentSession;
+            bool carries = bindSessionByAgent(rdb, sessionId, getppid());
 
-            auto found = carried.length > 0
-                ? byPerformanceId(rdb, carried)
-                : readPositionAt(rdb, cwd);
-
-            // The agent's own start is where the performance learns who is
-            // carrying it: this hook runs inside the session ground spawned.
-            if (carried.length > 0 && found.valid && found.p.state == RitualState.Live
-                && found.p.agentSession.length == 0 && sessionId.length > 0) {
-                // This hook runs inside the agent, so its parent is the agent.
-                // Nothing else knows the pid: with --bg the process belongs to
-                // the background host.
-                import watch : getppid;
-                import ritual.store : bindAgent;
-                bindAgent(rdb, found.p.id, sessionId, getppid());
-                found.p = bindSession(found.p, sessionId);
-                found.p.agentPid = getppid();
-            }
+            // A spare that started before `claude --bg` returned finds no id
+            // to open yet. `ground bind` completes that order from its side,
+            // and the tree still says what is performed here.
+            auto found = carries ? byAgentSession(rdb, sessionId)
+                                 : readPositionAt(rdb, cwd);
 
             sqlite3_close(rdb);
             if (found.valid) {

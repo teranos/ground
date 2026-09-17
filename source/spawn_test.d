@@ -42,12 +42,17 @@ static assert(repoRoot(parsed, "/home/u/src/other") == "/home/u/src/other");
 
 // The command that starts the agent. -w names the tree, and ground's own
 // WorktreeCreate handler places it, so the path is known before it exists.
-// GROUND_PERFORMANCE is what the agent answers with when asked what it carries.
+// What the start prints is handed to `ground bind`, which is how a performance
+// learns who carries it. An exported variable reached the agent from the claude
+// daemon's environment and not from this script, naming a performance long over.
+private enum bound(string perf) = "printf '%s\\n' \"$said\"\n"
+    ~ "printf '%s\\n' \"$said\" | ground bind '" ~ perf ~ "'\n";
+
 enum s = spawnScript("/home/u/src/proj", "probe-17", "probe-17", "Performing ritual probe.");
 static assert(s.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj'\n"
-    ~ "export GROUND_PERFORMANCE='probe-17'\n"
-    ~ "claude -w 'probe-17' --bg --permission-mode dontAsk 'Performing ritual probe.'\n");
+    ~ "said=$(claude -w 'probe-17' --bg --permission-mode dontAsk 'Performing ritual probe.')\n"
+    ~ bound!("probe-17"));
 
 // --bg and not -p. Print mode is one shot and detached, reachable by nothing
 // but pkill; a background session is in `claude agents`, where it can be
@@ -55,18 +60,18 @@ static assert(s.text() ==
 enum bg = spawnScript("/r", "p-1", "p-1", "go");
 static assert(bg.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "export GROUND_PERFORMANCE='p-1'\n"
-    ~ "claude -w 'p-1' --bg --permission-mode dontAsk 'go'\n");
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk 'go')\n"
+    ~ bound!("p-1"));
 
 // "define a CLAUDE.md inline in a ritual" — appended, not replacing, because
 // a CLAUDE.md adds to what an agent already is.
 enum sys = spawnScript("/r", "p-1", "p-1", "go", "You are a Specialist in Targeted Advertisement Campaigns.");
 static assert(sys.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "export GROUND_PERFORMANCE='p-1'\n"
-    ~ "claude -w 'p-1' --bg --permission-mode dontAsk "
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk "
     ~ "--append-system-prompt 'You are a Specialist in Targeted Advertisement Campaigns.' "
-    ~ "'go'\n");
+    ~ "'go')\n"
+    ~ bound!("p-1"));
 
 // A ritual that says nothing about it spawns exactly as before.
 static assert(spawnScript("/r", "p-1", "p-1", "go", "").text() == bg.text());
@@ -75,16 +80,16 @@ static assert(spawnScript("/r", "p-1", "p-1", "go", "").text() == bg.text());
 enum model = spawnScript("/r", "p-1", "p-1", "go", "", "sonnet");
 static assert(model.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "export GROUND_PERFORMANCE='p-1'\n"
-    ~ "claude -w 'p-1' --bg --permission-mode dontAsk --model 'sonnet' 'go'\n");
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'sonnet' 'go')\n"
+    ~ bound!("p-1"));
 
 // A model and a system prompt together, each its own flag.
 enum both = spawnScript("/r", "p-1", "p-1", "go", "Be brief.", "fable");
 static assert(both.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "export GROUND_PERFORMANCE='p-1'\n"
-    ~ "claude -w 'p-1' --bg --permission-mode dontAsk --model 'fable' "
-    ~ "--append-system-prompt 'Be brief.' 'go'\n");
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'fable' "
+    ~ "--append-system-prompt 'Be brief.' 'go')\n"
+    ~ bound!("p-1"));
 
 // No model resolved is no flag.
 static assert(spawnScript("/r", "p-1", "p-1", "go", "", "").text() == bg.text());
@@ -94,8 +99,8 @@ static assert(spawnScript("/r", "p-1", "p-1", "go", "", "").text() == bg.text())
 enum here = spawnScript("/r", "", "p-2", "go");
 static assert(here.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "export GROUND_PERFORMANCE='p-2'\n"
-    ~ "claude --bg --permission-mode dontAsk 'go'\n");
+    ~ "said=$(claude --bg --permission-mode dontAsk 'go')\n"
+    ~ bound!("p-2"));
 
 // In place the tree cannot say which performance an agent carries: a session a
 // person opened in that same checkout answers to it too. The id can.
@@ -106,8 +111,8 @@ static assert(here.text() != spawnScript("/r", "", "p-3", "go").text());
 enum q = spawnScript("/r", "p-1", "p-1", "say 'hi' now");
 static assert(q.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "export GROUND_PERFORMANCE='p-1'\n"
-    ~ "claude -w 'p-1' --bg --permission-mode dontAsk 'say '\\''hi'\\'' now'\n");
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk 'say '\\''hi'\\'' now')\n"
+    ~ bound!("p-1"));
 
 // A prompt too big for the buffer used to lose its closing quote, and sh got a
 // different command than the one built. Overflow refuses instead — the same

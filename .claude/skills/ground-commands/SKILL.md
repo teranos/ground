@@ -35,6 +35,9 @@ ground abort grove
 # the driver ground ritual forks, one per performance, by the performance id:
 ground drive ground-coinflip-1786812152
 
+# run by the script that starts a ritual's agent, what `claude --bg` printed on stdin:
+ground bind ground-coinflip-1786812152 < started.txt
+
 # every hook event ground answers to:
 ground events
 
