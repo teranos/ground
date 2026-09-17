@@ -170,6 +170,9 @@ CheckResult commitNotRequested(const(char)[] cwd, const(char)[] input) {
 
     sqlite3_close(db);
 
+    // The operator's general go-ahead answers here too.
+    if (!userSaid) userSaid = operatorWentAhead(GO_AHEAD_WINDOW);
+
     // Fire (deny) if user did NOT approve a commit
     return approvalVerdict(true, userSaid, null);
 }
@@ -222,6 +225,7 @@ CheckResult mergeNotRequested(const(char)[] cwd, const(char)[] input) {
     }
 
     sqlite3_close(db);
+    if (!userSaid) userSaid = operatorWentAhead(GO_AHEAD_WINDOW);
     return approvalVerdict(true, userSaid, null);
 }
 
@@ -336,6 +340,36 @@ bool isImmediateApproval(const(char)[] msg) {
     return trimmed == "yes" || trimmed == "y";
 }
 
+unittest {
+    // The words the operator named, and nothing else is one.
+    assert(isGoAhead("go ahead"));
+    assert(isGoAhead("approved"));
+    assert(isGoAhead("sure"));
+
+    // Case and surrounding space are not content.
+    assert(isGoAhead("  Go Ahead  "));
+    assert(isGoAhead("APPROVED"));
+
+    // Bare only. A message carrying anything else is content, and content has
+    // a scope — this key has none, so it may not be inferred from a sentence.
+    assert(!isGoAhead("go ahead with the merge only"));
+    assert(!isGoAhead("dont go ahead"));
+    assert(!isGoAhead("is that approved?"));
+    assert(!isGoAhead("sure, but not the fonts"));
+
+    // Nothing said is not permission.
+    assert(!isGoAhead(""));
+    assert(!isGoAhead("   "));
+}
+
+unittest {
+    // Exact, not substring: a longer word that contains one is a different
+    // word. "surely" is not "sure".
+    assert(!isGoAhead("surely"));
+    assert(!isGoAhead("unapproved"));
+    assert(!isGoAhead("goahead"));
+}
+
 const(char)[] trimWS(const(char)[] msg) {
     size_t start = 0;
     while (start < msg.length && (msg[start] == ' ' || msg[start] == '\t' || msg[start] == '\n' || msg[start] == '\r'))
@@ -361,6 +395,78 @@ bool containsCI(const(char)[] haystack, const(char)[] needle) {
         if (match) return true;
     }
     return false;
+}
+
+// "make sure ground recognises me saying go ahead"
+// The operator's own words, lifting every gate at once rather than one act at
+// a time. Nothing the assistant writes reaches the corpus these read.
+private static immutable string[3] GO_AHEAD = ["go ahead", "approved", "sure"];
+
+// How many of the last prompts a go-ahead reaches back through. The narrowest
+// of the windows already in use here, because this one opens every door.
+enum GO_AHEAD_WINDOW = 3;
+
+// Exact, ignoring case. A longer word that contains one is a different word.
+bool equalsCI(const(char)[] a, const(char)[] b) {
+    if (a.length != b.length) return false;
+    foreach (i, ca; a) {
+        char x = ca;
+        char y = b[i];
+        if (x >= 'A' && x <= 'Z') x += 32;
+        if (y >= 'A' && y <= 'Z') y += 32;
+        if (x != y) return false;
+    }
+    return true;
+}
+
+// A message that is nothing but the go-ahead. Carrying anything else makes it
+// content, and content has a scope this key does not.
+bool isGoAhead(const(char)[] msg) {
+    auto t = trimWS(msg);
+    if (t.length == 0) return false;
+    foreach (w; GO_AHEAD) if (equalsCI(t, w)) return true;
+    return false;
+}
+
+// Whether the operator went ahead inside the window. Read from the prompts
+// only: an assistant cannot put a row where this looks.
+bool operatorWentAhead(int limit) {
+    import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
+                sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
+
+    if (g_sessionId.length == 0) return false;
+
+    auto db = openDb();
+    if (db is null) return false;
+
+    __gshared ZBuf ctx;
+    ctx.reset();
+    ctx.put("session:");
+    ctx.put(g_sessionId);
+
+    enum sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND json_extract(contexts, '$[0]') = ?1 ORDER BY rowid DESC LIMIT 8\0";
+
+    sqlite3_stmt* stmt;
+    bool went = false;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
+        int seen = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && seen < limit) {
+            auto text = sqlite3_column_text(stmt, 0);
+            if (text !is null) {
+                size_t tlen = 0;
+                while (text[tlen] != 0) tlen++;
+                if (isGoAhead(text[0 .. tlen])) { went = true; break; }
+            }
+            seen++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return went;
 }
 
 // Check if Cargo.toml exists in the working directory.
@@ -418,6 +524,7 @@ CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
     }
 
     sqlite3_close(db);
+    if (!userSaid) userSaid = operatorWentAhead(GO_AHEAD_WINDOW);
     return approvalVerdict(true, userSaid, null);
 }
 
@@ -557,7 +664,8 @@ CheckResult prNotRequested(const(char)[] cwd, const(char)[] input) {
     auto command = extractCommand(src);
     if (command !is null && prOnlyObserves(command)) return passes();
 
-    return approvalVerdict(true, userRecentlySaid("pr", 8), null);
+    return approvalVerdict(true,
+        userRecentlySaid("pr", 8) || operatorWentAhead(GO_AHEAD_WINDOW), null);
 }
 
 // "i want to block automatic branch creation by you"
@@ -603,6 +711,7 @@ CheckResult branchNotRequested(const(char)[] cwd, const(char)[] input) {
     }
 
     sqlite3_close(db);
+    if (!userSaid) userSaid = operatorWentAhead(GO_AHEAD_WINDOW);
     return approvalVerdict(true, userSaid, null);
 }
 

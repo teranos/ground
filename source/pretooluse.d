@@ -106,31 +106,49 @@ void writeDenyResponse(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
-void writeResponse(const(char)[] command, const(char)[] context, const(char)[] decision,
-    bool background = false, int timeout = 0)
-{
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"`, stdout);
-    fputs2(decision);
-    fputs(`","updatedInput":{"command":"`, stdout);
-    writeJsonString(command);
-    fputs(`"`, stdout);
-    if (background)
-        fputs(`,"run_in_background":true`, stdout);
+// The Bash answer, built into a buffer the caller owns so a test can read it.
+// An empty decision is no decision, and the key is left out: the empty string
+// is not allow, deny or ask, and Claude Code discards the whole answer over it.
+const(char)[] bashResponse(char[] dest, const(char)[] command, const(char)[] context,
+                           const(char)[] decision, bool background, int timeout) {
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < dest.length) dest[n++] = c; }
+
+    put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`);
+    if (decision.length > 0) {
+        put(`,"permissionDecision":"`);
+        put(decision);
+        put(`"`);
+    }
+    put(`,"updatedInput":{"command":"`);
+    putJsonString(dest, n, command);
+    put(`"`);
+    if (background) put(`,"run_in_background":true`);
     if (timeout > 0) {
-        fputs(`,"timeout":`, stdout);
+        put(`,"timeout":`);
         char[16] tbuf = 0;
         int tlen = 0;
         int t = timeout;
-        if (t == 0) { tbuf[0] = '0'; tlen = 1; }
-        else {
-            while (t > 0 && tlen < 15) { tbuf[tlen++] = cast(char)('0' + t % 10); t /= 10; }
-            foreach (i; 0 .. tlen / 2) { auto tmp = tbuf[i]; tbuf[i] = tbuf[tlen - 1 - i]; tbuf[tlen - 1 - i] = tmp; }
+        while (t > 0 && tlen < 15) { tbuf[tlen++] = cast(char)('0' + t % 10); t /= 10; }
+        foreach (i; 0 .. tlen / 2) {
+            auto tmp = tbuf[i];
+            tbuf[i] = tbuf[tlen - 1 - i];
+            tbuf[tlen - 1 - i] = tmp;
         }
-        fwrite(&tbuf[0], 1, tlen, stdout);
+        put(tbuf[0 .. tlen]);
     }
-    fputs(`},"additionalContext":"`, stdout);
-    writeJsonString(context);
-    fputs(`"}}`, stdout);
+    put(`},"additionalContext":"`);
+    putJsonString(dest, n, context);
+    put(`"}}`);
+    return dest[0 .. n];
+}
+
+void writeResponse(const(char)[] command, const(char)[] context, const(char)[] decision,
+    bool background = false, int timeout = 0)
+{
+    __gshared char[262144] out_ = 0;
+    auto r = bashResponse(out_[], command, context, decision, background, timeout);
+    fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
 }
 
@@ -143,8 +161,12 @@ bool takesUpdatedInput(const(char)[] toolName) {
 
 // The commands a gate stands in front of. Every other Bash call would pay for
 // a corpus nothing is about to read.
-private static immutable string[6] GATED = [
+// `git add` is here for the corpus, not for a gate of its own: the binary
+// refusal asks whether the operator went ahead, and a go-ahead typed while
+// the turn ran is not in the store until the transcript is walked.
+private static immutable string[7] GATED = [
     "git commit", "git merge", "git checkout -b", "git switch -c", "gh pr", "kill",
+    "git add",
 ];
 
 // Whether this call is one whose decision depends on what the user said.
@@ -369,7 +391,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         {
             import binary : checkGitAddForBinary;
             import controls : allScopes;
+            import control_handlers : operatorWentAhead, GO_AHEAD_WINDOW;
+            // The operator's go-ahead answers here as it does at every other
+            // gate. Asked only once something binary was actually found, so a
+            // staging of text files never queries the corpus for permission.
             auto binaryFile = checkGitAddForBinary(allScopes, command, cwd);
+            if (binaryFile !is null && operatorWentAhead(GO_AHEAD_WINDOW)) binaryFile = null;
             if (binaryFile !is null) {
                 import db : openDb, attestEvent, sqlite3_close;
                 auto db = openDb();
