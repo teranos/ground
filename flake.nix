@@ -26,7 +26,7 @@
             src = ./.;
 
             nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git ];
-            buildInputs = [ pkgs.sqlite ];
+            buildInputs = [ pkgs.sqlite pkgs.curl ];
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -58,7 +58,7 @@
         let pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.mkShell {
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.dub ];
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.dub ];
           };
         }
       );

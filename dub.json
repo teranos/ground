@@ -7,7 +7,7 @@
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC", "--lowmem"],
-    "libs": ["sqlite3"],
+    "libs": ["sqlite3", "curl"],
     "extraDependencyFiles": [".ctfe/sand"],
     "preBuildCommands": ["git describe --tags --always > .version || true", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
 
