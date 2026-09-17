@@ -82,6 +82,13 @@ void main() {
                 respond(conn, 200, "text/plain", setPbt(afterHeaders(req)));
                 continue;
             }
+            // The faces the book is set in. The stylesheet is inlined into
+            // the page, and a stylesheet cannot carry a font file, so this
+            // is the one thing the editor serves off disk.
+            if (startsWith(req, "GET /fonts/")) {
+                respondFont(conn, req);
+                continue;
+            }
             respond(conn, 200, "text/html; charset=utf-8", page(gather()));
         } catch (Exception e) {
             stderr.writeln("editor: ", e.msg);
@@ -197,6 +204,37 @@ string[] unpack(string s) {
         i = j + len;
     }
     return out_;
+}
+
+// One file out of doc/fonts/, by name and nothing else.
+void respondFont(Socket conn, string req) {
+    import std.file : read;
+    auto name = fontName(req);
+    if (name.length == 0) {
+        respond(conn, 404, "text/plain", "not a font this book is set in");
+        return;
+    }
+    auto path = "doc/fonts/" ~ name;
+    if (!exists(path)) {
+        respond(conn, 404, "text/plain", "no " ~ path);
+        return;
+    }
+    respond(conn, 200, "font/otf", cast(string) read(path));
+}
+
+// The file asked for, or empty when the request names anything but a plain
+// .otf. A name that is not its own basename is reaching out of the directory,
+// and this route reads from disk.
+string fontName(string req) {
+    enum lead = "GET /fonts/";
+    size_t i = lead.length;
+    size_t start = i;
+    while (i < req.length && req[i] != ' ' && req[i] != '?' && req[i] != '\r') i++;
+    auto name = req[start .. i];
+    if (name.length < 5) return "";
+    if (name != baseName(name)) return "";
+    if (name[$ - 4 .. $] != ".otf") return "";
+    return name;
 }
 
 void respond(Socket conn, int status, string type, string body_) {

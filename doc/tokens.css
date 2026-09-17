@@ -1,5 +1,65 @@
-/* The one palette and the two faces, shared by the book's web copy and the
+/* The one palette and the three faces, shared by the book's web copy and the
    author's tool. The ink, the rule and the card are book.tex's own values. */
+
+/* The faces are the ones the book is typeset in, committed to doc/fonts/. A
+   fallback chain is resolved by the reader's machine, which is what made the
+   web copy and the paper disagree about the same page. */
+@font-face {
+  font-family: "TeX Gyre Schola";
+  src: url("../fonts/texgyreschola-regular.otf") format("opentype");
+  font-weight: normal; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Schola";
+  src: url("../fonts/texgyreschola-bold.otf") format("opentype");
+  font-weight: bold; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Schola";
+  src: url("../fonts/texgyreschola-italic.otf") format("opentype");
+  font-weight: normal; font-style: italic; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Schola";
+  src: url("../fonts/texgyreschola-bolditalic.otf") format("opentype");
+  font-weight: bold; font-style: italic; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Heros";
+  src: url("../fonts/texgyreheros-regular.otf") format("opentype");
+  font-weight: normal; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Heros";
+  src: url("../fonts/texgyreheros-bold.otf") format("opentype");
+  font-weight: bold; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Heros";
+  src: url("../fonts/texgyreheros-italic.otf") format("opentype");
+  font-weight: normal; font-style: italic; font-display: block;
+}
+@font-face {
+  font-family: "TeX Gyre Heros";
+  src: url("../fonts/texgyreheros-bolditalic.otf") format("opentype");
+  font-weight: bold; font-style: italic; font-display: block;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/IBMPlexMono-Regular.otf") format("opentype");
+  font-weight: normal; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/IBMPlexMono-Bold.otf") format("opentype");
+  font-weight: bold; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/IBMPlexMono-Italic.otf") format("opentype");
+  font-weight: normal; font-style: italic; font-display: block;
+}
+
 :root {
   --ink: #1a1a1a;
   --rule: #b4b4b4;
@@ -13,8 +73,11 @@
   --faint: #8a8a80;
   --hover: #efeee9;
   --fail: #b00020;
-  --serif: Charter, "Bitstream Charter", Cambria, Georgia, serif;
-  --mono: "Fira Code", Menlo, monospace;
+  /* Named with a last resort behind them, so a face that failed to load
+     leaves prose rather than nothing. The faces themselves are above. */
+  --serif: "TeX Gyre Schola", serif;
+  --sans: "TeX Gyre Heros", sans-serif;
+  --mono: "IBM Plex Mono", monospace;
   /* One measure for margins: the page's gutter, the gap between things
      side by side, and the stack between things one above the other. */
   --gutter: 1.5rem;

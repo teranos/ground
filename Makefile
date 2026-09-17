@@ -79,6 +79,9 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/cases_test.d
 	ldc2 -c -od=/tmp -I=tools tools/concept.d tools/concept_test.d
 	ldc2 -c -od=/tmp -I=tools -J=doc tools/bind.d tools/bind_test.d
+# -J=doc lets the book's own preamble be read at CTFE, so a face the machine
+# resolves rather than the closure fails the build instead of the tag.
+	ldc2 -c -od=/tmp -I=tools -J=doc tools/typeset.d tools/typeset_test.d
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d tools/editor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d

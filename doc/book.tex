@@ -20,8 +20,19 @@
 
 % Mapping=tex-text turns a straight " into a closing quote, which silently
 % reverses the opening mark on every line that carries the operator's words.
-\setmainfont{Charter}[Mapping=]
-\setmonofont{Fira Code}[Scale=0.80]
+% Both faces are texlive's, so the closure sets the book rather than a machine.
+\setmainfont{texgyreschola}[Mapping=, Extension=.otf, UprightFont=*-regular,
+                            BoldFont=*-bold, ItalicFont=*-italic,
+                            BoldItalicFont=*-bolditalic]
+\setmonofont{IBMPlexMono}[Extension=.otf, UprightFont=*-Regular,
+                          BoldFont=*-Bold, ItalicFont=*-Italic,
+                          Scale=MatchLowercase]
+% Heros is TeX Gyre's sans, so \sffamily is a member of the same kit rather
+% than Latin Modern, which is what an undeclared sans falls back to.
+\setsansfont{texgyreheros}[Extension=.otf, UprightFont=*-regular,
+                           BoldFont=*-bold, ItalicFont=*-italic,
+                           BoldItalicFont=*-bolditalic,
+                           Scale=MatchLowercase]
 
 \setlength{\topsep}{2pt}
 \setlength{\partopsep}{0pt}
