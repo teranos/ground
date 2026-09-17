@@ -6,7 +6,7 @@ module concept_test;
 import concept : conceptOf, isConcept, chapters, rank, opener, chapterOf, moduleName;
 
 // "most chapters arent supposed to be their own standalone chapters"
-static assert(chapters.length == 7);
+static assert(chapters.length == 8);
 
 // "i still think it should come first, if its not its own chapter it would
 // otherwise still be something you introduce before talking about controls"
@@ -17,6 +17,7 @@ static assert(chapters[3] == "permission");
 static assert(chapters[4] == "models");
 static assert(chapters[5] == "ritual");
 static assert(chapters[6] == "attestation");
+static assert(chapters[7] == "sentry");
 
 // Models is met before the rituals whose examples set one.
 static assert(isConcept("models"));
@@ -148,3 +149,17 @@ static assert(moduleName("source/ritual/position.d") == "ritual/position");
 static assert(moduleName("source/rite.d") == "rite");
 static assert(moduleName("source/proto_test.d") == "proto");
 static assert(chapterOf("ritual/position") == "ritual");
+
+// "sentry will be one of those last chapters of the book"
+static assert(isConcept("sentry"));
+
+// A sentry block standing alone at the top level is the sentry chapter's own
+// example. Inside a project or a ritual it is an example of that block instead.
+static assert(conceptOf("sentry {\n  dsn: \"https://k@o1.ingest.example/1\"\n}") == "sentry");
+static assert(conceptOf("project {\n  path: \"/x\"\n  sentry {\n    dsn: \"https://k@o1.ingest.example/1\"\n  }\n}") == "project");
+static assert(conceptOf("project {\n  ritual r {\n    sentry {\n      dsn: \"https://k@o1.ingest.example/1\"\n    }\n  }\n}") == "ritual");
+
+// The chapter opens on the module that says where a performance reports, and
+// owns the terms that module sets.
+static assert(opener("sentry") == "sentry");
+static assert(chapterOf("sentry") == "sentry");

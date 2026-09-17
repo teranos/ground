@@ -21,8 +21,10 @@ immutable Word[] words = [
     Word("project",     "project"),
     Word("scope",       "scope"),
     // Last: a models block inside a project or a ritual is that block's
-    // example, and only one standing alone is the chapter's own.
+    // example, and only one standing alone is the chapter's own. A sentry
+    // block is read the same way, and for the same reason.
     Word("models",      "models"),
+    Word("sentry",      "sentry"),
 ];
 
 // The order a reader meets them in, outermost to innermost. A scope carries
@@ -30,6 +32,7 @@ immutable Word[] words = [
 // met before the controls it governs rather than under them.
 immutable string[] chapters = [
     "scope", "control", "project", "permission", "models", "ritual", "attestation",
+    "sentry",
 ];
 
 // The order a chapter's own cases are met in. A module and its test are one
@@ -55,6 +58,8 @@ immutable Reading[] readings = [
     Reading("permission", ["permission", "sessionmode", "decide"]),
     // What a models block is, before the rituals whose examples set one.
     Reading("models", ["models"]),
+    // Where a performance reports, after the rituals it reports about.
+    Reading("sentry", ["sentry"]),
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
@@ -78,6 +83,7 @@ immutable Owner[] owners = [
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     Owner("models",      ["models"]),
+    Owner("sentry",      ["sentry"]),
     // A test module beside source/ritual/ is that module's, so it is named
     // as the file is named: delivery is ritual/delivery's cases.
     Owner("ritual",      ["ritual/resolve", "rite", "ritual/position", "ritual/run",
