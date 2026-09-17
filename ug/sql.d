@@ -162,6 +162,56 @@ Reading readPerformances(const(char)[] home, const(char)[] sessionId, Row[] rows
     return Reading(how, step, count);
 }
 
+// An org's Actions minutes as ground last wrote them down. Only rows github
+// has answered for: asked and not yet answered is not zero minutes.
+enum ORG_MINUTES_SQL = "SELECT org, used, quota FROM org_minutes WHERE used >= 0 ORDER BY org";
+
+enum MAX_ORGS = 8;
+
+struct OrgMinutes {
+    char[64] orgBuf;
+    size_t orgLen;
+    long used;
+    long quota;
+    const(char)[] org() const return { return orgBuf[0 .. orgLen]; }
+}
+
+// How many rows were read. A store that is not there, will not open, or has no
+// such table yet reads as none, which draws nothing: the bar says what it knows.
+size_t readOrgMinutes(const(char)[] home, OrgMinutes[] rows) {
+    import core.stdc.stdio : fopen, fclose;
+
+    __gshared char[512] path = void;
+    if (dbPathInto(home, path[]) == 0) return 0;
+    auto probe = fopen(&path[0], "rb");
+    if (probe is null) return 0;
+    fclose(probe);
+
+    sqlite3* db;
+    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return 0;
+    }
+    sqlite3_busy_timeout(db, BUSY_MS);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, ORG_MINUTES_SQL.ptr, cast(int) ORG_MINUTES_SQL.length, &stmt, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return 0;
+    }
+
+    size_t count = 0;
+    while (count < rows.length && sqlite3_step(stmt) == SQLITE_ROW) {
+        copyInto(sqlite3_column_text(stmt, 0), rows[count].orgBuf[], rows[count].orgLen);
+        rows[count].used = sqlite3_column_int64(stmt, 1);
+        rows[count].quota = sqlite3_column_int64(stmt, 2);
+        count++;
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return count;
+}
+
 enum STORE = ".local/share/ground/ground.db";
 
 size_t dbPathInto(const(char)[] home, char[] dest) {

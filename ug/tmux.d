@@ -13,7 +13,50 @@ enum RED   = "#[fg=colour160]";
 enum DIM   = "#[fg=colour244]";
 enum PLAIN = "#[default]";
 
+enum YELLOW = "#[fg=colour178]";
+enum ORANGE = "#[fg=colour208]";
+
 enum SEP = "  ";
+
+// "between 50 and 52" — and 60 to 62, 70 to 75, and 80 and over. An org's
+// Actions minutes are drawn inside those and nowhere else, hotter as they go.
+// A whole percent is the unit: 52.9 is still between 50 and 52.
+const(char)[] bandColour(long used, long quota) {
+    if (used < 0 || quota <= 0) return null;
+    auto pct = used * 100 / quota;
+    if (pct >= 80) return RED;
+    if (pct >= 70 && pct <= 75) return ORANGE;
+    if (pct >= 60 && pct <= 62) return YELLOW;
+    if (pct >= 50 && pct <= 52) return DIM;
+    return null;
+}
+
+// `<org> actions 51% 1020/2000`, or nothing when the reading is in no band.
+size_t minutesInto(const(char)[] org, long used, long quota, char[] dest) {
+    auto colour = bandColour(used, quota);
+    if (colour is null) return 0;
+
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    void num(long v) {
+        char[24] d = void;
+        size_t dl = 0;
+        if (v <= 0) d[dl++] = '0';
+        else while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. dl) if (o < dest.length) dest[o++] = d[i];
+    }
+
+    put(colour);
+    put(org);
+    put(" actions ");
+    num(used * 100 / quota);
+    put("% ");
+    num(used);
+    put("/");
+    num(quota);
+    put(PLAIN);
+    return o;
+}
 
 const(char)[] glyphColour(const(char)[] glyph) {
     if (glyph == "+") return GREEN;
@@ -136,6 +179,21 @@ int tmuxMain(const(char)[] home, long now) {
                     : oneLineInto(seen.body_, line[]);
             else
                 n = sinceInto(silence, line[]);
+        }
+    }
+
+    // The orgs' Actions minutes, from the table ground keeps. No network call:
+    // ground asks github, and this reads what it wrote down.
+    {
+        import sql : OrgMinutes, readOrgMinutes, MAX_ORGS;
+        OrgMinutes[MAX_ORGS] orgs;
+        auto count = readOrgMinutes(home, orgs[]);
+        foreach (i; 0 .. count) {
+            __gshared char[160] seg = void;
+            auto sn = minutesInto(orgs[i].org(), orgs[i].used, orgs[i].quota, seg[]);
+            if (sn == 0) continue;
+            if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
+            foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
         }
     }
 

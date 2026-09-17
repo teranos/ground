@@ -331,6 +331,14 @@ bool applySchema(sqlite3* db) {
     enum idxUsage = "CREATE INDEX IF NOT EXISTS idx_usage_window_seen ON usage(window, seen_at)\0";
     sqlite3_exec(db, idxUsage.ptr, null, null, null);
 
+    // The Actions minutes an org has used this month, one row an org. `used`
+    // is -1 until github has answered once, which is not zero minutes. ug
+    // reads this on every redraw, so it is a table and not an attestation.
+    enum orgMinutesSchema = "CREATE TABLE IF NOT EXISTS org_minutes (org TEXT PRIMARY KEY, "
+        ~ "used INTEGER NOT NULL DEFAULT -1, quota INTEGER NOT NULL DEFAULT 0, "
+        ~ "seen_at INTEGER NOT NULL DEFAULT 0, asked_at INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, orgMinutesSchema.ptr, null, null, null);
+
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";

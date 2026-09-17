@@ -175,6 +175,15 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     auto t2 = usecNow();
 
+    // The orgs' Actions minutes, asked for when the last asking is old. A turn
+    // ending is the most regular thing a working session does, and the asking
+    // itself happens in a child.
+    {
+        import minutes : refreshDue;
+        import core.stdc.time : time;
+        refreshDue(db, sessionId, cast(long) time(null));
+    }
+
     long branchUs;
     const(char)[] branch;
     {

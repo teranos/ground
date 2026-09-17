@@ -84,3 +84,42 @@ static assert(oneLineInto("abc\ndef", new char[64]) == 3);
 static assert(oneLine!"abc\ndef"()[0 .. 3] == "abc");
 static assert(oneLineInto("abc", new char[64]) == 3);
 static assert(oneLineInto("", new char[64]) == 0);
+
+// An org's Actions minutes are on the bar only inside the bands asked for:
+// 50 to 52, 60 to 62, 70 to 75, and 80 and over. Anywhere else the number is
+// not worth the room, so it is not drawn.
+import tmux : bandColour, minutesInto, YELLOW, ORANGE;
+
+static assert(bandColour(999, 2000) is null, "49% is not yet a band");
+static assert(bandColour(1000, 2000) == DIM, "50%");
+static assert(bandColour(1059, 2000) == DIM, "52.9% is still between 50 and 52");
+static assert(bandColour(1060, 2000) is null, "53% has left it");
+static assert(bandColour(1199, 2000) is null);
+static assert(bandColour(1200, 2000) == YELLOW, "60%");
+static assert(bandColour(1259, 2000) == YELLOW);
+static assert(bandColour(1260, 2000) is null);
+static assert(bandColour(1400, 2000) == ORANGE, "70%");
+static assert(bandColour(1519, 2000) == ORANGE, "75.9%");
+static assert(bandColour(1520, 2000) is null, "76 to 79 is between bands");
+static assert(bandColour(1600, 2000) == RED, "80%");
+static assert(bandColour(2007, 2000) == RED, "past the quota is still 80 and over");
+
+// No reading and no quota are not zero percent.
+static assert(bandColour(-1, 2000) is null, "asked and not yet answered");
+static assert(bandColour(500, 0) is null, "an org that states no quota has nothing to be a percentage of");
+
+char[128] minutes(const(char)[] org, long used, long quota)() {
+    char[128] buf = '.';
+    minutesInto(org, used, quota, buf[]);
+    return buf;
+}
+
+// The org, the percentage, and the two numbers it came from.
+enum half = DIM ~ "abcd-nl actions 51% 1020/2000" ~ PLAIN;
+static assert(minutes!("abcd-nl", 1020, 2000)()[0 .. half.length] == half);
+
+enum over = RED ~ "abcd-nl actions 100% 2007/2000" ~ PLAIN;
+static assert(minutes!("abcd-nl", 2007, 2000)()[0 .. over.length] == over);
+
+// Outside a band nothing is written at all.
+static assert(minutesInto("abcd-nl", 900, 2000, new char[128]) == 0);
