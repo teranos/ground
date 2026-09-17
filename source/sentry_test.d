@@ -371,6 +371,67 @@ static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "done").te
 static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "halted").text(), `"level":"error"`));
 static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "aborted").text(), `"level":"warn"`));
 
+// "what also sucks is missing sentry data about this"
+// An ending says what became of the agent. One left running is the failure a
+// person otherwise meets as a machine out of memory, so it is an error even
+// when the ritual itself is done.
+enum endedClean = performanceEnvelope(sendDsn, 1000, "c-1", "c", "done", "stopped");
+static assert(contains(endedClean.text(), `"body":"c done"`));
+static assert(contains(endedClean.text(), `"level":"info"`));
+static assert(contains(endedClean.text(), `"agent":{"value":"stopped","type":"string"}`));
+
+enum leaked = performanceEnvelope(sendDsn, 1000, "c-1", "c", "done", "unbound");
+static assert(contains(leaked.text(), `"body":"c done, agent unbound"`));
+static assert(contains(leaked.text(), `"level":"error"`));
+static assert(contains(leaked.text(), `"agent":{"value":"unbound","type":"string"}`));
+
+enum refusedStop = performanceEnvelope(sendDsn, 1000, "c-1", "c", "halted", "failed");
+static assert(contains(refusedStop.text(), `"body":"c halted, agent failed"`));
+static assert(contains(refusedStop.text(), `"level":"error"`));
+
+// A start has no agent to have stopped, and says nothing about one.
+static assert(!contains(began.text(), `"agent":`));
+
+// "You know how something a msg appears about ground performance hook budgets?"
+// "it should send to sentry"
+// The notice a session reads once per window, kept where it can be counted:
+// which event, against which budget, over how many runs, on which build, and
+// where the time went. A session id threads a session's notices together.
+import sentry : budgetEnvelope;
+import phases : PhaseMeans;
+
+enum overBudget = () {
+    PhaseMeans means;
+    means.add("stdin=100us attest=44400us handler=6200us total=50700us exit=none");
+    means.add("stdin=100us attest=44400us handler=6200us total=50700us exit=none");
+    return budgetEnvelope(sendDsn, 1000, "sess-1", "UserPromptSubmit", 50, 50,
+                          "v0.19.1-309-gb39da59\n", "teranos/ground", means);
+}();
+static assert(contains(overBudget.text(), `"level":"warn"`));
+static assert(contains(overBudget.text(),
+    `"body":"UserPromptSubmit averages 50ms against a budget of 50ms"`));
+static assert(contains(overBudget.text(), `"trace_id":"` ~ traceId("sess-1").text() ~ `"`));
+static assert(contains(overBudget.text(), `"event":{"value":"UserPromptSubmit","type":"string"}`));
+static assert(contains(overBudget.text(), `"project":{"value":"teranos/ground","type":"string"}`));
+static assert(contains(overBudget.text(), `"version":{"value":"v0.19.1-309-gb39da59","type":"string"}`),
+              "the newline the version file ends with is not part of the version");
+static assert(contains(overBudget.text(), `"avg_ms":{"value":50,"type":"integer"}`));
+static assert(contains(overBudget.text(), `"budget_ms":{"value":50,"type":"integer"}`));
+static assert(contains(overBudget.text(), `"runs":{"value":2,"type":"integer"}`));
+static assert(contains(overBudget.text(), `"phase_us.attest":{"value":44400,"type":"integer"}`));
+static assert(contains(overBudget.text(), `"phase_us.handler":{"value":6200,"type":"integer"}`));
+static assert(contains(overBudget.text(), `"phase_us.stdin":{"value":100,"type":"integer"}`));
+
+// A notice is not a ritual's, so no ritual says where it goes. The project the
+// session stands in does, and the top level answers where no project does.
+import ritual : dsnAt;
+static assert(dsnAt(parsed, "/home/u/src/grove") == "https://proj@o1.ingest.example/2");
+static assert(dsnAt(parsed, "/home/u/src/grove/deep/inside") == "https://proj@o1.ingest.example/2");
+static assert(dsnAt(parsed, "/home/u/src/grove-other") == "https://top@o1.ingest.example/1",
+              "a sibling directory is not the project");
+static assert(dsnAt(parsed, "/somewhere/else") == "https://top@o1.ingest.example/1");
+static assert(dsnAt(bare, "/p") == "");
+
 // A dsn that is not one builds nothing, so nothing is posted anywhere.
 static assert(riteEnvelope("not a dsn", 1000, said("R", Verdict.Advance, 0)).text().length == 0);
 static assert(performanceEnvelope("", 1000, "c-1", "c", "done").text().length == 0);

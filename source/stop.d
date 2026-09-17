@@ -543,6 +543,20 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         regressionLine(timingMsg, b.event, avgMs, budgetMs, VERSION, means);
                         attestEvent(db, "GroundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
                         sqlite3_close(db);
+
+                        // "it should send to sentry" — the same numbers, where
+                        // they can be counted across sessions and builds. From
+                        // a child: this hook is the one being told it is slow.
+                        {
+                            import sentry : budgetEnvelope, reportDetached;
+                            import controls : dsnHere;
+                            import core.stdc.time : time;
+                            auto dsn = dsnHere(cwd);
+                            reportDetached(dsn,
+                                budgetEnvelope(dsn, cast(long) time(null), sessionId, b.event,
+                                               avgMs, budgetMs, VERSION, project, means),
+                                sessionId, "timing-regression");
+                        }
                         writeStopResponseAndNotify(timingMsg.slice());
                         return 0;
                     }

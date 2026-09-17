@@ -42,10 +42,11 @@ Dsn parseDsn(const(char)[] dsn) {
     return Dsn(true, rest[0 .. at], after[0 .. slash], project);
 }
 
-// Sized for one log with five short attributes. A name long enough to overrun
-// it is cut, and `over` says so, so a cut envelope is never posted as whole.
+// Sized for one log and the widest set of attributes ground sends, a budget
+// notice with every phase. A name long enough to overrun it is cut, and `over`
+// says so, so a cut envelope is never posted as whole.
 struct Envelope {
-    char[2048] buf = 0;
+    char[4096] buf = 0;
     size_t len;
     bool over;
     const(char)[] text() const return { return over ? null : buf[0 .. len]; }
@@ -109,6 +110,77 @@ TraceId traceId(const(char)[] performanceId) {
         foreach (i; 0 .. 16)
             t.buf[hi * 16 + i] = HEX[cast(size_t) ((h >> ((15 - i) * 4)) & 0xF)];
     return t;
+}
+
+// A hook over its budget, as the session is told it once per window. The
+// session id threads a session's notices, since no performance is involved.
+Envelope budgetEnvelope(PM)(const(char)[] dsn, long unixSeconds, const(char)[] sessionId,
+                            const(char)[] event, long avgMs, long budgetMs,
+                            const(char)[] version_, const(char)[] project,
+                            ref PM means) {
+    Envelope e;
+    if (!openLog(e, dsn, unixSeconds, sessionId, "warn")) return Envelope.init;
+
+    // The version file ends in a newline, and that is not part of the version.
+    auto ver = version_;
+    while (ver.length > 0 && (ver[$ - 1] == '\n' || ver[$ - 1] == '\r')) ver = ver[0 .. $ - 1];
+
+    e.putEscaped(event);
+    e.put(" averages ");
+    e.putLong(avgMs);
+    e.put("ms against a budget of ");
+    e.putLong(budgetMs);
+    e.put(`ms","attributes":{`);
+    e.putAttr("event", event);
+    e.putAttr("project", project);
+    e.putAttr("version", ver);
+    e.putNum("avg_ms", avgMs);
+    e.putNum("budget_ms", budgetMs);
+    foreach (i; 0 .. means.n) {
+        e.put(`"phase_us.`);
+        e.putEscaped(means.keys[i][0 .. means.keyLen[i]]);
+        e.put(`":{"value":`);
+        e.putLong(means.counts[i] > 0 ? means.sums[i] / means.counts[i] : 0);
+        e.put(`,"type":"integer"},`);
+    }
+    e.put(`"runs":{"value":`);
+    e.putLong(cast(long) means.rows);
+    e.put(`,"type":"integer"}}}]}` ~ "\n");
+    return e;
+}
+
+extern (C) {
+    private int fork();
+    private int setsid();
+    private void _exit(int status);
+}
+
+// Posted from a child that has let go of the hook's pipes. A hook is read by
+// Claude Code until its stdout closes, and a post is a network round trip: said
+// inline, the notice about a slow hook would be the slowest thing in it.
+void reportDetached(const(char)[] dsn, const Envelope e, const(char)[] owedSession,
+                    const(char)[] what) {
+    if (dsn.length == 0) return;
+
+    auto pid = fork();
+    if (pid != 0) {
+        if (pid < 0) {
+            import exec : emitError;
+            emitError("sentry.fork", "could not fork to post, so nothing was sent",
+                      0, -1, cast(string) owedSession, cast(string) what, "", "", "");
+        }
+        return;
+    }
+
+    setsid();
+    {
+        import core.stdc.stdio : freopen, stdin, stdout, stderr;
+        freopen("/dev/null\0".ptr, "r\0".ptr, stdin);
+        freopen("/dev/null\0".ptr, "w\0".ptr, stdout);
+        freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
+    }
+    report(dsn, e, owedSession, what);
+    _exit(0);
 }
 
 // One envelope, posted. The status sentry answered with, or 0 when curl gave
@@ -267,18 +339,28 @@ Envelope riteEnvelope(const(char)[] dsn, long unixSeconds, const RiteReport r) {
 }
 
 // The start of a performance and its ending, in the ending's own word.
+// `agent` is what became of the agent at an ending: stopped, failed or unbound,
+// and empty at a start, where there is none to have stopped. One left running
+// outranks how the ritual ended, because it is the one that costs the machine.
 Envelope performanceEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] performance,
-                             const(char)[] ritual, const(char)[] state) {
+                             const(char)[] ritual, const(char)[] state,
+                             const(char)[] agent = "") {
     Envelope e;
-    auto level = state == "halted" ? "error" : state == "aborted" ? "warn" : "info";
+    bool leaked = agent.length > 0 && agent != "stopped";
+    auto level = (leaked || state == "halted") ? "error" : state == "aborted" ? "warn" : "info";
     if (!openLog(e, dsn, unixSeconds, performance, level)) return Envelope.init;
 
     e.putEscaped(ritual);
     e.put(" ");
     e.putEscaped(state);
+    if (leaked) {
+        e.put(", agent ");
+        e.putEscaped(agent);
+    }
     e.put(`","attributes":{`);
     e.putAttr("performance", performance);
     e.putAttr("ritual", ritual);
+    if (agent.length > 0) e.putAttr("agent", agent);
     e.putAttr("state", state, true);
     e.put(`}}]}` ~ "\n");
     return e;

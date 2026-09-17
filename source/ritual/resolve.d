@@ -179,6 +179,24 @@ const(char)[] resolveSentry(const ParsedSentry[3] layers) {
     return "";
 }
 
+// Where something that is no ritual's reports from a place: the project that
+// place stands in, the deepest one when several do, and the top level where
+// none does. A sibling directory is not the project, so the match ends where a
+// directory name ends.
+const(char)[] dsnAt(PR)(auto ref const PR r, const(char)[] cwd) {
+    import hooks : pathMatch;
+    size_t best = 0;
+    const(char)[] dsn = "";
+    foreach (i; 0 .. r.projectCount) {
+        auto p = r.projects[i].path;
+        if (r.projects[i].sentry.dsn.length == 0) continue;
+        if (p.length <= best || !pathMatch(cwd, p)) continue;
+        best = p.length;
+        dsn = r.projects[i].sentry.dsn;
+    }
+    return dsn.length > 0 ? dsn : r.sentry.dsn;
+}
+
 Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
     Flattened f;
     if (ritualIdx >= r.ritualCount) return f;

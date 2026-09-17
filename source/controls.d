@@ -114,6 +114,31 @@ static assert(_unbacked.length == 0,
 private static immutable _postings = postings(allParsed);
 static immutable postingList = _postings.items[0 .. _postings.len];
 
+// Where a place reports. Only the paths and the dsns are kept: a second static
+// copy of the whole parse costs the binary the parse again, for two strings.
+import proto : ParsedSentry;
+private struct SentryView(size_t N) {
+    struct Place { string path; ParsedSentry sentry; }
+    Place[N] projects;
+    size_t projectCount;
+    ParsedSentry sentry;
+}
+private static immutable _sentryView = () {
+    SentryView!(allParsed.projects.length) v;
+    foreach (i; 0 .. allParsed.projectCount) {
+        v.projects[i].path = allParsed.projects[i].path;
+        v.projects[i].sentry = allParsed.projects[i].sentry;
+    }
+    v.projectCount = allParsed.projectCount;
+    v.sentry = allParsed.sentry;
+    return v;
+}();
+
+const(char)[] dsnHere(const(char)[] cwd) {
+    import ritual.resolve : dsnAt;
+    return dsnAt(_sentryView, cwd);
+}
+
 // Global strop pool. Control.stropIdx is a 1-based index into this array.
 // Only strop-using controls consume a slot — non-strop controls carry just
 // an 8-byte size_t on Control instead of an embedded Strop.
