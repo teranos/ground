@@ -64,7 +64,7 @@ PbtCounts countPbt(string input) {
             skipWS(input, pos);
             expect(input, pos, '{');
             skipBlock(input, pos);
-        } else if (wm.base == "rites") {
+        } else if (wm.base == "rites" || wm.base == "org") {
             // Named block. Rites are sized by their own fixed arrays, so
             // nothing is counted — but it must be consumed, or the next
             // readWord lands on a brace.

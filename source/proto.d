@@ -118,6 +118,20 @@ struct ParsedProject {
     ParsedModels models;
     // Where every ritual in this project reports, unless the ritual says nearer.
     ParsedSentry sentry;
+    // The org this project belongs to, by name. Empty is none.
+    string org;
+}
+
+// What several projects have in common and none of them owns: the GitHub
+// organisation their CI minutes count against, and where they report.
+struct ParsedOrg {
+    string name;
+    string github;
+    // The Actions minutes a month includes. GitHub says how many were used and
+    // never how many were included, so the quota is the operator's to state.
+    // Zero is none stated, and nothing is measured against it.
+    long actionsMinutes;
+    ParsedSentry sentry;
 }
 
 // One path of a project's spec: the word a reply is matched on, and the text
@@ -275,6 +289,25 @@ struct ParseResult {
     ParsedModels models;
     // The top-level sentry block, the farthest layer.
     ParsedSentry sentry;
+    ParsedOrg[8] orgs;
+    size_t orgCount;
+}
+
+// A project that names an org names one that exists, and a name is one org.
+Wrong validateOrgs(PR)(const PR r) {
+    foreach (i; 0 .. r.orgCount)
+        foreach (j; i + 1 .. r.orgCount)
+            if (r.orgs[i].name == r.orgs[j].name)
+                return wrong("org ", r.orgs[i].name, " is declared twice");
+
+    foreach (i; 0 .. r.projectCount) {
+        auto named = r.projects[i].org;
+        if (named.length == 0) continue;
+        bool found = false;
+        foreach (k; 0 .. r.orgCount) if (r.orgs[k].name == named) found = true;
+        if (!found) return wrong("project ", r.projects[i].path, ": no org named ", named);
+    }
+    return Wrong.init;
 }
 
 // What is wrong with a ritual, in a buffer rather than a concatenation. `~`
@@ -823,6 +856,15 @@ ParseResult parsePbt(string input) {
             assert(!result.sentry.present,
                    "a second top-level sentry block would replace the first one");
             result.sentry = parseSentry(input, pos);
+        } else if (wm.base == "org") {
+            skipWS(input, pos);
+            assert(isNameStart(input, pos), "an org is named: org <NAME> { }");
+            auto orgName = readWord(input, pos);
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(result.orgCount < result.orgs.length, "Org overflow");
+            result.orgs[result.orgCount] = parseOrg(input, pos, orgName);
+            result.orgCount++;
         } else if (wm.base == "include") {
             // A directive to wind, not a declaration. By the time ground parses
             // sand the directory has already been folded in, so all that is
@@ -830,7 +872,7 @@ ParseResult parsePbt(string input) {
             skipWS(input, pos);
             cast(void) readValue(input, pos);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', 'models', 'sentry', or 'include'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', 'models', 'sentry', 'org', or 'include'");
         }
     }
     return result;
@@ -1009,6 +1051,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
     size_t projectMaxGoto;
     ParsedModels projectModels;
     ParsedSentry projectSentry;
+    string projectOrg;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
     string[1024] files;
@@ -1033,6 +1076,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             result.projects[result.projectCount].qntx = projectQntx;
             result.projects[result.projectCount].models = projectModels;
             result.projects[result.projectCount].sentry = projectSentry;
+            result.projects[result.projectCount].org = projectOrg;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
@@ -1136,6 +1180,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
                 case "origin": projectOrigin = val; break;
                 case "openapi": projectOpenapi = val; break;
                 case "qntx": projectQntx = val; break;
+                case "org": projectOrg = val; break;
                 case "max_goto": projectMaxGoto = cast(size_t) parseInt(val); break;
                 case "files":
                     if (val is null) {
@@ -1267,6 +1312,40 @@ ParsedModels parseModels(ref string input, ref size_t pos) {
         }
     }
     assert(0, "Unterminated models block");
+}
+
+// An org's fields, and the one block it may hold. An unknown key is refused
+// rather than skipped: a misspelled quota would measure against nothing.
+ParsedOrg parseOrg(ref string input, ref size_t pos, string name) {
+    ParsedOrg o;
+    o.name = name;
+
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return o; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+
+        if (key == "sentry") {
+            expect(input, pos, '{');
+            assert(!o.sentry.present,
+                   "a second sentry block in an org would replace the first one");
+            o.sentry = parseSentry(input, pos);
+            continue;
+        }
+
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+
+        if (key == "github") o.github = val;
+        else if (key == "actions_minutes") o.actionsMinutes = parseInt(val);
+        else assert(0, "Unknown org field");
+    }
+    assert(0, "Unterminated org block");
 }
 
 // A dsn:, and nothing else. An unknown key is refused rather than skipped: a

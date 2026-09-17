@@ -189,12 +189,24 @@ const(char)[] dsnAt(PR)(auto ref const PR r, const(char)[] cwd) {
     const(char)[] dsn = "";
     foreach (i; 0 .. r.projectCount) {
         auto p = r.projects[i].path;
-        if (r.projects[i].sentry.dsn.length == 0) continue;
+        auto here = r.projects[i].sentry.dsn.length > 0
+            ? r.projects[i].sentry.dsn
+            : orgSentry(r, r.projects[i].org).dsn;
+        if (here.length == 0) continue;
         if (p.length <= best || !pathMatch(cwd, p)) continue;
         best = p.length;
-        dsn = r.projects[i].sentry.dsn;
+        dsn = here;
     }
     return dsn.length > 0 ? dsn : r.sentry.dsn;
+}
+
+// What a project's org says about where to report. Nothing, for a project that
+// names no org or an org that says nothing.
+ParsedSentry orgSentry(PR)(auto ref const PR r, const(char)[] orgName) {
+    if (orgName.length == 0) return ParsedSentry.init;
+    foreach (i; 0 .. r.orgCount)
+        if (r.orgs[i].name == orgName) return r.orgs[i].sentry;
+    return ParsedSentry.init;
 }
 
 Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
@@ -217,6 +229,10 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
         if (r.projects[pi].maxGoto > 0) f.maxGoto = r.projects[pi].maxGoto;
         f.models[1] = r.projects[pi].models;
         f.sentry[1] = r.projects[pi].sentry;
+        // The project's org is the outer layer, and the top level stands in
+        // only where the org says nothing.
+        auto fromOrg = orgSentry(r, r.projects[pi].org);
+        if (fromOrg.dsn.length > 0) f.sentry[2] = fromOrg;
         break;
     }
 

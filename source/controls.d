@@ -116,21 +116,33 @@ static immutable postingList = _postings.items[0 .. _postings.len];
 
 // Where a place reports. Only the paths and the dsns are kept: a second static
 // copy of the whole parse costs the binary the parse again, for two strings.
-import proto : ParsedSentry;
+import proto : ParsedSentry, ParsedOrg, validateOrgs;
+
+// A project names an org that exists, or the build says which one does not.
+private enum _orgCheck = validateOrgs(allParsed).text();
+static assert(_orgCheck.length == 0, _orgCheck);
+
+static immutable allOrgs = allParsed.orgs[0 .. allParsed.orgCount];
+
 private struct SentryView(size_t N) {
-    struct Place { string path; ParsedSentry sentry; }
+    struct Place { string path; ParsedSentry sentry; string org; }
     Place[N] projects;
     size_t projectCount;
     ParsedSentry sentry;
+    ParsedOrg[allParsed.orgs.length] orgs;
+    size_t orgCount;
 }
 private static immutable _sentryView = () {
     SentryView!(allParsed.projects.length) v;
     foreach (i; 0 .. allParsed.projectCount) {
         v.projects[i].path = allParsed.projects[i].path;
         v.projects[i].sentry = allParsed.projects[i].sentry;
+        v.projects[i].org = allParsed.projects[i].org;
     }
     v.projectCount = allParsed.projectCount;
     v.sentry = allParsed.sentry;
+    v.orgs = allParsed.orgs;
+    v.orgCount = allParsed.orgCount;
     return v;
 }();
 
