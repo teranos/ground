@@ -116,6 +116,8 @@ struct ParsedProject {
     string qntx;
     // The models every ritual in this project sets, between its own and the top level's.
     ParsedModels models;
+    // Where every ritual in this project reports, unless the ritual says nearer.
+    ParsedSentry sentry;
 }
 
 // One path of a project's spec: the word a reply is matched on, and the text
@@ -219,6 +221,13 @@ struct ParsedModels {
     size_t ruleCount;
 }
 
+// The one place a dsn is set, at the top level, in a project or in a ritual.
+// A performance reports to the nearest one, and no host is invented for it.
+struct ParsedSentry {
+    bool present;
+    string dsn;
+}
+
 // A ritual is the only thing that can be invoked, and it lives inside the
 // project whose env its rites read.
 struct ParsedRitual {
@@ -231,6 +240,8 @@ struct ParsedRitual {
     string system;
     // The models this ritual sets, the nearest of the three layers.
     ParsedModels models;
+    // Where this ritual reports, the nearest of the three layers.
+    ParsedSentry sentry;
     // What kind of worktree it performs in. "empty" is an orphan onto the
     // empty tree, for a ritual with nothing to inspect.
     string tree;
@@ -262,6 +273,8 @@ struct ParseResult {
     size_t stropPoolLen;
     // The top-level models block, the farthest layer.
     ParsedModels models;
+    // The top-level sentry block, the farthest layer.
+    ParsedSentry sentry;
 }
 
 // What is wrong with a ritual, in a buffer rather than a concatenation. `~`
@@ -804,6 +817,12 @@ ParseResult parsePbt(string input) {
             assert(!result.models.present,
                    "a second top-level models block would replace the first one");
             result.models = parseModels(input, pos);
+        } else if (wm.base == "sentry") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(!result.sentry.present,
+                   "a second top-level sentry block would replace the first one");
+            result.sentry = parseSentry(input, pos);
         } else if (wm.base == "include") {
             // A directive to wind, not a declaration. By the time ground parses
             // sand the directory has already been folded in, so all that is
@@ -811,7 +830,7 @@ ParseResult parsePbt(string input) {
             skipWS(input, pos);
             cast(void) readValue(input, pos);
         } else {
-            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', 'models', or 'include'");
+            assert(0, "Expected 'scope', 'permission', 'control', 'project', 'attestation', 'rites', 'models', 'sentry', or 'include'");
         }
     }
     return result;
@@ -989,6 +1008,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
     string projectQntx;
     size_t projectMaxGoto;
     ParsedModels projectModels;
+    ParsedSentry projectSentry;
     size_t fileIdx;
     // Temporary file storage — copied to project on close
     string[1024] files;
@@ -1012,6 +1032,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             result.projects[result.projectCount].openapi = projectOpenapi;
             result.projects[result.projectCount].qntx = projectQntx;
             result.projects[result.projectCount].models = projectModels;
+            result.projects[result.projectCount].sentry = projectSentry;
             result.projects[result.projectCount].files = files;
             result.projects[result.projectCount].fileCount = fCount;
             result.projectCount++;
@@ -1084,6 +1105,12 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             assert(!projectModels.present,
                    "a second models block in a project would replace the first one");
             projectModels = parseModels(input, pos);
+        } else if (wm.base == "sentry") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(!projectSentry.present,
+                   "a second sentry block in a project would replace the first one");
+            projectSentry = parseSentry(input, pos);
         } else if (wm.base == "permission") {
             // Permission directly in project — wrap in scope with path "/"
             skipWS(input, pos);
@@ -1240,6 +1267,31 @@ ParsedModels parseModels(ref string input, ref size_t pos) {
         }
     }
     assert(0, "Unterminated models block");
+}
+
+// A dsn:, and nothing else. An unknown key is refused rather than skipped: a
+// misspelled one would leave a performance reporting nowhere and saying so
+// nowhere either.
+ParsedSentry parseSentry(ref string input, ref size_t pos) {
+    ParsedSentry s;
+    s.present = true;
+
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return s; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+
+        if (key == "dsn") s.dsn = val;
+        else assert(0, "Unknown sentry field");
+    }
+    assert(0, "Unterminated sentry block");
 }
 
 void parseHandlerParamsBlock(ref string input, ref size_t pos,
@@ -1652,6 +1704,15 @@ ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string p
             assert(!r.models.present,
                    "a second models block in a ritual would replace the first one");
             r.models = parseModels(input, pos);
+            continue;
+        }
+
+        if (refName == "sentry") {
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            assert(!r.sentry.present,
+                   "a second sentry block in a ritual would replace the first one");
+            r.sentry = parseSentry(input, pos);
             continue;
         }
 

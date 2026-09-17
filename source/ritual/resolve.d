@@ -4,7 +4,7 @@ module ritual.resolve;
 // BOOK_GLOSSARY **Rites block**: A named group of rites, with the params it takes, that does not finish while a dispatch it made is outstanding.
 
 import receiver : Receiver;
-import proto : ParsedModels;
+import proto : ParsedModels, ParsedSentry;
 
 // Which ritual a word or two words name. "ground should refuse if it cant
 // resolve to a single one cleanly".
@@ -165,9 +165,18 @@ struct Flattened {
     string system;
     // Ritual, project, top level: the nearest first.
     ParsedModels[3] models;
+    // The same three layers, for where a performance reports.
+    ParsedSentry[3] sentry;
     // Per performance, a full run of a ritual. The project says how long its
     // loops may go; MAX_GOTOS is what a project that says nothing gets.
     size_t maxGoto;
+}
+
+// The nearest dsn is the one used. A layer that sets none does not blank the
+// layer outside it, and nothing set anywhere is nowhere to report.
+const(char)[] resolveSentry(const ParsedSentry[3] layers) {
+    foreach (l; layers) if (l.dsn.length > 0) return l.dsn;
+    return "";
 }
 
 Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
@@ -177,6 +186,8 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
     f.system = rit.system;
     f.models[0] = rit.models;
     f.models[2] = r.models;
+    f.sentry[0] = rit.sentry;
+    f.sentry[2] = r.sentry;
 
     // Matched on name as well as path: four blocks share `/sbvh-nl/grove`, and
     // by path alone the first one's number would govern all of them.
@@ -187,6 +198,7 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
         if (r.projects[pi].name != rit.projectName) continue;
         if (r.projects[pi].maxGoto > 0) f.maxGoto = r.projects[pi].maxGoto;
         f.models[1] = r.projects[pi].models;
+        f.sentry[1] = r.projects[pi].sentry;
         break;
     }
 
