@@ -93,6 +93,24 @@ unittest {
 
     // A window nothing recorded says so.
     assert(!currentReading(db, "five_hour").found);
+
+    // "i wish we also knew about fable usage better"
+    // ug asks for the Fable window and claims the row before the answer is in.
+    // A row still waiting on its ask holds -1 and no reset, and is no reading:
+    // the newest answered row is the current one, whatever was asked after it.
+    enum asked = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, ask_exit) VALUES "
+        ~ "('fable_week', '76', 1789592400, 1789574500, 'live', 0), "
+        ~ "('fable_week', '-1', 0, 1789575000, 'live', -2)\0";
+    assert(sqlite3_exec(db, asked.ptr, null, null, null) == SQLITE_OK);
+    auto f = currentReading(db, "fable_week");
+    assert(f.found);
+    assert(f.tenths == 760, "the answered reading, not the pending ask");
+    assert(f.resetsAt == 1789592400);
+
+    enum onlyAsked = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, ask_exit) VALUES "
+        ~ "('five_hour', '-1', 0, 1789575000, 'live', -2)\0";
+    assert(sqlite3_exec(db, onlyAsked.ptr, null, null, null) == SQLITE_OK);
+    assert(!currentReading(db, "five_hour").found, "an ask alone is not a reading");
     sqlite3_close(db);
 }
 

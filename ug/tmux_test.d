@@ -129,26 +129,31 @@ static assert(minutesInto("abcd-nl", 900, 2000, new char[128]) == 0);
 // long until it resets: that is the half of the number only this side knows.
 import tmux : weekInto;
 
-char[128] week(long pct, long resetsAt, long now)() {
+char[128] week(string label, long pct, long resetsAt, long now)() {
     char[128] buf = '.';
-    weekInto(pct, resetsAt, now, buf[]);
+    weekInto(label, pct, resetsAt, now, buf[]);
     return buf;
 }
 
 enum DAY = 86_400;
 enum weekHalf = DIM ~ "claude week 51% 3d 2h left" ~ PLAIN;
-static assert(week!(51, 1000 + 3 * DAY + 2 * 3600 + 59, 1000)()[0 .. weekHalf.length] == weekHalf);
+static assert(week!("claude week", 51, 1000 + 3 * DAY + 2 * 3600 + 59, 1000)()[0 .. weekHalf.length] == weekHalf);
 
 enum weekHot = RED ~ "claude week 98% 5h left" ~ PLAIN;
-static assert(week!(98, 1000 + 5 * 3600, 1000)()[0 .. weekHot.length] == weekHot);
+static assert(week!("claude week", 98, 1000 + 5 * 3600, 1000)()[0 .. weekHot.length] == weekHot);
 
 enum weekLast = RED ~ "claude week 85% 40m left" ~ PLAIN;
-static assert(week!(85, 1000 + 40 * 60, 1000)()[0 .. weekLast.length] == weekLast);
+static assert(week!("claude week", 85, 1000 + 40 * 60, 1000)()[0 .. weekLast.length] == weekLast);
 
-static assert(weekInto(62, 1000 + DAY, 1000, new char[128]) > 0, "62 is inside 60 to 62");
-static assert(weekInto(63, 1000 + DAY, 1000, new char[128]) == 0, "63 is between bands");
-static assert(weekInto(24, 1000 + DAY, 1000, new char[128]) == 0);
+static assert(weekInto("claude week", 62, 1000 + DAY, 1000, new char[128]) > 0, "62 is inside 60 to 62");
+static assert(weekInto("claude week", 63, 1000 + DAY, 1000, new char[128]) == 0, "63 is between bands");
+static assert(weekInto("claude week", 24, 1000 + DAY, 1000, new char[128]) == 0);
 
 // A window that has already reset says nothing about the one running now.
-static assert(weekInto(98, 900, 1000, new char[128]) == 0);
-static assert(weekInto(-1, 1000 + DAY, 1000, new char[128]) == 0, "no reading is not zero percent");
+static assert(weekInto("claude week", 98, 900, 1000, new char[128]) == 0);
+static assert(weekInto("claude week", -1, 1000 + DAY, 1000, new char[128]) == 0, "no reading is not zero percent");
+
+// "i wish we also knew about fable usage better"
+// The Fable window is the same bands under its own name.
+enum fableWarm = ORANGE ~ "fable week 71% 4d 21h left" ~ PLAIN;
+static assert(week!("fable week", 71, 1000 + 4 * DAY + 21 * 3600 + 5, 1000)()[0 .. fableWarm.length] == fableWarm);

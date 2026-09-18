@@ -32,8 +32,9 @@ const(char)[] bandColour(long used, long quota) {
 }
 
 // `claude week 71% 2d 3h left`, inside the same bands, or nothing. A window
-// that has already reset says nothing about the one running now.
-size_t weekInto(long percent, long resetsAt, long now, char[] dest) {
+// that has already reset says nothing about the one running now. The label
+// names the window: the account's week, or Fable's.
+size_t weekInto(const(char)[] label, long percent, long resetsAt, long now, char[] dest) {
     if (resetsAt <= now) return 0;
     auto colour = bandColour(percent, 100);
     if (colour is null) return 0;
@@ -49,7 +50,8 @@ size_t weekInto(long percent, long resetsAt, long now, char[] dest) {
     }
 
     put(colour);
-    put("claude week ");
+    put(label);
+    put(" ");
     num(percent);
     put("% ");
 
@@ -238,18 +240,20 @@ int tmuxMain(const(char)[] home, long now) {
         }
     }
 
-    // The weekly Claude window, from the readings ug wrote down while drawing
-    // a session's status line. tmux has no session to be handed one.
+    // The weekly Claude windows, the account's and Fable's, from the readings
+    // ug wrote down while drawing a session's status line. tmux has no session
+    // to be handed one.
     {
-        import sql : readWeek;
-        auto w = readWeek(home);
-        if (w.found) {
+        import sql : readWindow;
+        static immutable string[2][2] weeks = [["seven_day", "claude week"], ["fable_week", "fable week"]];
+        foreach (week; weeks) {
+            auto w = readWindow(home, week[0]);
+            if (!w.found) continue;
             __gshared char[96] seg = void;
-            auto sn = weekInto(w.percent, w.resetsAt, now, seg[]);
-            if (sn > 0) {
-                if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
-                foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
-            }
+            auto sn = weekInto(week[1], w.percent, w.resetsAt, now, seg[]);
+            if (sn == 0) continue;
+            if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
+            foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
         }
     }
 

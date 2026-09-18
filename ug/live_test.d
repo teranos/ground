@@ -38,6 +38,12 @@ enum SETTLE_US = 6_000_000;
 // 10.255.255.1 is not routed, so a connection to it waits out curl's max-time.
 enum NEVER_ANSWERS = "QNTX_HOST=http://10.255.255.1";
 
+// The Fable ask reads the login keychain. Pointed at a service nothing holds,
+// the ask ends as "no token" without a request, and no real credential is read
+// by a test.
+enum NO_CREDENTIALS = "CLAUDE_CREDENTIALS_SERVICE=ug-live-test-holds-nothing";
+enum USAGE_NEVER_ANSWERS = "CLAUDE_USAGE_HOST=http://10.255.255.1";
+
 enum PAYLOAD = `{"session_id":"live-test","cwd":"/tmp","model":{"display_name":"t"},`
     ~ `"context_window":{"used_percentage":5},`
     ~ `"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":1900000000},`
@@ -54,7 +60,8 @@ private void run(const(char)* bin, const(char)* arg, const(char)* stdinPath, boo
         auto sink = open("/dev/null", O_WRONLY);
         if (sink >= 0) { dup2(sink, 1); dup2(sink, 2); }
         const(char)*[3] argv = [bin, arg, null];
-        const(char)*[4] envp = [&homeEnv[0], "PATH=/usr/bin:/bin", NEVER_ANSWERS.ptr, null];
+        const(char)*[6] envp = [&homeEnv[0], "PATH=/usr/bin:/bin", NEVER_ANSWERS.ptr,
+                                NO_CREDENTIALS.ptr, USAGE_NEVER_ANSWERS.ptr, null];
         execve(bin, cast(char**) argv.ptr, cast(char**) envp.ptr);
         _exit(127);
     }
@@ -117,16 +124,22 @@ extern (C) int main(int argc, char** argv) {
     }
     auto rows = count(db, "SELECT COUNT(*) FROM usage");
     auto unfinished = count(db, "SELECT COUNT(*) FROM usage WHERE qntx_exit = -2");
+    auto unasked = count(db, "SELECT COUNT(*) FROM usage WHERE ask_exit = -2");
+    auto tokenless = count(db, "SELECT COUNT(*) FROM usage WHERE window = 'fable_week' AND ask_exit = -1");
     sqlite3_close(db);
 
-    printf("live: %d frames cancelled, %lld rows, %lld attempts unfinished (%s)\n",
-           FRAMES, rows, unfinished, &home[0]);
-    if (rows != 2) {
-        printf("live: FAIL — two windows must be two rows, however many frames run\n");
+    printf("live: %d frames cancelled, %lld rows, %lld attempts unfinished, %lld asks unfinished, %lld asks without a token (%s)\n",
+           FRAMES, rows, unfinished, unasked, tokenless, &home[0]);
+    if (rows != 3) {
+        printf("live: FAIL — two windows and one ask must be three rows, however many frames run\n");
         return 1;
     }
     if (unfinished != 0) {
         printf("live: FAIL — an attempt to attest did not finish outside the frame\n");
+        return 1;
+    }
+    if (unasked != 0 || tokenless != 1) {
+        printf("live: FAIL — the Fable ask must end outside the frame, and without a token it ends as -1\n");
         return 1;
     }
     printf("live: ok\n");

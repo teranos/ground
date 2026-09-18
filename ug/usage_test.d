@@ -31,9 +31,21 @@ enum capture = import("captures/grove/in.json");
 static assert(!rateLimits(capture).w[0].present);
 static assert(!rateLimits(capture).w[1].present);
 
+// "i wish we also knew about fable usage better"
+// The third window is never in the payload. ug asks for it, so its claim goes
+// in with no reading and ask_exit -2 until the ask outside the frame answers.
+import usage : NAMES, ASKED, PENDING;
+static assert(NAMES[2] == "fable_week");
+static assert(!rateLimits(both).w[2].present);
+static assert(rateLimits(both).w[2].name == "fable_week");
+static assert(PENDING == "-1");
+static assert(ASKED == -2);
+static assert(contains(CLAIM_SQL, "ask_exit"));
+static assert(contains(CLAIM_SQL, "SELECT ?1, ?2, ?3, ?4, ?5, 0, -2, ?7"));
+
 // The rule is the claim: a new session, or the interval since the last reading.
 static assert(RECORD_EVERY == 14400);
-static assert(contains(CLAIM_SQL, "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit)"));
+static assert(contains(CLAIM_SQL, "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit, ask_exit)"));
 static assert(contains(CLAIM_SQL, "NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND session = ?5)"));
 static assert(contains(CLAIM_SQL, "NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND seen_at > ?4 - ?6)"));
 
@@ -78,6 +90,14 @@ static assert(intervalFor("five_hour", RESET, RESET - 7200) == 600);
 static assert(intervalFor("five_hour", RESET, RESET - 7201) == 900);
 static assert(intervalFor("five_hour", RESET, RESET - 4 * 3600) == 900);
 static assert(intervalFor("five_hour", RESET, RESET) == 900);
+
+// "i had no idea i was getting to 70 so fast"
+// The Fable window moved 76 points in the first day of its week, measured
+// 2026-09-18. It is asked at the five-hour window's rhythm: every quarter of an
+// hour, and every ten minutes in its last two.
+static assert(intervalFor("fable_week", RESET, RESET - 4 * 3600) == 900);
+static assert(intervalFor("fable_week", RESET, RESET - 7200) == 600);
+static assert(intervalFor("fable_week", 0, RESET) == 900);
 
 // "you could even say, we go from 4h cadence to 1h cadence if the time to hit limit is less than 48h"
 // Between two days and two hours out, the weekly window is read every hour.

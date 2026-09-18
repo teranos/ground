@@ -2,12 +2,14 @@ module usage;
 
 // "i want to record the usage that is left in ground itself"
 // Claude Code hands the rate limit windows to the status line and to no hook,
-// so ug is the one process that can put them where ground reads.
+// so ug is the one process that can put them where ground reads. The window
+// scoped to Fable it hands to nothing; ug asks the usage endpoint for that one
+// (fable.d) and records it beside the other two.
 //
 // The row refreshes every second, and "If a new update triggers while a slow
 // script is running, the in-flight script is cancelled". So the reading is
-// claimed in the store before anything slow, and the attestation into QNTX
-// happens in a child the cancel does not reach.
+// claimed in the store before anything slow, and the ask and the attestation
+// into QNTX happen in a child the cancel does not reach.
 
 // "once every 4 hours"
 enum RECORD_EVERY = 4 * 60 * 60;
@@ -24,9 +26,11 @@ enum NEAR_EVERY = 10 * 60;
 enum SHORT_EVERY = 15 * 60;
 
 // How long a window's last reading stays current. Every window is read every
-// ten minutes in its last two hours; otherwise each keeps its own rhythm.
+// ten minutes in its last two hours; otherwise each keeps its own rhythm. The
+// Fable window is asked for at the short rhythm: "i had no idea i was getting
+// to 70 so fast" — it moved 76 points in the first day of its week.
 long intervalFor(const(char)[] window, long resetsAt, long now) {
-    auto base = window == "five_hour" ? SHORT_EVERY : RECORD_EVERY;
+    auto base = window == "seven_day" ? RECORD_EVERY : SHORT_EVERY;
     if (resetsAt <= now) return base;
     auto left = resetsAt - now;
     if (left <= NEAR_RESET) return NEAR_EVERY;
@@ -43,9 +47,17 @@ struct Window {
     bool present;
 }
 
-struct Windows { Window[2] w; }
+struct Windows { Window[3] w; }
 
-immutable string[2] NAMES = ["five_hour", "seven_day"];
+// The first two arrive in the payload. The third never does: ug asks Claude's
+// usage endpoint for it, outside the frame, and fills the row in afterwards.
+immutable string[3] NAMES = ["five_hour", "seven_day", "fable_week"];
+enum ASKED_WINDOW = 2;
+
+// A row claimed for an ask holds this until the answer is in. No reading is
+// below zero, so every reader skips it by the sign.
+enum PENDING = "-1";
+enum ASKED = -2;
 
 // Read inside rate_limits only. context_window carries a used_percentage of its
 // own, and a search over the whole input takes whichever comes first.
@@ -73,9 +85,10 @@ Windows rateLimits(const(char)[] input) {
 
 // The rule and the record are one statement: a session's first reading of a
 // window, or none within the window's interval, ?6. qntx_exit starts at -2,
-// since the attempt has not said how it went.
-enum CLAIM_SQL = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit) "
-    ~ "SELECT ?1, ?2, ?3, ?4, ?5, 0, -2 "
+// since the attempt has not said how it went; ask_exit ?7 is 0 for a window
+// the payload handed over and -2 for one that is still to be asked for.
+enum CLAIM_SQL = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit, ask_exit) "
+    ~ "SELECT ?1, ?2, ?3, ?4, ?5, 0, -2, ?7 "
     ~ "WHERE NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND session = ?5) "
     ~ "OR NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND seen_at > ?4 - ?6) "
     // The tmux bar draws the week inside bands two points wide, and a reading
@@ -87,6 +100,10 @@ enum CLAIM_SQL = "INSERT INTO usage (window, used_percentage, resets_at, seen_at
 // What the attempt answered: the HTTP status, and curl's exit code, -1 when no
 // token was there to send.
 enum UPDATE_SQL = "UPDATE usage SET qntx_status = ?1, qntx_exit = ?2 WHERE id = ?3";
+
+// What the ask answered: the reading it found, or -1 and no reset still, and
+// how the request went. ask_exit -1 is no token in the keychain to send with.
+enum ASK_SQL = "UPDATE usage SET used_percentage = ?1, resets_at = ?2, ask_status = ?3, ask_exit = ?4 WHERE id = ?5";
 
 // "and these shoudl also be attempted to be attested into qntx"
 size_t attestationInto(const Window w, const(char)[] session, char[] dest) {
@@ -191,7 +208,6 @@ void recordUsage(const(char)[] home, const(char)[] input, long now) {
     import sql;
 
     auto ws = rateLimits(input);
-    if (!ws.w[0].present && !ws.w[1].present) return;
 
     auto session = jsonString(input, "session_id");
     if (session is null) session = "";
@@ -207,21 +223,27 @@ void recordUsage(const(char)[] home, const(char)[] input, long now) {
         return;
     }
 
-    long[2] claimed = [0, 0];
+    long[3] claimed = [0, 0, 0];
     size_t count = 0;
     foreach (i, ref w; ws.w) {
-        if (!w.present) continue;
+        // The asked window is claimed with no reading in hand; its interval is
+        // counted from the last claim, answered or not, so a child that died
+        // is asked again after it and not every second until then.
+        auto asked = i == ASKED_WINDOW;
+        if (!w.present && !asked) continue;
+        auto percent = asked ? PENDING : w.percent;
         sqlite3_stmt* ins;
         if (sqlite3_prepare_v2(db, CLAIM_SQL.ptr, cast(int) CLAIM_SQL.length, &ins, null) != SQLITE_OK) {
             fputs("ug: usage: cannot prepare the claim\n", stderr);
             break;
         }
         sqlite3_bind_text(ins, 1, w.name.ptr, cast(int) w.name.length, cast(void*) -1);
-        sqlite3_bind_text(ins, 2, w.percent.ptr, cast(int) w.percent.length, cast(void*) -1);
+        sqlite3_bind_text(ins, 2, percent.ptr, cast(int) percent.length, cast(void*) -1);
         sqlite3_bind_int64(ins, 3, w.resetsAt);
         sqlite3_bind_int64(ins, 4, now);
         sqlite3_bind_text(ins, 5, session.ptr, cast(int) session.length, cast(void*) -1);
-        sqlite3_bind_int64(ins, 6, intervalFor(w.name, w.resetsAt, now));
+        sqlite3_bind_int64(ins, 6, intervalFor(w.name, asked ? lastReset(db, w.name) : w.resetsAt, now));
+        sqlite3_bind_int64(ins, 7, asked ? ASKED : 0);
         if (sqlite3_step(ins) == SQLITE_DONE && sqlite3_changes(db) == 1) {
             claimed[i] = sqlite3_last_insert_rowid(db);
             count++;
@@ -241,14 +263,34 @@ void recordUsage(const(char)[] home, const(char)[] input, long now) {
     attestDetached(home, ws, claimed, session);
 }
 
-// The POST outlives the frame. A child in its own session is not the process
-// Claude Code cancels, and it writes what QNTX answered onto the claimed row. A
-// child that dies first leaves qntx_exit at -2, which says so.
-private void attestDetached(const(char)[] home, const Windows ws, long[2] claimed,
+// When the asked window last answered it resets, so its rhythm can quicken
+// toward the reset like the others'. 0 when it has never answered.
+enum LAST_RESET_SQL = "SELECT resets_at FROM usage WHERE window = ?1 AND used_percentage >= 0 "
+    ~ "ORDER BY seen_at DESC, id DESC LIMIT 1";
+
+private long lastReset(sqlite3* db, const(char)[] window) {
+    import sql;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, LAST_RESET_SQL.ptr, cast(int) LAST_RESET_SQL.length, &stmt, null) != SQLITE_OK)
+        return 0;
+    sqlite3_bind_text(stmt, 1, window.ptr, cast(int) window.length, cast(void*) -1);
+    long at = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 0;
+    sqlite3_finalize(stmt);
+    return at;
+}
+
+// The requests outlive the frame. A child in its own session is not the
+// process Claude Code cancels. It asks for the window the payload lacks and
+// writes the answer onto that row, then attests each reading into QNTX and
+// writes what QNTX answered. A child that dies first leaves -2 behind, which
+// says so.
+private void attestDetached(const(char)[] home, Windows ws, long[3] claimed,
                             const(char)[] session) {
     import core.stdc.stdio : fputs, stderr, freopen, stdin, stdout;
     import core.sys.posix.unistd : fork, setsid, _exit;
-    import probe : post;
+    import probe : post, Posted;
+    import fable : askFable;
     import sql;
 
     auto pid = fork();
@@ -263,11 +305,40 @@ private void attestDetached(const(char)[] home, const Windows ws, long[2] claime
     freopen("/dev/null\0".ptr, "w\0".ptr, stdout);
     freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
 
+    if (claimed[ASKED_WINDOW] != 0) {
+        auto asked = askFable();
+        auto percent = asked.limit.present ? asked.limit.percent : PENDING;
+        ws.w[ASKED_WINDOW].percent = percent;
+        ws.w[ASKED_WINDOW].resetsAt = asked.limit.resetsAt;
+        ws.w[ASKED_WINDOW].present = asked.limit.present;
+
+        __gshared char[512] path = void;
+        sqlite3* db;
+        if (openStore(home, path, db)) {
+            sqlite3_stmt* upd;
+            if (sqlite3_prepare_v2(db, ASK_SQL.ptr, cast(int) ASK_SQL.length, &upd, null) == SQLITE_OK) {
+                sqlite3_bind_text(upd, 1, percent.ptr, cast(int) percent.length, cast(void*) -1);
+                sqlite3_bind_int64(upd, 2, asked.limit.resetsAt);
+                sqlite3_bind_int64(upd, 3, asked.status);
+                sqlite3_bind_int64(upd, 4, asked.curlExit);
+                sqlite3_bind_int64(upd, 5, claimed[ASKED_WINDOW]);
+                sqlite3_step(upd);
+                sqlite3_finalize(upd);
+            }
+            sqlite3_close(db);
+        }
+    }
+
     foreach (i, id; claimed) {
         if (id == 0) continue;
-        __gshared char[1024] body_ = void;
-        auto n = attestationInto(ws.w[i], session, body_[]);
-        auto sent = post(home, "/api/attestations", body_[0 .. n]);
+        // An ask that found nothing has no reading to attest: -1, a request
+        // never made, the same as having no token for it.
+        Posted sent = Posted(0, -1);
+        if (ws.w[i].present) {
+            __gshared char[1024] body_ = void;
+            auto n = attestationInto(ws.w[i], session, body_[]);
+            sent = post(home, "/api/attestations", body_[0 .. n]);
+        }
 
         __gshared char[512] path = void;
         sqlite3* db;

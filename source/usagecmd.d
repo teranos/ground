@@ -148,9 +148,11 @@ Current currentReading(DB)(DB db, const(char)[] window) {
     import profile : cstr;
 
     // The current window is the one the newest row names, and every row of it
-    // carries the same resets_at whoever wrote it.
+    // carries the same resets_at whoever wrote it. A row ug claimed for an ask
+    // that has not answered holds -1 and is not a reading.
     enum sql = "SELECT used_percentage, seen_at, resets_at FROM usage WHERE window = ?1 "
-        ~ "AND resets_at = (SELECT resets_at FROM usage WHERE window = ?1 "
+        ~ "AND used_percentage >= 0 "
+        ~ "AND resets_at = (SELECT resets_at FROM usage WHERE window = ?1 AND used_percentage >= 0 "
         ~ "ORDER BY seen_at DESC, id DESC LIMIT 1) "
         ~ "ORDER BY CAST(used_percentage AS REAL) DESC, seen_at DESC LIMIT 1\0";
 
@@ -260,12 +262,13 @@ int handleUsage() {
 
     auto session = currentReading(db, "five_hour");
     auto week = currentReading(db, "seven_day");
-    if (!session.readable || !week.readable) {
+    auto fable = currentReading(db, "fable_week");
+    if (!session.readable || !week.readable || !fable.readable) {
         sqlite3_close(db);
         fputs("ground usage: cannot read the usage table\n", stderr);
         return 1;
     }
-    if (!session.found && !week.found) {
+    if (!session.found && !week.found && !fable.found) {
         sqlite3_close(db);
         fputs("ground usage: no readings recorded yet\n", stderr);
         return 0;
@@ -294,47 +297,79 @@ int handleUsage() {
         putBar(out_, "This week", week.tenths, when.slice());
     } else putBarMissing(out_, "This week");
 
-    // Nothing ug reads carries a Fable window, so there is none to draw.
-    putBarMissing(out_, "Fable this week");
+    // "i wish we also knew about fable usage better"
+    // The Fable window ug asks the usage endpoint for, at the five-hour
+    // window's rhythm.
+    if (fable.found) {
+        when.reset();
+        putReset(when, fable.resetsAt, now, offset);
+        putBar(out_, "Fable this week", fable.tenths, when.slice());
+    } else putBarMissing(out_, "Fable this week");
 
     out_.put("\n");
     putMarker(out_, now, offset);
     putWeekHeader(out_);
+
+    // The account's week under tw, Fable's under fa; each grid from the rows
+    // of its own window.
     out_.put("tw\n");
-
     if (week.found) {
-        enum sql = "SELECT seen_at, used_percentage FROM usage "
-            ~ "WHERE window = 'seven_day' AND seen_at >= ?1 AND seen_at < ?2 ORDER BY seen_at\0";
-        __gshared Reading[4096] readings;
-        size_t count = 0;
-        bool more = false;
-
-        sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        if (!putWeekGrid(out_, db, "seven_day", week.resetsAt, now, offset)) {
             sqlite3_close(db);
-            fputs("ground usage: cannot read this week's readings\n", stderr);
             return 1;
         }
-        sqlite3_bind_int64(stmt, 1, week.resetsAt - 7 * 86400);
-        sqlite3_bind_int64(stmt, 2, week.resetsAt);
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            if (count == readings.length) { more = true; break; }
-            readings[count++] = Reading(sqlite3_column_int64(stmt, 0),
-                                        parseTenths(cstr(sqlite3_column_text(stmt, 1))));
-        }
-        sqlite3_finalize(stmt);
-
-        if (more)
-            fputs("ground usage: more readings this week than the grid holds; it is drawn from the first 4096\n", stderr);
-        putGrid(out_, readings[0 .. count], week.resetsAt, now, offset);
     } else {
         out_.put("   no reading recorded\n");
     }
-    sqlite3_close(db);
 
-    out_.put("\nfa\n   no Fable window is recorded\n");
+    out_.put("\nfa\n");
+    if (fable.found) {
+        if (!putWeekGrid(out_, db, "fable_week", fable.resetsAt, now, offset)) {
+            sqlite3_close(db);
+            return 1;
+        }
+    } else {
+        out_.put("   no Fable window is recorded\n");
+    }
+    sqlite3_close(db);
 
     auto text = out_.slice();
     fwrite(text.ptr, 1, text.length, stdout);
     return 0;
+}
+
+// The grid of one window's week, from every answered reading inside it. False
+// when the table could not be read, said on stderr.
+private bool putWeekGrid(S, DB)(ref S s, DB db, const(char)[] window, long weekEnd, long now, long offset) {
+    import core.stdc.stdio : stderr, fputs;
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_bind_int64, sqlite3_column_int64, sqlite3_column_text,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import profile : cstr;
+
+    enum sql = "SELECT seen_at, used_percentage FROM usage "
+        ~ "WHERE window = ?1 AND used_percentage >= 0 AND seen_at >= ?2 AND seen_at < ?3 ORDER BY seen_at\0";
+    __gshared Reading[4096] readings;
+    size_t count = 0;
+    bool more = false;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        fputs("ground usage: cannot read this week's readings\n", stderr);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, window.ptr, cast(int) window.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, weekEnd - 7 * 86400);
+    sqlite3_bind_int64(stmt, 3, weekEnd);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        if (count == readings.length) { more = true; break; }
+        readings[count++] = Reading(sqlite3_column_int64(stmt, 0),
+                                    parseTenths(cstr(sqlite3_column_text(stmt, 1))));
+    }
+    sqlite3_finalize(stmt);
+
+    if (more)
+        fputs("ground usage: more readings this week than the grid holds; it is drawn from the first 4096\n", stderr);
+    putGrid(s, readings[0 .. count], weekEnd, now, offset);
+    return true;
 }

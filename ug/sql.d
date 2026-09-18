@@ -212,9 +212,10 @@ size_t readOrgMinutes(const(char)[] home, OrgMinutes[] rows) {
     return count;
 }
 
-// The newest reading of the weekly window, as ug itself wrote it down.
-enum WEEK_SQL = "SELECT CAST(used_percentage AS INTEGER), resets_at FROM usage "
-    ~ "WHERE window = 'seven_day' ORDER BY seen_at DESC, id DESC LIMIT 1";
+// The newest reading of a window, as ug itself wrote it down. A row claimed
+// for an ask that has not answered holds -1 and is not a reading.
+enum WINDOW_SQL = "SELECT CAST(used_percentage AS INTEGER), resets_at FROM usage "
+    ~ "WHERE window = ?1 AND used_percentage >= 0 ORDER BY seen_at DESC, id DESC LIMIT 1";
 
 struct Week {
     bool found;
@@ -222,7 +223,7 @@ struct Week {
     long resetsAt;
 }
 
-Week readWeek(const(char)[] home) {
+Week readWindow(const(char)[] home, const(char)[] window) {
     import core.stdc.stdio : fopen, fclose;
 
     Week w;
@@ -240,10 +241,11 @@ Week readWeek(const(char)[] home) {
     sqlite3_busy_timeout(db, BUSY_MS);
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, WEEK_SQL.ptr, cast(int) WEEK_SQL.length, &stmt, null) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, WINDOW_SQL.ptr, cast(int) WINDOW_SQL.length, &stmt, null) != SQLITE_OK) {
         sqlite3_close(db);
         return w;
     }
+    sqlite3_bind_text(stmt, 1, window.ptr, cast(int) window.length, cast(void*) -1);
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         w.found = true;
         w.percent = sqlite3_column_int64(stmt, 0);

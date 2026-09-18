@@ -337,6 +337,15 @@ bool applySchema(sqlite3* db) {
     enum idxUsage = "CREATE INDEX IF NOT EXISTS idx_usage_window_seen ON usage(window, seen_at)\0";
     sqlite3_exec(db, idxUsage.ptr, null, null, null);
 
+    // "i wish we also knew about fable usage better"
+    // The fable_week window is not in the status line payload; ug asks Claude's
+    // usage endpoint for it. The row is claimed first with used_percentage -1
+    // and ask_exit -2, and the ask fills in the reading and how the request
+    // went: HTTP status, curl's exit, -1 when the keychain held no token. A
+    // window the payload handed over reads 0 and 0: nothing was asked.
+    ensureColumn(db, "usage", "ask_status", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "usage", "ask_exit", "INTEGER NOT NULL DEFAULT 0");
+
     // "needs to be instrumented"
     // One row per long-lived ground process, watcher or driver: when it started,
     // for whom, that it is still polling, and how it ended.
