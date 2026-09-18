@@ -401,51 +401,12 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         }
     }
 
-    // A route named in the reply gets its contract put in front of the model,
-    // once per session per route, whole or not at all.
-    {
-        import controls : projectRoutes;
-        import routes : saysWord, routeApplies, fitRoutes, buildRoutesMessage;
-        if (lastMsg !is null && projectRoutes.length > 0) {
-            import db : attestationExists, attestControlFire;
-
-            const(char)[][8] texts;
-            const(char)[][8] paths;
-            size_t count;
-
-            foreach (ref r; projectRoutes) {
-                if (count >= texts.length) break;
-                if (!routeApplies(r.project, cwd)) continue;
-                if (!saysWord(lastMsg, r.word)) continue;
-
-                __gshared ZBuf dedupKey;
-                dedupKey.reset();
-                dedupKey.put("openapi:");
-                dedupKey.put(r.path);
-                if (attestationExists(db, "GroundedStop", dedupKey.slice(), sessionId))
-                    continue;
-
-                texts[count] = r.text;
-                paths[count] = r.path;
-                count++;
-            }
-
-            auto fits = fitRoutes(texts[0 .. count], ZBuf.init.data.length - 1);
-            if (fits > 0) {
-                foreach (i; 0 .. fits) {
-                    __gshared ZBuf attestKey;
-                    attestKey.reset();
-                    attestKey.put("openapi:");
-                    attestKey.put(paths[i]);
-                    attestControlFire(db, "GroundedStop", attestKey.slice(), cwd, sessionId);
-                }
-                auto msg = buildRoutesMessage(texts[0 .. fits]);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(msg.slice());
-                return 0;
-            }
-        }
-    }
+    // "that remind based on endppoint, can uyou disable that functionality, i no longer find it usefull in this form per se."
+    // "i want to rethink it"
+    // A route named in the reply had its contract put in front of the model
+    // here, once per session per route. Withdrawn 2026-09-18; what it was
+    // built on — the project's openapi:, wind's routes, routes.d — stays for
+    // the rethink.
 
     auto t4 = usecNow();
 
