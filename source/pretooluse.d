@@ -1,6 +1,6 @@
 module pretooluse;
 
-import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applyRange, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
+import matcher : checkAllCommands, applyArg, applyOmit, applyOmitLine, applyClamp, applyRange, taperOf, applySubstituteForCmd, indexOf, contains, hasSegment, Buf, envSubst;
 import strop : stropDispatch;
 import controls : globalStropPool;
 import parse : extractCommand, extractToolName, extractFilePath, extractToolUseId, writeJsonString, fputs2;
@@ -21,6 +21,14 @@ void putInt(ref ZBuf buf, long v) {
     if (v == 0) { digits[0] = '0'; dLen = 1; }
     else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
     foreach (i; 0 .. dLen) buf.putChar(digits[dLen - 1 - i]);
+}
+
+// Tenths of a percent as the percentage they are: 520 is 52.0.
+void putTenths(ref ZBuf buf, long tenths) {
+    if (tenths < 0) { buf.put("-"); tenths = -tenths; }
+    putInt(buf, tenths / 10);
+    buf.putChar('.');
+    buf.putChar(cast(char)('0' + tenths % 10));
 }
 
 // Advisory controls inject context without overriding permission prompts.
@@ -549,6 +557,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     }
                 } else {
                     Buf amended;
+                    long givenBack = 0;
+                    long weekRead = -1;
                     // First, because it replaces the segment whole — anything
                     // the others would edit is gone either way.
                     if (c.substituteForCmd.value.length > 0)
@@ -559,9 +569,20 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         amended = applyOmit(c, m.segment);
                     else if (c.clamp.value.length > 0)
                         amended = applyClamp(c.clamp.value, m.segment);
-                    else if (c.range.value.length > 0)
-                        amended = applyRange(c.range.value, m.segment);
-                    else
+                    else if (c.range.value.length > 0) {
+                        // "if our weekly is over 40% it should start to taper down in how much it gives back with 70%+ weekly usage going back to what the model normally does. so at 70% the sed rewrite rule would not even be applied anymore. do you hear what im saying actually?"
+                        // The week is read from the rows ug wrote down; -1 when
+                        // none is current, which is the widening as authored.
+                        long week = -1;
+                        if (c.taper.value.length > 0 && db !is null) {
+                            import core.stdc.time : time;
+                            import usagecmd : weekTenths;
+                            week = weekTenths(db, cast(long) time(null));
+                        }
+                        givenBack = taperOf(c.taper.value, week);
+                        weekRead = week;
+                        amended = applyRange(c.range.value, m.segment, givenBack);
+                    } else
                         amended = applyArg(c, m.segment);
 
                     if (amended.slice() != m.segment) {
@@ -576,9 +597,23 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         }
                     }
 
-                    if (c.msg.value.length > 0) {
+                    // A widening wholly given back amended nothing, and a
+                    // message about it would describe a rewrite that did not
+                    // happen. In between, the message says how far it stands.
+                    if (c.msg.value.length > 0 && givenBack < 1000) {
                         if (allMessages.len > 0) allMessages.put(" | ");
                         allMessages.put(envSubst(c.msg.value, cwd));
+                        if (givenBack > 0) {
+                            allMessages.put(" Tapered: the week stands at ");
+                            putTenths(allMessages, weekRead);
+                            allMessages.put("%, so the widening is ");
+                            putTenths(allMessages, 1000 - givenBack);
+                            allMessages.put("% of itself; it is whole below ");
+                            allMessages.put(c.taper.value[0 .. indexOf(c.taper.value, ",")]);
+                            allMessages.put("% and gone at ");
+                            allMessages.put(c.taper.value[indexOf(c.taper.value, ",") + 1 .. $]);
+                            allMessages.put("%.");
+                        }
                     }
                 }
             }

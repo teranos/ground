@@ -820,10 +820,30 @@ private int decimalOf(const(char)[] s) {
     return n;
 }
 
+// "if our weekly is over 40% it should start to taper down in how much it gives back with 70%+ weekly usage going back to what the model normally does. so at 70% the sed rewrite rule would not even be applied anymore. do you hear what im saying actually?"
+// How much of a widening is given back, in permille: 0 below the taper's
+// first mark, 1000 at its second and beyond, the straight line between. Spec
+// "<from>,<to>" in percent; the week in tenths of a percent, -1 for none. No
+// taper, no reading, or marks out of order: nothing is given back.
+long taperOf(string taper, long weekTenths) {
+    auto sep = indexOf(taper, ",");
+    if (sep < 0 || weekTenths < 0) return 0;
+    auto from = decimalOf(taper[0 .. cast(size_t) sep]);
+    auto to = decimalOf(taper[cast(size_t) sep + 1 .. $]);
+    if (from < 0 || to <= from) return 0;
+    long lo = from * 10L;
+    long hi = to * 10L;
+    if (weekTenths <= lo) return 0;
+    if (weekTenths >= hi) return 1000;
+    return (weekTenths - lo) * 1000 / (hi - lo);
+}
+
 // A range read starts at the top and reaches past where it was aimed. Spec
 // "<start>,+<more>", e.g. "1,+10": the first `A,Bp` in the segment becomes
-// `<start>,<B+more>p`. No range in the segment, unchanged.
-Buf applyRange(string spec, const(char)[] segment) {
+// `<start>,<B+more>p`. No range in the segment, unchanged. `givenBack` is
+// taperOf's permille: the start walks that far from the top back to A, and
+// the reach past B shrinks by as much, so at 1000 the segment is as typed.
+Buf applyRange(string spec, const(char)[] segment, long givenBack = 0) {
     Buf buf;
 
     auto sep = indexOf(spec, ",+");
@@ -831,6 +851,8 @@ Buf applyRange(string spec, const(char)[] segment) {
     auto start = decimalOf(spec[0 .. cast(size_t) sep]);
     auto more = decimalOf(spec[cast(size_t) sep + 2 .. $]);
     if (start < 0 || more < 0) { buf.put(segment); return buf; }
+    if (givenBack < 0) givenBack = 0;
+    if (givenBack > 1000) givenBack = 1000;
 
     static bool digit(char c) { return c >= '0' && c <= '9'; }
 
@@ -846,11 +868,15 @@ Buf applyRange(string spec, const(char)[] segment) {
         while (j < segment.length && digit(segment[j])) j++;
         if (j == bStart || j >= segment.length || segment[j] != 'p') continue;
 
+        auto aimed = decimalOf(segment[aStart .. i]);
         auto end = decimalOf(segment[bStart .. j]);
+        long from = start;
+        if (aimed > start) from = start + (aimed - start) * givenBack / 1000;
+        auto reach = more - more * givenBack / 1000;
         buf.put(segment[0 .. aStart]);
-        putDecimal(buf, start);
+        putDecimal(buf, cast(int) from);
         buf.put(",");
-        putDecimal(buf, end + more);
+        putDecimal(buf, cast(int)(end + reach));
         buf.put(segment[j .. $]);
         return buf;
     }
@@ -872,6 +898,28 @@ unittest {
 
     // A spec that is not two parts is no instruction.
     assert(applyRange("1", "sed -n 300,340p x").slice() == "sed -n 300,340p x");
+}
+
+unittest {
+    // "the sed rewrite rule, i want it to behave differently based on our usage. if our weekly is over 40% it should start to taper down in how much it gives back with 70%+ weekly usage going back to what the model normally does. so at 70% the sed rewrite rule would not even be applied anymore. do you hear what im saying actually?"
+    // How much of the widening is given up, in permille of the way from the
+    // taper's start to its end. The week is read in tenths of a percent.
+    assert(taperOf("40,70", 390) == 0);
+    assert(taperOf("40,70", 400) == 0);
+    assert(taperOf("40,70", 550) == 500);
+    assert(taperOf("40,70", 700) == 1000);
+    assert(taperOf("40,70", 850) == 1000);
+    assert(taperOf("", 850) == 0, "no taper is the widening as authored");
+    assert(taperOf("40,70", -1) == 0, "no reading is the widening as authored");
+    assert(taperOf("70,40", 550) == 0, "a taper that runs backwards is no taper");
+
+    // The start walks from the top back to where the read was aimed, and the
+    // reach past its end shrinks to nothing. At the end of the taper the
+    // segment is what was typed, so nothing is amended and nothing is said.
+    assert(applyRange("1,+10", "sed -n 300,340p x", 0).slice() == "sed -n 1,350p x");
+    assert(applyRange("1,+10", "sed -n 300,340p x", 500).slice() == "sed -n 150,345p x");
+    assert(applyRange("1,+10", "sed -n 300,340p x", 1000).slice() == "sed -n 300,340p x");
+    assert(applyRange("1,+10", "sed -n 1,10p x", 500).slice() == "sed -n 1,15p x");
 }
 
 // Strips the entire line containing the needle.

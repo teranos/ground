@@ -114,6 +114,33 @@ unittest {
     sqlite3_close(db);
 }
 
+// "if our weekly is over 40% it should start to taper down"
+// How spent the week is: the higher of the account's week and Fable's, since
+// the one nearer its limit is the one being spent. A week that has reset says
+// nothing, and no current week at all is -1, not zero.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_exec, sqlite3_close, applySchema, SQLITE_OK;
+    import usagecmd : weekTenths;
+
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(weekTenths(db, 1790000000) == -1);
+
+    enum rows = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session) VALUES "
+        ~ "('seven_day', '52.0', 1790190000, 1789999000, 'a'), "
+        ~ "('fable_week', '77', 1790190000, 1789999500, 'a')\0";
+    assert(sqlite3_exec(db, rows.ptr, null, null, null) == SQLITE_OK);
+    assert(weekTenths(db, 1790000000) == 770);
+    assert(weekTenths(db, 1790190000) == -1, "both weeks have reset");
+
+    enum older = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session) VALUES "
+        ~ "('fable_week', '-1', 0, 1790000100, 'b')\0";
+    assert(sqlite3_exec(db, older.ptr, null, null, null) == SQLITE_OK);
+    assert(weekTenths(db, 1790000200) == 770, "an ask still pending is not a reading");
+    sqlite3_close(db);
+}
+
 // A window nothing recorded is said to be missing, not drawn empty.
 static assert(() {
     Sink s;

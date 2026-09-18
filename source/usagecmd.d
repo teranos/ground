@@ -173,6 +173,22 @@ Current currentReading(DB)(DB db, const(char)[] window) {
     return c;
 }
 
+// "if our weekly is over 40% it should start to taper down"
+// How spent the week is, in tenths of a percent: the higher of the account's
+// week and Fable's, since the one nearer its limit is the one being spent. A
+// week that has reset says nothing about the one running now; no current
+// week at all is -1, not zero.
+long weekTenths(DB)(DB db, long now) {
+    long most = -1;
+    static immutable string[2] weeks = ["seven_day", "fable_week"];
+    foreach (w; weeks) {
+        auto c = currentReading(db, w);
+        if (!c.found || c.resetsAt <= now) continue;
+        if (c.tenths > most) most = c.tenths;
+    }
+    return most;
+}
+
 // "the active day needs to be \/ pointed at"
 // Six four-hour blocks, two columns wide: over the day letter and the column
 // before it until 12:00, over the letter and the column after it from then.

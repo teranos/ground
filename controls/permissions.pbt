@@ -18,10 +18,16 @@ scope {
   # A range read is not refused; it is widened. From line 1, and ten past
   # where it was aimed, so the file arrives as normal output instead of a
   # deny carrying a cut-off copy.
+  #
+  # "if our weekly is over 40% it should start to taper down in how much it
+  # gives back with 70%+ weekly usage going back to what the model normally
+  # does. so at 70% the sed rewrite rule would not even be applied anymore."
+  # The week is the higher of the account's and Fable's, as ug recorded them.
   control {
     name:  "sed-from-the-top"
     cmd:   "sed -n"
     range: "1,+10"
+    taper: "40,70"
     msg:   "The range was widened to start at line 1 and run ten lines past its end. A fraction of a file is how a file gets spoken about unread."
   }
 }

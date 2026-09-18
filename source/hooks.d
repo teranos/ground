@@ -103,6 +103,13 @@ struct Range {
     string value;
 }
 
+// A range's widening given back as the week is spent. Spec: "<from>,<to>" in
+// percent of the weekly window — e.g. "40,70": whole below 40, gone at 70.
+// See matcher.taperOf.
+struct Taper {
+    string value;
+}
+
 struct Trigger {
     string[16] _buf;
     ubyte len;
@@ -262,6 +269,7 @@ struct Control {
     OmitLine omitLine;
     Clamp clamp;
     Range range;
+    Taper taper;
     Trigger trigger;
     FilePath filepath;
     PushedPath pushedPath;
