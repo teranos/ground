@@ -57,6 +57,8 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
             if (db !is null) {
                 import db : attestControlFire;
                 attestControlFire(db, "GroundedUserPromptSubmit", c.name, cwd, sessionId);
+                import fired : noteFired;
+                noteFired(db, sessionId, "UserPromptSubmit", "control", c.name, "context", cwd);
             }
         }
     }

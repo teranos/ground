@@ -114,38 +114,64 @@ TraceId traceId(const(char)[] performanceId) {
 
 // A hook over its budget, as the session is told it once per window. The
 // session id threads a session's notices, since no performance is involved.
+Item budgetItem(PM)(long unixSeconds, const(char)[] sessionId, const(char)[] event,
+                    long avgMs, long budgetMs, const(char)[] version_,
+                    const(char)[] project, ref PM means) {
+    // The version file ends in a newline, and that is not part of the version.
+    auto ver = version_;
+    while (ver.length > 0 && (ver[$ - 1] == '\n' || ver[$ - 1] == '\r')) ver = ver[0 .. $ - 1];
+
+    char[128] body_ = 0;
+    size_t n;
+    void say(const(char)[] s) { foreach (c; s) if (n < body_.length) body_[n++] = c; }
+    void num(long v) {
+        char[20] d = 0;
+        size_t k;
+        if (v <= 0) d[k++] = '0';
+        while (v > 0 && k < d.length) { d[k++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. k) if (n < body_.length) body_[n++] = d[i];
+    }
+    say(event);
+    say(" averages ");
+    num(avgMs);
+    say("ms against a budget of ");
+    num(budgetMs);
+    say("ms");
+
+    auto it = openItem(unixSeconds, sessionId, "warn", body_[0 .. n]);
+    it.str("event", event);
+    it.str("project", project);
+    it.str("version", ver);
+    it.num("avg_ms", avgMs);
+    it.num("budget_ms", budgetMs);
+    foreach (i; 0 .. means.n) {
+        char[64] key = 0;
+        size_t kl;
+        foreach (c; "phase_us.") key[kl++] = c;
+        foreach (c; means.keys[i][0 .. means.keyLen[i]]) if (kl < key.length) key[kl++] = c;
+        it.num(key[0 .. kl], means.counts[i] > 0 ? means.sums[i] / means.counts[i] : 0);
+    }
+    it.num("runs", cast(long) means.rows);
+    it.close();
+    return it;
+}
+
+// The same notice as one envelope of its own, for a caller that posts it.
 Envelope budgetEnvelope(PM)(const(char)[] dsn, long unixSeconds, const(char)[] sessionId,
                             const(char)[] event, long avgMs, long budgetMs,
                             const(char)[] version_, const(char)[] project,
                             ref PM means) {
     Envelope e;
-    if (!openLog(e, dsn, unixSeconds, sessionId, "warn")) return Envelope.init;
-
-    // The version file ends in a newline, and that is not part of the version.
-    auto ver = version_;
-    while (ver.length > 0 && (ver[$ - 1] == '\n' || ver[$ - 1] == '\r')) ver = ver[0 .. $ - 1];
-
-    e.putEscaped(event);
-    e.put(" averages ");
-    e.putLong(avgMs);
-    e.put("ms against a budget of ");
-    e.putLong(budgetMs);
-    e.put(`ms","attributes":{`);
-    e.putAttr("event", event);
-    e.putAttr("project", project);
-    e.putAttr("version", ver);
-    e.putNum("avg_ms", avgMs);
-    e.putNum("budget_ms", budgetMs);
-    foreach (i; 0 .. means.n) {
-        e.put(`"phase_us.`);
-        e.putEscaped(means.keys[i][0 .. means.keyLen[i]]);
-        e.put(`":{"value":`);
-        e.putLong(means.counts[i] > 0 ? means.sums[i] / means.counts[i] : 0);
-        e.put(`,"type":"integer"},`);
-    }
-    e.put(`"runs":{"value":`);
-    e.putLong(cast(long) means.rows);
-    e.put(`,"type":"integer"}}}]}` ~ "\n");
+    if (!parseDsn(dsn).ok) return e;
+    auto it = budgetItem(unixSeconds, sessionId, event, avgMs, budgetMs, version_, project, means);
+    if (it.text().length == 0) return e;
+    e.put(`{"dsn":"`);
+    e.putEscaped(dsn);
+    e.put(`"}` ~ "\n");
+    e.put(`{"type":"log","item_count":1,"content_type":"application/vnd.sentry.items.log+json"}` ~ "\n");
+    e.put(`{"items":[`);
+    e.put(it.text());
+    e.put(`]}` ~ "\n");
     return e;
 }
 
@@ -183,13 +209,181 @@ void reportDetached(const(char)[] dsn, const Envelope e, const(char)[] owedSessi
     _exit(0);
 }
 
+// One log item on its own, without the envelope around it. A hook writes one
+// of these to the outbox and exits; the watcher wraps a batch in one envelope.
+struct Item {
+    char[4096] buf = 0;
+    size_t len;
+    bool over;
+    bool open;   // between the attributes' `{` and their `}`
+    bool first;  // no attribute written yet
+    const(char)[] text() const return { return over ? null : buf[0 .. len]; }
+
+    private void put(const(char)[] s) {
+        foreach (c; s) { if (len < buf.length) buf[len++] = c; else over = true; }
+    }
+
+    private void putEscaped(const(char)[] s) {
+        foreach (c; s) {
+            if (c == '"') put(`\"`);
+            else if (c == '\\') put(`\\`);
+            else if (c == '\n') put(`\n`);
+            else if (c == '\r') put(`\r`);
+            else if (c == '\t') put(`\t`);
+            else if (c < 0x20) continue;
+            else { char[1] one = [c]; put(one[]); }
+        }
+    }
+
+    private void putLong(long v) {
+        if (v < 0) { put("-"); v = -v; }
+        char[20] d = 0;
+        size_t n;
+        if (v == 0) d[n++] = '0';
+        while (v > 0 && n < d.length) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach (i; 0 .. n) put(d[n - 1 - i .. n - i]);
+    }
+
+    private void key(const(char)[] k) {
+        if (!first) put(",");
+        first = false;
+        put(`"`);
+        putEscaped(k);
+        put(`":{"value":`);
+    }
+
+    // A string attribute.
+    void str(const(char)[] k, const(char)[] v) {
+        key(k);
+        put(`"`);
+        putEscaped(v);
+        put(`","type":"string"}`);
+    }
+
+    void num(const(char)[] k, long v) {
+        key(k);
+        putLong(v);
+        put(`,"type":"integer"}`);
+    }
+
+    void flag(const(char)[] k, bool v) {
+        key(k);
+        put(v ? "true" : "false");
+        put(`,"type":"boolean"}`);
+    }
+
+    // The attributes' close. Nothing may be added after.
+    void close() {
+        if (!open) return;
+        put("}}");
+        open = false;
+    }
+}
+
+Item openItem(long unixSeconds, const(char)[] traceFor, const(char)[] level,
+              const(char)[] body_) {
+    Item it;
+    it.put(`{"timestamp":`);
+    it.putLong(unixSeconds);
+    it.put(`,"trace_id":"`);
+    it.put(traceId(traceFor).text());
+    it.put(`","level":"`);
+    it.put(level);
+    it.put(`","body":"`);
+    it.putEscaped(body_);
+    it.put(`","attributes":{`);
+    it.open = true;
+    it.first = true;
+    return it;
+}
+
+// A batch of items already spelled out, wrapped in one envelope. Logs and
+// metrics are two item types and go in two envelopes.
+enum BATCH_CAP = 262_144;
+
+struct Batch(size_t N = BATCH_CAP) {
+    char[N] buf = 0;
+    size_t len;
+    size_t count;
+    bool over;
+
+    // Room for one more item of this size, with the envelope's own bytes.
+    bool fits(size_t itemLen) const { return len + itemLen + 512 < buf.length; }
+
+    void add(const(char)[] item) {
+        if (!fits(item.length)) { over = true; return; }
+        if (count > 0) buf[len++] = ',';
+        foreach (c; item) buf[len++] = c;
+        count++;
+    }
+}
+
+// The whole envelope for a batch: header, item header with the count, and
+// the items as one list. Empty when the batch holds nothing.
+size_t envelopeInto(B)(const ref B b, const(char)[] dsn, const(char)[] contentType,
+                       const(char)[] itemType, char[] dest) {
+    if (b.count == 0 || !parseDsn(dsn).ok) return 0;
+    size_t o = 0;
+    void put(const(char)[] s) { foreach (c; s) if (o < dest.length) dest[o++] = c; }
+    void num(size_t v) {
+        char[20] d = 0;
+        size_t n;
+        if (v == 0) d[n++] = '0';
+        while (v > 0) { d[n++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach (i; 0 .. n) put(d[n - 1 - i .. n - i]);
+    }
+    put(`{"dsn":"`);
+    put(dsn);
+    put("\"}\n{\"type\":\"");
+    put(itemType);
+    put(`","item_count":`);
+    num(b.count);
+    put(`,"content_type":"`);
+    put(contentType);
+    put("\"}\n{\"items\":[");
+    put(b.buf[0 .. b.len]);
+    put("]}\n");
+    return o < dest.length ? o : 0;
+}
+
+enum LOG_TYPE = "log";
+enum LOG_CONTENT = "application/vnd.sentry.items.log+json";
+enum METRIC_TYPE = "trace_metric";
+enum METRIC_CONTENT = "application/vnd.sentry.items.trace-metric+json";
+
+// One distribution metric, spelled out. `attrs` come in key, value pairs.
+Item metricItem(long unixSeconds, const(char)[] traceFor, const(char)[] name,
+                long value, const(char)[] unit) {
+    Item it;
+    it.put(`{"timestamp":`);
+    it.putLong(unixSeconds);
+    it.put(`,"trace_id":"`);
+    it.put(traceId(traceFor).text());
+    it.put(`","type":"distribution","name":"`);
+    it.putEscaped(name);
+    it.put(`","value":`);
+    it.putLong(value);
+    it.put(`,"unit":"`);
+    it.put(unit);
+    it.put(`","attributes":{`);
+    it.open = true;
+    it.first = true;
+    return it;
+}
+
 // One envelope, posted. The status sentry answered with, or 0 when curl gave
 // none. The dsn rides inside the envelope, so no header carries the key.
 int postEnvelope(const(char)[] dsn, const Envelope e) {
-    import http : curlPost;
+    return postText(dsn, e.text()).status;
+}
+
+// An envelope already spelled out, posted, with everything libcurl said.
+import http : Http;
+Http postText(const(char)[] dsn, const(char)[] envelope) {
+    import http : httpPost;
     auto url = envelopeUrl(parseDsn(dsn));
-    if (url.text().length == 0 || e.text().length == 0) return 0;
-    return curlPost(url.text(), e.text(), null, 10, "application/x-sentry-envelope");
+    if (url.text().length == 0 || envelope.length == 0) return Http.init;
+    return httpPost(url.text(), envelope, null, 20, "application/x-sentry-envelope");
 }
 
 // Posts, and says so when it did not land. No dsn anywhere is nowhere to

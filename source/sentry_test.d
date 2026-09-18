@@ -432,6 +432,68 @@ static assert(dsnAt(parsed, "/home/u/src/grove-other") == "https://top@o1.ingest
 static assert(dsnAt(parsed, "/somewhere/else") == "https://top@o1.ingest.example/1");
 static assert(dsnAt(bare, "/p") == "");
 
+// A hook writes one of these and exits. What it says is finished JSON, so the
+// watcher can wrap any number of them in one envelope without reading them.
+import sentry : openItem, metricItem, Batch, envelopeInto, LOG_TYPE, LOG_CONTENT,
+                METRIC_TYPE, METRIC_CONTENT;
+
+enum fired = () {
+    auto it = openItem(1000, "sess-1", "info", "control no-skip-hooks fired");
+    it.str("control", "no-skip-hooks");
+    it.str("event", "PreToolUse");
+    it.num("code", 0);
+    it.flag("rewrite", true);
+    it.close();
+    return it;
+}();
+static assert(fired.text() ==
+    `{"timestamp":1000,"trace_id":"` ~ traceId("sess-1").text()
+    ~ `","level":"info","body":"control no-skip-hooks fired","attributes":{`
+    ~ `"control":{"value":"no-skip-hooks","type":"string"},`
+    ~ `"event":{"value":"PreToolUse","type":"string"},`
+    ~ `"code":{"value":0,"type":"integer"},`
+    ~ `"rewrite":{"value":true,"type":"boolean"}}}`);
+
+// No attribute at all still closes as an object.
+enum plainItem = () { auto it = openItem(1000, "s", "warn", "x"); it.close(); return it; }();
+static assert(contains(plainItem.text(), `"attributes":{}}`));
+
+// A hook's own duration, as the metric sentry aggregates over time.
+enum took = () {
+    auto m = metricItem(1000, "sess-1", "ground.hook.duration", 5769, "microsecond");
+    m.str("event", "PreToolUse");
+    m.str("project", "teranos/ground");
+    m.close();
+    return m;
+}();
+static assert(took.text() ==
+    `{"timestamp":1000,"trace_id":"` ~ traceId("sess-1").text()
+    ~ `","type":"distribution","name":"ground.hook.duration","value":5769,"unit":"microsecond","attributes":{`
+    ~ `"event":{"value":"PreToolUse","type":"string"},`
+    ~ `"project":{"value":"teranos/ground","type":"string"}}}`);
+
+// The batch counts what it holds, and the header says so.
+enum wrapped = () {
+    Batch!8192 b;
+    b.add(fired.text());
+    b.add(plainItem.text());
+    char[8192] dest = 0;
+    auto n = envelopeInto(b, sendDsn, LOG_CONTENT, LOG_TYPE, dest[]);
+    return dest[0 .. n].idup;
+}();
+static assert(contains(wrapped, `{"type":"log","item_count":2,"content_type":"application/vnd.sentry.items.log+json"}` ~ "\n"));
+static assert(contains(wrapped, `{"items":[{"timestamp":1000,`));
+static assert(contains(wrapped, `}},{"timestamp":1000,`), "two items, one list");
+static assert(wrapped[$ - 3 .. $] == "]}\n");
+
+// An empty batch is no envelope, so nothing is posted for nothing.
+enum nothing = () {
+    Batch!512 b;
+    char[512] dest = 0;
+    return envelopeInto(b, sendDsn, METRIC_CONTENT, METRIC_TYPE, dest[]);
+}();
+static assert(nothing == 0);
+
 // A dsn that is not one builds nothing, so nothing is posted anywhere.
 static assert(riteEnvelope("not a dsn", 1000, said("R", Verdict.Advance, 0)).text().length == 0);
 static assert(performanceEnvelope("", 1000, "c-1", "c", "done").text().length == 0);

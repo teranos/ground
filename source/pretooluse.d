@@ -343,7 +343,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     // rule is asked, so no rule's answer can leave the original in place.
     pendingRewrite = null;
     pendingWhy = null;
-    computeRewrite(input, toolName, cwd);
+    if (computeRewrite(input, toolName, cwd)) {
+        import fired : noteFiredNow;
+        noteFiredNow(sessionId, "PreToolUse", "rewrite", "rewrite", "rewrite", cwd);
+    }
 
     auto command = extractCommand(input);
 
@@ -407,6 +410,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     attrs.put(binaryFile);
                     attrs.put(`"}`);
                     attestEvent(db, "GroundedPreToolUse", cwd, sessionId, attrs.slice());
+                    import fired : noteFired;
+                    noteFired(db, sessionId, "PreToolUse", "control", "no-binary-files", "deny", cwd);
                     sqlite3_close(db);
                 }
                 __gshared ZBuf denyMsg;
@@ -448,6 +453,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     if (!any) continue;
 
                     exitLabel = "handed";
+                    import fired : noteFiredNow;
+                    noteFiredNow(sessionId, "PreToolUse", "control", ctrl.name, "handed", cwd);
                     writeDenyResponse(handed.slice());
                     return 0;
                 }
@@ -488,6 +495,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     foreach (i; 0 .. cmdLen) cmdBuf[i] = command[i];
                     string cmdStr = cast(string) cmdBuf[0 .. cmdLen];
                     auto sd = stropDispatch(globalStropPool[c.stropIdx - 1], cmdStr);
+                    {
+                        import fired : noteFired;
+                        noteFired(db, sessionId, "PreToolUse", "control", c.name,
+                                  sd.deny ? "deny" : "allow", cwd);
+                    }
                     if (sd.deny) {
                         finalDecision = "deny";
                         hasDeny = true;
@@ -506,6 +518,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (c.tmo.value > maxTmo) maxTmo = c.tmo.value;
 
                 bool isMsgOnly = c.arg.value.length == 0 && c.omit.value.length == 0 && c.omitLine.value.length == 0 && c.clamp.value.length == 0 && c.range.value.length == 0 && c.substituteForCmd.value.length == 0;
+
+                {
+                    import fired : noteFired;
+                    noteFired(db, sessionId, "PreToolUse", isMsgOnly ? "control" : "rewrite",
+                              c.name, isMsgOnly ? m.decision : "rewrite", cwd);
+                }
 
                 if (isMsgOnly) {
                     // Deny and ask controls always show their message — no dedup
@@ -582,6 +600,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 auto pr = evaluatePermission(permissionScopes, cwd, toolName, command, sessionMode);
                 if (pr.decision == Decision.deny) {
                     exitLabel = "deny";
+                    import fired : noteFiredNow;
+                    noteFiredNow(sessionId, "PreToolUse", "permission", pr.name, "deny", cwd);
                     writeDenyResponse(pr.msg);
                     return 0;
                 }
@@ -632,12 +652,16 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         if (permResult.decision == Decision.deny) {
                             tPerm = usecNow();
                             exitLabel = "perm-deny";
+                            import fired : noteFiredNow;
+                            noteFiredNow(sessionId, "PreToolUse", "permission", permResult.name, "deny", cwd);
                             writeDenyResponse(permResult.msg);
                             return 0;
                         }
                         if (permResult.decision == Decision.allow) {
                             tPerm = usecNow();
                             exitLabel = "perm-allow";
+                            import fired : noteFiredNow;
+                            noteFiredNow(sessionId, "PreToolUse", "permission", permResult.name, "allow", cwd);
                             if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
                             else writeContextResponse("", "allow");
                             return 0;
@@ -678,6 +702,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 if (pdb !is null) {
                     import db : attestControlFire;
                     attestControlFire(pdb, "GroundedPermissionDeny", permResult.name, cwd, sessionId);
+                    import fired : noteFired;
+                    noteFired(pdb, sessionId, "PreToolUse", "permission", permResult.name, "deny", cwd);
                     sqlite3_close(pdb);
                 }
             }
@@ -691,6 +717,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         // whether an edit asked, and no rule could say otherwise.
         if (permResult.decision == Decision.allow) {
             exitLabel = "file-perm-allow";
+            import fired : noteFiredNow;
+            noteFiredNow(sessionId, "PreToolUse", "permission", permResult.name, "allow", cwd);
             writeContextResponse("", "allow");
             return 0;
         }
@@ -734,6 +762,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     import db : attestControlFire;
                     attestControlFire(db, "GroundedPreToolUse", c.name, cwd, sessionId);
                 }
+                import fired : noteFired;
+                noteFired(db, sessionId, "PreToolUse", "control", c.name, "context", cwd);
             }
         }
 
@@ -849,6 +879,9 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     import db : attestControlFire;
                     attestControlFire(db, "GroundedPreToolUse", c.name, cwd, sessionId);
                 }
+                import fired : noteFired;
+                noteFired(db, sessionId, "PreToolUse", "control", c.name,
+                          sc.decision.length > 0 ? sc.decision : "context", cwd);
             }
         }
 

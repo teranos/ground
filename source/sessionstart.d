@@ -237,6 +237,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 {
                     import db : attestControlFire;
                     attestControlFire(null, "GroundedSessionStart", c.name, cwd, sessionId);
+                    import fired : noteFiredNow;
+                    noteFiredNow(sessionId, "SessionStart", "control", c.name, "context", cwd);
                 }
             }
         }

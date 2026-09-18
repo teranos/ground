@@ -43,8 +43,9 @@ int decayDb(sqlite3* db) {
     sqlite3_exec(db, stripSubagent.ptr, null, null, null);
     auto subagentDecayed = sqlite3_changes(db);
 
-    // 3. Delete timing rows > 30 days
-    enum deleteTiming = "DELETE FROM timing WHERE created_at < datetime('now', '-30 days')\0";
+    // 3. Delete timing rows > 30 days, once sentry has them. Unshipped rows
+    // are the record still, and the watcher ships them in its own time.
+    enum deleteTiming = "DELETE FROM timing WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
     sqlite3_exec(db, deleteTiming.ptr, null, null, null);
     auto timingDeleted = sqlite3_changes(db);
 
@@ -94,18 +95,11 @@ unittest {
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
 
-    // Create schema
-    enum schema = "CREATE TABLE attestations ("
-        ~ "id TEXT PRIMARY KEY, subjects JSON, predicates JSON, "
-        ~ "contexts JSON, actors JSON, timestamp DATETIME, "
-        ~ "source TEXT, attributes JSON, "
-        ~ "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
-    sqlite3_exec(db, schema.ptr, null, null, null);
-
-    enum timingSchema = "CREATE TABLE timing ("
-        ~ "id INTEGER PRIMARY KEY, duration_us INTEGER, hook_event TEXT, "
-        ~ "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
-    sqlite3_exec(db, timingSchema.ptr, null, null, null);
+    // The product schema, not a copy of it: a copy drifts.
+    {
+        import db : applySchema;
+        assert(applySchema(db));
+    }
 
     // Insert old PostToolUse (10 days ago)
     enum oldPostToolUse = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
@@ -139,10 +133,13 @@ unittest {
         ~ "datetime('now', '-10 days'))\0";
     sqlite3_exec(db, oldSubagent.ptr, null, null, null);
 
-    // Insert old timing (40 days ago)
-    enum oldTiming = "INSERT INTO timing (duration_us, hook_event, created_at) "
-        ~ "VALUES (1000, 'PostToolUse', datetime('now', '-40 days'))\0";
+    // Insert old timing (40 days ago), shipped, and one as old that never was
+    enum oldTiming = "INSERT INTO timing (duration_us, hook_event, created_at, shipped_at) "
+        ~ "VALUES (1000, 'PostToolUse', datetime('now', '-40 days'), 1)\0";
     sqlite3_exec(db, oldTiming.ptr, null, null, null);
+    enum oldUnshipped = "INSERT INTO timing (duration_us, hook_event, created_at) "
+        ~ "VALUES (1500, 'PostToolUse', datetime('now', '-40 days'))\0";
+    sqlite3_exec(db, oldUnshipped.ptr, null, null, null);
 
     // Insert recent timing (5 days ago)
     enum recentTiming = "INSERT INTO timing (duration_us, hook_event, created_at) "
@@ -221,13 +218,14 @@ unittest {
         sqlite3_finalize(stmt);
     }
 
-    // Verify: old timing deleted, recent kept
+    // Verify: old shipped timing deleted; the recent one and the old one
+    // sentry never got are kept
     {
         enum sql = "SELECT count(*) FROM timing\0";
         sqlite3_stmt* stmt;
         assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
         assert(sqlite3_step(stmt) == SQLITE_ROW);
-        assert(sqlite3_column_int64(stmt, 0) == 1); // only the recent one
+        assert(sqlite3_column_int64(stmt, 0) == 2, "unshipped is not thrown away");
         sqlite3_finalize(stmt);
     }
 

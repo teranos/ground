@@ -80,6 +80,8 @@ private void noteRewriteOnce(const(char)[] cwd, const(char)[] sessionId) {
             ~ "before it reached the screen. The reader never sees the address, so "
             ~ "it tells them nothing — show the code instead.", 0);
         attestControlFire(db, "GroundedMessageDisplay", REWRITE_CONTROL, cwd, sessionId);
+        import fired : noteFired;
+        noteFired(db, sessionId, "MessageDisplay", "rewrite", REWRITE_CONTROL, "rewrite", cwd);
     }
 
     sqlite3_close(db);

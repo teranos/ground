@@ -82,6 +82,9 @@ const(char)[] deliverError(const ref GroundError err) {
         if (db !is null) {
             auto result = formatResult(err);
             auto ok = writeExecResult(db, err.sessionId, err.controlName, result, err.stdout, err.stderr);
+            // The same error, left for the watcher to post. Every error ground
+            // raises reaches sentry this way, and this hook posts nothing.
+            leaveForSentry(db, err, result);
             sqlite3_close(db);
             if (ok) return "db";
         }
@@ -97,6 +100,35 @@ const(char)[] deliverError(const ref GroundError err) {
     // caller must handle (e.g. abort loudly). We return empty so the
     // caller knows nothing landed.
     return "";
+}
+
+// One outbox item per error: origin, control, the result line and the tail of
+// stderr. Never stdout, which is what a rite printed, and never a path.
+private void leaveForSentry(void* db, const ref GroundError err, const(char)[] result) {
+    import db : sqlite3;
+    import sentry : openItem, Item;
+    import outbox : leave;
+
+    __gshared char[256] body_ = 0;
+    size_t n;
+    void say(const(char)[] s) { foreach (c; s) if (n < body_.length) body_[n++] = c; }
+    say(err.origin);
+    say(": ");
+    say(err.message);
+
+    // A stderr tail, bounded so the item stays an item. The reason is in the
+    // last lines more often than the first.
+    auto tail = err.stderr.length > 600 ? err.stderr[$ - 600 .. $] : err.stderr;
+
+    auto it = openItem(err.timestamp, err.sessionId, "error", body_[0 .. n]);
+    it.str("origin", err.origin);
+    it.str("control", err.controlName);
+    it.str("result", result);
+    it.num("exit", err.exitCode);
+    it.num("errno", err.errnoVal);
+    it.str("stderr", tail);
+    it.close();
+    cast(void) leave(cast(sqlite3*) db, err.sessionId, "error", it, err.timestamp);
 }
 
 // Format an Error into the compact result string used by the primary

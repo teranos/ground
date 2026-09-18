@@ -330,6 +330,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 {
                     import db : attestControlFire;
                     attestControlFire(db, "GroundedPostToolUse", c.name, cwd, sessionId);
+                    import fired : noteFired;
+                    noteFired(db, sessionId, "PostToolUse", "control", c.name, "context", cwd);
                 }
                 if (db !is null) sqlite3_close(db);
 
@@ -385,6 +387,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     {
                         import db : attestControlFire;
                         attestControlFire(ddb, "GroundedPostToolUseDeferred", c.name, cwd, sessionId);
+                        import fired : noteFired;
+                        noteFired(ddb, sessionId, "PostToolUse", "control", c.name, "defer", cwd);
                     }
 
                     sqlite3_close(ddb);

@@ -37,6 +37,9 @@ private __gshared int g_dbFailCode;
 
 void resetDbFailure() { g_dbFailCode = 0; }
 void noteDbFailure(int code) { g_dbFailCode = code; }
+// What sqlite last said about a store that would not open, 0 when it said
+// nothing. A caller that reports "could not open" owes the reader this number.
+int dbFailureCode() { return g_dbFailCode; }
 bool dbUnusable() { return isCorruptionCode(g_dbFailCode); }
 
 // The report. Goes out on the hook's own stderr, never through the store —
@@ -102,8 +105,10 @@ unittest {
 unittest {
     // Lock contention is not damage and must not halt ground.
     resetDbFailure();
+    assert(dbFailureCode() == 0, "nothing said yet");
     noteDbFailure(SQLITE_BUSY);
     assert(!dbUnusable(), "transient busy must not stop the world");
+    assert(dbFailureCode() == SQLITE_BUSY, "and what sqlite said is there to be reported");
     resetDbFailure();
 }
 
@@ -120,6 +125,7 @@ extern (C) {
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
     int sqlite3_changes(sqlite3* db);
     int sqlite3_errcode(sqlite3* db);
+    long sqlite3_last_insert_rowid(sqlite3* db);
 }
 
 extern (C) {
@@ -330,6 +336,31 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, usageSchema.ptr, null, null, null);
     enum idxUsage = "CREATE INDEX IF NOT EXISTS idx_usage_window_seen ON usage(window, seen_at)\0";
     sqlite3_exec(db, idxUsage.ptr, null, null, null);
+
+    // "needs to be instrumented"
+    // One row per long-lived ground process, watcher or driver: when it started,
+    // for whom, that it is still polling, and how it ended.
+    enum processSchema = "CREATE TABLE IF NOT EXISTS process (id INTEGER PRIMARY KEY, "
+        ~ "kind TEXT NOT NULL, pid INTEGER NOT NULL, ppid INTEGER NOT NULL, "
+        ~ "who TEXT, tree TEXT, "
+        ~ "started_at INTEGER NOT NULL, seen_at INTEGER NOT NULL DEFAULT 0, "
+        ~ "ended_at INTEGER NOT NULL DEFAULT 0, ended TEXT, "
+        ~ "delivered INTEGER NOT NULL DEFAULT 0, polls INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, processSchema.ptr, null, null, null);
+
+    // What a hook has to say to sentry, written as the finished log item and
+    // left here. A hook opens no socket: the watcher posts these in batches.
+    enum outboxSchema = "CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, "
+        ~ "session TEXT, level TEXT NOT NULL, item TEXT NOT NULL, "
+        ~ "at INTEGER NOT NULL, shipped_at INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, outboxSchema.ptr, null, null, null);
+    enum idxOutbox = "CREATE INDEX IF NOT EXISTS idx_outbox_shipped ON outbox(shipped_at)\0";
+    sqlite3_exec(db, idxOutbox.ptr, null, null, null);
+
+    // A timing row is shipped once, and decay keeps what is still unshipped.
+    ensureColumn(db, "timing", "shipped_at", "INTEGER NOT NULL DEFAULT 0");
+    enum idxTimingShipped = "CREATE INDEX IF NOT EXISTS idx_timing_shipped ON timing(shipped_at)\0";
+    sqlite3_exec(db, idxTimingShipped.ptr, null, null, null);
 
     // The Actions minutes an org has used this month, one row an org. `used`
     // is -1 until github has answered once, which is not zero minutes. ug

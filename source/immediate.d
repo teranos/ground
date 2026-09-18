@@ -30,6 +30,10 @@ import core.stdc.time : time;
 
 extern (C) uint usleep(uint);
 
+// How much of one message reaches the reader. The watcher's batch holds a
+// few of these, and one is never cut to fit beside another.
+enum MESSAGE_CAP = 16384;
+
 // What goes between the quotes of a JSON string. Dropping a character instead
 // of escaping it hands over a command that cannot be pasted; passing a newline
 // through raw makes the row invalid JSON, which every json_extract then misses.
@@ -91,7 +95,10 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     __gshared char[128] idBuf = 0;
     __gshared char[256] nameBuf = 0;
-    __gshared char[512] msgBuf = 0;
+    // An exec result carries the stderr of what failed, and the reason is at
+    // the end of it. 512 handed the operator the first quarter of a rite's
+    // output and kept the line that said why.
+    __gshared char[MESSAGE_CAP] msgBuf = 0;
     __gshared char[256] ctxBuf = 0;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -1600,6 +1607,29 @@ unittest {
     assert(readImmediateMessage(testDb, "/tmp/anywhere", "sess-receipt").message is null,
            "and the message is not offered again");
 
+    sqlite3_close(testDb);
+}
+
+unittest {
+    // "it ebing truncated copy is also not preffered"
+    // An exec result carries stdout and stderr, kilobytes of them, and the
+    // reason sat past the 512th byte of the one buffer it was read into.
+    import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
+    sqlite3* testDb;
+    assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
+    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
+    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+
+    char[2000] filler = 'x';
+    char[2100] said = 0;
+    size_t n;
+    foreach (ch; filler) said[n++] = ch;
+    foreach (ch; "\nthe reason is at the end") said[n++] = ch;
+    assert(writeExecResult(testDb, "sess-long", "SACRED", "exit 2", "", said[0 .. n]));
+
+    auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-long");
+    assert(msg.message !is null);
+    assert(indexOf(msg.message, "the reason is at the end") >= 0, "the reason arrives, not the first 512 bytes");
     sqlite3_close(testDb);
 }
 

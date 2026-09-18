@@ -143,6 +143,19 @@ static assert(chapterOf("zbuf") == "");
 // scope and control and owns terms for neither.
 static assert(chapterOf("proto") == "");
 
+// What reaches sentry is the sentry chapter's: what the hooks leave in the
+// outbox, every firing, every hook's timing, and the watcher's own record.
+static assert(chapterOf("outbox") == "sentry");
+static assert(chapterOf("fired") == "sentry");
+static assert(chapterOf("hooktiming") == "sentry");
+static assert(chapterOf("lifecycle") == "sentry");
+static assert(chapterOf("minutes") == "sentry");
+static assert(chapterOf("org") == "sentry");
+
+// A message coming back to the session is an attestation read, so the module
+// that reads it is the attestation chapter's.
+static assert(chapterOf("immediate") == "attestation");
+
 // A module under source/ritual/ is named with its directory, so the ritual's
 // own modules are reachable and nothing beside them can be mistaken for them.
 static assert(moduleName("source/ritual/position.d") == "ritual/position");

@@ -175,15 +175,6 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     auto t2 = usecNow();
 
-    // The orgs' Actions minutes, asked for when the last asking is old. A turn
-    // ending is the most regular thing a working session does, and the asking
-    // itself happens in a child.
-    {
-        import minutes : refreshDue;
-        import core.stdc.time : time;
-        refreshDue(db, sessionId, cast(long) time(null));
-    }
-
     long branchUs;
     const(char)[] branch;
     {
@@ -332,6 +323,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
+                    {
+                        import fired : noteFired;
+                        noteFired(db, sessionId, "Stop", "control", c.name, "block", cwd);
+                    }
                     sqlite3_close(db);
                     import matcher : envSubst;
                     writeStopResponseAndNotify(envSubst(c.msg.value, cwd));
@@ -454,6 +449,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (delivered is null) continue;
 
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
+                    {
+                        import fired : noteFired;
+                        noteFired(db, sessionId, "Stop", "control", c.name, "deliver", cwd);
+                    }
                     sqlite3_close(db);
                     writeStopResponseAndNotify(delivered);
                     return 0;
@@ -551,21 +550,20 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         enum VERSION = import(".version");
                         regressionLine(timingMsg, b.event, avgMs, budgetMs, VERSION, means);
                         attestEvent(db, "GroundedStop", cwd, sessionId, `{"control":"timing-regression"}`);
-                        sqlite3_close(db);
 
-                        // "it should send to sentry" — the same numbers, where
-                        // they can be counted across sessions and builds. From
-                        // a child: this hook is the one being told it is slow.
+                        // "it should send to sentry"
+                        // The same numbers, left for the watcher to post. This
+                        // hook is the one being told it is slow.
                         {
-                            import sentry : budgetEnvelope, reportDetached;
-                            import controls : dsnHere;
+                            import sentry : budgetItem;
+                            import outbox : leave;
                             import core.stdc.time : time;
-                            auto dsn = dsnHere(cwd);
-                            reportDetached(dsn,
-                                budgetEnvelope(dsn, cast(long) time(null), sessionId, b.event,
-                                               avgMs, budgetMs, VERSION, project, means),
-                                sessionId, "timing-regression");
+                            auto now = cast(long) time(null);
+                            auto it = budgetItem(now, sessionId, b.event, avgMs, budgetMs,
+                                                 VERSION, project, means);
+                            cast(void) leave(db, sessionId, "warn", it, now);
                         }
+                        sqlite3_close(db);
                         writeStopResponseAndNotify(timingMsg.slice());
                         return 0;
                     }

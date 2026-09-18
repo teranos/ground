@@ -243,8 +243,26 @@ private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long 
 
     auto db = openDb();
     if (db is null) {
-        emitError("minutes.record", "the org's minutes were read, and ground could not open its database to write them down",
-                  0, -1, cast(string) sessionId, "org-minutes", "", cast(string) githubOrg, "");
+        // Which of the ways an open fails this was. Seen 2026-09-17 between two
+        // askings that worked, and the record of it could not say.
+        import db : dbFailureCode;
+        __gshared char[160] why = 0;
+        size_t n;
+        void say(const(char)[] s) { foreach (c; s) if (n < why.length) why[n++] = c; }
+        say("the org's minutes were read, and ground could not open its database to write them down: ");
+        auto code = dbFailureCode();
+        if (code == 0) say("sqlite gave no code, so the open itself failed or HOME is unset");
+        else {
+            say("sqlite code ");
+            char[12] d = 0;
+            size_t dl;
+            auto v = code;
+            while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+            foreach_reverse (i; 0 .. dl) if (n < why.length) why[n++] = d[i];
+            say(" at the schema step");
+        }
+        emitError("minutes.record", cast(string) why[0 .. n], 0, -1, cast(string) sessionId,
+                  "org-minutes", "", cast(string) githubOrg, "");
         _exit(0);
     }
     auto wrote = recordReading(db, githubOrg, used.minutes, now);

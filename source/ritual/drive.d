@@ -41,6 +41,33 @@ private const(char)[] dsnOf(PR)(const ref PR parsed, const(char)[] ritual) {
 // How long an ending waits to learn who carried it before saying nobody did.
 enum BIND_WAIT_SEC = 10;
 
+// The driver's ending, in the record and in the outbox of the session that is
+// owed the news. A driver that dies without reaching this leaves a row that
+// stopped being seen, which is the fact the record exists to hold.
+private void driverEnded(DB)(DB db, long record, const(char)[] owed, const(char)[] perfId,
+                             const(char)[] how, long polls, long startedAt) {
+    import core.stdc.time : time;
+    import lifecycle : processEnded;
+    import sentry : openItem;
+    import outbox : leave;
+    import db : ZBuf;
+
+    auto now = cast(long) time(null);
+    processEnded(db, record, how, 0, now);
+
+    __gshared ZBuf body_;
+    body_.reset();
+    body_.put("driver ");
+    body_.put(how);
+    auto it = openItem(now, perfId, "info", body_.slice());
+    it.str("kind", "drive");
+    it.str("performance", perfId);
+    it.num("polls", polls);
+    it.num("seconds", now - startedAt);
+    it.close();
+    cast(void) leave(db, owed, "info", it, now);
+}
+
 // The ending, in the word sentry is told. Live is not one.
 const(char)[] endingWord(RitualState s) {
     final switch (s) {
@@ -91,18 +118,44 @@ int handleDrive(int argc, const(char)** argv) {
     size_t openRite = size_t.max;
     long openedUs;
 
+    // The driver's own record, so an ended performance and a driver that died
+    // under it are two different facts on disk.
+    import lifecycle : processStarted, processSeen;
+    import watch : getpid, getppid;
+    long record = 0;
+    long polls = 0;
+    auto startedAt = cast(long) time(null);
+    const(char)[] owed = "";
+    {
+        auto rdb = openDb();
+        if (rdb !is null) {
+            record = processStarted(rdb, "drive", getpid(), getppid(), perfId, "", startedAt);
+            sqlite3_close(rdb);
+        }
+    }
+
     for (;;) {
         auto db = openDb();
         if (db is null) return 0;
+        polls++;
+        processSeen(db, record, cast(long) time(null));
 
         auto found = byPerformanceId(db, perfId);
-        if (!found.valid) { sqlite3_close(db); return 0; }
+        if (!found.valid) {
+            driverEnded(db, record, owed, perfId, "no performance by that id", polls, startedAt);
+            sqlite3_close(db);
+            return 0;
+        }
+        owed = found.p.parent;
 
         treePath.reset();
         treePath.put(found.p.worktree);
         final switch (treeVerdict(access(treePath.ptr(), 0) == 0, sawTree)) {
         case TreeVerdict.Run:  sawTree = true; break;
-        case TreeVerdict.Gone: sqlite3_close(db); return 0;
+        case TreeVerdict.Gone:
+            driverEnded(db, record, owed, perfId, "the tree is gone", polls, startedAt);
+            sqlite3_close(db);
+            return 0;
         case TreeVerdict.Wait: sqlite3_close(db); sleep(1); continue;
         }
 
@@ -158,6 +211,20 @@ int handleDrive(int argc, const(char)** argv) {
                 import worktree : removeWorktree;
                 auto root = repoRoot(parsed, repo);
                 if (root.length > 0) removeWorktree(root, tree);
+            }
+
+            {
+                auto edb = openDb();
+                if (edb !is null) {
+                    __gshared ZBuf how;
+                    how.reset();
+                    how.put("the performance ended ");
+                    how.put(endingWord(ended));
+                    how.put(", agent ");
+                    how.put(REAPED_WORD[cast(size_t) reaped]);
+                    driverEnded(edb, record, owed, perfId, how.slice(), polls, startedAt);
+                    sqlite3_close(edb);
+                }
             }
             return 0;
         }

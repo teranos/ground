@@ -203,11 +203,28 @@ private const(char)[] treeKey(const(char)[] cwd) {
     return cwd[start .. $];
 }
 
-// True when this process may watch that tree. False when a live one already is.
-bool claimTree(const(char)[] cwd, int myPid) {
+// Whether the pid in the tree file still holds the tree. kill(pid, 0) answers 0
+// for a process a Stop has just signalled and that has not yet gone, and the
+// replacement that Stop spawned was refusing itself on that answer.
+bool treeHeld(bool alive, bool endedInRecord) {
+    return alive && !endedInRecord;
+}
+
+// Whether one more message, its prefix and its separator fit the batch whole.
+bool batchFits(size_t used, size_t cap, size_t message) {
+    return used + 1 + "ground: ".length + message <= cap;
+}
+
+private bool pidAlive(long pid) {
+    return pid > 0 && kill(cast(int) pid, 0) == 0;
+}
+
+// 0 when this process now watches that tree. Otherwise the pid of the live
+// watcher that already does, so the refusal can name it.
+int claimTree(const(char)[] cwd, int myPid) {
     __gshared char[512] pathBuf = 0;
     auto pLen = buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid");
-    if (pLen == 0) return true;
+    if (pLen == 0) return 0;
 
     auto rf = fopen(&pathBuf[0], "r");
     if (rf !is null) {
@@ -216,14 +233,23 @@ bool claimTree(const(char)[] cwd, int myPid) {
         fclose(rf);
         auto held = parsePid(pidBuf[0 .. n]);
         // Signal 0 tests for existence without delivering anything.
-        if (held > 0 && held != myPid && kill(held, 0) == 0) return false;
+        if (held > 0 && held != myPid && kill(held, 0) == 0) {
+            import lifecycle : pidEnded;
+            bool ended = false;
+            auto db = openDb();
+            if (db !is null) {
+                ended = pidEnded(db, held);
+                sqlite3_close(db);
+            }
+            if (treeHeld(true, ended)) return held;
+        }
     }
 
     auto wf = fopen(&pathBuf[0], "w");
-    if (wf is null) return true;
+    if (wf is null) return 0;
     fprintf(wf, "%d\n", myPid);
     fclose(wf);
-    return true;
+    return 0;
 }
 
 void releaseTree(const(char)[] cwd) {
@@ -248,8 +274,22 @@ void killSessionWatcher(const(char)[] sessionId) {
     fclose(rf);
 
     auto oldPid = parsePid(pidBuf[0 .. n]);
-    if (oldPid > 0)
+    if (oldPid > 0) {
         kill(oldPid, 15); // SIGTERM
+
+        // The one it killed cannot write its own ending, so this writes it.
+        import lifecycle : processKilled;
+        import core.stdc.time : time;
+        auto db = openDb();
+        if (db !is null) {
+            __gshared ZBuf why;
+            why.reset();
+            why.put("killed by a stop of session ");
+            why.put(sessionId);
+            processKilled(db, oldPid, why.slice(), cast(long) time(null));
+            sqlite3_close(db);
+        }
+    }
 
     // The file outlives the watcher it named. Left in place it accumulates,
     // and the number it holds is eventually handed to something else.
@@ -374,10 +414,32 @@ int handleWatch(int argc, const(char)** argv) {
     }
 
     import main : argLen;
+    import core.stdc.time : time;
+    import lifecycle : processStarted, processSeen, processEnded;
     auto cwd = argv[2][0 .. argLen(argv[2])];
+    auto tree = treeKey(cwd);
+    int myPid = getpid();
+    int myPpid = getppid();
 
-    // A second watcher on a tree is a second walker: it calls `advance` too.
-    if (!claimTree(cwd, getpid())) return 0;
+    // A second watcher on a tree is a second walker. Refused, it says so: the
+    // session it was spawned for is then watched by the one holding the tree,
+    // or by nobody, and the record is how that is told apart later.
+    auto holder = claimTree(cwd, myPid);
+    if (holder != 0) {
+        auto rdb = openDb();
+        if (rdb !is null) {
+            auto now = cast(long) time(null);
+            auto id = processStarted(rdb, "watch", myPid, myPpid, "", tree, now);
+            __gshared ZBuf why;
+            why.reset();
+            why.put("refused: the tree is watched by pid ");
+            why.putUint(cast(ulong) holder);
+            processEnded(rdb, id, why.slice(), 0, now);
+            lifecycleNote(rdb, "", "warn", why.slice(), tree, myPid, 0, 0, now);
+            sqlite3_close(rdb);
+        }
+        return 0;
+    }
 
     // The model's mark. The operator is not reached from here — exit 0 renders
     // systemMessage but sends stdout to the debug log, so a second watcher for
@@ -405,13 +467,49 @@ int handleWatch(int argc, const(char)** argv) {
         import exec : emitError;
         emitError("watch.claim", "no claim file to take, so this watcher has no session",
                   0, 1, "", "watch", "", "", "");
+        auto rdb = openDb();
+        if (rdb !is null) {
+            auto now = cast(long) time(null);
+            auto id = processStarted(rdb, "watch", myPid, myPpid, "", tree, now);
+            enum why = "no claim file to take, so this watcher has no session";
+            processEnded(rdb, id, why, 0, now);
+            lifecycleNote(rdb, "", "warn", why, tree, myPid, 0, 0, now);
+            sqlite3_close(rdb);
+        }
         return 1;
     }
 
     enum pidPrefix = "watch-";
     writePid(sessionId, pidPrefix);
 
-    __gshared char[4096] batchBuf = 0;
+    // The record this watcher keeps of itself, from here to its ending.
+    long record = 0;
+    auto startedAt = cast(long) time(null);
+    {
+        auto rdb = openDb();
+        if (rdb !is null) {
+            record = processStarted(rdb, "watch", myPid, myPpid, sessionId, tree, startedAt);
+            import hooktiming : releaseDeadClaims;
+            auto freed = releaseDeadClaims(rdb, &pidAlive);
+            if (freed > 0) {
+                __gshared ZBuf why;
+                why.reset();
+                why.put("freed timing rows claimed by dead watchers: ");
+                why.putUint(cast(ulong) freed);
+                lifecycleNote(rdb, sessionId, "warn", why.slice(), tree, myPid, 0, 0, startedAt);
+            }
+            sqlite3_close(rdb);
+        }
+    }
+    long polls = 0;
+
+    // Where this session reports, asked once: the place does not move.
+    import controls : dsnHere;
+    auto dsn = dsnHere(cwd);
+    long shipBackoffUntil = 0;
+
+    import immediate : MESSAGE_CAP;
+    __gshared char[4 * MESSAGE_CAP] batchBuf = 0;
     size_t batchLen = 0;
 
     int nextSleep = 2;
@@ -421,6 +519,8 @@ int handleWatch(int argc, const(char)** argv) {
         if (db !is null) {
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
+            polls++;
+            processSeen(db, record, cast(long) time(null));
 
             // The watcher does not walk. `ground drive` was built for exactly
             // the case this block was added for — an agent inside the agentic
@@ -512,6 +612,10 @@ int handleWatch(int argc, const(char)** argv) {
 
                 }
 
+                // A message the batch cannot hold whole is not receipted: it
+                // is delivered whole on the next pass, after this batch.
+                if (!batchFits(batchLen, batchBuf.length, imm.message.length)) break;
+
                 // The receipt comes before the batch on purpose: a message
                 // written to stderr without one is delivered again on the next
                 // pass, and the operator reads it twice.
@@ -521,16 +625,20 @@ int handleWatch(int argc, const(char)** argv) {
                 }
 
                 // Append to batch: "ground: <message>\n"
-                if (batchLen > 0 && batchLen < batchBuf.length) batchBuf[batchLen++] = '\n';
-                foreach (c; "ground: ") { if (batchLen < batchBuf.length) batchBuf[batchLen++] = c; }
-                foreach (c; imm.message) { if (batchLen < batchBuf.length) batchBuf[batchLen++] = c; }
+                if (batchLen > 0) batchBuf[batchLen++] = '\n';
+                foreach (c; "ground: ") batchBuf[batchLen++] = c;
+                foreach (c; imm.message) batchBuf[batchLen++] = c;
             }
-
-            sqlite3_close(db);
 
             // "nothing can wait, and everything is urgent, at the same level
             // of predictable urgency"
             if (batchLen > 0) {
+                // Counted, not parsed: every message went in as one line.
+                long delivered = 1;
+                foreach (c; batchBuf[0 .. batchLen]) if (c == '\n') delivered++;
+                ending(db, record, sessionId, tree, myPid, "delivered and exited 2",
+                       delivered, polls, startedAt, "info");
+                sqlite3_close(db);
                 removePid(sessionId, pidPrefix);
                 releaseTree(cwd);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
@@ -542,16 +650,40 @@ int handleWatch(int argc, const(char)** argv) {
             // two seconds. This watcher stops; the next hook spawns another,
             // and if the db is still broken that one says so once as well.
             if (stuck) {
+                ending(db, record, sessionId, tree, myPid, "stuck: a receipt would not land",
+                       0, polls, startedAt, "warn");
+                sqlite3_close(db);
                 removePid(sessionId, pidPrefix);
                 releaseTree(cwd);
                 return 1;
             }
+
+            // Nothing to hand over this pass, so the pass is spent shipping:
+            // what the hooks left in the outbox, and the timing rows.
+            auto now = cast(long) time(null);
+
+            // The orgs' Actions minutes, asked when the last asking is old.
+            // Asked from here and from no hook: the asking is a round trip.
+            {
+                import minutes : refreshDue;
+                refreshDue(db, sessionId, now);
+            }
+            if (dsn.length > 0 && now >= shipBackoffUntil) {
+                if (!shipPass(db, sessionId, dsn, myPid, now)) shipBackoffUntil = now + SHIP_BACKOFF_SEC;
+            }
+            sqlite3_close(db);
         }
 
         // The session that spawned this watcher is gone, and only that
         // session's Stop ever calls killSessionWatcher. Without this the
         // loop runs until the machine reboots.
         if (orphaned(getppid())) {
+            auto odb = openDb();
+            if (odb !is null) {
+                ending(odb, record, sessionId, tree, myPid, "orphaned: the session is gone",
+                       0, polls, startedAt, "info");
+                sqlite3_close(odb);
+            }
             removePid(sessionId, pidPrefix);
             releaseTree(cwd);
             return 0;
@@ -559,4 +691,106 @@ int handleWatch(int argc, const(char)** argv) {
 
         sleep(nextSleep);
     }
+}
+
+// How long a pass that could not post waits before trying again. A refusal
+// every two seconds would be the same refusal, said thirty times a minute.
+enum SHIP_BACKOFF_SEC = 60;
+
+// The ending, in the record and in the outbox. The outbox item is the next
+// watcher's to ship; this one is leaving.
+private void ending(sqlite3* db, long record, const(char)[] sessionId, const(char)[] tree,
+                    int pid, const(char)[] how, long delivered, long polls,
+                    long startedAt, const(char)[] level) {
+    import core.stdc.time : time;
+    import lifecycle : processEnded;
+    auto now = cast(long) time(null);
+    processEnded(db, record, how, delivered, now);
+    lifecycleNote(db, sessionId, level, how, tree, pid, delivered, polls, now, now - startedAt);
+}
+
+// One outbox item about a watcher: what became of it, for whom, and how much
+// it handed over. The tree is a directory's name, never a path.
+private void lifecycleNote(sqlite3* db, const(char)[] sessionId, const(char)[] level,
+                           const(char)[] how, const(char)[] tree, int pid,
+                           long delivered, long polls, long now, long seconds = 0) {
+    import sentry : openItem;
+    import outbox : leave;
+
+    __gshared ZBuf body_;
+    body_.reset();
+    body_.put("watcher ");
+    body_.put(how);
+
+    auto it = openItem(now, sessionId.length > 0 ? sessionId : tree, level, body_.slice());
+    it.str("kind", "watch");
+    it.str("session", sessionId);
+    it.str("tree", tree);
+    it.num("pid", pid);
+    it.num("delivered", delivered);
+    it.num("polls", polls);
+    it.num("seconds", seconds);
+    it.close();
+    cast(void) leave(db, sessionId, level, it, now);
+}
+
+// Whatever is pending for this session, posted. False when a post did not
+// land, which is what the caller backs off on. Nothing pending is true.
+private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, int pid, long now) {
+    import sentry : Batch, envelopeInto, postText, LOG_TYPE, LOG_CONTENT, METRIC_TYPE, METRIC_CONTENT;
+    import outbox : pendingInto, shipped;
+    import hooktiming : claimTiming, claimedInto, claimResolved;
+    import db : versionString;
+    import exec : emitError;
+
+    __gshared Batch!() logs;
+    __gshared char[280_000] envelope = void;
+    logs = Batch!().init;
+    auto last = pendingInto(db, sessionId, logs);
+    if (last > 0) {
+        auto n = envelopeInto(logs, dsn, LOG_CONTENT, LOG_TYPE, envelope[]);
+        auto r = postText(dsn, envelope[0 .. n]);
+        if (r.status != 200) {
+            shipFailed(sessionId, "the outbox post", r.status, r.why());
+            return false;
+        }
+        shipped(db, sessionId, last, now);
+    }
+
+    __gshared Batch!() metrics;
+    metrics = Batch!().init;
+    if (claimTiming(db, pid) > 0) {
+        claimedInto(db, pid, versionString(), metrics);
+        auto n = envelopeInto(metrics, dsn, METRIC_CONTENT, METRIC_TYPE, envelope[]);
+        auto r = postText(dsn, envelope[0 .. n]);
+        auto landed = r.status == 200;
+        claimResolved(db, pid, landed, now);
+        if (!landed) {
+            shipFailed(sessionId, "the timing post", r.status, r.why());
+            return false;
+        }
+    }
+    return true;
+}
+
+// A post that did not land, said once per backoff, with what sentry or
+// libcurl said about it.
+private void shipFailed(const(char)[] sessionId, const(char)[] what, int status, const(char)[] why) {
+    import exec : emitError;
+    __gshared char[400] said = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+    put(what);
+    if (status > 0) {
+        put(" was answered with HTTP ");
+        char[3] d = [cast(char)('0' + status / 100 % 10), cast(char)('0' + status / 10 % 10),
+                     cast(char)('0' + status % 10)];
+        put(d[]);
+    } else {
+        put(" got no answer: ");
+        put(why);
+    }
+    put(" — the rows stay pending, and the next try is in a minute");
+    emitError("watch.ship", cast(string) said[0 .. n], 0, -1, cast(string) sessionId,
+              "watch", "", "", "");
 }
