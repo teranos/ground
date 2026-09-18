@@ -30,49 +30,92 @@ bool leave(sqlite3* db, const(char)[] session, const(char)[] level, const Item i
 // item is under four kilobytes.
 enum TAKE = 60;
 
-// The pending items of one session, oldest first, into the batch. Returns the
-// highest id taken, so the caller can mark exactly those as shipped once the
-// post has landed, and 0 when nothing was pending.
-long pendingInto(B)(sqlite3* db, const(char)[] session, ref B batch) {
+// A claim is a negative shipped_at: the pid of the watcher that took the rows.
+// Items nobody's session wrote, an error raised with no session to name, go
+// with whichever watcher claims first, and one update is one claimant.
+long claimOutbox(sqlite3* db, const(char)[] session, long pid) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
-                sqlite3_bind_int64, sqlite3_column_int64, sqlite3_column_text,
-                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+                sqlite3_bind_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
 
-    // Items nobody's session wrote, an error raised with no session to name,
-    // go with whichever watcher passes first.
-    enum sql = "SELECT id, item FROM outbox WHERE shipped_at = 0 AND (session = ?1 OR session = '') "
-        ~ "ORDER BY id LIMIT ?2\0";
+    enum sql = "UPDATE outbox SET shipped_at = -?2 WHERE id IN (SELECT id FROM outbox "
+        ~ "WHERE shipped_at = 0 AND (session = ?1 OR session = '') ORDER BY id LIMIT ?3)\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
     sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 2, TAKE);
+    sqlite3_bind_int64(stmt, 2, pid);
+    sqlite3_bind_int64(stmt, 3, TAKE);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return sqlite3_changes(db);
+}
 
-    long last = 0;
+// The claimed items, oldest first, into the batch.
+size_t claimedInto(B)(sqlite3* db, long pid, ref B batch) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_int64,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+
+    enum sql = "SELECT item FROM outbox WHERE shipped_at = -?1 ORDER BY id\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(stmt, 1, pid);
+
+    size_t rows = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto text = sqlite3_column_text(stmt, 1);
+        auto text = sqlite3_column_text(stmt, 0);
         if (text is null) continue;
         size_t n = 0;
         while (text[n] != 0) n++;
         if (!batch.fits(n)) break;
         batch.add(text[0 .. n]);
-        last = sqlite3_column_int64(stmt, 0);
+        rows++;
     }
     sqlite3_finalize(stmt);
-    return last;
+    return rows;
 }
 
-// The rows up to `last` of this session are shipped. Called only once the
-// post has answered 200, so a post that did not land ships them again.
-void shipped(sqlite3* db, const(char)[] session, long last, long now) {
-    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
-                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
+// A claim held by a pid that is gone is nobody's, in this table and in timing,
+// which claims the same way. The rows freed are counted.
+long releaseDead(string table)(sqlite3* db, bool function(long) alive) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_int64,
+                sqlite3_column_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
 
-    enum sql = "UPDATE outbox SET shipped_at = ?3 WHERE shipped_at = 0 AND (session = ?1 OR session = '') AND id <= ?2\0";
+    long[64] dead;
+    size_t n = 0;
+    enum holders = "SELECT DISTINCT -shipped_at FROM " ~ table ~ " WHERE shipped_at < 0\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, holders.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    while (n < dead.length && sqlite3_step(stmt) == SQLITE_ROW) {
+        auto pid = sqlite3_column_int64(stmt, 0);
+        if (!alive(pid)) dead[n++] = pid;
+    }
+    sqlite3_finalize(stmt);
+
+    long freed = 0;
+    enum free_ = "UPDATE " ~ table ~ " SET shipped_at = 0 WHERE shipped_at = -?1\0";
+    foreach (pid; dead[0 .. n]) {
+        if (sqlite3_prepare_v2(db, free_.ptr, -1, &stmt, null) != SQLITE_OK) continue;
+        sqlite3_bind_int64(stmt, 1, pid);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        freed += sqlite3_changes(db);
+    }
+    return freed;
+}
+
+long releaseDeadClaims(sqlite3* db, bool function(long) alive) {
+    return releaseDead!"outbox"(db, alive);
+}
+
+// The claim resolved: shipped at `now`, or handed back for the next pass.
+void claimResolved(sqlite3* db, long pid, bool landed, long now) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK;
+
+    enum sql = "UPDATE outbox SET shipped_at = ?2 WHERE shipped_at = -?1\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
-    sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 2, last);
-    sqlite3_bind_int64(stmt, 3, now);
+    sqlite3_bind_int64(stmt, 1, pid);
+    sqlite3_bind_int64(stmt, 2, landed ? now : 0);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 }
@@ -84,8 +127,7 @@ unittest {
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
     assert(applySchema(db));
 
-    Batch!8192 none;
-    assert(pendingInto(db, "sess-o", none) == 0, "nothing left is nothing pending");
+    assert(claimOutbox(db, "sess-o", 111) == 0, "nothing left is nothing pending");
 
     auto a = openItem(1000, "sess-o", "info", "control x fired"); a.close();
     auto b = openItem(1001, "sess-o", "warn", "over budget"); b.close();
@@ -96,25 +138,58 @@ unittest {
 
     // One session's items, oldest first, and not another session's.
     Batch!8192 batch;
-    auto last = pendingInto(db, "sess-o", batch);
+    assert(claimOutbox(db, "sess-o", 111) == 2);
+    assert(claimedInto(db, 111, batch) == 2);
     assert(batch.count == 2);
-    assert(last == 2);
 
-    // Not shipped until the post landed: asking again hands them over again.
-    Batch!8192 again;
-    assert(pendingInto(db, "sess-o", again) == 2);
-
-    shipped(db, "sess-o", last, 1005);
-    Batch!8192 after;
-    assert(pendingInto(db, "sess-o", after) == 0, "shipped is shipped");
+    // Not shipped until the post landed: handed back, they are claimed again.
+    claimResolved(db, 111, false, 1004);
+    assert(claimOutbox(db, "sess-o", 111) == 2);
+    claimResolved(db, 111, true, 1005);
+    assert(claimOutbox(db, "sess-o", 111) == 0, "shipped is shipped");
 
     // The other session's item is still its watcher's to take.
-    Batch!8192 theirs;
-    assert(pendingInto(db, "sess-p", theirs) == 3);
+    assert(claimOutbox(db, "sess-p", 222) == 1);
 
     // An item that did not fit its buffer is not left: half an item is not JSON.
     Item over;
     over.over = true;
     assert(!leave(db, "sess-o", "info", over, 1006));
+    sqlite3_close(db);
+}
+
+unittest {
+    // Seen in sentry 2026-09-18 09:54:22Z: every sessionless item twice. Two
+    // watchers each read it as pending before either had marked it, so the
+    // taking is a claim by pid, as it is for timing, and a post that did not
+    // land hands the claim back.
+    import db : sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import sentry : openItem, Batch;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    auto a = openItem(1000, "", "warn", "watcher refused"); a.close();
+    auto b = openItem(1001, "sess-o", "info", "control x fired"); b.close();
+    assert(leave(db, "", "warn", a, 1000));
+    assert(leave(db, "sess-o", "info", b, 1001));
+
+    assert(claimOutbox(db, "sess-o", 111) == 2, "its own and the sessionless one");
+    assert(claimOutbox(db, "sess-p", 222) == 0, "the sessionless one is taken");
+
+    Batch!8192 batch;
+    assert(claimedInto(db, 111, batch) == 2);
+    Batch!8192 none;
+    assert(claimedInto(db, 222, none) == 0);
+
+    claimResolved(db, 111, false, 2000);
+    assert(claimOutbox(db, "sess-p", 222) == 1, "handed back, the sessionless one goes to the next");
+    claimResolved(db, 222, true, 2001);
+    assert(claimOutbox(db, "sess-o", 111) == 1, "sess-o's own is still pending");
+
+    // A claimant that died mid-post is gone, and its claim with it.
+    static bool nobody(long) { return false; }
+    assert(releaseDeadClaims(db, &nobody) == 1);
+    assert(claimOutbox(db, "sess-o", 333) == 1, "claimable again");
     sqlite3_close(db);
 }

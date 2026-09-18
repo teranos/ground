@@ -95,6 +95,25 @@ bool pidEnded(sqlite3* db, long pid) {
     return ended;
 }
 
+// Whom the newest row for a pid was started for. Empty when no row names it.
+const(char)[] whoOfPid(sqlite3* db, long pid, ref char[128] into) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_int64,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+
+    enum sql = "SELECT COALESCE(who, '') FROM process WHERE pid = ?1 ORDER BY id DESC LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return "";
+    sqlite3_bind_int64(stmt, 1, pid);
+    size_t n = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto t = sqlite3_column_text(stmt, 0);
+        if (t !is null)
+            while (t[n] != 0 && n < into.length) { into[n] = t[n]; n++; }
+    }
+    sqlite3_finalize(stmt);
+    return into[0 .. n];
+}
+
 // What the record says about one party at one moment.
 struct Watching {
     bool alive;        // a process of that kind for `who` was polling then
@@ -194,6 +213,11 @@ unittest {
     // The pid comes back for a new watcher, and the newest row is the one that speaks.
     processStarted(db, "watch", 4343, 100, "sess-w", "QNTX", 2100);
     assert(!pidEnded(db, 4343));
+
+    // Whose a live pid is, so a replacement knows whether it may replace it.
+    char[128] who;
+    assert(whoOfPid(db, 4343, who) == "sess-w");
+    assert(whoOfPid(db, 9999, who) == "", "never recorded is nobody's");
 
     // Another session's watcher is not this one's, and a driver is not a watcher.
     processStarted(db, "watch", 4444, 100, "sess-other", "QNTX", 3000);

@@ -8,17 +8,21 @@ module watch;
 // asyncRewake shows stderr as a system reminder and wakes the session.
 //
 // Spawned by PostToolUse, Stop and SessionStart:
-// {"command":"ground watch $PWD","asyncRewake":true}
+// {"command":"ground watch $PWD","asyncRewake":true,"timeout":86400}
 // Claude Code does NOT deduplicate async hooks
 // (confirmed by docs), so we handle it ourselves via PID files.
 //
+// The timeout is enforced on an asyncRewake hook, and defaults to 600. The
+// record showed it 2026-09-18: four watchers, each silent after 597 to 600
+// seconds of polling, none ended, no process. An idle session was then
+// unwatched until its next hook. A day is the ceiling now.
+//
 // Session identity:
-//   asyncRewake doesn't expose the session ID. The Stop handler (which has it)
-//   kills the previous watcher for its session via watch-<sessionId>.pid, then
-//   writes a claim file watch-claim-<sessionId>.id. The new watcher claims the
-//   file (atomic rename) to learn its session ID and writes its PID.
-//   Killing is keyed by session — watchers from different sessions never
-//   interfere with each other.
+//   Stdin carries session_id and hook_event_name. The Stop handler also
+//   writes a claim file watch-claim-<sessionId>.id, which a watcher with no
+//   stdin claims (atomic rename) to learn its session ID. A Stop's watcher
+//   replaces its own session's previous watcher itself (see claimTree) —
+//   watchers from different sessions never interfere with each other.
 //
 // Two keying models, both flow through this watcher:
 //
@@ -89,24 +93,12 @@ module watch;
 //       the row. watch.d picks sleep based on elapsed-vs-percentile bracket
 //       (see source/adaptive.d, CTFE-tested).
 //   [x] Backoff during long-running CI: same mechanism.
-//   [ ] Race window in claimSession: new watcher reads claim then dies
-//       before writePid → session is un-watched until next Stop.
 //   [ ] claimSession's glob is not session-scoped. It lists watch-claim-*.id
 //       across ALL sessions and takes the first it can rename, so a watcher
-//       spawned for session A can claim session B — A is left unwatched with
-//       a stale pid file, and B's pid file names a watcher running in A's cwd.
-//       A watcher holding a dead session's claim can never be reached again,
-//       because killSessionWatcher is only ever called by that session's own
-//       Stop, so orphans accumulate at ppid 1. Nothing unlinks watch-*.pid.
-//
-//       Root cause is one discarded argument: asyncRewake spawns
-//       `ground watch $PWD` from static settings.json, so the session id the
-//       spawner holds never reaches the spawned process. The claim file, the
-//       global glob, the rename-as-mutex and the pid file are all scaffolding
-//       to rebuild it. main.d dispatches `watch` before readStdin, so nobody
-//       has tested whether the hook JSON (which carries session_id) is even
-//       delivered to an asyncRewake command — if it is, all of this deletes
-//       itself.
+//       spawned for session A can claim session B. The hook JSON does reach
+//       an asyncRewake command — every live row in the process table names
+//       its session from stdin — so claimSession is the path nothing takes,
+//       and the claim file with it.
 
 import db : sqlite3, sqlite3_close, openDb, ZBuf;
 import immediate : readImmediateMessage, markImmediateDelivered;
@@ -190,13 +182,13 @@ int parsePid(const(char)[] text) {
 }
 
 // A watcher's parent is claude. ppid 1 means the session it would wake is
-// gone, and nothing will ever kill it — killSessionWatcher runs from that
-// session's own Stop, which will not happen again.
+// gone, and nothing will ever replace it — that happens at the session's
+// own Stop, which will not happen again.
 bool orphaned(int ppid) { return ppid <= 1; }
 
-// One watcher per tree. `killSessionWatcher` kills by session id, and a watcher
-// on a ritual tree takes its id from `claimSession` when stdin carries none, so
-// the kill misses any that claimed something else.
+// One watcher per tree. A replacement is by session id, and a watcher on a
+// ritual tree takes its id from `claimSession` when stdin carries none, so
+// the replacement misses any that claimed something else.
 private const(char)[] treeKey(const(char)[] cwd) {
     size_t start;
     foreach (i, c; cwd) if (c == '/') start = i + 1;
@@ -210,6 +202,20 @@ bool treeHeld(bool alive, bool endedInRecord) {
     return alive && !endedInRecord;
 }
 
+// Whether a watcher takes the tree from the one holding it. Only a Stop's
+// watcher replaces, and only its own session's watcher: `ground stop` and
+// `ground watch` are two hooks run together, with no order between them, so
+// the replacing is done by the one process that is the replacement.
+bool takesOver(bool stopEvent, bool holderIsMine) {
+    return stopEvent && holderIsMine;
+}
+
+// Whether the holder is gone with its row still open: it could not write its
+// own ending, and the one that finds it so writes it.
+bool diedUnsaid(bool alive, bool endedInRecord) {
+    return !alive && !endedInRecord;
+}
+
 // Whether one more message, its prefix and its separator fit the batch whole.
 bool batchFits(size_t used, size_t cap, size_t message) {
     return used + 1 + "ground: ".length + message <= cap;
@@ -220,8 +226,10 @@ private bool pidAlive(long pid) {
 }
 
 // 0 when this process now watches that tree. Otherwise the pid of the live
-// watcher that already does, so the refusal can name it.
-int claimTree(const(char)[] cwd, int myPid) {
+// watcher that already does, so the refusal can name it. A Stop's watcher
+// replaces its own session's holder on the way: the kill and the record of
+// it are written here, by the process that takes the tree.
+int claimTree(const(char)[] cwd, int myPid, const(char)[] sessionId, bool stopEvent) {
     __gshared char[512] pathBuf = 0;
     auto pLen = buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid");
     if (pLen == 0) return 0;
@@ -232,16 +240,38 @@ int claimTree(const(char)[] cwd, int myPid) {
         auto n = fread(&pidBuf[0], 1, 15, rf);
         fclose(rf);
         auto held = parsePid(pidBuf[0 .. n]);
-        // Signal 0 tests for existence without delivering anything.
-        if (held > 0 && held != myPid && kill(held, 0) == 0) {
-            import lifecycle : pidEnded;
+        if (held > 0 && held != myPid) {
+            import lifecycle : pidEnded, whoOfPid, processKilled;
+            import core.stdc.time : time;
+            // Signal 0 tests for existence without delivering anything.
+            bool alive = kill(held, 0) == 0;
             bool ended = false;
+            bool mine = false;
             auto db = openDb();
             if (db !is null) {
                 ended = pidEnded(db, held);
+                char[128] who;
+                mine = sessionId.length > 0 && whoOfPid(db, held, who) == sessionId;
+            }
+            if (treeHeld(alive, ended) && !takesOver(stopEvent, mine)) {
+                if (db !is null) sqlite3_close(db);
+                return held;
+            }
+            if (treeHeld(alive, ended)) kill(held, 15); // SIGTERM
+            if (db !is null) {
+                __gshared ZBuf why;
+                why.reset();
+                if (treeHeld(alive, ended)) {
+                    why.put("replaced at a stop by pid ");
+                    why.putUint(cast(ulong) myPid);
+                    processKilled(db, held, why.slice(), cast(long) time(null));
+                } else if (diedUnsaid(alive, ended)) {
+                    why.put("gone without a word, found so by pid ");
+                    why.putUint(cast(ulong) myPid);
+                    processKilled(db, held, why.slice(), cast(long) time(null));
+                }
                 sqlite3_close(db);
             }
-            if (treeHeld(true, ended)) return held;
         }
     }
 
@@ -259,42 +289,6 @@ void releaseTree(const(char)[] cwd) {
 }
 
 // --- Called by Stop handler (has session ID) ---
-
-// Kill the previous watcher for THIS session only.
-void killSessionWatcher(const(char)[] sessionId) {
-    __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-", sessionId, ".pid");
-    if (pLen == 0) return;
-
-    auto rf = fopen(&pathBuf[0], "r");
-    if (rf is null) return;
-
-    char[16] pidBuf = 0;
-    auto n = fread(&pidBuf[0], 1, 15, rf);
-    fclose(rf);
-
-    auto oldPid = parsePid(pidBuf[0 .. n]);
-    if (oldPid > 0) {
-        kill(oldPid, 15); // SIGTERM
-
-        // The one it killed cannot write its own ending, so this writes it.
-        import lifecycle : processKilled;
-        import core.stdc.time : time;
-        auto db = openDb();
-        if (db !is null) {
-            __gshared ZBuf why;
-            why.reset();
-            why.put("killed by a stop of session ");
-            why.put(sessionId);
-            processKilled(db, oldPid, why.slice(), cast(long) time(null));
-            sqlite3_close(db);
-        }
-    }
-
-    // The file outlives the watcher it named. Left in place it accumulates,
-    // and the number it holds is eventually handed to something else.
-    remove(&pathBuf[0]);
-}
 
 // Write a claim file so the new watcher knows its session ID.
 void writeWatchClaim(const(char)[] sessionId) {
@@ -376,34 +370,12 @@ const(char)[] claimSession(const(char)[] cwd) {
 }
 
 // Pipeline health is NOT asked here. A watcher's pid says nothing useful
-// about whether messages are being delivered: stop.d SIGTERMs the pid before
-// it would be read, watch exits 2 by design after every batch, nothing ever
-// unlinks watch-*.pid, and a watcher can hold another session's claim. The
-// honest signal is undelivered work — see immediate.countStaleExecForSession.
-
-// Write our PID to the session-keyed PID file.
-void writePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
-    __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, prefix, sessionId, ".pid");
-    if (pLen == 0) return;
-
-    auto wf = fopen(&pathBuf[0], "w");
-    if (wf !is null) {
-        fprintf(wf, "%d\n", getpid());
-        fclose(wf);
-    }
-}
-
-// The watcher unlinks its own file on the way out. Left behind, the number
-// it holds is eventually reissued and killSessionWatcher signals a stranger.
-void removePid(const(char)[] sessionId, const(char)[] prefix = "watch-") {
-    __gshared char[512] pathBuf = 0;
-    if (buildGroundPath(pathBuf, prefix, sessionId, ".pid") == 0) return;
-    remove(&pathBuf[0]);
-}
+// about whether messages are being delivered: watch exits 2 by design after
+// every batch, and a watcher can hold another session's claim. The honest
+// signal is undelivered work — see immediate.countStaleExecForSession.
 
 enum BOOK_COMMAND = q"EOS
-# the asyncRewake watcher
+# the asyncRewake watcher, with "timeout": 86400 on its hook entry
 ground watch $PWD
 EOS";
 
@@ -421,26 +393,6 @@ int handleWatch(int argc, const(char)** argv) {
     int myPid = getpid();
     int myPpid = getppid();
 
-    // A second watcher on a tree is a second walker. Refused, it says so: the
-    // session it was spawned for is then watched by the one holding the tree,
-    // or by nobody, and the record is how that is told apart later.
-    auto holder = claimTree(cwd, myPid);
-    if (holder != 0) {
-        auto rdb = openDb();
-        if (rdb !is null) {
-            auto now = cast(long) time(null);
-            auto id = processStarted(rdb, "watch", myPid, myPpid, "", tree, now);
-            __gshared ZBuf why;
-            why.reset();
-            why.put("refused: the tree is watched by pid ");
-            why.putUint(cast(ulong) holder);
-            processEnded(rdb, id, why.slice(), 0, now);
-            lifecycleNote(rdb, "", "warn", why.slice(), tree, myPid, 0, 0, now);
-            sqlite3_close(rdb);
-        }
-        return 0;
-    }
-
     // The model's mark. The operator is not reached from here — exit 0 renders
     // systemMessage but sends stdout to the debug log, so a second watcher for
     // the screen was built, measured, and deleted. MessageDisplay carries it.
@@ -448,16 +400,52 @@ int handleWatch(int argc, const(char)** argv) {
 
     // Two watchers cannot share the claim mechanism: the glob is not
     // session-scoped and the rename is a mutex, so the second one steals the
-    // first one's session. Stdin carries session_id if it is piped at all.
+    // first one's session. Stdin carries session_id if it is piped at all,
+    // and the event, which says whether this watcher is a replacement.
     const(char)[] sessionId = null;
+    const(char)[] event = "";
+    size_t stdinBytes = 0;
+    bool stopEvent = false;
     {
         import main : readStdin;
         import parse : extractJsonString;
         auto input = readStdin();
         if (input !is null) {
+            stdinBytes = input.length;
             __gshared char[128] sidBuf = 0;
             sessionId = extractJsonString(input, `"session_id"`, &sidBuf[0], sidBuf.length);
+            __gshared char[32] evBuf = 0;
+            auto ev = extractJsonString(input, `"hook_event_name"`, &evBuf[0], evBuf.length);
+            if (ev !is null) event = ev;
+            stopEvent = ev == "Stop";
         }
+    }
+
+    // A second watcher on a tree is a second walker. Refused, it says so: the
+    // session it was spawned for is then watched by the one holding the tree,
+    // or by nobody, and the record is how that is told apart later.
+    auto holder = claimTree(cwd, myPid, sessionId, stopEvent);
+    if (holder != 0) {
+        auto rdb = openDb();
+        if (rdb !is null) {
+            auto now = cast(long) time(null);
+            auto id = processStarted(rdb, "watch", myPid, myPpid, sessionId, tree, now);
+            __gshared ZBuf why;
+            why.reset();
+            why.put("refused: the tree is watched by pid ");
+            why.putUint(cast(ulong) holder);
+            // What this one was spawned with, since a refusal with no session
+            // is the record's only way to say what stdin carried.
+            why.put("; spawned at ");
+            why.put(event.length > 0 ? event : "no event");
+            why.put(" with ");
+            why.putUint(cast(ulong) stdinBytes);
+            why.put(" bytes on stdin");
+            processEnded(rdb, id, why.slice(), 0, now);
+            lifecycleNote(rdb, sessionId, "warn", why.slice(), tree, myPid, 0, 0, now);
+            sqlite3_close(rdb);
+        }
+        return 0;
     }
 
     if (sessionId is null) sessionId = claimSession(cwd);
@@ -479,9 +467,6 @@ int handleWatch(int argc, const(char)** argv) {
         return 1;
     }
 
-    enum pidPrefix = "watch-";
-    writePid(sessionId, pidPrefix);
-
     // The record this watcher keeps of itself, from here to its ending.
     long record = 0;
     auto startedAt = cast(long) time(null);
@@ -489,13 +474,17 @@ int handleWatch(int argc, const(char)** argv) {
         auto rdb = openDb();
         if (rdb !is null) {
             record = processStarted(rdb, "watch", myPid, myPpid, sessionId, tree, startedAt);
-            import hooktiming : releaseDeadClaims;
-            auto freed = releaseDeadClaims(rdb, &pidAlive);
-            if (freed > 0) {
+            import hooktiming;
+            import outbox;
+            auto freed = hooktiming.releaseDeadClaims(rdb, &pidAlive);
+            auto freedItems = outbox.releaseDeadClaims(rdb, &pidAlive);
+            if (freed > 0 || freedItems > 0) {
                 __gshared ZBuf why;
                 why.reset();
-                why.put("freed timing rows claimed by dead watchers: ");
+                why.put("freed rows claimed by dead watchers: timing ");
                 why.putUint(cast(ulong) freed);
+                why.put(", outbox ");
+                why.putUint(cast(ulong) freedItems);
                 lifecycleNote(rdb, sessionId, "warn", why.slice(), tree, myPid, 0, 0, startedAt);
             }
             sqlite3_close(rdb);
@@ -639,7 +628,6 @@ int handleWatch(int argc, const(char)** argv) {
                 ending(db, record, sessionId, tree, myPid, "delivered and exited 2",
                        delivered, polls, startedAt, "info");
                 sqlite3_close(db);
-                removePid(sessionId, pidPrefix);
                 releaseTree(cwd);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
                 fputs("\n", stderr);
@@ -653,7 +641,6 @@ int handleWatch(int argc, const(char)** argv) {
                 ending(db, record, sessionId, tree, myPid, "stuck: a receipt would not land",
                        0, polls, startedAt, "warn");
                 sqlite3_close(db);
-                removePid(sessionId, pidPrefix);
                 releaseTree(cwd);
                 return 1;
             }
@@ -675,8 +662,8 @@ int handleWatch(int argc, const(char)** argv) {
         }
 
         // The session that spawned this watcher is gone, and only that
-        // session's Stop ever calls killSessionWatcher. Without this the
-        // loop runs until the machine reboots.
+        // session's Stop ever replaces it. Without this the loop runs until
+        // the machine reboots.
         if (orphaned(getppid())) {
             auto odb = openDb();
             if (odb !is null) {
@@ -684,7 +671,6 @@ int handleWatch(int argc, const(char)** argv) {
                        0, polls, startedAt, "info");
                 sqlite3_close(odb);
             }
-            removePid(sessionId, pidPrefix);
             releaseTree(cwd);
             return 0;
         }
@@ -738,33 +724,34 @@ private void lifecycleNote(sqlite3* db, const(char)[] sessionId, const(char)[] l
 // land, which is what the caller backs off on. Nothing pending is true.
 private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, int pid, long now) {
     import sentry : Batch, envelopeInto, postText, LOG_TYPE, LOG_CONTENT, METRIC_TYPE, METRIC_CONTENT;
-    import outbox : pendingInto, shipped;
-    import hooktiming : claimTiming, claimedInto, claimResolved;
+    import outbox;
+    import hooktiming;
     import db : versionString;
     import exec : emitError;
 
     __gshared Batch!() logs;
     __gshared char[280_000] envelope = void;
     logs = Batch!().init;
-    auto last = pendingInto(db, sessionId, logs);
-    if (last > 0) {
+    if (outbox.claimOutbox(db, sessionId, pid) > 0) {
+        outbox.claimedInto(db, pid, logs);
         auto n = envelopeInto(logs, dsn, LOG_CONTENT, LOG_TYPE, envelope[]);
         auto r = postText(dsn, envelope[0 .. n]);
-        if (r.status != 200) {
+        auto landed = r.status == 200;
+        outbox.claimResolved(db, pid, landed, now);
+        if (!landed) {
             shipFailed(sessionId, "the outbox post", r.status, r.why());
             return false;
         }
-        shipped(db, sessionId, last, now);
     }
 
     __gshared Batch!() metrics;
     metrics = Batch!().init;
-    if (claimTiming(db, pid) > 0) {
-        claimedInto(db, pid, versionString(), metrics);
+    if (hooktiming.claimTiming(db, pid) > 0) {
+        hooktiming.claimedInto(db, pid, versionString(), metrics);
         auto n = envelopeInto(metrics, dsn, METRIC_CONTENT, METRIC_TYPE, envelope[]);
         auto r = postText(dsn, envelope[0 .. n]);
         auto landed = r.status == 200;
-        claimResolved(db, pid, landed, now);
+        hooktiming.claimResolved(db, pid, landed, now);
         if (!landed) {
             shipFailed(sessionId, "the timing post", r.status, r.why());
             return false;

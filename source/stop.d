@@ -142,10 +142,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     g_cwd = cwd;
     g_sessionId = sessionId;
 
-    // Kill previous watcher for THIS session, write claim for the new one.
+    // The claim is for the watcher this Stop spawns, in case its stdin carries
+    // no session. That watcher replaces the previous one itself: killing it
+    // from here raced the replacement's start, both ways.
     if (sessionId !is null) {
-        import watch : killSessionWatcher, writeWatchClaim;
-        killSessionWatcher(sessionId);
+        import watch : writeWatchClaim;
         writeWatchClaim(sessionId);
     }
 

@@ -42,6 +42,27 @@ static assert(!treeHeld(false, false), "gone: free");
 static assert(!treeHeld(true, true), "still answers kill(0) but the record says it ended: free");
 static assert(!treeHeld(false, true));
 
+// Recorded 2026-09-18 11:50:32: a Stop killed watcher 35708 and its replacement
+// refused itself in the same second, before the kill was in the record; at
+// 11:45:50 the Stop read the replacement's fresh pid file and killed that one.
+// Two hooks Claude Code runs together have no order, so the replacement does
+// the replacing: a Stop-spawned watcher takes the tree from its own session's
+// watcher, and from nobody else's.
+import watch : takesOver;
+static assert(takesOver(true, true), "a Stop's watcher replaces its session's own");
+static assert(!takesOver(true, false), "another session's watcher is left alone");
+static assert(!takesOver(false, true), "a PostToolUse watcher refuses as before");
+static assert(!takesOver(false, false));
+
+// Recorded 2026-09-18 12:05: four watchers with ended_at 0 and no process,
+// each silent after some 250 polls. A holder that no longer answers and whose
+// row never ended is finished by the watcher that finds it so, in its words.
+import watch : diedUnsaid;
+static assert(diedUnsaid(false, false), "gone, and the record does not know");
+static assert(!diedUnsaid(false, true), "gone, and the record already says how");
+static assert(!diedUnsaid(true, false), "still there");
+static assert(!diedUnsaid(true, true));
+
 // "it ebing truncated copy is also not preffered"
 // A message the batch cannot hold whole waits for the next pass. Cut to fit,
 // the reason at its end was the part that went.

@@ -49,7 +49,7 @@ void noteFiredNow(const(char)[] sessionId, const(char)[] event, const(char)[] ki
 unittest {
     import db : sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
     import sentry : Batch;
-    import outbox : pendingInto;
+    import outbox : claimOutbox, claimedInto;
     import matcher : contains;
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
@@ -61,7 +61,8 @@ unittest {
     noteFired(db, "sess-f", "PreToolUse", "permission", "git-status", "allow", "/Users/x/teranos/ground");
 
     Batch!32768 b;
-    assert(pendingInto(db, "sess-f", b) == 3);
+    assert(claimOutbox(db, "sess-f", 111) == 3);
+    assert(claimedInto(db, 111, b) == 3);
     assert(b.count == 3);
     auto text = b.buf[0 .. b.len];
     assert(contains(text, `"body":"control no-skip-hooks fired: rewrite"`));
