@@ -86,6 +86,30 @@ enum halted = step(fresh, Verdict.Halt);
 static assert(briefing(halted, flat).text() ==
     "Ritual probe halted on rite 1 of 3: START.");
 
+// Read 186 times on q-deploy-1789717456, 2026-09-18: "rite 12 of 12:
+// VERSIONS. It is met when this exits 0: " and nothing after the colon. A rite
+// with a run and no eval is ground's to run, and the briefing says so instead
+// of naming a condition it does not have.
+enum runSrc = `
+rites tool {
+  SHOW {
+    run: "crowbar --show"
+    to: parent
+  }
+}
+
+project {
+  path: "/src/proj"
+  ritual tools {
+    tool
+  }
+}
+`;
+enum runFlat = flatten(parsePbt(runSrc), 0);
+static assert(briefing(start("tools", runFlat.count), runFlat).text() ==
+    "Performing ritual tools, rite 1 of 1: SHOW. "
+    ~ "Ground runs this rite itself: crowbar --show. Nothing is asked of you");
+
 // A briefing that does not fit is a different instruction, and the tail is
 // what goes: the eval, the msg, the mic. The agent acts on the half it got
 // and nothing anywhere says it was cut.

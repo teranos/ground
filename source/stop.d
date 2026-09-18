@@ -124,6 +124,14 @@ bool briefThisSession(const(char)[] sessionId, const(char)[] agentSession) {
     return agentSession.length > 0 && sessionId == agentSession;
 }
 
+// Whether the agent is kept going at all. A rite with an eval is the agent's
+// to meet, so its Stop is answered with the briefing; a rite ground runs
+// itself, or one behind a dispatch the block still waits on, asks nothing,
+// and an agent kept going against it answers the same line every turn.
+bool agentAsked(bool hasEval, bool gated) {
+    return hasEval && !gated;
+}
+
 // A live performance with a rite still to meet.
 bool ritualPending(const(char)[] cwd) {
     import db : openDb, sqlite3_close;
@@ -250,11 +258,23 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     }
                 }
 
+                // Whether this rite is the agent's to meet, read before the
+                // store closes: the gate is a count of runs still owed.
+                bool asked;
+                {
+                    import ritual.resolve : lastOfBlock;
+                    import immediate : outstandingDispatch;
+                    auto rite = flat.rites[found.p.current];
+                    bool gated = lastOfBlock(flat, found.p.current)
+                        && outstandingDispatch(db, found.p.id) > 0;
+                    asked = agentAsked(rite.eval.length > 0 && rite.dispatch.length == 0, gated);
+                }
                 sqlite3_close(db);
 
                 // A rite's block is the one place the agent is meant to keep
                 // going rather than stop. Everything else keeps the old shape.
                 if (!briefThisSession(sessionId, found.p.agentSession)) return 0;
+                if (!asked) return 0;
                 auto brief = briefing(found.p, flat);
                 writeStopContinue(brief.text());
                 notifyLoomHook(cwd, sessionId, brief.text());

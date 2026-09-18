@@ -68,6 +68,46 @@ private void driverEnded(DB)(DB db, long record, const(char)[] owed, const(char)
     cast(void) leave(db, owed, "info", it, now);
 }
 
+// The runs this performance sent, asked after. What the watcher does for the
+// parent, done here for the walk that waits on them: a run still going is
+// parked until its likely end, one not yet listed is parked briefly, and an
+// outcome is written onto the row so the block can close and the parent's
+// watcher can hand it over without asking again.
+private size_t resolveOwed(DB)(DB db, const(char)[] perfId, long now) {
+    import immediate : DispatchRow, owedDispatches, resolveDispatch, parkImmediate;
+    import deferred : checkRunByToken, CIQuery;
+    import adaptive : pickAdaptiveSleep;
+    import watch : DISPATCH_APPEAR_SEC;
+
+    __gshared DispatchRow[8] rows;
+    auto n = owedDispatches(db, perfId, now, rows[]);
+    size_t found = 0;
+    foreach (ref row; rows[0 .. n]) {
+        if (row.repo.length == 0 || row.token.length == 0) continue;
+        auto run = checkRunByToken(row.repo, row.token);
+        if (run.kind == CIQuery.InProgress) {
+            parkImmediate(db, row.id, now + pickAdaptiveSleep(now - row.pushTime, row.p50, row.p90));
+            continue;
+        }
+        if (run.kind == CIQuery.NoWorkflow) {
+            if (now - row.pushTime < DISPATCH_APPEAR_SEC) {
+                parkImmediate(db, row.id, now + 2);
+                continue;
+            }
+            if (resolveDispatch(db, row.id, "no run carries the name ground gave it")) found++;
+            continue;
+        }
+        // gh not answering is not the run's outcome. Asked again later; the
+        // parent's watcher still hands "could not find out" over as it does.
+        if (run.kind == CIQuery.Unavailable) {
+            parkImmediate(db, row.id, now + 30);
+            continue;
+        }
+        if (resolveDispatch(db, row.id, run.text)) found++;
+    }
+    return found;
+}
+
 // The ending, in the word sentry is told. Live is not one.
 const(char)[] endingWord(RitualState s) {
     final switch (s) {
@@ -251,6 +291,10 @@ int handleDrive(int argc, const(char)** argv) {
             startSaid = performanceEnvelope(dsn, cast(long) time(null), found.p.id,
                                             found.p.ritual, "started");
         }
+
+        // The runs this performance sent, asked after by the process that is
+        // waiting on them, rather than by a watcher that may not be there.
+        cast(void) resolveOwed(db, found.p.id, cast(long) time(null));
 
         bool moved = false;
         foreach (i; 0 .. parsed.ritualCount) {

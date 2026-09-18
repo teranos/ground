@@ -66,44 +66,6 @@ bool startPerformance(DB, PR)(DB db, auto ref const PR parsed, size_t ritualIdx,
     return writePosition(db, p);
 }
 
-// The model a session said it runs on, from the latest SessionStart ground
-// recorded for it. A compaction or a resume says it again.
-const(char)[] sessionModel(DB)(DB db, const(char)[] session) {
-    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step, sqlite3_finalize,
-                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
-    import zbuf : ZBuf;
-
-    if (session.length == 0) return null;
-
-    __gshared ZBuf ctx;
-    ctx.reset();
-    ctx.put("session:");
-    ctx.put(session);
-
-    enum sql = "SELECT json_extract(attributes, '$.model') FROM attestations "
-        ~ "WHERE json_extract(predicates, '$[0]') = 'SessionStart' "
-        ~ "AND json_extract(contexts, '$[0]') = ?1 "
-        ~ "AND json_extract(attributes, '$.model') IS NOT NULL "
-        ~ "ORDER BY rowid DESC LIMIT 1\0";
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return null;
-    sqlite3_bind_text(stmt, 1, ctx.ptr(), cast(int) ctx.len, SQLITE_TRANSIENT);
-
-    __gshared char[128] modelBuf = 0;
-    const(char)[] model = null;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto text = sqlite3_column_text(stmt, 0);
-        if (text !is null) {
-            size_t n = 0;
-            while (text[n] != 0 && n < modelBuf.length) { modelBuf[n] = text[n]; n++; }
-            model = modelBuf[0 .. n];
-        }
-    }
-    sqlite3_finalize(stmt);
-    return model;
-}
-
 // The latest reading ug took of a window, in tenths. A reading from a window
 // that has since reset says nothing about the one running now.
 private struct WindowReading {
@@ -148,7 +110,6 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
             auto seven = latestReading(db, "seven_day");
             inputs.sevenKnown = seven.found;
             inputs.sevenTenths = seven.tenths;
-            inputs.session = sessionModel(db, p.parent);
             sqlite3_close(db);
         }
     }
@@ -159,10 +120,6 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
                   "a models rule could not be asked: nothing current is recorded for its input",
                   0, 1, cast(string) p.parent, cast(string) p.ritual, "", "",
                   cast(string) choice.missing);
-    if (model.length == 0)
-        emitError("ritual.spawn.model",
-                  "no models block sets a model and none is recorded for the session that performed it, so the agent runs on claude's default",
-                  0, 1, cast(string) p.parent, cast(string) p.ritual, "", "", "");
 
     auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system, model);
     // No agent is better than a truncated one: the command that starts it

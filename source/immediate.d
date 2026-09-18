@@ -67,6 +67,9 @@ struct ImmediateMsg {
     long pushTime;
     long p50;
     long p90;
+    // A dispatch whose outcome the driver already found: the message is the
+    // outcome, and nobody asks after the run again.
+    bool resolved;
 }
 
 // Read a pending immediate message matching this session OR (for
@@ -313,6 +316,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             pushTime,
             p50,
             p90,
+            indexOf(attrs, `"outcome":"found"`) >= 0,
         );
     }
 
@@ -321,11 +325,12 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 }
 
 // How many runs this performance sent that nothing has answered yet. The token
-// is <performance>:<rite>, so the performance is a prefix of it.
+// is <performance>:<rite>, so the performance is a prefix of it. An outcome the
+// driver found is an answer, whether or not the parent has read it yet.
 long outstandingDispatch(sqlite3* db, const(char)[] performanceId) {
     if (performanceId.length == 0) return 0;
 
-    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') = 'immediate:dispatch' AND json_extract(a.attributes,'$.token') LIKE ?1 AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id)\0";
+    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') = 'immediate:dispatch' AND json_extract(a.attributes,'$.token') LIKE ?1 AND json_extract(a.attributes,'$.outcome') IS NULL AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id)\0";
 
     __gshared ZBuf pattern;
     pattern.reset();
@@ -341,6 +346,84 @@ long outstandingDispatch(sqlite3* db, const(char)[] performanceId) {
     if (sqlite3_step(stmt) == SQLITE_ROW) n = sqlite3_column_int64(stmt, 0);
     sqlite3_finalize(stmt);
     return n;
+}
+
+// One run a performance sent and nobody has answered. The row's own words,
+// copied out, so the caller can ask after it once the statement is done.
+struct DispatchRow {
+    char[160] idBuf = 0;
+    char[128] repoBuf = 0;
+    char[128] tokenBuf = 0;
+    size_t idLen, repoLen, tokenLen;
+    long pushTime;
+    long p50;
+    long p90;
+    const(char)[] id() const return { return idBuf[0 .. idLen]; }
+    const(char)[] repo() const return { return repoBuf[0 .. repoLen]; }
+    const(char)[] token() const return { return tokenBuf[0 .. tokenLen]; }
+}
+
+// The runs this performance is still owed an outcome for, due by `now`: not
+// parked into the future, not found, not receipted. Measured 2026-09-18 that
+// only the parent's watcher asked after them, and it was not there for 29
+// minutes; the driver polls anyway, so it asks too.
+size_t owedDispatches(sqlite3* db, const(char)[] performanceId, long now, DispatchRow[] into) {
+    import db : sqlite3_bind_int64, sqlite3_column_int64, SQLITE_ROW;
+    if (performanceId.length == 0 || into.length == 0) return 0;
+
+    enum sql = "SELECT a.id, json_extract(a.attributes,'$.repo'), json_extract(a.attributes,'$.token'), "
+        ~ "COALESCE(json_extract(a.attributes,'$.push_time'), 0), COALESCE(json_extract(a.attributes,'$.p50'), 0), "
+        ~ "COALESCE(json_extract(a.attributes,'$.p90'), 0) FROM attestations a "
+        ~ "WHERE json_extract(a.predicates,'$[0]') = 'immediate:dispatch' AND json_extract(a.attributes,'$.token') LIKE ?1 "
+        ~ "AND json_extract(a.attributes,'$.outcome') IS NULL AND COALESCE(json_extract(a.attributes,'$.after'), 0) <= ?2 "
+        ~ "AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id) "
+        ~ "ORDER BY a.timestamp\0";
+
+    __gshared ZBuf pattern;
+    pattern.reset();
+    pattern.put(performanceId);
+    pattern.put(":%");
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, pattern.ptr(), cast(int) pattern.len, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, now);
+
+    static size_t copyInto(const(char)* text, char[] dest) {
+        size_t n = 0;
+        if (text is null) return 0;
+        while (text[n] != 0 && n < dest.length) { dest[n] = text[n]; n++; }
+        return n;
+    }
+
+    size_t n = 0;
+    while (n < into.length && sqlite3_step(stmt) == SQLITE_ROW) {
+        auto row = &into[n];
+        row.idLen = copyInto(sqlite3_column_text(stmt, 0), row.idBuf[]);
+        row.repoLen = copyInto(sqlite3_column_text(stmt, 1), row.repoBuf[]);
+        row.tokenLen = copyInto(sqlite3_column_text(stmt, 2), row.tokenBuf[]);
+        row.pushTime = sqlite3_column_int64(stmt, 3);
+        row.p50 = sqlite3_column_int64(stmt, 4);
+        row.p90 = sqlite3_column_int64(stmt, 5);
+        n++;
+    }
+    sqlite3_finalize(stmt);
+    return n;
+}
+
+// The outcome, found. The row's detail becomes what the run said, and the
+// parent's watcher hands that over without asking after the run itself.
+bool resolveDispatch(sqlite3* db, const(char)[] msgId, const(char)[] text) {
+    import db : SQLITE_DONE;
+    if (msgId.length == 0) return false;
+    enum sql = "UPDATE attestations SET attributes = json_set(attributes, '$.detail', ?2, '$.outcome', 'found') WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, msgId.ptr, cast(int) msgId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 // Not yet, rather than not at all. A reader that stopped at a row it could not
@@ -816,8 +899,9 @@ unittest {
 
     assert(outstandingDispatch(testDb, "coinflip-1") == 0, "nothing sent, nothing owed");
 
-    assert(writeDispatchStatus(testDb, "sess-b", "sbvh-nl/grove", "coinflip-1:T1FLIP1", 0));
-    assert(writeDispatchStatus(testDb, "sess-b", "sbvh-nl/grove", "coinflip-1:T1FLIP2", 0));
+    enum owedRepo = "abcd-nl/grove";
+    assert(writeDispatchStatus(testDb, "sess-b", owedRepo, "coinflip-1:T1FLIP1", 0));
+    assert(writeDispatchStatus(testDb, "sess-b", owedRepo, "coinflip-1:T1FLIP2", 0));
     assert(outstandingDispatch(testDb, "coinflip-1") == 2, "two sent, two owed");
 
     // Another performance's runs are not this one's business.
@@ -827,8 +911,36 @@ unittest {
     // A delivered outcome is no longer owed.
     auto first = readImmediateMessage(testDb, "/tmp/anywhere", "sess-b");
     assert(first.message !is null);
+    assert(!first.resolved, "the run is still being watched");
     assert(markImmediateDelivered(testDb, first.msgId, first.projectContext, "sess-b"));
     assert(outstandingDispatch(testDb, "coinflip-1") == 1, "one answered, one still owed");
+
+    // Measured 2026-09-18: the WEB run of q-deploy-1789717456 was written
+    // 07:44:46 and receipted 08:14:08, because only the parent's watcher asked
+    // after it, and that watcher was not there. The driver asks too, and an
+    // outcome it found is no longer owed before anyone has read it.
+    // The row is stamped with the clock, so it is asked with the clock.
+    auto now = cast(long) time(null) + 1;
+    DispatchRow[4] owed;
+    assert(owedDispatches(testDb, "coinflip-1", now, owed) == 1);
+    assert(owed[0].token == "coinflip-1:T1FLIP2");
+    assert(owed[0].repo == owedRepo);
+    assert(resolveDispatch(testDb, owed[0].id, "coinflip-1:T1FLIP2 run passed"));
+    assert(outstandingDispatch(testDb, "coinflip-1") == 0, "found, so not owed");
+    assert(owedDispatches(testDb, "coinflip-1", now, owed) == 0);
+
+    // The parent's watcher then hands over what was found, without asking.
+    auto second = readImmediateMessage(testDb, "/tmp/anywhere", "sess-b");
+    assert(second.resolved);
+    assert(second.message == "coinflip-1:T1FLIP2 run passed");
+
+    // A row parked into the future is not asked before its time.
+    assert(writeDispatchStatus(testDb, "sess-b", "abcd-nl/grove", "coinflip-1:T2", 0));
+    DispatchRow[4] later;
+    assert(owedDispatches(testDb, "coinflip-1", now, later) == 1);
+    parkImmediate(testDb, later[0].id, now + 4000);
+    assert(owedDispatches(testDb, "coinflip-1", now, later) == 0, "parked");
+    assert(owedDispatches(testDb, "coinflip-1", now + 4000, later) == 1, "due");
 
     sqlite3_close(testDb);
 }

@@ -250,6 +250,9 @@ project {
 enum boundFlat = flatten(parsePbt(boundSrc), 0);
 
 static assert(loopFlat.maxGoto == MAX_GOTOS, "a project that says nothing gets the default");
+
+// "set global goto to 5"
+static assert(MAX_GOTOS == 5);
 static assert(boundFlat.maxGoto == 3, "a project sets how long its loops may run");
 
 unittest {

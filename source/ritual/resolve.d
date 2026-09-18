@@ -319,8 +319,8 @@ long indexOfRiteFrom(const Flattened f, const(char)[] group, const(char)[] name)
     return indexOfRite(f, name);
 }
 
-// What the spawn knows when it picks: the plan the last ask found, the latest
-// reading of each window in tenths, and the model of the session performing it.
+// What the spawn knows when it picks: the plan the last ask found and the
+// latest reading of each window in tenths.
 struct ModelInputs {
     bool planKnown;
     const(char)[] plan;
@@ -328,7 +328,6 @@ struct ModelInputs {
     long fiveTenths;
     bool sevenKnown;
     long sevenTenths;
-    const(char)[] session;
 }
 
 struct ModelChoice {
@@ -341,7 +340,7 @@ struct ModelChoice {
 }
 
 // Every rule, nearest layer first, then the nearest plain model, then the
-// model of the session that performed it.
+// default.
 ModelChoice resolveModel(const ParsedModels[3] layers, const ModelInputs i) {
     ModelChoice c;
     foreach (ref layer; layers) {
@@ -374,9 +373,14 @@ ModelChoice resolveModel(const ParsedModels[3] layers, const ModelInputs i) {
         c.model = layer.model;
         return c;
     }
-    c.model = i.session is null ? "" : i.session;
+    c.model = DEFAULT_MODEL;
     return c;
 }
+
+// "make the default for ritual runs Sonnet, not Opus"
+// What a walk runs on when no models block says. It was the model of the
+// session that performed it, which is whatever the operator was talking to.
+enum DEFAULT_MODEL = "sonnet";
 
 // ">90" and the like, against a reading in tenths of a percent.
 bool compares(long tenths, const(char)[] want) {

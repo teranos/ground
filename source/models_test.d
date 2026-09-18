@@ -7,7 +7,7 @@ module models_test;
 // level is asked before any plain model, and the nearest plain model wins.
 
 import proto : parsePbt, validateRituals;
-import ritual : flatten, resolveModel, ModelInputs;
+import ritual : flatten, resolveModel, ModelInputs, DEFAULT_MODEL;
 
 // "i do want layering"
 // A rule is a condition and the model it picks. Every rule is asked before the
@@ -97,7 +97,6 @@ ModelInputs quiet() {
     i.fiveTenths = 100;
     i.sevenKnown = true;
     i.sevenTenths = 500;
-    i.session = "claude-opus-5[1m]";
     return i;
 }
 
@@ -139,7 +138,9 @@ static assert(() {
     return r.model == "fable" && r.missing == "seven_day";
 }());
 
-// No models anywhere: the model of the session that performed it.
+// "make the default for ritual runs Sonnet, not Opus"
+// No models anywhere: sonnet. The session that performed it ran on whatever
+// the operator was on, and a walk of rites is not that conversation.
 enum bareSrc = `
 rites walk {
   ONE {
@@ -156,7 +157,8 @@ project {
 `;
 enum bare = parsePbt(bareSrc);
 static assert(!bare.models.present);
-static assert(resolveModel(flatten(bare, 0).models, quiet()).model == "claude-opus-5[1m]");
+static assert(resolveModel(flatten(bare, 0).models, quiet()).model == DEFAULT_MODEL);
+static assert(DEFAULT_MODEL == "sonnet");
 
 // The four comparisons.
 enum opsSrc = `

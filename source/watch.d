@@ -563,8 +563,9 @@ int handleWatch(int argc, const(char)** argv) {
                 }
 
                 // A dispatch is over, but the run it sent is not. This row is
-                // the only record that an outcome is still owed.
-                if (imm.name == "dispatch") {
+                // the only record that an outcome is still owed. One the
+                // driver already found is handed over as it stands.
+                if (imm.name == "dispatch" && !imm.resolved) {
                     import deferred : checkRunByToken, CIQuery;
                     import adaptive : pickAdaptiveSleep;
                     import core.stdc.time : time;

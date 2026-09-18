@@ -126,6 +126,7 @@ unittest {
     assert(p.branch == "grove-cuts-a-tree-1000");
 }
 
+// "READER NOTE: is this an example to demonstrate what we do NOT want??"
 // A scope naming two paths says when the control fires, not where a ritual
 // performs. Refused at compile time rather than guessed at on a push.
 enum twoPaths = `
@@ -226,6 +227,7 @@ unittest {
     sqlite3_close(db);
 }
 
+// "What does this demonstrate?"
 // A control that names one instead of carrying one resolves the same way
 // `ground ritual <name>` does.
 enum namedSrc = `
@@ -256,29 +258,3 @@ scope {
 enum namedParsed = parsePbt(namedSrc);
 static assert(namedParsed.ctrlPool[namedParsed.scopes[0].controlStart].ritual == "elsewhere");
 
-// A ritual that names no model runs on the model of the session controlling it.
-// That session said its model when it started, and ground recorded the payload.
-// A compaction or a resume says it again, and the latest one stands.
-import ritual : sessionModel;
-import db : attestEventAt;
-
-unittest {
-    auto db = memDb();
-    attestEventAt(db, "SessionStart", "/tmp", "sess-parent",
-        `{"session_id":"sess-parent","model":"claude-opus-5[1m]","source":"startup"}`,
-        "2026-09-12T09:00:00Z", 5101);
-    attestEventAt(db, "SessionStart", "/tmp", "sess-parent",
-        `{"session_id":"sess-parent","model":"claude-fable-5-1","source":"compact"}`,
-        "2026-09-12T10:00:00Z", 5102);
-    attestEventAt(db, "SessionStart", "/tmp", "sess-other",
-        `{"session_id":"sess-other","model":"claude-sonnet-5","source":"startup"}`,
-        "2026-09-12T11:00:00Z", 5103);
-
-    assert(sessionModel(db, "sess-parent") == "claude-fable-5-1");
-    assert(sessionModel(db, "sess-other") == "claude-sonnet-5");
-
-    // A session ground never saw start has no model to hand on.
-    assert(sessionModel(db, "sess-unseen") is null);
-    assert(sessionModel(db, "") is null);
-    sqlite3_close(db);
-}

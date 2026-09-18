@@ -486,6 +486,12 @@ Brief briefing(const Position p, const Flattened f) {
         b.put(". Ground is running this rite itself: it dispatches ");
         b.put(r.dispatch);
         b.put(" and the run's own result is the answer. Nothing is asked of you while it passes. If it fails, say what failed and why");
+    } else if (r.eval.length == 0) {
+        // A run with no eval asks nothing. Naming a condition with no text
+        // after it kept an agent answering the line, turn after turn.
+        b.put(". Ground runs this rite itself: ");
+        b.put(r.run);
+        b.put(". Nothing is asked of you");
     } else {
         // The rite declares its own pass code. Saying 0 when the rite passes on
         // 1 tells the agent the inverse of the condition, and it acts on that.

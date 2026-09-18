@@ -24,8 +24,9 @@ enum MAX_RITES = 32;
 
 // A goto may be taken at most this many times in one performance. Without a
 // bound a cycle runs until somebody notices: measured, a walk that repeated
-// because one fruit in the tree had no rite to pick it.
-enum MAX_GOTOS = 16;
+// because one fruit in the tree had no rite to pick it. Sixteen until
+// 2026-09-18; a project that wants more says max_goto.
+enum MAX_GOTOS = 5;
 
 // One eval may be asked this many times before the walk gives up on it. An eval
 // that does not pass waits for the world to change; sixteen identical answers is
