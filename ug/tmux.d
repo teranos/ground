@@ -31,6 +31,47 @@ const(char)[] bandColour(long used, long quota) {
     return null;
 }
 
+// `claude week 71% 2d 3h left`, inside the same bands, or nothing. A window
+// that has already reset says nothing about the one running now.
+size_t weekInto(long percent, long resetsAt, long now, char[] dest) {
+    if (resetsAt <= now) return 0;
+    auto colour = bandColour(percent, 100);
+    if (colour is null) return 0;
+
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    void num(long v) {
+        char[24] d = void;
+        size_t dl = 0;
+        if (v <= 0) d[dl++] = '0';
+        else while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. dl) if (o < dest.length) dest[o++] = d[i];
+    }
+
+    put(colour);
+    put("claude week ");
+    num(percent);
+    put("% ");
+
+    // The two largest units that are still true, and one when there is one.
+    auto left = resetsAt - now;
+    auto days = left / 86_400;
+    auto hours = (left % 86_400) / 3600;
+    auto mins = (left % 3600) / 60;
+    if (days > 0) {
+        num(days); put("d");
+        if (hours > 0) { put(" "); num(hours); put("h"); }
+    } else if (hours > 0) {
+        num(hours); put("h");
+        if (mins > 0 && hours < 3) { put(" "); num(mins); put("m"); }
+    } else {
+        num(mins); put("m");
+    }
+    put(" left");
+    put(PLAIN);
+    return o;
+}
+
 // `<org> actions 51% 1020/2000`, or nothing when the reading is in no band.
 size_t minutesInto(const(char)[] org, long used, long quota, char[] dest) {
     auto colour = bandColour(used, quota);
@@ -194,6 +235,21 @@ int tmuxMain(const(char)[] home, long now) {
             if (sn == 0) continue;
             if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
             foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
+        }
+    }
+
+    // The weekly Claude window, from the readings ug wrote down while drawing
+    // a session's status line. tmux has no session to be handed one.
+    {
+        import sql : readWeek;
+        auto w = readWeek(home);
+        if (w.found) {
+            __gshared char[96] seg = void;
+            auto sn = weekInto(w.percent, w.resetsAt, now, seg[]);
+            if (sn > 0) {
+                if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
+                foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
+            }
         }
     }
 

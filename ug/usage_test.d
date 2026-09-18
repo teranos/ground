@@ -37,6 +37,13 @@ static assert(contains(CLAIM_SQL, "INSERT INTO usage (window, used_percentage, r
 static assert(contains(CLAIM_SQL, "NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND session = ?5)"));
 static assert(contains(CLAIM_SQL, "NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND seen_at > ?4 - ?6)"));
 
+// The weekly window is drawn on the tmux bar inside bands two points wide, and
+// a reading every four hours steps over a band whole. So each whole percent of
+// a week is written down the first time it is seen: a hundred rows a week at
+// the most, and never the same one twice.
+static assert(contains(CLAIM_SQL, "OR (?1 = 'seven_day' AND NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND resets_at = ?3 "
+    ~ "AND CAST(used_percentage AS INTEGER) = CAST(?2 AS INTEGER)))"));
+
 // -2 until the attempt outside the frame says how it went.
 static assert(contains(CLAIM_SQL, "?5, 0, -2"));
 static assert(contains(UPDATE_SQL, "SET qntx_status = ?1, qntx_exit = ?2 WHERE id = ?3"));

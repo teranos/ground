@@ -77,7 +77,12 @@ Windows rateLimits(const(char)[] input) {
 enum CLAIM_SQL = "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit) "
     ~ "SELECT ?1, ?2, ?3, ?4, ?5, 0, -2 "
     ~ "WHERE NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND session = ?5) "
-    ~ "OR NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND seen_at > ?4 - ?6)";
+    ~ "OR NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND seen_at > ?4 - ?6) "
+    // The tmux bar draws the week inside bands two points wide, and a reading
+    // every four hours steps over one whole. Each whole percent of a week is
+    // written the first time it is seen.
+    ~ "OR (?1 = 'seven_day' AND NOT EXISTS (SELECT 1 FROM usage WHERE window = ?1 AND resets_at = ?3 "
+    ~ "AND CAST(used_percentage AS INTEGER) = CAST(?2 AS INTEGER)))";
 
 // What the attempt answered: the HTTP status, and curl's exit code, -1 when no
 // token was there to send.

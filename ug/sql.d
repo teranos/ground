@@ -212,6 +212,48 @@ size_t readOrgMinutes(const(char)[] home, OrgMinutes[] rows) {
     return count;
 }
 
+// The newest reading of the weekly window, as ug itself wrote it down.
+enum WEEK_SQL = "SELECT CAST(used_percentage AS INTEGER), resets_at FROM usage "
+    ~ "WHERE window = 'seven_day' ORDER BY seen_at DESC, id DESC LIMIT 1";
+
+struct Week {
+    bool found;
+    long percent;
+    long resetsAt;
+}
+
+Week readWeek(const(char)[] home) {
+    import core.stdc.stdio : fopen, fclose;
+
+    Week w;
+    __gshared char[512] path = void;
+    if (dbPathInto(home, path[]) == 0) return w;
+    auto probe = fopen(&path[0], "rb");
+    if (probe is null) return w;
+    fclose(probe);
+
+    sqlite3* db;
+    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return w;
+    }
+    sqlite3_busy_timeout(db, BUSY_MS);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, WEEK_SQL.ptr, cast(int) WEEK_SQL.length, &stmt, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return w;
+    }
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        w.found = true;
+        w.percent = sqlite3_column_int64(stmt, 0);
+        w.resetsAt = sqlite3_column_int64(stmt, 1);
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return w;
+}
+
 enum STORE = ".local/share/ground/ground.db";
 
 size_t dbPathInto(const(char)[] home, char[] dest) {
