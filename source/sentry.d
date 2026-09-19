@@ -156,14 +156,13 @@ Item budgetItem(PM)(long unixSeconds, const(char)[] sessionId, const(char)[] eve
     return it;
 }
 
-// The same notice as one envelope of its own, for a caller that posts it.
-Envelope budgetEnvelope(PM)(const(char)[] dsn, long unixSeconds, const(char)[] sessionId,
-                            const(char)[] event, long avgMs, long budgetMs,
-                            const(char)[] version_, const(char)[] project,
-                            ref PM means) {
+// "errors should go to sentry as errors"
+// One item as an envelope of its own, for a process that cannot leave it in
+// the store for the sky: a store that would not open is the case, and the
+// budget notice travels the same way.
+Envelope logEnvelope(const(char)[] dsn, const Item it) {
     Envelope e;
     if (!parseDsn(dsn).ok) return e;
-    auto it = budgetItem(unixSeconds, sessionId, event, avgMs, budgetMs, version_, project, means);
     if (it.text().length == 0) return e;
     e.put(`{"dsn":"`);
     e.putEscaped(dsn);
@@ -173,6 +172,14 @@ Envelope budgetEnvelope(PM)(const(char)[] dsn, long unixSeconds, const(char)[] s
     e.put(it.text());
     e.put(`]}` ~ "\n");
     return e;
+}
+
+// The same notice as one envelope of its own, for a caller that posts it.
+Envelope budgetEnvelope(PM)(const(char)[] dsn, long unixSeconds, const(char)[] sessionId,
+                            const(char)[] event, long avgMs, long budgetMs,
+                            const(char)[] version_, const(char)[] project,
+                            ref PM means) {
+    return logEnvelope(dsn, budgetItem(unixSeconds, sessionId, event, avgMs, budgetMs, version_, project, means));
 }
 
 extern (C) {

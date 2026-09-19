@@ -90,6 +90,21 @@ const(char)[] deliverError(const ref GroundError err) {
         }
     }
 
+    // "errors should go to sentry as errors"
+    // The store would not open, so nothing can be left for the sky to post:
+    // the same item goes to sentry now, from a child that has let go of the
+    // hook's pipes, so the hook waits on no network. The dsn is the top
+    // level's; a store that will not open is nobody's project.
+    {
+        import sentry : logEnvelope, reportDetached;
+        import controls : dsnHere;
+        auto dsn = dsnHere("");
+        if (dsn.length > 0) {
+            auto it = errorItem(err, formatResult(err));
+            reportDetached(dsn, logEnvelope(dsn, it), err.sessionId, err.origin);
+        }
+    }
+
     // Fallback 1: filesystem breadcrumb. Append to a per-session error log.
     if (writeBreadcrumb(err)) return "breadcrumb";
 
@@ -102,12 +117,12 @@ const(char)[] deliverError(const ref GroundError err) {
     return "";
 }
 
-// One outbox item per error: origin, control, the result line and the tail of
+import sentry : Item;
+
+// One item per error: origin, control, the result line and the tail of
 // stderr. Never stdout, which is what a rite printed, and never a path.
-private void leaveForSentry(void* db, const ref GroundError err, const(char)[] result) {
-    import db : sqlite3;
-    import sentry : openItem, Item;
-    import outbox : leave;
+private Item errorItem(const ref GroundError err, const(char)[] result) {
+    import sentry : openItem;
 
     __gshared char[256] body_ = 0;
     size_t n;
@@ -128,6 +143,14 @@ private void leaveForSentry(void* db, const ref GroundError err, const(char)[] r
     it.num("errno", err.errnoVal);
     it.str("stderr", tail);
     it.close();
+    return it;
+}
+
+// Left in the store for the sky to post with the session's next batch.
+private void leaveForSentry(void* db, const ref GroundError err, const(char)[] result) {
+    import db : sqlite3;
+    import outbox : leave;
+    auto it = errorItem(err, result);
     cast(void) leave(cast(sqlite3*) db, err.sessionId, "error", it, err.timestamp);
 }
 

@@ -498,6 +498,22 @@ static assert(nothing == 0);
 static assert(riteEnvelope("not a dsn", 1000, said("R", Verdict.Advance, 0)).text().length == 0);
 static assert(performanceEnvelope("", 1000, "c-1", "c", "done").text().length == 0);
 
+// "errors should go to sentry as errors"
+// One item as an envelope of its own, for the process that cannot leave it in
+// the store: the same envelope the budget notice travels in.
+import sentry : logEnvelope;
+enum alone = () {
+    auto it = openItem(1000, "sess-1", "error", "sky.store: the store would not open");
+    it.str("origin", "sky.store");
+    it.close();
+    return logEnvelope(sendDsn, it).text().idup;
+}();
+static assert(contains(alone, `{"type":"log","item_count":1,"content_type":"application/vnd.sentry.items.log+json"}` ~ "\n"));
+static assert(contains(alone, `{"items":[{"timestamp":1000,`));
+static assert(contains(alone, `"level":"error","body":"sky.store: the store would not open"`));
+static assert(alone[$ - 3 .. $] == "]}\n");
+static assert(logEnvelope("not a dsn", plainItem).text().length == 0);
+
 // "i want to know on a time series if Fable, or Opus or Sonnet was active"
 // An item is closed where it is built and stamped where it is left: the
 // funnel reopens it for the one attribute the builder could not know, the

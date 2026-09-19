@@ -536,9 +536,23 @@ int handleSky(int argc, const(char)** argv) {
     size_t batchLen = 0;
 
     int nextSleep = 2;
+    long storeSaidAt = 0;
 
     while (true) {
         auto db = openDb();
+        // "errors should go to sentry as errors"
+        // A store that will not open used to be a two-second sleep, said
+        // nowhere, for as long as it lasted: 2026-09-19 22:38 to 23:0x, the
+        // process table's tree damaged, nothing delivered, shipped or
+        // streamed. Said once a minute, and the saying reaches sentry
+        // without the store.
+        if (db is null) {
+            auto now = cast(long) time(null);
+            if (now - storeSaidAt >= SHIP_BACKOFF_SEC) {
+                storeSaidAt = now;
+                storeShut(sessionId);
+            }
+        }
         if (db !is null) {
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
@@ -831,6 +845,23 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
         }
     }
     return true;
+}
+
+// The store would not open, with sqlite's own number for why. Raised as an
+// error: with no store to leave it in, deliverError posts it to sentry
+// itself, from a child.
+private void storeShut(const(char)[] sessionId) {
+    import exec : emitError;
+    import db : dbFailureCode;
+    __gshared char[200] said = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+    put("the store would not open: sqlite code ");
+    auto code = dbFailureCode();
+    char[3] d = [cast(char)('0' + code / 100 % 10), cast(char)('0' + code / 10 % 10), cast(char)('0' + code % 10)];
+    put(d[]);
+    put("; nothing is delivered, shipped or streamed until it does");
+    emitError("sky.store", cast(string) said[0 .. n], 0, -1, cast(string) sessionId, KIND, "", "", "");
 }
 
 // A row the node did not take for a reason that may change, said once per
