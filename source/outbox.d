@@ -73,15 +73,16 @@ size_t claimedInto(B)(sqlite3* db, long pid, ref B batch) {
     return rows;
 }
 
-// A claim held by a pid that is gone is nobody's, in this table and in timing,
-// which claims the same way. The rows freed are counted.
-long releaseDead(string table)(sqlite3* db, bool function(long) alive) {
+// A claim held by a pid that is gone is nobody's, in this table, in timing
+// and in the attestations stream, which claim the same way in their own
+// column. The rows freed are counted.
+long releaseDead(string table, string column = "shipped_at")(sqlite3* db, bool function(long) alive) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_int64,
                 sqlite3_column_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
 
     long[64] dead;
     size_t n = 0;
-    enum holders = "SELECT DISTINCT -shipped_at FROM " ~ table ~ " WHERE shipped_at < 0\0";
+    enum holders = "SELECT DISTINCT -" ~ column ~ " FROM " ~ table ~ " WHERE " ~ column ~ " < 0\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, holders.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
     while (n < dead.length && sqlite3_step(stmt) == SQLITE_ROW) {
@@ -91,7 +92,7 @@ long releaseDead(string table)(sqlite3* db, bool function(long) alive) {
     sqlite3_finalize(stmt);
 
     long freed = 0;
-    enum free_ = "UPDATE " ~ table ~ " SET shipped_at = 0 WHERE shipped_at = -?1\0";
+    enum free_ = "UPDATE " ~ table ~ " SET " ~ column ~ " = 0 WHERE " ~ column ~ " = -?1\0";
     foreach (pid; dead[0 .. n]) {
         if (sqlite3_prepare_v2(db, free_.ptr, -1, &stmt, null) != SQLITE_OK) continue;
         sqlite3_bind_int64(stmt, 1, pid);

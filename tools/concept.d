@@ -95,7 +95,7 @@ immutable Owner[] owners = [
                           "rite_script", "advance", "briefing", "choose", "contend",
                           "consent", "delivery", "notification", "reap", "apierror"]),
     // What a row is, where it goes, and how one comes back to the session.
-    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "loom"]),
+    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "loom", "stream"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world

@@ -174,6 +174,9 @@ int loomPortHere(const(char)[] cwd) {
     return loomPortAt(_loomView, cwd);
 }
 
+// The one node, as the top-level qntx block names it. url empty is no node.
+static immutable ParsedQntx qntxNode = allParsed.qntx;
+
 // Global strop pool. Control.stropIdx is a 1-based index into this array.
 // Only strop-using controls consume a slot — non-strop controls carry just
 // an 8-byte size_t on Control instead of an embedded Strop.
