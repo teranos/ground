@@ -208,7 +208,7 @@ int loomPortAt(PR)(auto ref const PR r, const(char)[] cwd) {
     int port = 0;
     foreach (i; 0 .. r.projectCount) {
         auto p = r.projects[i].path;
-        auto here = r.projects[i].qntxBlock.loomPortUDP;
+        auto here = r.projects[i].qntx.loomPortUDP;
         if (here == 0) continue;
         if (p.length <= best || !pathMatch(cwd, p)) continue;
         best = p.length;

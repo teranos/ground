@@ -25,6 +25,8 @@ immutable Word[] words = [
     // block is read the same way, and for the same reason.
     Word("models",      "models"),
     Word("sentry",      "sentry"),
+    // A qntx block standing alone names where every attestation goes.
+    Word("qntx",        "attestation"),
 ];
 
 // The order a reader meets them in, outermost to innermost. A scope carries

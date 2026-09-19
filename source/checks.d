@@ -166,29 +166,24 @@ void noteQntx(sqlite3* db, const(char)[] kind, long at, long status) {
     sqlite3_finalize(stmt);
 }
 
-// A node and the token it is spoken to with: the path the first project naming
-// the node gives in its qntx block, or empty for ground attest's own.
+// A node and the token file it is spoken to with; empty for ground attest's
+// own, QNTX_TOKEN then ~/.qntx/token.
 struct Node {
     string url;
     string token;
 }
 
 struct Backends {
-    Node[16] items;
+    Node[1] items;
     size_t len;
 }
 
-// Every backend a project names, each once.
+// The one node the top-level qntx block names, or none.
 Backends qntxBackends(PR)(const PR parsed) {
     Backends b;
-    foreach (i; 0 .. parsed.projectCount) {
-        auto url = parsed.projects[i].qntx;
-        if (url.length == 0) continue;
-        bool seen = false;
-        foreach (k; 0 .. b.len) if (b.items[k].url == url) seen = true;
-        if (seen || b.len == b.items.length) continue;
-        b.items[b.len++] = Node(url, parsed.projects[i].qntxBlock.token);
-    }
+    if (parsed.qntx.url.length == 0) return b;
+    b.items[0] = Node(parsed.qntx.url, parsed.qntx.token);
+    b.len = 1;
     return b;
 }
 

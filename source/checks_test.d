@@ -119,34 +119,22 @@ unittest {
     sqlite3_close(db);
 }
 
-// Every backend a project names, each once.
+// "no double or split config, they all need to go to the same call from the same token"
+// The one node, named at the top level, with its token file.
 enum backendsSrc = `
+qntx {
+  url:   "https://q.one.example"
+  token: "~/.qntx/ground-token"
+}
+
 project {
   path: "/a"
-  qntx: "https://q.one.example"
-}
-
-project {
-  path: "/b"
-  qntx: "https://q.one.example"
-}
-
-project {
-  path: "/c"
-  qntx: "https://q.two.example"
-  qntx {
-    token: "~/.qntx/two"
-  }
-}
-
-project {
-  path: "/d"
 }
 `;
 enum backends = qntxBackends(parsePbt(backendsSrc));
-static assert(backends.len == 2);
+static assert(backends.len == 1);
 static assert(backends.items[0].url == "https://q.one.example");
-static assert(backends.items[0].token == "", "no block names no token of its own");
-static assert(backends.items[1].url == "https://q.two.example");
-// "no double or split config, they all need to go to the same call from the same token"
-static assert(backends.items[1].token == "~/.qntx/two");
+static assert(backends.items[0].token == "~/.qntx/ground-token");
+
+// No node named is no backend, not an empty url posted to.
+static assert(qntxBackends(parsePbt(`project { path: "/a" }`)).len == 0);

@@ -155,7 +155,7 @@ const(char)[] dsnHere(const(char)[] cwd) {
 // The loom port of the project this cwd is in, or 0.
 import proto : ParsedQntx;
 private struct LoomView(size_t N) {
-    struct Place { string path; ParsedQntx qntxBlock; }
+    struct Place { string path; ParsedQntx qntx; }
     Place[N] projects;
     size_t projectCount;
 }
@@ -163,7 +163,7 @@ private static immutable _loomView = () {
     LoomView!(allParsed.projects.length) v;
     foreach (i; 0 .. allParsed.projectCount) {
         v.projects[i].path = allParsed.projects[i].path;
-        v.projects[i].qntxBlock = allParsed.projects[i].qntxBlock;
+        v.projects[i].qntx = allParsed.projects[i].qntx;
     }
     v.projectCount = allParsed.projectCount;
     return v;

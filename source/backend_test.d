@@ -1,28 +1,27 @@
 module backend_test;
 
-// BOOK_GLOSSARY **Backend**: The QNTX a project attests to, named by its url on the project block.
+// BOOK_GLOSSARY **Backend**: The QNTX every attestation goes to, named once at the top level by its url and its token file.
 
 import proto : parsePbt;
 import backend : postings, unbacked;
 
-// Alice's hygrometer server attests its readings to her QNTX. Her clone of
-// QNTX itself runs against the one on her laptop. Coinflip's heads names no
-// backend. A routing table written at the top level reaches every backend.
+// "no double or split config, they all need to go to the same call from the same token"
+// Alice's hygrometer server attests its readings; a routing table is written at
+// the top level; coinflip's heads says nothing of a node. All of it goes to the
+// one node, with the one token.
 enum fanInput = `
+qntx {
+  url:   "https://qntx.alice.example"
+  token: "~/.qntx/ground-token"
+}
 project {
   origin: "alice/hygrometer-server"
   path: "/Users/Alice/projects/hygrometer-server"
-  qntx: "https://qntx.alice.example"
   attestation {
     subject: "hygrometer:reading"
     predicate: "hygrometer:measured"
     context: "project:alice/hygrometer-server"
   }
-}
-project {
-  origin: "alice/QNTX"
-  path: "/Users/Alice/projects/QNTX"
-  qntx: "http://localhost:8771"
 }
 project {
   origin: "coinflip/heads"
@@ -41,47 +40,30 @@ enum fan = postings(fanParsed);
 static assert(fanParsed.attestations[0].project == "/Users/Alice/projects/hygrometer-server");
 static assert(fanParsed.attestations[1].project == "");
 
-static assert(fan.len == 3);
+static assert(fan.len == 2);
 static assert(fan.items[0].url == "https://qntx.alice.example" && fan.items[0].subject == "hygrometer:reading");
+static assert(fan.items[0].token == "~/.qntx/ground-token");
 static assert(fan.items[1].url == "https://qntx.alice.example" && fan.items[1].subject == "beacon:routing-table");
-static assert(fan.items[2].url == "http://localhost:8771" && fan.items[2].subject == "beacon:routing-table");
+static assert(fan.items[1].token == "~/.qntx/ground-token");
 static assert(unbacked(fanParsed) == "");
 
-// "no double or split config, they all need to go to the same call from the same token"
-// The token file a project names in its qntx block travels with every posting
-// to that backend; a project naming none posts with the one ground attest
-// always read.
-enum tokenedInput = `
-project {
-  origin: "alice/QNTX"
-  path: "/Users/Alice/projects/QNTX"
-  qntx: "https://qntx.alice.example"
-  qntx {
-    token: "~/.qntx/ground"
-  }
-  attestation {
-    subject: "qntx:routing-table"
-    predicate: "qntx:routes"
-    context: "project:alice/QNTX"
-  }
+// A node named without a token file is spoken to with the one ground attest
+// always read: QNTX_TOKEN, then ~/.qntx/token.
+enum untokenedInput = `
+qntx {
+  url: "http://localhost:8771"
 }
-project {
-  origin: "coinflip/heads"
-  path: "/Users/Alice/projects/heads"
-  qntx: "http://localhost:8771"
-  attestation {
-    subject: "coin:thrown"
-    predicate: "coin:heads"
-    context: "project:coinflip/heads"
-  }
+attestation {
+  subject: "beacon:routing-table"
+  predicate: "beacon:routes"
+  context: "project:alice"
 }
 `;
-enum tokened = postings(parsePbt(tokenedInput));
-static assert(tokened.len == 2);
-static assert(tokened.items[0].url == "https://qntx.alice.example" && tokened.items[0].token == "~/.qntx/ground");
-static assert(tokened.items[1].url == "http://localhost:8771" && tokened.items[1].token == "");
+enum untokened = postings(parsePbt(untokenedInput));
+static assert(untokened.len == 1);
+static assert(untokened.items[0].url == "http://localhost:8771" && untokened.items[0].token == "");
 
-// A coin thrown in a project with no backend lands nowhere. The build says
+// A coin thrown with no node named anywhere lands nowhere. The build says
 // which coin, rather than posting it nowhere in silence.
 enum strandedInput = `
 project {

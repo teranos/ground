@@ -108,44 +108,51 @@ static assert(projectWithEnvParsed.envs[0].keys[0] == "port");
 static assert(projectWithEnvParsed.envs[0].values[0] == "8771");
 static assert(projectWithEnvParsed.envs[0].count == 1);
 
-// "A project can have qntx set to its backend url."
-// Alice runs her own QNTX. Her clone of it names that deployment, and her
-// attestations go there.
+// "no double or split config, they all need to go to the same call from the same token"
+// "isnt there a top level place where its actually defined"
+// The node every project attests to is named once, at the top level, the way
+// sentry is: its url and the file holding the token it is spoken to with. A
+// project says nothing about the node; what it can say is what of QNTX runs
+// beside its checkout.
 enum backedInput = `
+qntx {
+  url:   "https://qntx.alice.example"
+  token: "~/.qntx/ground-token"
+}
+
 project {
   origin: "alice/QNTX"
   path: "/Users/Alice/projects/QNTX"
-  qntx: "https://qntx.alice.example"
   openapi: "server/openapi/openapi.json"
 }
 `;
 enum backedParsed = parsePbt(backedInput);
-static assert(backedParsed.projects[0].qntx == "https://qntx.alice.example");
-static assert(!backedParsed.projects[0].qntxBlock.present, "no qntx block is no loom and no token of its own");
-static assert(backedParsed.projects[0].qntxBlock.loomPortUDP == 0);
+static assert(backedParsed.qntx.present);
+static assert(backedParsed.qntx.url == "https://qntx.alice.example");
+static assert(backedParsed.qntx.token == "~/.qntx/ground-token");
+static assert(!backedParsed.projects[0].qntx.present, "the project names no loom");
+static assert(backedParsed.projects[0].qntx.loomPortUDP == 0);
 
 // "loom is a qntx plugin thing, and we arent using it today"
 // "if set, we send to loom, if not set, we dont."
-// "right, i would want to set a different path, for just ground"
-// The block beside the url: what of QNTX this project reaches on this machine,
-// and the file holding the token its rows are posted with.
 enum loomInput = `
+qntx {
+  url:   "https://qntx.alice.example"
+  token: "~/.qntx/ground-token"
+}
+
 project {
   origin: "alice/QNTX"
   path: "/Users/Alice/projects/QNTX"
-  qntx: "https://qntx.alice.example"
 
   qntx {
     loomPortUDP: "19470"
-    token: "~/.qntx/ground"
   }
 }
 `;
 enum loomParsed = parsePbt(loomInput);
-static assert(loomParsed.projects[0].qntx == "https://qntx.alice.example");
-static assert(loomParsed.projects[0].qntxBlock.present);
-static assert(loomParsed.projects[0].qntxBlock.loomPortUDP == 19470);
-static assert(loomParsed.projects[0].qntxBlock.token == "~/.qntx/ground");
+static assert(loomParsed.projects[0].qntx.present);
+static assert(loomParsed.projects[0].qntx.loomPortUDP == 19470);
 
 // The port is where a hook in this project sends; a hook elsewhere sends nowhere.
 import ritual : loomPortAt;
@@ -153,6 +160,11 @@ static assert(loomPortAt(loomParsed, "/Users/Alice/projects/QNTX") == 19470);
 static assert(loomPortAt(loomParsed, "/Users/Alice/projects/QNTX/server") == 19470);
 static assert(loomPortAt(loomParsed, "/Users/Alice/projects/other") == 0);
 static assert(loomPortAt(backedParsed, "/Users/Alice/projects/QNTX") == 0);
+
+// No node named anywhere: nothing is posted, and nothing pretends to be.
+enum nodelessParsed = parsePbt(`project { path: "/p" }`);
+static assert(!nodelessParsed.qntx.present);
+static assert(nodelessParsed.qntx.url == "");
 
 // "yes, thats the shape, and you can set it top level or inside of project or inside of ritual"
 // Every ritual in this project runs under sonnet, unless the ritual sets its own.
