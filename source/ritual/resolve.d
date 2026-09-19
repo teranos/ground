@@ -200,6 +200,23 @@ const(char)[] dsnAt(PR)(auto ref const PR r, const(char)[] cwd) {
     return dsn.length > 0 ? dsn : r.sentry.dsn;
 }
 
+// The loom port of the project a cwd is in — the deepest one that names one —
+// or 0: a hook outside every project with a loom sends nothing.
+int loomPortAt(PR)(auto ref const PR r, const(char)[] cwd) {
+    import hooks : pathMatch;
+    size_t best = 0;
+    int port = 0;
+    foreach (i; 0 .. r.projectCount) {
+        auto p = r.projects[i].path;
+        auto here = r.projects[i].qntxBlock.loomPortUDP;
+        if (here == 0) continue;
+        if (p.length <= best || !pathMatch(cwd, p)) continue;
+        best = p.length;
+        port = here;
+    }
+    return port;
+}
+
 // What a project's org says about where to report. Nothing, for a project that
 // names no org or an org that says nothing.
 ParsedSentry orgSentry(PR)(auto ref const PR r, const(char)[] orgName) {

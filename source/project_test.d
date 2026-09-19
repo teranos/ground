@@ -121,6 +121,38 @@ project {
 `;
 enum backedParsed = parsePbt(backedInput);
 static assert(backedParsed.projects[0].qntx == "https://qntx.alice.example");
+static assert(!backedParsed.projects[0].qntxBlock.present, "no qntx block is no loom and no token of its own");
+static assert(backedParsed.projects[0].qntxBlock.loomPortUDP == 0);
+
+// "loom is a qntx plugin thing, and we arent using it today"
+// "if set, we send to loom, if not set, we dont."
+// "right, i would want to set a different path, for just ground"
+// The block beside the url: what of QNTX this project reaches on this machine,
+// and the file holding the token its rows are posted with.
+enum loomInput = `
+project {
+  origin: "alice/QNTX"
+  path: "/Users/Alice/projects/QNTX"
+  qntx: "https://qntx.alice.example"
+
+  qntx {
+    loomPortUDP: "19470"
+    token: "~/.qntx/ground"
+  }
+}
+`;
+enum loomParsed = parsePbt(loomInput);
+static assert(loomParsed.projects[0].qntx == "https://qntx.alice.example");
+static assert(loomParsed.projects[0].qntxBlock.present);
+static assert(loomParsed.projects[0].qntxBlock.loomPortUDP == 19470);
+static assert(loomParsed.projects[0].qntxBlock.token == "~/.qntx/ground");
+
+// The port is where a hook in this project sends; a hook elsewhere sends nowhere.
+import ritual : loomPortAt;
+static assert(loomPortAt(loomParsed, "/Users/Alice/projects/QNTX") == 19470);
+static assert(loomPortAt(loomParsed, "/Users/Alice/projects/QNTX/server") == 19470);
+static assert(loomPortAt(loomParsed, "/Users/Alice/projects/other") == 0);
+static assert(loomPortAt(backedParsed, "/Users/Alice/projects/QNTX") == 0);
 
 // "yes, thats the shape, and you can set it top level or inside of project or inside of ritual"
 // Every ritual in this project runs under sonnet, unless the ritual sets its own.

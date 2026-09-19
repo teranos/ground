@@ -114,6 +114,8 @@ struct ParsedProject {
     string openapi;
     // The QNTX this project attests to. Empty means it attests nowhere.
     string qntx;
+    // The project's qntx { } block: what of QNTX it reaches beside the url.
+    ParsedQntx qntxBlock;
     // The models every ritual in this project sets, between its own and the top level's.
     ParsedModels models;
     // Where every ritual in this project reports, unless the ritual says nearer.
@@ -240,6 +242,18 @@ struct ParsedModels {
 struct ParsedSentry {
     bool present;
     string dsn;
+}
+
+// "loom is a qntx plugin thing"
+// "right, i would want to set a different path, for just ground"
+// A project's qntx { } block. loomPortUDP is the UDP port of QNTX's loom
+// plugin on this machine, 0 for none: nothing is sent. token is the path of
+// the file holding the token this project's rows are posted with; empty
+// means ~/.qntx/token or QNTX_TOKEN, the one ground attest uses.
+struct ParsedQntx {
+    bool present;
+    int loomPortUDP;
+    string token;
 }
 
 // A ritual is the only thing that can be invoked, and it lives inside the
@@ -1049,6 +1063,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
     string projectOrigin;
     string projectOpenapi;
     string projectQntx;
+    ParsedQntx projectQntxBlock;
     size_t projectMaxGoto;
     ParsedModels projectModels;
     ParsedSentry projectSentry;
@@ -1075,6 +1090,7 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             result.projects[result.projectCount].maxGoto = projectMaxGoto;
             result.projects[result.projectCount].openapi = projectOpenapi;
             result.projects[result.projectCount].qntx = projectQntx;
+            result.projects[result.projectCount].qntxBlock = projectQntxBlock;
             result.projects[result.projectCount].models = projectModels;
             result.projects[result.projectCount].sentry = projectSentry;
             result.projects[result.projectCount].org = projectOrg;
@@ -1156,6 +1172,14 @@ void parseProject(ref string input, ref size_t pos, ref ParseResult result,
             assert(!projectSentry.present,
                    "a second sentry block in a project would replace the first one");
             projectSentry = parseSentry(input, pos);
+        } else if (wm.base == "qntx" && peekBrace(input, pos)) {
+            // "loom is a qntx plugin thing"
+            // qntx: names the node this project attests to; qntx { } is what of
+            // QNTX runs beside this project on this machine.
+            expect(input, pos, '{');
+            assert(!projectQntxBlock.present,
+                   "a second qntx block in a project would replace the first one");
+            projectQntxBlock = parseQntxBlock(input, pos);
         } else if (wm.base == "permission") {
             // Permission directly in project — wrap in scope with path "/"
             skipWS(input, pos);
@@ -1347,6 +1371,44 @@ ParsedOrg parseOrg(ref string input, ref size_t pos, string name) {
         else assert(0, "Unknown org field");
     }
     assert(0, "Unterminated org block");
+}
+
+// Whether the next thing after the whitespace is a block's opening brace,
+// which tells `qntx { }` from `qntx: "url"` before either is consumed.
+private bool peekBrace(ref string input, ref size_t pos) {
+    skipWS(input, pos);
+    return pos < input.length && input[pos] == '{';
+}
+
+// "if set, we send to loom, if not set, we dont."
+// loomPortUDP: and token:, and nothing else. The port as a number, refused
+// when it is not one, since a port that cannot be sent to would be a loom that
+// hears nothing and says so nowhere.
+ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
+    ParsedQntx q;
+    q.present = true;
+
+    while (pos < input.length) {
+        skipWS(input, pos);
+        if (pos >= input.length) break;
+        if (input[pos] == '#') { skipLine(input, pos); continue; }
+        if (input[pos] == '}') { pos++; return q; }
+
+        auto key = readWord(input, pos);
+        skipWS(input, pos);
+        expect(input, pos, ':');
+        skipWS(input, pos);
+        auto val = readValue(input, pos);
+
+        if (key == "loomPortUDP") {
+            auto n = parseInt(val);
+            assert(n > 0 && n <= 65535, "loomPortUDP is a UDP port: 1 to 65535");
+            q.loomPortUDP = cast(int) n;
+        }
+        else if (key == "token") q.token = val;
+        else assert(0, "Unknown qntx field");
+    }
+    assert(0, "Unterminated qntx block");
 }
 
 // A dsn:, and nothing else. An unknown key is refused rather than skipped: a

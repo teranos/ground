@@ -4,8 +4,12 @@ module backend;
 // attestation inside the project goes there and nowhere else, and one at the
 // top level goes to every backend named anywhere.
 
+// "no double or split config, they all need to go to the same call from the same token"
+// The token travels with the url: the path the project's qntx block names, or
+// empty for the one ground attest always read (QNTX_TOKEN, ~/.qntx/token).
 struct Posting {
     string url;
+    string token;
     string subject;
     size_t attestation; // index into the parsed attestations
 }
@@ -23,7 +27,7 @@ auto postings(PR)(const PR parsed) {
         foreach (j; 0 .. parsed.attestationCount) {
             auto a = parsed.attestations[j];
             if (a.project.length > 0 && a.project != p.path) continue;
-            r.items[r.len] = Posting(p.qntx, a.subject, j);
+            r.items[r.len] = Posting(p.qntx, p.qntxBlock.token, a.subject, j);
             r.len++;
         }
     }

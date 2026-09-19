@@ -52,10 +52,14 @@ const(char)[] deliverDeferred(DeferredMsg deferred, const(char)[] cwd) {
     return deferred.message;
 }
 
-// Notify loom of hook output so it appears as [hook] in weaves
+// Notify loom of hook output so it appears as [hook] in weaves — the loom the
+// project names, and none otherwise.
 void notifyLoomHook(const(char)[] cwd, const(char)[] sessionId, const(char)[] message) {
-    import loom : sendToLoom;
+    import loom : sendToLoom, loomSaid;
+    import controls : loomPortHere;
     import db : jsonArray1, buildSubject;
+    auto port = loomPortHere(cwd);
+    if (port == 0) return;
     auto branch = getBranch(cwd);
     if (branch is null) branch = "unknown";
 
@@ -78,7 +82,7 @@ void notifyLoomHook(const(char)[] cwd, const(char)[] sessionId, const(char)[] me
     }
     attrBuf.put(`"}`);
 
-    sendToLoom(subjects, predicates, contexts, attrBuf.slice());
+    loomSaid(sendToLoom(port, subjects, predicates, contexts, attrBuf.slice()), sessionId);
 }
 
 // Claude Code renders \n in reason as literal "\n", not as a line break.

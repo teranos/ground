@@ -134,6 +134,9 @@ project {
 project {
   path: "/c"
   qntx: "https://q.two.example"
+  qntx {
+    token: "~/.qntx/two"
+  }
 }
 
 project {
@@ -142,5 +145,8 @@ project {
 `;
 enum backends = qntxBackends(parsePbt(backendsSrc));
 static assert(backends.len == 2);
-static assert(backends.items[0] == "https://q.one.example");
-static assert(backends.items[1] == "https://q.two.example");
+static assert(backends.items[0].url == "https://q.one.example");
+static assert(backends.items[0].token == "", "no block names no token of its own");
+static assert(backends.items[1].url == "https://q.two.example");
+// "no double or split config, they all need to go to the same call from the same token"
+static assert(backends.items[1].token == "~/.qntx/two");

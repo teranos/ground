@@ -29,30 +29,38 @@ int backoffSeconds(int attempt) {
     }
 }
 
-// One token. A second name for the same credential is a second thing to
-// rotate, and the one nobody rotated went stale and was refused for weeks.
-// What tells these attestations apart is actors ["ground"], not the filename.
-const(char)[] qntxToken() {
+// The token a node is spoken to with. A node whose project names a token file
+// in its qntx block is read from there, `~/` being the home; one that names
+// none from QNTX_TOKEN, then ~/.qntx/token. One token per node: a second name
+// for the same credential is a second thing to rotate, and the one nobody
+// rotated went stale and was refused for weeks. What tells these attestations
+// apart is actors ["ground"], not the filename.
+const(char)[] qntxToken(const(char)[] path = "") {
     import errors : getenv, open, read, close, O_RDONLY;
     import http : trimToken;
 
-    auto env = getenv("QNTX_TOKEN\0".ptr);
-    if (env !is null) {
-        size_t n = 0;
-        while (env[n] != 0) n++;
-        auto t = trimToken(env[0 .. n]);
-        if (t.length > 0) return t;
+    if (path.length == 0) {
+        auto env = getenv("QNTX_TOKEN\0".ptr);
+        if (env !is null) {
+            size_t n = 0;
+            while (env[n] != 0) n++;
+            auto t = trimToken(env[0 .. n]);
+            if (t.length > 0) return t;
+        }
     }
-
-    auto home = getenv("HOME\0".ptr);
-    if (home is null) return null;
-    size_t hLen = 0;
-    while (home[hLen] != 0) hLen++;
 
     __gshared ZBuf pathBuf;
     pathBuf.reset();
-    pathBuf.put(home[0 .. hLen]);
-    pathBuf.put("/.qntx/token");
+    if (path.length == 0 || (path.length >= 2 && path[0 .. 2] == "~/")) {
+        auto home = getenv("HOME\0".ptr);
+        if (home is null) return null;
+        size_t hLen = 0;
+        while (home[hLen] != 0) hLen++;
+        pathBuf.put(home[0 .. hLen]);
+        pathBuf.put(path.length == 0 ? "/.qntx/token" : path[1 .. $]);
+    } else {
+        pathBuf.put(path);
+    }
 
     auto fd = open(pathBuf.ptr(), O_RDONLY, 0);
     if (fd < 0) return null;
@@ -83,11 +91,10 @@ int handleAttest() {
     int posted = 0;
     int failed = 0;
 
-    auto token = qntxToken();
-
     foreach (ref p; postingList) {
         {
             auto a = attestations[p.attestation];
+            auto token = qntxToken(p.token);
             __gshared ZBuf body_;
             body_.reset();
             body_.put(`{"subjects":["`);
@@ -135,10 +142,9 @@ int handleAttest() {
             } else if (code == 401 || code == 403) {
                 // Naming the cause here is the difference between a fix and a
                 // hunt: the endpoint answered, it just would not take us.
-                fputs(token.length > 0
-                    ? "401/403 — token rejected (QNTX_TOKEN or ~/.qntx/token)\n"
-                    : "401/403 — no token (set QNTX_TOKEN or ~/.qntx/token)\n",
-                    stderr);
+                fputs(token.length > 0 ? "401/403 — token rejected (" : "401/403 — no token (", stderr);
+                fputs2(p.token.length > 0 ? p.token : "QNTX_TOKEN or ~/.qntx/token");
+                fputs(")\n", stderr);
                 failed++;
             } else if (code == 0) {
                 fputs("unreachable (curl)\n", stderr);

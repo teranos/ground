@@ -151,6 +151,29 @@ const(char)[] dsnHere(const(char)[] cwd) {
     return dsnAt(_sentryView, cwd);
 }
 
+// "if set, we send to loom, if not set, we dont."
+// The loom port of the project this cwd is in, or 0.
+import proto : ParsedQntx;
+private struct LoomView(size_t N) {
+    struct Place { string path; ParsedQntx qntxBlock; }
+    Place[N] projects;
+    size_t projectCount;
+}
+private static immutable _loomView = () {
+    LoomView!(allParsed.projects.length) v;
+    foreach (i; 0 .. allParsed.projectCount) {
+        v.projects[i].path = allParsed.projects[i].path;
+        v.projects[i].qntxBlock = allParsed.projects[i].qntxBlock;
+    }
+    v.projectCount = allParsed.projectCount;
+    return v;
+}();
+
+int loomPortHere(const(char)[] cwd) {
+    import ritual.resolve : loomPortAt;
+    return loomPortAt(_loomView, cwd);
+}
+
 // Global strop pool. Control.stropIdx is a 1-based index into this array.
 // Only strop-using controls consume a slot — non-strop controls carry just
 // an 8-byte size_t on Control instead of an embedded Strop.

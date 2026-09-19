@@ -47,6 +47,40 @@ static assert(fan.items[1].url == "https://qntx.alice.example" && fan.items[1].s
 static assert(fan.items[2].url == "http://localhost:8771" && fan.items[2].subject == "beacon:routing-table");
 static assert(unbacked(fanParsed) == "");
 
+// "no double or split config, they all need to go to the same call from the same token"
+// The token file a project names in its qntx block travels with every posting
+// to that backend; a project naming none posts with the one ground attest
+// always read.
+enum tokenedInput = `
+project {
+  origin: "alice/QNTX"
+  path: "/Users/Alice/projects/QNTX"
+  qntx: "https://qntx.alice.example"
+  qntx {
+    token: "~/.qntx/ground"
+  }
+  attestation {
+    subject: "qntx:routing-table"
+    predicate: "qntx:routes"
+    context: "project:alice/QNTX"
+  }
+}
+project {
+  origin: "coinflip/heads"
+  path: "/Users/Alice/projects/heads"
+  qntx: "http://localhost:8771"
+  attestation {
+    subject: "coin:thrown"
+    predicate: "coin:heads"
+    context: "project:coinflip/heads"
+  }
+}
+`;
+enum tokened = postings(parsePbt(tokenedInput));
+static assert(tokened.len == 2);
+static assert(tokened.items[0].url == "https://qntx.alice.example" && tokened.items[0].token == "~/.qntx/ground");
+static assert(tokened.items[1].url == "http://localhost:8771" && tokened.items[1].token == "");
+
 // A coin thrown in a project with no backend lands nowhere. The build says
 // which coin, rather than posting it nowhere in silence.
 enum strandedInput = `

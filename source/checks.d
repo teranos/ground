@@ -166,8 +166,15 @@ void noteQntx(sqlite3* db, const(char)[] kind, long at, long status) {
     sqlite3_finalize(stmt);
 }
 
+// A node and the token it is spoken to with: the path the first project naming
+// the node gives in its qntx block, or empty for ground attest's own.
+struct Node {
+    string url;
+    string token;
+}
+
 struct Backends {
-    string[16] items;
+    Node[16] items;
     size_t len;
 }
 
@@ -178,9 +185,9 @@ Backends qntxBackends(PR)(const PR parsed) {
         auto url = parsed.projects[i].qntx;
         if (url.length == 0) continue;
         bool seen = false;
-        foreach (k; 0 .. b.len) if (b.items[k] == url) seen = true;
+        foreach (k; 0 .. b.len) if (b.items[k].url == url) seen = true;
         if (seen || b.len == b.items.length) continue;
-        b.items[b.len++] = url;
+        b.items[b.len++] = Node(url, parsed.projects[i].qntxBlock.token);
     }
     return b;
 }
@@ -244,7 +251,6 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
     import db : openDb, sqlite3_close, ZBuf;
 
     static immutable backends = qntxBackends(allParsed);
-    auto token = qntxToken();
 
     const(char)[][2] kinds = [first, second];
     foreach (kind; kinds) {
@@ -264,9 +270,9 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
         bool failed = false;
         foreach (i; 0 .. backends.len) {
             url.reset();
-            url.put(backends.items[i]);
+            url.put(backends.items[i].url);
             url.put("/api/attestations");
-            long code = curlPost(url.slice(), body_.slice(), token, 10);
+            long code = curlPost(url.slice(), body_.slice(), qntxToken(backends.items[i].token), 10);
             if (code == 0) code = -3;
             bool ok = code >= 200 && code < 300;
             if (failed) continue;

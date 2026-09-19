@@ -155,6 +155,7 @@ static assert(chapterOf("org") == "sentry");
 // A message coming back to the session is an attestation read, so the module
 // that reads it is the attestation chapter's.
 static assert(chapterOf("immediate") == "attestation");
+static assert(chapterOf("loom") == "attestation");
 
 // A module under source/ritual/ is named with its directory, so the ritual's
 // own modules are reachable and nothing beside them can be mistaken for them.
