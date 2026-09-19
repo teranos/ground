@@ -8,11 +8,22 @@ import db : sqlite3;
 import sentry : Item;
 
 // One row. The item is complete JSON, so the reader wraps and never parses.
+// "i want to know on a time series if Fable, or Opus or Sonnet was active"
+// "and effort as well"
+// This is the one place every item passes with the store open, so the
+// session's model and effort, as ug wrote them down, are stamped on here;
+// a session ug never saw leaves its item as it came.
 bool leave(sqlite3* db, const(char)[] session, const(char)[] level, const Item it, long now) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
-                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT, modelOf;
 
-    auto text = it.text();
+    __gshared Item stamped;
+    stamped = it;
+    auto m = modelOf(db, session);
+    stamped.stamp("model", m.model());
+    stamped.stamp("effort", m.effort());
+
+    auto text = stamped.text();
     if (text.length == 0) return false;
     enum sql = "INSERT INTO outbox (session, level, item, at) VALUES (?1, ?2, ?3, ?4)\0";
     sqlite3_stmt* stmt;
@@ -157,6 +168,55 @@ unittest {
     over.over = true;
     assert(!leave(db, "sess-o", "info", over, 1006));
     sqlite3_close(db);
+}
+
+unittest {
+    // "i want to know on a time series if Fable, or Opus or Sonnet was active"
+    // The session's model, as ug last wrote it down, is on every item the
+    // session leaves. A session ug never saw leaves its items as they are.
+    import db : sqlite3_open, sqlite3_close, applySchema, recordModel, SQLITE_OK,
+                sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_text, sqlite3_stmt, SQLITE_ROW;
+    import sentry : openItem;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    assert(recordModel(db, "sess-m", "claude-opus-5", "high", 1000));
+    assert(recordModel(db, "sess-m", "claude-fable-5-1", "high", 1100), "a change of model is a row");
+    assert(!recordModel(db, "sess-m", "claude-fable-5-1", "high", 1200), "the same again is not");
+    // "and effort as well"
+    assert(recordModel(db, "sess-m", "claude-fable-5-1", "max", 1300), "a change of effort is a row");
+    assert(recordModel(db, "sess-m", "claude-fable-5-1", "high", 1400));
+
+    auto a = openItem(1300, "sess-m", "info", "control x fired"); a.close();
+    auto b = openItem(1300, "sess-n", "info", "control y fired"); b.close();
+    assert(leave(db, "sess-m", "info", a, 1300));
+    assert(leave(db, "sess-n", "info", b, 1300));
+
+    enum q = "SELECT item FROM outbox ORDER BY id\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, q.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    auto first = sqlite3_column_text(stmt, 0);
+    assert(has(first, `"model":{"value":"claude-fable-5-1","type":"string"},"effort":{"value":"high","type":"string"}}}`),
+           "the newest model and effort, not the first");
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    auto second = sqlite3_column_text(stmt, 0);
+    assert(!has(second, `"model"`));
+    assert(!has(second, `"effort"`));
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+}
+
+version (unittest)
+private bool has(const(char)* text, const(char)[] needle) {
+    size_t n = 0;
+    while (text[n] != 0) n++;
+    auto hay = (cast(const(char)*) text)[0 .. n];
+    if (needle.length > hay.length) return false;
+    foreach (i; 0 .. hay.length - needle.length + 1)
+        if (hay[i .. i + needle.length] == needle) return true;
+    return false;
 }
 
 unittest {

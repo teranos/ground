@@ -272,11 +272,26 @@ struct Item {
         put(`,"type":"boolean"}`);
     }
 
-    // The attributes' close. Nothing may be added after.
+    // The attributes' close. Nothing may be added after, except by stamp.
     void close() {
         if (!open) return;
         put("}}");
         open = false;
+    }
+
+    // "i want to know on a time series if Fable, or Opus or Sonnet was active"
+    // One attribute the builder could not know, put on by the funnel the item
+    // passes through on its way to the store: the item is reopened for it and
+    // closed again. Nothing to say leaves the item as it was.
+    void stamp(const(char)[] k, const(char)[] v) {
+        if (v.length == 0 || over) return;
+        if (open) { str(k, v); return; }
+        if (len < 2 || buf[len - 2 .. len] != "}}") return;
+        len -= 2;
+        open = true;
+        // first stays what it was: an item with attributes takes a comma.
+        str(k, v);
+        close();
     }
 }
 

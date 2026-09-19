@@ -150,6 +150,7 @@ static assert(chapterOf("outbox") == "sentry");
 static assert(chapterOf("fired") == "sentry");
 static assert(chapterOf("hooktiming") == "sentry");
 static assert(chapterOf("sky") == "sentry", "the sky is what posts what the hooks leave");
+static assert(chapterOf("sessionmodel") == "sentry", "the model on every item");
 static assert(chapterOf("lifecycle") == "sentry");
 static assert(chapterOf("minutes") == "sentry");
 static assert(chapterOf("org") == "sentry");

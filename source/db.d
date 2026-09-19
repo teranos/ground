@@ -365,6 +365,16 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "usage", "ask_status", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "usage", "ask_exit", "INTEGER NOT NULL DEFAULT 0");
 
+    // "i want to know on a time series if Fable, or Opus or Sonnet was active"
+    // Which model a session runs under, as the status line hands it to ug: a
+    // row each time it changes, and the newest is the session's. No hook is
+    // told the model, so this is the one place ground can read it from.
+    enum sessionModelSchema = "CREATE TABLE IF NOT EXISTS session_model (id INTEGER PRIMARY KEY, "
+        ~ "session TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', since INTEGER NOT NULL)\0";
+    sqlite3_exec(db, sessionModelSchema.ptr, null, null, null);
+    enum idxSessionModel = "CREATE INDEX IF NOT EXISTS idx_session_model ON session_model(session, id)\0";
+    sqlite3_exec(db, idxSessionModel.ptr, null, null, null);
+
     // "needs to be instrumented"
     // One row per long-lived ground process, watcher or driver: when it started,
     // for whom, that it is still polling, and how it ended.
@@ -711,6 +721,56 @@ bool jsonValid(sqlite3* db, const(char)[] payload) {
     bool valid = sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) == 1;
     sqlite3_finalize(stmt);
     return valid;
+}
+
+// --- The session's model ---
+
+// "and effort as well"
+// A row when the model or the effort differs from the session's newest row;
+// true when one was written. The statement is sessionmodel.d's, the same
+// one ug runs with what the status line hands it.
+bool recordModel(sqlite3* db, const(char)[] session, const(char)[] model, const(char)[] effort, long now) {
+    import sessionmodel : RECORD_MODEL_SQL;
+    if (session.length == 0 || model.length == 0) return false;
+    enum sql = RECORD_MODEL_SQL ~ "\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, model.ptr, cast(int) model.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, effort.ptr, cast(int) effort.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, now);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db) == 1;
+}
+
+// The session's newest model and effort, or empty when ug never saw it.
+struct SessionModel {
+    char[64] modelBuf;
+    size_t modelLen;
+    char[16] effortBuf;
+    size_t effortLen;
+    const(char)[] model() const return { return modelBuf[0 .. modelLen]; }
+    const(char)[] effort() const return { return effortBuf[0 .. effortLen]; }
+}
+
+SessionModel modelOf(sqlite3* db, const(char)[] session) {
+    SessionModel m;
+    if (session.length == 0) return m;
+    enum sql = "SELECT model, effort FROM session_model WHERE session = ?1 ORDER BY id DESC LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return m;
+    sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto model = sqlite3_column_text(stmt, 0);
+        if (model !is null)
+            while (model[m.modelLen] != 0 && m.modelLen < m.modelBuf.length) { m.modelBuf[m.modelLen] = model[m.modelLen]; m.modelLen++; }
+        auto effort = sqlite3_column_text(stmt, 1);
+        if (effort !is null)
+            while (effort[m.effortLen] != 0 && m.effortLen < m.effortBuf.length) { m.effortBuf[m.effortLen] = effort[m.effortLen]; m.effortLen++; }
+    }
+    sqlite3_finalize(stmt);
+    return m;
 }
 
 // --- Universal event attestation ---
