@@ -54,8 +54,8 @@ static assert(second.text() ==
 enum held = step(step(fresh, Verdict.Advance), Verdict.Hold);
 static assert(briefing(held, flat).text() == second.text());
 
-// Holding is not being thrown back. The watcher runs the same rite every 15
-// seconds (`handleWatch`) and the agent never learns of it, so the count is
+// Holding is not being thrown back. The driver runs the same rite on its own
+// clock (`ground drive`) and the agent never learns of it, so the count is
 // stamped where the Stop actually goes back, not where the rite is evaluated.
 import ritual : threw;
 

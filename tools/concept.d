@@ -86,7 +86,7 @@ immutable Owner[] owners = [
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     Owner("models",      ["models"]),
     // What is shipped to sentry and how: the hooks leave it, the watcher posts it.
-    Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org"]),
+    Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org", "sky"]),
     // A test module beside source/ritual/ is that module's, so it is named
     // as the file is named: delivery is ritual/delivery's cases.
     Owner("ritual",      ["ritual/resolve", "rite", "ritual/position", "ritual/run",

@@ -77,7 +77,7 @@ private size_t resolveOwed(DB)(DB db, const(char)[] perfId, long now) {
     import immediate : DispatchRow, owedDispatches, resolveDispatch, parkImmediate;
     import deferred : checkRunByToken, CIQuery;
     import adaptive : pickAdaptiveSleep;
-    import watch : DISPATCH_APPEAR_SEC;
+    import sky : DISPATCH_APPEAR_SEC;
 
     __gshared DispatchRow[8] rows;
     auto n = owedDispatches(db, perfId, now, rows[]);
@@ -161,7 +161,7 @@ int handleDrive(int argc, const(char)** argv) {
     // The driver's own record, so an ended performance and a driver that died
     // under it are two different facts on disk.
     import lifecycle : processStarted, processSeen;
-    import watch : getpid, getppid;
+    import sky : getpid, getppid;
     long record = 0;
     long polls = 0;
     auto startedAt = cast(long) time(null);

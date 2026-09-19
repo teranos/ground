@@ -410,7 +410,7 @@ void scanVanishedWrappers(string sessionId) {
     auto home = getHomeStr();
     if (home is null) return;
 
-    // Enumerate via popen(ls) — same pattern as watch.d. readdir on macOS
+    // Enumerate via popen(ls) — same pattern as sky.d. readdir on macOS
     // links against the 32-bit-inode struct which D's core.stdc.dirent
     // doesn't match, so shell-out is the portable path.
     char[1024] cmd = 0;
@@ -599,7 +599,7 @@ void writeImmediateBacklogStderr(string sessionId) {
 
     // breadcrumb — reuse the errors/<sid>.log so history persists
     GroundError err;
-    err.origin      = "watch.dead";
+    err.origin      = "sky.dead";
     err.message     = cast(string) msg;
     err.sessionId   = sessionId;
     err.controlName = "";

@@ -190,9 +190,9 @@ extern (C) int main(int argc, const(char)** argv) {
             import profile : handleProfile;
             return handleProfile(argc, argv);
         }
-        if (cmd == "watch") {
-            import watch : handleWatch;
-            return handleWatch(argc, argv);
+        if (cmd == "sky") {
+            import sky : handleSky;
+            return handleSky(argc, argv);
         }
         if (cmd == "ritual") {
             import ritual : handleRitual;

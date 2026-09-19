@@ -1,6 +1,7 @@
-module watch;
+module sky;
 
-// ground watch <cwd>
+// ground sky <cwd>
+// "the first part of the hear me out is renaming ground watch to ground sky"
 //
 // Immediate delivery via asyncRewake. Polls the db every 2 seconds for
 // immediate: attestations matching the project, writes what is pending to
@@ -8,7 +9,7 @@ module watch;
 // asyncRewake shows stderr as a system reminder and wakes the session.
 //
 // Spawned by PostToolUse, Stop and SessionStart:
-// {"command":"ground watch $PWD","asyncRewake":true,"timeout":86400}
+// {"command":"ground sky $PWD","asyncRewake":true,"timeout":86400}
 // Claude Code does NOT deduplicate async hooks
 // (confirmed by docs), so we handle it ourselves via PID files.
 //
@@ -19,7 +20,7 @@ module watch;
 //
 // Session identity:
 //   Stdin carries session_id and hook_event_name. The Stop handler also
-//   writes a claim file watch-claim-<sessionId>.id, which a watcher with no
+//   writes a claim file sky-claim-<sessionId>.id, which a watcher with no
 //   stdin claims (atomic rename) to learn its session ID. A Stop's watcher
 //   replaces its own session's previous watcher itself (see claimTree) —
 //   watchers from different sessions never interfere with each other.
@@ -90,10 +91,10 @@ module watch;
 // LATER POLISH:
 //   [x] Adaptive poll interval. writeCIStatus fetches p50/p90 of the last 20
 //       CI durations per repo+branch via gh, stores them with push_time in
-//       the row. watch.d picks sleep based on elapsed-vs-percentile bracket
+//       the row. sky.d picks sleep based on elapsed-vs-percentile bracket
 //       (see source/adaptive.d, CTFE-tested).
 //   [x] Backoff during long-running CI: same mechanism.
-//   [ ] claimSession's glob is not session-scoped. It lists watch-claim-*.id
+//   [ ] claimSession's glob is not session-scoped. It lists sky-claim-*.id
 //       across ALL sessions and takes the first it can rename, so a watcher
 //       spawned for session A can claim session B. The hook JSON does reach
 //       an asyncRewake command — every live row in the process table names
@@ -123,6 +124,12 @@ extern (C) {
 // absence is reported as an absence.
 enum DISPATCH_APPEAR_SEC = 60;
 
+// What the record calls this process, and the files it holds a tree and a
+// session by. Rows written before the rename say watch.
+enum KIND = "sky";
+enum TREE_FILE = "sky-tree-";
+enum CLAIM_FILE = "sky-claim-";
+
 // The receipt is what makes delivery once rather than forever: without it the
 // next read returns the same row, and the loop that reads it does not end. So
 // a receipt that did not land stops the drain and says so.
@@ -130,9 +137,9 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
                      const(char)[] sessionId, const(char)[] mark) {
     if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) return true;
     import exec : emitError;
-    emitError("watch.receipt",
+    emitError("sky.receipt",
               "the delivery receipt did not land, so this message would be handed over without end",
-              0, 1, "", "watch", "", "", cast(string) msgId);
+              0, 1, "", KIND, "", "", cast(string) msgId);
     return false;
 }
 
@@ -204,7 +211,7 @@ bool treeHeld(bool alive, bool endedInRecord) {
 
 // Whether a watcher takes the tree from the one holding it. Only a Stop's
 // watcher replaces, and only its own session's watcher: `ground stop` and
-// `ground watch` are two hooks run together, with no order between them, so
+// `ground sky` are two hooks run together, with no order between them, so
 // the replacing is done by the one process that is the replacement.
 bool takesOver(bool stopEvent, bool holderIsMine) {
     return stopEvent && holderIsMine;
@@ -231,7 +238,7 @@ private bool pidAlive(long pid) {
 // it are written here, by the process that takes the tree.
 int claimTree(const(char)[] cwd, int myPid, const(char)[] sessionId, bool stopEvent) {
     __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid");
+    auto pLen = buildGroundPath(pathBuf, TREE_FILE, treeKey(cwd), ".pid");
     if (pLen == 0) return 0;
 
     auto rf = fopen(&pathBuf[0], "r");
@@ -284,7 +291,7 @@ int claimTree(const(char)[] cwd, int myPid, const(char)[] sessionId, bool stopEv
 
 void releaseTree(const(char)[] cwd) {
     __gshared char[512] pathBuf = 0;
-    if (buildGroundPath(pathBuf, "watch-tree-", treeKey(cwd), ".pid") == 0) return;
+    if (buildGroundPath(pathBuf, TREE_FILE, treeKey(cwd), ".pid") == 0) return;
     remove(&pathBuf[0]);
 }
 
@@ -293,7 +300,7 @@ void releaseTree(const(char)[] cwd) {
 // Write a claim file so the new watcher knows its session ID.
 void writeWatchClaim(const(char)[] sessionId) {
     __gshared char[512] pathBuf = 0;
-    auto pLen = buildGroundPath(pathBuf, "watch-claim-", sessionId, ".id");
+    auto pLen = buildGroundPath(pathBuf, CLAIM_FILE, sessionId, ".id");
     if (pLen == 0) return;
 
     auto f = fopen(&pathBuf[0], "w");
@@ -306,7 +313,7 @@ void writeWatchClaim(const(char)[] sessionId) {
 
 // --- Called by watcher (no session ID yet) ---
 
-// Claim a session by reading a watch-claim-*.id file.
+// Claim a session by reading a sky-claim-*.id file.
 // Returns the session ID, or null if no claim found.
 const(char)[] claimSession(const(char)[] cwd) {
     import matcher : indexOf;
@@ -319,7 +326,9 @@ const(char)[] claimSession(const(char)[] cwd) {
     size_t cp = 0;
     foreach (c; "ls ") { if (cp < 510) cmd[cp++] = c; }
     foreach (c; home) { if (cp < 510) cmd[cp++] = c; }
-    foreach (c; "/.local/share/ground/watch-claim-*.id 2>/dev/null") { if (cp < 510) cmd[cp++] = c; }
+    foreach (c; "/.local/share/ground/") { if (cp < 510) cmd[cp++] = c; }
+    foreach (c; CLAIM_FILE) { if (cp < 510) cmd[cp++] = c; }
+    foreach (c; "*.id 2>/dev/null") { if (cp < 510) cmd[cp++] = c; }
     cmd[cp] = 0;
 
     auto pipe = popen(&cmd[0], "r");
@@ -376,12 +385,12 @@ const(char)[] claimSession(const(char)[] cwd) {
 
 enum BOOK_COMMAND = q"EOS
 # the asyncRewake watcher, with "timeout": 86400 on its hook entry
-ground watch $PWD
+ground sky $PWD
 EOS";
 
-int handleWatch(int argc, const(char)** argv) {
+int handleSky(int argc, const(char)** argv) {
     if (argc < 3) {
-        fputs("usage: ground watch <cwd>\n", stderr);
+        fputs("usage: ground sky <cwd>\n", stderr);
         return 1;
     }
 
@@ -429,7 +438,7 @@ int handleWatch(int argc, const(char)** argv) {
         auto rdb = openDb();
         if (rdb !is null) {
             auto now = cast(long) time(null);
-            auto id = processStarted(rdb, "watch", myPid, myPpid, sessionId, tree, now);
+            auto id = processStarted(rdb, KIND, myPid, myPpid, sessionId, tree, now);
             __gshared ZBuf why;
             why.reset();
             why.put("refused: the tree is watched by pid ");
@@ -453,12 +462,12 @@ int handleWatch(int argc, const(char)** argv) {
         // asyncRewake surfaces stderr on exit 2 only, so this line reached
         // nobody for as long as it has existed.
         import exec : emitError;
-        emitError("watch.claim", "no claim file to take, so this watcher has no session",
-                  0, 1, "", "watch", "", "", "");
+        emitError("sky.claim", "no claim file to take, so this watcher has no session",
+                  0, 1, "", KIND, "", "", "");
         auto rdb = openDb();
         if (rdb !is null) {
             auto now = cast(long) time(null);
-            auto id = processStarted(rdb, "watch", myPid, myPpid, "", tree, now);
+            auto id = processStarted(rdb, KIND, myPid, myPpid, "", tree, now);
             enum why = "no claim file to take, so this watcher has no session";
             processEnded(rdb, id, why, 0, now);
             lifecycleNote(rdb, "", "warn", why, tree, myPid, 0, 0, now);
@@ -473,7 +482,7 @@ int handleWatch(int argc, const(char)** argv) {
     {
         auto rdb = openDb();
         if (rdb !is null) {
-            record = processStarted(rdb, "watch", myPid, myPpid, sessionId, tree, startedAt);
+            record = processStarted(rdb, KIND, myPid, myPpid, sessionId, tree, startedAt);
             import hooktiming;
             import outbox;
             auto freed = hooktiming.releaseDeadClaims(rdb, &pidAlive);
@@ -710,7 +719,7 @@ private void lifecycleNote(sqlite3* db, const(char)[] sessionId, const(char)[] l
     body_.put(how);
 
     auto it = openItem(now, sessionId.length > 0 ? sessionId : tree, level, body_.slice());
-    it.str("kind", "watch");
+    it.str("kind", KIND);
     it.str("session", sessionId);
     it.str("tree", tree);
     it.num("pid", pid);
@@ -779,6 +788,6 @@ private void shipFailed(const(char)[] sessionId, const(char)[] what, int status,
         put(why);
     }
     put(" — the rows stay pending, and the next try is in a minute");
-    emitError("watch.ship", cast(string) said[0 .. n], 0, -1, cast(string) sessionId,
-              "watch", "", "", "");
+    emitError("sky.ship", cast(string) said[0 .. n], 0, -1, cast(string) sessionId,
+              KIND, "", "", "");
 }

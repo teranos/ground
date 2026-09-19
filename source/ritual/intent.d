@@ -2,7 +2,7 @@ module ritual.intent;
 
 // "ALL RITUALS SHOULD SHOW UP IN THE PARENT SSESSION"
 
-import watch : buildGroundPath;
+import sky : buildGroundPath;
 
 extern (C) {
     import core.stdc.stdio : FILE;

@@ -158,7 +158,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     // no session. That watcher replaces the previous one itself: killing it
     // from here raced the replacement's start, both ways.
     if (sessionId !is null) {
-        import watch : writeWatchClaim;
+        import sky : writeWatchClaim;
         writeWatchClaim(sessionId);
     }
 

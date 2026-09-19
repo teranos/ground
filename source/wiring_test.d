@@ -6,7 +6,7 @@ module wiring_test;
 private enum stopSource = import("source/stop.d");
 private enum runSource  = import("source/ritual/run.d");
 private enum driveSource = import("source/ritual/drive.d");
-private enum watchSource = import("source/watch.d");
+private enum skySource = import("source/sky.d");
 
 private bool calls(const(char)[] hay, const(char)[] needle) {
     if (needle.length > hay.length) return false;
@@ -31,5 +31,5 @@ static assert(calls(driveSource, "advance("),
     "the driver is what walks a performance");
 static assert(!calls(stopSource, "advance("),
     "stop.d must not walk — it ran the same rite a second time");
-static assert(!calls(watchSource, "advance("),
-    "the watcher must not walk — it ran the same rite a second time");
+static assert(!calls(skySource, "advance("),
+    "the sky must not walk — it ran the same rite a second time");

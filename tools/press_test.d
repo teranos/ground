@@ -86,11 +86,11 @@ static assert(renderGlossary(["scope"], ["hooks": [Entry("Control", "x")]]) == "
 // The chapter is the shell blocks, set as code, one after the other. No
 // note beside them: the example is the whole entry.
 import press : renderCommands, dispatched, verbsOf, inDispatchOrder, renderSkill;
-enum blocks = ["# timing table:\nground profile\n", "# the watcher:\nground watch $PWD\n"];
+enum blocks = ["# timing table:\nground profile\n", "# the watcher:\nground sky $PWD\n"];
 static assert(renderCommands(blocks) ==
     "\\chapter{commands}\n"
     ~ "\n\\begin{gcode}\n# timing table:\nground profile\n\\end{gcode}\n\\vspace{10pt}\n"
-    ~ "\n\\begin{gcode}\n# the watcher:\nground watch $PWD\n\\end{gcode}\n\\vspace{10pt}\n");
+    ~ "\n\\begin{gcode}\n# the watcher:\nground sky $PWD\n\\end{gcode}\n\\vspace{10pt}\n");
 static assert(renderCommands([]) == "");
 
 // What main.d answers to is read from main.d, so a command the book names
@@ -115,7 +115,7 @@ static assert(ordered[2] == "ground fmt x\n");
 static assert(renderSkill(blocks) ==
     "---\nname: ground-commands\n"
     ~ "description: Every ground subcommand with a working example. Written by press from the modules that implement them.\n"
-    ~ "---\n\n```sh\n# timing table:\nground profile\n\n# the watcher:\nground watch $PWD\n```\n");
+    ~ "---\n\n```sh\n# timing table:\nground profile\n\n# the watcher:\nground sky $PWD\n```\n");
 
 // "the term should be bold."
 // press names the parts and book.tex sets them, so the term is escaped as a

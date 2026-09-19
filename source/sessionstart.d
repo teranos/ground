@@ -117,7 +117,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     // Write claim file so the first asyncRewake watcher knows its session.
     if (sessionId !is null) {
-        import watch : writeWatchClaim;
+        import sky : writeWatchClaim;
         writeWatchClaim(sessionId);
     }
 
@@ -331,7 +331,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             // This hook runs inside the agent, so its parent is the agent.
             // Nothing else knows the pid: with --bg the process belongs to the
             // background host.
-            import watch : getppid;
+            import sky : getppid;
             import ritual.store : bindSessionByAgent, byAgentSession;
             bool carries = bindSessionByAgent(rdb, sessionId, getppid());
 

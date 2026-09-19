@@ -31,7 +31,7 @@ observed.
 | `source/control_handlers.d` | not yet | not run |
 | `source/deferred.d` | not yet | not run |
 | `source/immediate.d` | no — 5 | no — 2 |
-| `source/watch.d` | no — 1 | ✓ |
+| `source/sky.d` | no — 1 | ✓ |
 | `source/exec.d` | ✓ | not run |
 | `source/errors.d` | ✓ | not run |
 
@@ -47,11 +47,11 @@ count of these.
 | `immediate.d` | `parkImmediate` does the same, so a row that could not be parked is re-checked without end | swallowed |
 | `immediate.d` | `writeCIStatus`, `writeClippyReminder` and `deleteClippyReminder` return `void` and exit silently. A push whose CI row failed to write is a push whose CI is never reported | swallowed |
 | `immediate.d` | `countStaleExecForSession` and `countPendingImmediateForSession` return 0 when the query cannot be prepared, and 0 is the value that means delivery is healthy. A counter that cannot count reports health. The comment calls it deliberate — "we don't want to false-alarm on transient sqlite trouble" — which is the axiom's second clause exactly | proxy |
-| `watch.d` | `handleWatch` wraps its body in `if (db !is null)`, so an unopenable db sleeps and loops forever, delivering nothing and saying nothing. `writePid`, `removePid` and `killSessionWatcher` return silently on `fopen` failure, which is real and low-consequence | swallowed |
+| `sky.d` | `handleSky` wraps its body in `if (db !is null)`, so an unopenable db sleeps and loops forever, delivering nothing and saying nothing. `claimTree`, `releaseTree` and `writeWatchClaim` return silently on `fopen` failure, which is real and low-consequence | swallowed |
 
 `writeNote`, `writeDispatchStatus`, `writeExecStarted` and `writeExecResult` are
 the shape the rest should take: retry on `SQLITE_BUSY`, return `bool`, let the
-caller escalate. `watch.d`'s `emitError("watch.claim", …)` is the same for a
+caller escalate. `sky.d`'s `emitError("sky.claim", …)` is the same for a
 watcher with no session. `orphaned(getppid())` reads clean — ppid ≤ 1 is a
 signal, not a proxy.
 
