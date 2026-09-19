@@ -84,7 +84,7 @@ immutable Owner[] owners = [
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "deferred"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
-    Owner("models",      ["models"]),
+    Owner("models",      ["models", "effort"]),
     // What is shipped to sentry and how: the hooks leave it, the watcher posts it.
     Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org", "sky",
                           "sessionmodel"]),

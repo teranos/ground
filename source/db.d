@@ -375,6 +375,14 @@ bool applySchema(sqlite3* db) {
     enum idxSessionModel = "CREATE INDEX IF NOT EXISTS idx_session_model ON session_model(session, id)\0";
     sqlite3_exec(db, idxSessionModel.ptr, null, null, null);
 
+    // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
+    // The pin the sky holds on effortLevel: what the setting was before, the
+    // reading that pinned it, and when it was let go, with the reading then.
+    enum effortPinSchema = "CREATE TABLE IF NOT EXISTS effort_pin (id INTEGER PRIMARY KEY, "
+        ~ "before TEXT NOT NULL DEFAULT '', reading INTEGER NOT NULL, pinned_at INTEGER NOT NULL, "
+        ~ "released_at INTEGER NOT NULL DEFAULT 0, released_reading INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, effortPinSchema.ptr, null, null, null);
+
     // "needs to be instrumented"
     // One row per long-lived ground process, watcher or driver: when it started,
     // for whom, that it is still polling, and how it ended.

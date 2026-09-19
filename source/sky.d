@@ -528,6 +528,9 @@ int handleSky(int argc, const(char)** argv) {
     long streamBackoffUntil = 0;
     long streamed = 0;
 
+    // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
+    long effortLookedAt = 0;
+
     import immediate : MESSAGE_CAP;
     __gshared char[4 * MESSAGE_CAP] batchBuf = 0;
     size_t batchLen = 0;
@@ -649,6 +652,25 @@ int handleSky(int argc, const(char)** argv) {
                 if (batchLen > 0) batchBuf[batchLen++] = '\n';
                 foreach (c; "ground: ") batchBuf[batchLen++] = c;
                 foreach (c; imm.message) batchBuf[batchLen++] = c;
+            }
+
+            // The effort pin, once a minute: the Fable week from the usage
+            // table against 85, and effortLevel in the user settings. What it
+            // did is delivered with the batch, so the session hears it.
+            import effort : effortPass, EFFORT_EVERY;
+            if (!stuck && cast(long) time(null) - effortLookedAt >= EFFORT_EVERY) {
+                import usagecmd : currentReading;
+                auto look = cast(long) time(null);
+                effortLookedAt = look;
+                auto fable = currentReading(db, "fable_week");
+                auto tenths = fable.found && fable.resetsAt > look ? fable.tenths : -1;
+                auto did = effortPass(db, tenths, look);
+                if (did.len > 0 && batchFits(batchLen, batchBuf.length, did.len)) {
+                    if (batchLen > 0) batchBuf[batchLen++] = '\n';
+                    foreach (c; "ground: ") batchBuf[batchLen++] = c;
+                    foreach (c; did.text()) batchBuf[batchLen++] = c;
+                    lifecycleNote(db, sessionId, "warn", did.text(), tree, myPid, 0, polls, look);
+                }
             }
 
             // "nothing can wait, and everything is urgent, at the same level
