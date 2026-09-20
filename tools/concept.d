@@ -84,9 +84,10 @@ immutable Owner[] owners = [
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "deferred"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
-    Owner("models",      ["models"]),
+    Owner("models",      ["models", "effort"]),
     // What is shipped to sentry and how: the hooks leave it, the watcher posts it.
-    Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org", "sky"]),
+    Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org", "sky",
+                          "sessionmodel"]),
     // A test module beside source/ritual/ is that module's, so it is named
     // as the file is named: delivery is ritual/delivery's cases.
     Owner("ritual",      ["ritual/resolve", "rite", "ritual/position", "ritual/run",
@@ -95,7 +96,7 @@ immutable Owner[] owners = [
                           "rite_script", "advance", "briefing", "choose", "contend",
                           "consent", "delivery", "notification", "reap", "apierror"]),
     // What a row is, where it goes, and how one comes back to the session.
-    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "loom"]),
+    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "loom", "stream"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world

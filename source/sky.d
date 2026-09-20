@@ -8,6 +8,10 @@ module sky;
 // stderr and exits 2 — no timer, nothing held back. Claude Code's
 // asyncRewake shows stderr as a system reminder and wakes the session.
 //
+// A pass with nothing to deliver is spent as the courier: the outbox and the
+// timing rows to sentry, and the hook rows to the QNTX node (stream.d). A
+// hook opens no socket; this is the one process of a session that does.
+//
 // Spawned by PostToolUse, Stop and SessionStart:
 // {"command":"ground sky $PWD","asyncRewake":true,"timeout":86400}
 // Claude Code does NOT deduplicate async hooks
@@ -485,15 +489,19 @@ int handleSky(int argc, const(char)** argv) {
             record = processStarted(rdb, KIND, myPid, myPpid, sessionId, tree, startedAt);
             import hooktiming;
             import outbox;
+            import stream;
             auto freed = hooktiming.releaseDeadClaims(rdb, &pidAlive);
             auto freedItems = outbox.releaseDeadClaims(rdb, &pidAlive);
-            if (freed > 0 || freedItems > 0) {
+            auto freedRows = stream.releaseDeadClaims(rdb, &pidAlive);
+            if (freed > 0 || freedItems > 0 || freedRows > 0) {
                 __gshared ZBuf why;
                 why.reset();
                 why.put("freed rows claimed by dead watchers: timing ");
                 why.putUint(cast(ulong) freed);
                 why.put(", outbox ");
                 why.putUint(cast(ulong) freedItems);
+                why.put(", stream ");
+                why.putUint(cast(ulong) freedRows);
                 lifecycleNote(rdb, sessionId, "warn", why.slice(), tree, myPid, 0, 0, startedAt);
             }
             sqlite3_close(rdb);
@@ -502,18 +510,49 @@ int handleSky(int argc, const(char)** argv) {
     long polls = 0;
 
     // Where this session reports, asked once: the place does not move.
-    import controls : dsnHere;
+    import controls : dsnHere, qntxNode;
     auto dsn = dsnHere(cwd);
     long shipBackoffUntil = 0;
+
+    // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
+    // The node and its token, read once: a token that changes is a sky that
+    // is respawned at the next hook anyway. No node named is no stream, and
+    // a node named with no token to read is said once and is no stream.
+    import attest : qntxToken;
+    const(char)[] streamToken = qntxNode.url.length > 0 ? qntxToken(qntxNode.token) : null;
+    if (qntxNode.url.length > 0 && streamToken.length == 0) {
+        import exec : emitError;
+        emitError("sky.stream", "the qntx block names a node but its token file holds nothing; the stream waits",
+                  0, -1, cast(string) sessionId, KIND, "", "", cast(string) qntxNode.token);
+    }
+    long streamBackoffUntil = 0;
+    long streamed = 0;
+
+    // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
+    long effortLookedAt = 0;
 
     import immediate : MESSAGE_CAP;
     __gshared char[4 * MESSAGE_CAP] batchBuf = 0;
     size_t batchLen = 0;
 
     int nextSleep = 2;
+    long storeSaidAt = 0;
 
     while (true) {
         auto db = openDb();
+        // "errors should go to sentry as errors"
+        // A store that will not open used to be a two-second sleep, said
+        // nowhere, for as long as it lasted: 2026-09-19 22:38 to 23:0x, the
+        // process table's tree damaged, nothing delivered, shipped or
+        // streamed. Said once a minute, and the saying reaches sentry
+        // without the store.
+        if (db is null) {
+            auto now = cast(long) time(null);
+            if (now - storeSaidAt >= SHIP_BACKOFF_SEC) {
+                storeSaidAt = now;
+                storeShut(sessionId);
+            }
+        }
         if (db !is null) {
             // Reset to default each loop; adaptive ci-status may raise it.
             nextSleep = 2;
@@ -629,6 +668,25 @@ int handleSky(int argc, const(char)** argv) {
                 foreach (c; imm.message) batchBuf[batchLen++] = c;
             }
 
+            // The effort pin, once a minute: the Fable week from the usage
+            // table against 85, and effortLevel in the user settings. What it
+            // did is delivered with the batch, so the session hears it.
+            import effort : effortPass, EFFORT_EVERY;
+            if (!stuck && cast(long) time(null) - effortLookedAt >= EFFORT_EVERY) {
+                import usagecmd : currentReading;
+                auto look = cast(long) time(null);
+                effortLookedAt = look;
+                auto fable = currentReading(db, "fable_week");
+                auto tenths = fable.found && fable.resetsAt > look ? fable.tenths : -1;
+                auto did = effortPass(db, tenths, look);
+                if (did.len > 0 && batchFits(batchLen, batchBuf.length, did.len)) {
+                    if (batchLen > 0) batchBuf[batchLen++] = '\n';
+                    foreach (c; "ground: ") batchBuf[batchLen++] = c;
+                    foreach (c; did.text()) batchBuf[batchLen++] = c;
+                    lifecycleNote(db, sessionId, "warn", did.text(), tree, myPid, 0, polls, look);
+                }
+            }
+
             // "nothing can wait, and everything is urgent, at the same level
             // of predictable urgency"
             if (batchLen > 0) {
@@ -636,7 +694,7 @@ int handleSky(int argc, const(char)** argv) {
                 long delivered = 1;
                 foreach (c; batchBuf[0 .. batchLen]) if (c == '\n') delivered++;
                 ending(db, record, sessionId, tree, myPid, "delivered and exited 2",
-                       delivered, polls, startedAt, "info");
+                       delivered, polls, startedAt, "info", streamed);
                 sqlite3_close(db);
                 releaseTree(cwd);
                 fwrite(&batchBuf[0], 1, batchLen, stderr);
@@ -649,7 +707,7 @@ int handleSky(int argc, const(char)** argv) {
             // and if the db is still broken that one says so once as well.
             if (stuck) {
                 ending(db, record, sessionId, tree, myPid, "stuck: a receipt would not land",
-                       0, polls, startedAt, "warn");
+                       0, polls, startedAt, "warn", streamed);
                 sqlite3_close(db);
                 releaseTree(cwd);
                 return 1;
@@ -668,6 +726,16 @@ int handleSky(int argc, const(char)** argv) {
             if (dsn.length > 0 && now >= shipBackoffUntil) {
                 if (!shipPass(db, sessionId, dsn, myPid, now)) shipBackoffUntil = now + SHIP_BACKOFF_SEC;
             }
+            // The hook rows, to the node, TAKE at a time. A pass the node did
+            // not take waits out the same minute the sentry post does.
+            if (streamToken.length > 0 && now >= streamBackoffUntil) {
+                import stream : streamPass;
+                int last;
+                if (!streamPass(db, qntxNode.url, streamToken, myPid, now, last, streamed)) {
+                    streamBackoffUntil = now + SHIP_BACKOFF_SEC;
+                    streamFailed(sessionId, last);
+                }
+            }
             sqlite3_close(db);
         }
 
@@ -678,7 +746,7 @@ int handleSky(int argc, const(char)** argv) {
             auto odb = openDb();
             if (odb !is null) {
                 ending(odb, record, sessionId, tree, myPid, "orphaned: the session is gone",
-                       0, polls, startedAt, "info");
+                       0, polls, startedAt, "info", streamed);
                 sqlite3_close(odb);
             }
             releaseTree(cwd);
@@ -697,19 +765,21 @@ enum SHIP_BACKOFF_SEC = 60;
 // watcher's to ship; this one is leaving.
 private void ending(sqlite3* db, long record, const(char)[] sessionId, const(char)[] tree,
                     int pid, const(char)[] how, long delivered, long polls,
-                    long startedAt, const(char)[] level) {
+                    long startedAt, const(char)[] level, long streamed = 0) {
     import core.stdc.time : time;
     import lifecycle : processEnded;
     auto now = cast(long) time(null);
     processEnded(db, record, how, delivered, now);
-    lifecycleNote(db, sessionId, level, how, tree, pid, delivered, polls, now, now - startedAt);
+    lifecycleNote(db, sessionId, level, how, tree, pid, delivered, polls, now, now - startedAt, streamed);
 }
 
-// One outbox item about a watcher: what became of it, for whom, and how much
-// it handed over. The tree is a directory's name, never a path.
+// One outbox item about a watcher: what became of it, for whom, how much it
+// handed over, and how many rows it carried to the node. The tree is a
+// directory's name, never a path.
 private void lifecycleNote(sqlite3* db, const(char)[] sessionId, const(char)[] level,
                            const(char)[] how, const(char)[] tree, int pid,
-                           long delivered, long polls, long now, long seconds = 0) {
+                           long delivered, long polls, long now, long seconds = 0,
+                           long streamed = 0) {
     import sentry : openItem;
     import outbox : leave;
 
@@ -726,6 +796,13 @@ private void lifecycleNote(sqlite3* db, const(char)[] sessionId, const(char)[] l
     it.num("delivered", delivered);
     it.num("polls", polls);
     it.num("seconds", seconds);
+    it.num("streamed", streamed);
+    // What the stream still owes the node as this one leaves, and what the
+    // node refused for good.
+    import stream : standing;
+    auto s = standing(db);
+    it.num("stream_pending", s.pending);
+    it.num("stream_refused", s.refused);
     it.close();
     cast(void) leave(db, sessionId, level, it, now);
 }
@@ -768,6 +845,47 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
         }
     }
     return true;
+}
+
+// The store would not open, with sqlite's own number for why. Raised as an
+// error: with no store to leave it in, deliverError posts it to sentry
+// itself, from a child.
+private void storeShut(const(char)[] sessionId) {
+    import exec : emitError;
+    import db : dbFailureCode;
+    __gshared char[200] said = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+    put("the store would not open: sqlite code ");
+    auto code = dbFailureCode();
+    char[3] d = [cast(char)('0' + code / 100 % 10), cast(char)('0' + code / 10 % 10), cast(char)('0' + code % 10)];
+    put(d[]);
+    put("; nothing is delivered, shipped or streamed until it does");
+    emitError("sky.store", cast(string) said[0 .. n], 0, -1, cast(string) sessionId, KIND, "", "", "");
+}
+
+// A row the node did not take for a reason that may change, said once per
+// backoff: the HTTP status, or libcurl's code below zero.
+private void streamFailed(const(char)[] sessionId, int status) {
+    import exec : emitError;
+    __gshared char[200] said = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+    put("the stream to qntx stopped at a row: ");
+    if (status > 0) {
+        put("HTTP ");
+        char[3] d = [cast(char)('0' + status / 100 % 10), cast(char)('0' + status / 10 % 10),
+                     cast(char)('0' + status % 10)];
+        put(d[]);
+    } else {
+        put("no answer, libcurl code ");
+        auto v = -status;
+        char[3] d = [cast(char)('0' + v / 100 % 10), cast(char)('0' + v / 10 % 10), cast(char)('0' + v % 10)];
+        put(d[]);
+    }
+    put(" — the rows stay pending, and the next try is in a minute");
+    emitError("sky.stream", cast(string) said[0 .. n], 0, -1, cast(string) sessionId,
+              KIND, "", "", "");
 }
 
 // A post that did not land, said once per backoff, with what sentry or

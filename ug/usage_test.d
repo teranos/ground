@@ -43,6 +43,19 @@ static assert(ASKED == -2);
 static assert(contains(CLAIM_SQL, "ask_exit"));
 static assert(contains(CLAIM_SQL, "SELECT ?1, ?2, ?3, ?4, ?5, 0, -2, ?7"));
 
+// "i want to know on a time series if Fable, or Opus or Sonnet was active"
+// "and effort as well"
+// The model and the effort the payload carries, for the session_model row
+// ug writes with ground's own statement.
+import usage : modelIn;
+enum modelled = `{"session_id":"s","model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"effort":{"level":"high"},"rate_limits":{}}`;
+static assert(modelIn(modelled).model == "claude-fable-5-1");
+static assert(modelIn(modelled).effort == "high");
+static assert(modelIn(`{"session_id":"s"}`).model == "");
+static assert(modelIn(`{"session_id":"s"}`).effort == "");
+import sessionmodel : RECORD_MODEL_SQL;
+static assert(contains(RECORD_MODEL_SQL, "INSERT INTO session_model (session, model, effort, since)"));
+
 // The rule is the claim: a new session, or the interval since the last reading.
 static assert(RECORD_EVERY == 14400);
 static assert(contains(CLAIM_SQL, "INSERT INTO usage (window, used_percentage, resets_at, seen_at, session, qntx_status, qntx_exit, ask_exit)"));

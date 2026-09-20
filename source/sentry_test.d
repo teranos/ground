@@ -497,3 +497,41 @@ static assert(nothing == 0);
 // A dsn that is not one builds nothing, so nothing is posted anywhere.
 static assert(riteEnvelope("not a dsn", 1000, said("R", Verdict.Advance, 0)).text().length == 0);
 static assert(performanceEnvelope("", 1000, "c-1", "c", "done").text().length == 0);
+
+// "errors should go to sentry as errors"
+// One item as an envelope of its own, for the process that cannot leave it in
+// the store: the same envelope the budget notice travels in.
+import sentry : logEnvelope;
+enum alone = () {
+    auto it = openItem(1000, "sess-1", "error", "sky.store: the store would not open");
+    it.str("origin", "sky.store");
+    it.close();
+    return logEnvelope(sendDsn, it).text().idup;
+}();
+static assert(contains(alone, `{"type":"log","item_count":1,"content_type":"application/vnd.sentry.items.log+json"}` ~ "\n"));
+static assert(contains(alone, `{"items":[{"timestamp":1000,`));
+static assert(contains(alone, `"level":"error","body":"sky.store: the store would not open"`));
+static assert(alone[$ - 3 .. $] == "]}\n");
+static assert(logEnvelope("not a dsn", plainItem).text().length == 0);
+
+// "i want to know on a time series if Fable, or Opus or Sonnet was active"
+// An item is closed where it is built and stamped where it is left: the
+// funnel reopens it for the one attribute the builder could not know, the
+// session's model, and closes it again. Stamping an open item is str.
+enum stamped = () { auto it = openItem(1000, "s", "warn", "x"); it.close(); it.stamp("model", "claude-fable-5-1"); return it; }();
+static assert(stamped.text() ==
+    `{"timestamp":1000,"trace_id":"` ~ traceId("s").text()
+    ~ `","level":"warn","body":"x","attributes":{"model":{"value":"claude-fable-5-1","type":"string"}}}`);
+enum stampedAfter = () {
+    auto it = openItem(1000, "s", "info", "control x fired");
+    it.str("control", "x");
+    it.close();
+    it.stamp("model", "claude-opus-5");
+    return it;
+}();
+static assert(contains(stampedAfter.text(), `"control":{"value":"x","type":"string"},"model":{"value":"claude-opus-5","type":"string"}}}`));
+enum stampedOpen = () { auto it = openItem(1000, "s", "info", "x"); it.stamp("model", "m"); it.close(); return it; }();
+static assert(contains(stampedOpen.text(), `"attributes":{"model":{"value":"m","type":"string"}}}`));
+// A stamp with nothing to say leaves the item as it was.
+enum unstamped = () { auto it = openItem(1000, "s", "warn", "x"); it.close(); it.stamp("model", ""); return it; }();
+static assert(unstamped.text() == plainItem.text());

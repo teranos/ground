@@ -59,6 +59,26 @@ enum ASKED_WINDOW = 2;
 enum PENDING = "-1";
 enum ASKED = -2;
 
+// "i want to know on a time series if Fable, or Opus or Sonnet was active"
+// "and effort as well"
+// The model and the effort the status line is handed: model.id, effort.level.
+struct SessionModel {
+    const(char)[] model;
+    const(char)[] effort;
+}
+
+SessionModel modelIn(const(char)[] input) {
+    import json : jsonString;
+    SessionModel m;
+    auto model = objectOf(input, "model");
+    if (model.length > 0) m.model = jsonString(model, "id");
+    auto effort = objectOf(input, "effort");
+    if (effort.length > 0) m.effort = jsonString(effort, "level");
+    if (m.model is null) m.model = "";
+    if (m.effort is null) m.effort = "";
+    return m;
+}
+
 // Read inside rate_limits only. context_window carries a used_percentage of its
 // own, and a search over the whole input takes whichever comes first.
 Windows rateLimits(const(char)[] input) {
@@ -221,6 +241,24 @@ void recordUsage(const(char)[] home, const(char)[] input, long now) {
     if (sqlite3_exec(db, "BEGIN IMMEDIATE\0".ptr, null, null, null) != SQLITE_OK) {
         sqlite3_close(db);
         return;
+    }
+
+    // The session's model and effort, a row when either changed. Ground's
+    // statement, so ground reads exactly what ug wrote.
+    {
+        import sessionmodel : RECORD_MODEL_SQL;
+        auto m = modelIn(input);
+        if (m.model.length > 0 && session.length > 0) {
+            sqlite3_stmt* ins;
+            if (sqlite3_prepare_v2(db, RECORD_MODEL_SQL.ptr, cast(int) RECORD_MODEL_SQL.length, &ins, null) == SQLITE_OK) {
+                sqlite3_bind_text(ins, 1, session.ptr, cast(int) session.length, cast(void*) -1);
+                sqlite3_bind_text(ins, 2, m.model.ptr, cast(int) m.model.length, cast(void*) -1);
+                sqlite3_bind_text(ins, 3, m.effort.ptr, cast(int) m.effort.length, cast(void*) -1);
+                sqlite3_bind_int64(ins, 4, now);
+                sqlite3_step(ins);
+                sqlite3_finalize(ins);
+            } else fputs("ug: usage: cannot prepare the model row\n", stderr);
+        }
     }
 
     long[3] claimed = [0, 0, 0];

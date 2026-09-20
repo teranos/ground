@@ -260,6 +260,25 @@ bool applySchema(sqlite3* db) {
         return false;
     }
 
+    // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
+    // A row's place in the stream to the QNTX node, kept the way an outbox
+    // item's is: 0 pending, -pid claimed by that sky, a unix time when the node
+    // had it; qntx_status the node's last answer. The rows there when the
+    // column arrives are stamped BEFORE_STREAM, once, and never sent: "today
+    // will be the day of recording to parquet, so its a clean slate".
+    if (!hasColumn(db, "attestations", "qntx_at")) {
+        import stream : BEFORE_STREAM;
+        if (ensureColumn(db, "attestations", "qntx_at", "INTEGER NOT NULL DEFAULT 0")) {
+            enum stamp = "UPDATE attestations SET qntx_at = " ~ BEFORE_STREAM.stringof ~ "\0";
+            if (sqlite3_exec(db, stamp.ptr, null, null, null) != SQLITE_OK)
+                noteDbFailure(sqlite3_errcode(db));
+        }
+    }
+    ensureColumn(db, "attestations", "qntx_status", "INTEGER NOT NULL DEFAULT 0");
+    // The pending set is small against the table, so the index is partial.
+    enum idxStream = "CREATE INDEX IF NOT EXISTS idx_attestations_stream ON attestations(qntx_at) WHERE qntx_at <= 0\0";
+    sqlite3_exec(db, idxStream.ptr, null, null, null);
+
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
     sqlite3_exec(db, sessionProjectSchema.ptr, null, null, null);
@@ -345,6 +364,24 @@ bool applySchema(sqlite3* db) {
     // window the payload handed over reads 0 and 0: nothing was asked.
     ensureColumn(db, "usage", "ask_status", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "usage", "ask_exit", "INTEGER NOT NULL DEFAULT 0");
+
+    // "i want to know on a time series if Fable, or Opus or Sonnet was active"
+    // Which model a session runs under, as the status line hands it to ug: a
+    // row each time it changes, and the newest is the session's. No hook is
+    // told the model, so this is the one place ground can read it from.
+    enum sessionModelSchema = "CREATE TABLE IF NOT EXISTS session_model (id INTEGER PRIMARY KEY, "
+        ~ "session TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', since INTEGER NOT NULL)\0";
+    sqlite3_exec(db, sessionModelSchema.ptr, null, null, null);
+    enum idxSessionModel = "CREATE INDEX IF NOT EXISTS idx_session_model ON session_model(session, id)\0";
+    sqlite3_exec(db, idxSessionModel.ptr, null, null, null);
+
+    // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
+    // The pin the sky holds on effortLevel: what the setting was before, the
+    // reading that pinned it, and when it was let go, with the reading then.
+    enum effortPinSchema = "CREATE TABLE IF NOT EXISTS effort_pin (id INTEGER PRIMARY KEY, "
+        ~ "before TEXT NOT NULL DEFAULT '', reading INTEGER NOT NULL, pinned_at INTEGER NOT NULL, "
+        ~ "released_at INTEGER NOT NULL DEFAULT 0, released_reading INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, effortPinSchema.ptr, null, null, null);
 
     // "needs to be instrumented"
     // One row per long-lived ground process, watcher or driver: when it started,
@@ -694,6 +731,56 @@ bool jsonValid(sqlite3* db, const(char)[] payload) {
     return valid;
 }
 
+// --- The session's model ---
+
+// "and effort as well"
+// A row when the model or the effort differs from the session's newest row;
+// true when one was written. The statement is sessionmodel.d's, the same
+// one ug runs with what the status line hands it.
+bool recordModel(sqlite3* db, const(char)[] session, const(char)[] model, const(char)[] effort, long now) {
+    import sessionmodel : RECORD_MODEL_SQL;
+    if (session.length == 0 || model.length == 0) return false;
+    enum sql = RECORD_MODEL_SQL ~ "\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, model.ptr, cast(int) model.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, effort.ptr, cast(int) effort.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, now);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db) == 1;
+}
+
+// The session's newest model and effort, or empty when ug never saw it.
+struct SessionModel {
+    char[64] modelBuf;
+    size_t modelLen;
+    char[16] effortBuf;
+    size_t effortLen;
+    const(char)[] model() const return { return modelBuf[0 .. modelLen]; }
+    const(char)[] effort() const return { return effortBuf[0 .. effortLen]; }
+}
+
+SessionModel modelOf(sqlite3* db, const(char)[] session) {
+    SessionModel m;
+    if (session.length == 0) return m;
+    enum sql = "SELECT model, effort FROM session_model WHERE session = ?1 ORDER BY id DESC LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return m;
+    sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto model = sqlite3_column_text(stmt, 0);
+        if (model !is null)
+            while (model[m.modelLen] != 0 && m.modelLen < m.modelBuf.length) { m.modelBuf[m.modelLen] = model[m.modelLen]; m.modelLen++; }
+        auto effort = sqlite3_column_text(stmt, 1);
+        if (effort !is null)
+            while (effort[m.effortLen] != 0 && m.effortLen < m.effortBuf.length) { m.effortBuf[m.effortLen] = effort[m.effortLen]; m.effortLen++; }
+    }
+    sqlite3_finalize(stmt);
+    return m;
+}
+
 // --- Universal event attestation ---
 // Stores the full hook payload as attributes — no field extraction, no truncation.
 
@@ -887,6 +974,37 @@ unittest {
     attestControlFire(db, "GroundedStop", "openapi:/health", "/tmp", "sess-two");
     assert(attestationRowCount(db) == 2);
 
+    sqlite3_close(db);
+}
+
+unittest {
+    // "today will be the day of recording to parquet, so its a clean slate in that regard"
+    // The rows a hook writes from now on are the stream's: qntx_at 0 until the
+    // sky posts one. The rows that were there when the column arrived are not:
+    // stamped BEFORE_STREAM once, by the migration, and never claimed.
+    import stream : BEFORE_STREAM;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(hasColumn(db, "attestations", "qntx_at"));
+    assert(hasColumn(db, "attestations", "qntx_status"));
+
+    attestEventAt(db, "PreToolUse", "/tmp", "sess-old", `{"probe":"old"}`, "2026-09-19T09:00:00Z", 1);
+    // The store as it stood before the stream: the column gone, the row there.
+    // The index names the column, so it goes first.
+    assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream\0".ptr, null, null, null) == SQLITE_OK);
+    assert(sqlite3_exec(db, "ALTER TABLE attestations DROP COLUMN qntx_at\0".ptr, null, null, null) == SQLITE_OK);
+    assert(applySchema(db), "the migration runs against a store that has rows");
+    attestEventAt(db, "PreToolUse", "/tmp", "sess-new", `{"probe":"new"}`, "2026-09-19T09:00:01Z", 2);
+
+    enum q = "SELECT json_extract(contexts, '$[0]'), qntx_at FROM attestations ORDER BY rowid\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, q.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 1) == BEFORE_STREAM, "there before the stream: never sent");
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 1) == 0, "written after: pending");
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
 }
 

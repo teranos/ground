@@ -150,6 +150,8 @@ static assert(chapterOf("outbox") == "sentry");
 static assert(chapterOf("fired") == "sentry");
 static assert(chapterOf("hooktiming") == "sentry");
 static assert(chapterOf("sky") == "sentry", "the sky is what posts what the hooks leave");
+static assert(chapterOf("sessionmodel") == "sentry", "the model on every item");
+static assert(chapterOf("effort") == "models", "which model, and how hard it thinks");
 static assert(chapterOf("lifecycle") == "sentry");
 static assert(chapterOf("minutes") == "sentry");
 static assert(chapterOf("org") == "sentry");
@@ -158,6 +160,7 @@ static assert(chapterOf("org") == "sentry");
 // that reads it is the attestation chapter's.
 static assert(chapterOf("immediate") == "attestation");
 static assert(chapterOf("loom") == "attestation");
+static assert(chapterOf("stream") == "attestation");
 
 // A module under source/ritual/ is named with its directory, so the ritual's
 // own modules are reachable and nothing beside them can be mistaken for them.

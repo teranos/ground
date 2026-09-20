@@ -80,7 +80,11 @@ enum src = groups ~ projects;
 enum parsed = parsePbt(src);
 
 // "# Can also be just the ritual: in case it resolves to only a single ritual."
+// The wanted case, not a refusal: `zulu` is a ritual held by one project and
+// by no other, and nothing else is called zulu, so the one word is enough.
+// The refusals are `busy` and `moon` below, where one word is two candidates.
 static assert(chooseRitual(parsed, "zulu", "").ok);
+static assert(parsed.projects[chooseRitual(parsed, "zulu", "").projectIdx].name == "moon");
 
 // "# Just the project name, in case it has only a single ritual."
 static assert(chooseRitual(parsed, "tightgrove", "").ok);
