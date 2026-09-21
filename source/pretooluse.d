@@ -107,6 +107,15 @@ void writeContextResponse(const(char)[] context, const(char)[] decision) {
     fputs("\n", stdout);
 }
 
+// The question, asked the way a denial is answered: the reason rides on the
+// decision, so the prompt says who is asking and why.
+void writeAskResponse(const(char)[] reason) {
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"`, stdout);
+    writeJsonString(reason);
+    fputs(`"}}`, stdout);
+    fputs("\n", stdout);
+}
+
 void writeDenyResponse(const(char)[] reason) {
     fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"`, stdout);
     writeJsonString(reason);
@@ -754,6 +763,33 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             exitLabel = "file-perm-allow";
             import fired : noteFiredNow;
             noteFiredNow(sessionId, "PreToolUse", "permission", permResult.name, "allow", cwd);
+            writeContextResponse("", "allow");
+            return 0;
+        }
+    }
+
+    // An Agent call carries no command and no file_path, so it reached neither
+    // check above and no rule was ever asked about it. Manual only.
+    if (toolName == "Agent") {
+        import controls : permissionScopes;
+        import permission : agentPermission, Decision;
+        import fired : noteFiredNow;
+        auto agentPerm = agentPermission(permissionScopes, cwd, sessionMode);
+        if (agentPerm.decision == Decision.deny) {
+            exitLabel = "agent-deny";
+            noteFiredNow(sessionId, "PreToolUse", "permission", agentPerm.name, "deny", cwd);
+            writeDenyResponse(agentPerm.msg);
+            return 0;
+        }
+        if (agentPerm.decision == Decision.ask) {
+            exitLabel = "agent-ask";
+            noteFiredNow(sessionId, "PreToolUse", "permission", agentPerm.name, "ask", cwd);
+            writeAskResponse(agentPerm.msg);
+            return 0;
+        }
+        if (agentPerm.decision == Decision.allow) {
+            exitLabel = "agent-allow";
+            noteFiredNow(sessionId, "PreToolUse", "permission", agentPerm.name, "allow", cwd);
             writeContextResponse("", "allow");
             return 0;
         }

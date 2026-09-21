@@ -278,6 +278,19 @@ PermissionResult evaluatePermission(
     return evaluateSingle(scopes, cwd, toolName, command, command, sessionMode);
 }
 
+/// What ground answers when a session asks to start an agent. An Agent call
+/// carries no command and no file_path, so there is nothing to match on but a
+/// wildcard, and a rule's ask ignores the session segment — the mode is decided
+/// here so a grant-free manual session is the only one that gets a question.
+PermissionResult agentPermission(
+    const(PermissionScope)[] scopes,
+    const(char)[] cwd,
+    SessionMode sessionMode,
+) {
+    if (sessionMode != SessionMode.manual) return PermissionResult(Decision.none, "", "");
+    return evaluatePermission(scopes, cwd, "Agent", "", sessionMode);
+}
+
 private const(char)[] trimSlice(const(char)[] s) {
     while (s.length > 0 && s[0] == ' ') s = s[1 .. $];
     while (s.length > 0 && s[$ - 1] == ' ') s = s[0 .. $ - 1];
@@ -377,6 +390,7 @@ private PermissionResult evaluateSingle(
                     if (result.decision < Decision.ask) {
                         result.decision = Decision.ask;
                         result.name = p.name;
+                        result.msg = p.msg;
                     }
                 }
             }

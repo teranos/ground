@@ -1,6 +1,6 @@
 module permission_test;
 
-import permission : buildPermissions, evaluatePermission, Decision;
+import permission : buildPermissions, evaluatePermission, agentPermission, Decision;
 import proto : parsePbt;
 import sessionmode : SessionMode;
 
@@ -332,3 +332,44 @@ static assert(s9.decision == Decision.none);
 
 enum s10 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d", SessionMode.unknown);
 static assert(s10.decision == Decision.none);
+
+// --- Agent spawn ---
+// A rule's ask ignores the session segment, so the mode is decided by
+// agentPermission and not by the rule.
+enum agentPbt = `
+scope {
+  path: "/"
+  permission.a.m {
+    ask: ["*"]
+    msg: "A session wants to start an agent."
+  }
+}
+`;
+enum agentParsed = parsePbt(agentPbt);
+enum agentSet = buildPermissions(agentParsed);
+
+// Manual asks, carrying the reason the rule wrote.
+enum ag1 = agentPermission(agentSet[], "/x", SessionMode.manual);
+static assert(ag1.decision == Decision.ask);
+static assert(ag1.msg == "A session wants to start an agent.");
+
+// Every other mode is left exactly as it was.
+enum ag2 = agentPermission(agentSet[], "/x", SessionMode.auto_);
+static assert(ag2.decision == Decision.none);
+
+enum ag3 = agentPermission(agentSet[], "/x", SessionMode.acceptEdits);
+static assert(ag3.decision == Decision.none);
+
+enum ag4 = agentPermission(agentSet[], "/x", SessionMode.bypassPermissions);
+static assert(ag4.decision == Decision.none);
+
+enum ag5 = agentPermission(agentSet[], "/x", SessionMode.plan);
+static assert(ag5.decision == Decision.none);
+
+// The rule on its own asks in every mode. The gate is what confines it.
+enum ag6 = evaluatePermission(agentSet[], "/x", "Agent", "", SessionMode.auto_);
+static assert(ag6.decision == Decision.ask);
+
+// The letter names the tool, not the session: a write is not an agent.
+enum ag7 = evaluatePermission(agentSet[], "/x", "Write", "/x/f.d", SessionMode.manual);
+static assert(ag7.decision == Decision.none);
