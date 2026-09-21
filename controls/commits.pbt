@@ -66,6 +66,14 @@ scope {
           ]
         ]
 
+        # Not a subthing: its key carries capitals, so lower() cannot reach it.
+        repeat(0..1)[
+          repeat(0..1)[ newline() ]
+          literal("Co-Authored-By: ")
+          line(max: 80)
+          repeat(0..1)[ newline() ]
+        ]
+
         end()
       ]
     }

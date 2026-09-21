@@ -89,3 +89,9 @@ permission.x.a {
 permission.x.a {
   allow: ["*"]
 }
+
+# "I DONT WANT AGENTS TO SPAWN WITHOUT MY PERMISSION IN MANUAL MODE"
+permission.a.m {
+  ask: ["*"]
+  msg: "A session wants to start an agent. Deny it and the session reads the source itself."
+}
