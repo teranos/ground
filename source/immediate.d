@@ -28,6 +28,10 @@ import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 ZBuf, jsonArray1, formatTimestamp, versionString, attestEvent;
 import core.stdc.time : time;
 
+// The shape only — the reading itself is the caller's to fetch, so writing a
+// row needs no network and no credentials.
+import deferred : CIPercentiles;
+
 extern (C) uint usleep(uint);
 
 // How much of one message reaches the reader. The watcher's batch holds a
@@ -609,7 +613,7 @@ void deleteClippyReminder(sqlite3* db, const(char)[] sessionId) {
 // Also clears delivered: receipts so new pushes re-deliver.
 bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
                    const(char)[] repo, const(char)[] branch, const(char)[] sha,
-                   int delaySec) {
+                   int delaySec, CIPercentiles pct = CIPercentiles(0, 0)) {
     import db : formatTimestamp, versionString;
 
     if (sessionId.length == 0) return false;
@@ -640,12 +644,14 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
     attrBuf.put(`","sha":"`);
     putJsonString(attrBuf, sha);
     // Adaptive-poll inputs: push timestamp + historical p50/p90 of CI duration.
-    // Fetched ONCE at write time so the watcher doesn't need to call gh again.
-    import deferred : getCIPercentiles;
+    // Read once, by the caller, so the watcher does not need to call gh again.
+    //
+    // They used to be fetched here, which put a network call inside a function
+    // whose work is one row: six unit tests asking for a row asked GitHub for
+    // the history of a repository that does not exist, and a suite that needs
+    // the network, gh's credentials and a live repo to write a row is a suite
+    // that fails for reasons none of its assertions are about.
     auto now = cast(long) time(null);
-    auto pct = repo.length > 0 && branch.length > 0
-        ? getCIPercentiles(repo, branch)
-        : typeof(getCIPercentiles("", "")).init;
 
     void putLong(ref ZBuf buf, long v) {
         char[20] tbuf = 0;
@@ -1518,13 +1524,19 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    writeCIStatus(testDb, "sess-ci", "acme/widget", "main", "abc1234", 0);
+    // The percentiles are the caller's to hand over. Writing a row asks
+    // nobody anything: this test names a repository that does not exist, and
+    // it must still pass on a machine with no network and no gh.
+    writeCIStatus(testDb, "sess-ci", "acme/widget", "main", "abc1234", 0,
+                  CIPercentiles(111, 222));
     auto result = readImmediateMessage(testDb, "/tmp/anywhere", "sess-ci");
     assert(result.message !is null, "ci-status not readable after write");
     assert(result.name == "ci-status");
     assert(result.repo == "acme/widget");
     assert(result.branch == "main");
     assert(result.sha == "abc1234");
+    assert(result.p50 == 111 && result.p90 == 222,
+           "the row carries the percentiles it was handed, not ones it fetched");
 
     sqlite3_close(testDb);
 }
