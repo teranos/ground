@@ -31,9 +31,26 @@ const(char)[] bandColour(long used, long quota) {
     return null;
 }
 
-// `claude week 71% 2d 3h left`, inside the same bands, or nothing. A window
-// that has already reset says nothing about the one running now. The label
-// names the window: the account's week, or Fable's.
+// "MAX is only MAX if the subscription plan is max like ground usage displays"
+// `cc` and the plan in capitals: ccMAX on a Max plan, ccPRO on a Pro one. The
+// plan is `subscriptionType` from `claude auth status`, which ground writes
+// down as the `plan` check. Asked and not yet answered, the label is `cc`
+// alone — the week is still worth the room, and it claims nothing it has not
+// been told.
+size_t weekLabelInto(const(char)[] plan, char[] dest) {
+    size_t o = 0;
+    foreach (c; "cc") if (o < dest.length) dest[o++] = c;
+    foreach (c; plan) {
+        if (o >= dest.length) break;
+        dest[o++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    return o;
+}
+
+// `ccMAX 71%`, inside the same bands, or nothing. A window that has already
+// reset says nothing about the one running now. The label names the window:
+// the account's week, or Fable's. How long until it resets is leftInto's, and
+// the row draws that once for both.
 size_t weekInto(const(char)[] label, long percent, long resetsAt, long now, char[] dest) {
     if (resetsAt <= now) return 0;
     auto colour = bandColour(percent, 100);
@@ -53,24 +70,40 @@ size_t weekInto(const(char)[] label, long percent, long resetsAt, long now, char
     put(label);
     put(" ");
     num(percent);
-    put("% ");
+    put("%");
+    put(PLAIN);
+    return o;
+}
 
-    // The two largest units that are still true, and one when there is one.
+// "right now i see it twice / instead y needs to be shown onece / before
+// ccMAX". The account's week and Fable's reset within a minute of each other,
+// so the row was spending the room twice to say one thing. The time stands
+// once, in front of the first week drawn, in its own hand.
+//
+// The largest unit that is still true, and nothing after it. "i will just
+// remember that its 'left' i wont forget" — the word said nothing the reader
+// was not already holding, and the second unit beside the first was the same
+// trade: room on a one-line bar for a digit nobody acts on.
+size_t leftInto(long resetsAt, long now, char[] dest) {
+    if (resetsAt <= now) return 0;
+
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    void num(long v) {
+        char[24] d = void;
+        size_t dl = 0;
+        if (v <= 0) d[dl++] = '0';
+        else while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. dl) if (o < dest.length) dest[o++] = d[i];
+    }
+
     auto left = resetsAt - now;
     auto days = left / 86_400;
     auto hours = (left % 86_400) / 3600;
     auto mins = (left % 3600) / 60;
-    if (days > 0) {
-        num(days); put("d");
-        if (hours > 0) { put(" "); num(hours); put("h"); }
-    } else if (hours > 0) {
-        num(hours); put("h");
-        if (mins > 0 && hours < 3) { put(" "); num(mins); put("m"); }
-    } else {
-        num(mins); put("m");
-    }
-    put(" left");
-    put(PLAIN);
+    if (days > 0) { num(days); put("d"); }
+    else if (hours > 0) { num(hours); put("h"); }
+    else { num(mins); put("m"); }
     return o;
 }
 
@@ -225,6 +258,20 @@ int tmuxMain(const(char)[] home, long now) {
         }
     }
 
+    // The readings go to the other end of the bar, away from what the node is
+    // saying. tmux reads #[align=right] out of a #() exactly as it reads one
+    // written into status-format itself — measured, both sides identical at 60
+    // columns — so the split costs one directive and no change to the conf.
+    // They are gathered first, because an empty right side must not emit the
+    // directive and hand tmux a right-aligned nothing.
+    __gshared char[2048] right = void;
+    size_t r = 0;
+
+    void append(const(char)[] seg) {
+        if (r > 0) foreach (c; SEP) if (r < right.length) right[r++] = c;
+        foreach (c; seg) if (r < right.length) right[r++] = c;
+    }
+
     // The orgs' Actions minutes, from the table ground keeps. No network call:
     // ground asks github, and this reads what it wrote down.
     {
@@ -235,26 +282,64 @@ int tmuxMain(const(char)[] home, long now) {
             __gshared char[160] seg = void;
             auto sn = minutesInto(orgs[i].org(), orgs[i].used, orgs[i].quota, seg[]);
             if (sn == 0) continue;
-            if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
-            foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
+            append(seg[0 .. sn]);
         }
     }
 
     // The weekly Claude windows, the account's and Fable's, from the readings
     // ug wrote down while drawing a session's status line. tmux has no session
-    // to be handed one.
+    // to be handed one. The account's week carries the plan in its name; the
+    // Fable week is Fable's on every plan there is.
     {
-        import sql : readWindow;
-        static immutable string[2][2] weeks = [["seven_day", "claude week"], ["fable_week", "fable week"]];
-        foreach (week; weeks) {
-            auto w = readWindow(home, week[0]);
-            if (!w.found) continue;
-            __gshared char[96] seg = void;
-            auto sn = weekInto(week[1], w.percent, w.resetsAt, now, seg[]);
-            if (sn == 0) continue;
-            if (n > 0) foreach (c; SEP) if (n < line.length) line[n++] = c;
-            foreach (c; seg[0 .. sn]) if (n < line.length) line[n++] = c;
+        import sql : readWindow, readPlan;
+
+        __gshared char[32] plan = void;
+        auto pn = readPlan(home, plan[]);
+        __gshared char[16] cc = void;
+        auto cn = weekLabelInto(plan[0 .. pn], cc[]);
+
+        auto ccWeek = readWindow(home, "seven_day");
+        auto fableWeek = readWindow(home, "fable_week");
+
+        __gshared char[96] ccSeg = void;
+        size_t ccLen = 0;
+        if (ccWeek.found)
+            ccLen = weekInto(cc[0 .. cn], ccWeek.percent, ccWeek.resetsAt, now, ccSeg[]);
+
+        __gshared char[96] fableSeg = void;
+        size_t fableLen = 0;
+        if (fableWeek.found)
+            fableLen = weekInto("FABLE", fableWeek.percent, fableWeek.resetsAt, now, fableSeg[]);
+
+        // The time belongs to the week it stands in front of, so it is drawn
+        // as one piece with it: `3d ccMAX 71%`, a single space, against the
+        // two that separate one reading from the next. That is the account's
+        // week when the account's is drawn, and Fable's when it is the only
+        // one there — never a time in front of nothing.
+        if (ccLen > 0 || fableLen > 0) {
+            __gshared char[160] lead = void;
+            size_t l = 0;
+
+            auto resetsAt = ccLen > 0 ? ccWeek.resetsAt : fableWeek.resetsAt;
+            __gshared char[32] seg = void;
+            auto sn = leftInto(resetsAt, now, seg[]);
+            if (sn > 0) {
+                foreach (c; DIM) if (l < lead.length) lead[l++] = c;
+                foreach (c; seg[0 .. sn]) if (l < lead.length) lead[l++] = c;
+                foreach (c; PLAIN) if (l < lead.length) lead[l++] = c;
+                if (l < lead.length) lead[l++] = ' ';
+            }
+            foreach (c; ccLen > 0 ? ccSeg[0 .. ccLen] : fableSeg[0 .. fableLen])
+                if (l < lead.length) lead[l++] = c;
+            append(lead[0 .. l]);
+
+            if (ccLen > 0 && fableLen > 0) append(fableSeg[0 .. fableLen]);
         }
+    }
+
+    if (r > 0) {
+        foreach (c; "#[align=right]") if (n < line.length) line[n++] = c;
+        foreach (c; right[0 .. r]) if (n < line.length) line[n++] = c;
     }
 
     if (n > 0) {

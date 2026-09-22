@@ -451,12 +451,18 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import db : openDb, sqlite3_close;
                         import immediate : writeCIStatus;
                         import control_handlers : ciDelay;
+                        import deferred : getCIPercentiles;
+                        // The one place that asks GitHub how long this repo's
+                        // CI has been taking. writeCIStatus used to ask from
+                        // inside itself, which put a network call under every
+                        // test that wanted a row.
+                        auto pct = getCIPercentiles(info.repo, info.branch);
                         auto cdb = openDb();
                         if (cdb !is null) {
                             // ciFired said the push would be reported on, so a
                             // row that never landed read as CI being watched.
                             ciFired = writeCIStatus(cdb, sessionId, info.repo,
-                                                    info.branch, info.sha, ciDelay(cwd));
+                                                    info.branch, info.sha, ciDelay(cwd), pct);
                             sqlite3_close(cdb);
                             if (!ciFired) {
                                 import exec : emitError;

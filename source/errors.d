@@ -117,6 +117,33 @@ const(char)[] deliverError(const ref GroundError err) {
     return "";
 }
 
+/// A worker's own failure, which no session is made to read. Sentry is told
+/// and nothing is delivered: the courier carries what other writers left, and
+/// a step inside its own retry was never a failure of intention.
+void leaveQuietly(void* db, const ref GroundError err) {
+    if (db is null) return;
+    leaveForSentry(db, err, formatResult(err));
+}
+
+/// The same, against ground's own store, with sentry told directly when the
+/// store will not open — the one case that can reach no outbox.
+void reportQuietly(const ref GroundError err) {
+    import db : openDb, sqlite3_close;
+    auto handle = openDb();
+    if (handle !is null) {
+        leaveQuietly(handle, err);
+        sqlite3_close(handle);
+        return;
+    }
+
+    import sentry : logEnvelope, reportDetached;
+    import controls : dsnHere;
+    auto dsn = dsnHere("");
+    if (dsn.length == 0) return;
+    auto it = errorItem(err, formatResult(err));
+    reportDetached(dsn, logEnvelope(dsn, it), err.sessionId, err.origin);
+}
+
 import sentry : Item;
 
 // One item per error: origin, control, the result line and the tail of
@@ -630,6 +657,43 @@ void writeImmediateBacklogStderr(string sessionId) {
     import core.stdc.time : time;
     err.timestamp   = cast(long) time(null);
     cast(void) writeBreadcrumb(err);
+}
+
+unittest {
+    // Sentry is told and the session is not. The exec-result row is what the
+    // courier reads back out as a system reminder, so it is the one that must
+    // not exist for a worker's own retry.
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_stmt,
+                sqlite3_column_int64, SQLITE_ROW;
+
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    GroundError err;
+    err.origin = "sky.stream";
+    err.message = "the stream to qntx stopped at a row: HTTP 502";
+    err.exitCode = -1;
+    err.sessionId = "sess-q";
+    err.controlName = "sky";
+    err.timestamp = 1000;
+
+    leaveQuietly(db, err);
+
+    long count(string sql) {
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return -1;
+        long n = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : -1;
+        sqlite3_finalize(stmt);
+        return n;
+    }
+
+    assert(count("SELECT COUNT(*) FROM outbox\0") == 1, "sentry is told");
+    assert(count("SELECT COUNT(*) FROM attestations\0") == 0,
+           "nothing is left for the courier to read into a session");
+
+    sqlite3_close(db);
 }
 
 // octal! helper mirrored from exec.d — small and self-contained.

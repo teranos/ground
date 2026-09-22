@@ -256,6 +256,43 @@ Week readWindow(const(char)[] home, const(char)[] window) {
     return w;
 }
 
+// The subscription plan, as ground last asked `claude auth status` for it and
+// wrote it down. ground keeps its checks as attestations rather than a table
+// of their own, so this is the same query ground's own lastCheck runs; a
+// second spelling of where a check lives would drift from it silently.
+enum PLAN_SQL = "SELECT json_extract(attributes, '$.value') FROM attestations "
+    ~ "WHERE json_extract(subjects, '$[0]') = 'plan' "
+    ~ "AND json_extract(predicates, '$[0]') = 'check' "
+    ~ "ORDER BY json_extract(attributes, '$.checked_at') DESC, rowid DESC LIMIT 1";
+
+size_t readPlan(const(char)[] home, char[] dest) {
+    import core.stdc.stdio : fopen, fclose;
+
+    __gshared char[512] path = void;
+    if (dbPathInto(home, path[]) == 0) return 0;
+    auto probe = fopen(&path[0], "rb");
+    if (probe is null) return 0;
+    fclose(probe);
+
+    sqlite3* db;
+    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return 0;
+    }
+    sqlite3_busy_timeout(db, BUSY_MS);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, PLAN_SQL.ptr, cast(int) PLAN_SQL.length, &stmt, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return 0;
+    }
+    size_t n = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) copyInto(sqlite3_column_text(stmt, 0), dest, n);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return n;
+}
+
 enum STORE = ".local/share/ground/ground.db";
 
 size_t dbPathInto(const(char)[] home, char[] dest) {

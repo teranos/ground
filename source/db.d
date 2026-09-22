@@ -383,6 +383,13 @@ bool applySchema(sqlite3* db) {
         ~ "released_at INTEGER NOT NULL DEFAULT 0, released_reading INTEGER NOT NULL DEFAULT 0)\0";
     sqlite3_exec(db, effortPinSchema.ptr, null, null, null);
 
+    // A pin used to stand for every model, because the key it held did. It now
+    // holds one model's key, so it says which; and it remembers what it wrote,
+    // so a value that is no longer that is a value a person changed.
+    ensureColumn(db, "effort_pin", "model", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "effort_pin", "wrote", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "effort_pin", "released_by", "TEXT NOT NULL DEFAULT ''");
+
     // "needs to be instrumented"
     // One row per long-lived ground process, watcher or driver: when it started,
     // for whom, that it is still polling, and how it ended.

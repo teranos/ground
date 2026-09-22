@@ -137,13 +137,30 @@ enum CLAIM_FILE = "sky-claim-";
 // The receipt is what makes delivery once rather than forever: without it the
 // next read returns the same row, and the loop that reads it does not end. So
 // a receipt that did not land stops the drain and says so.
+// Sky says nothing to a session. It carries what other writers left, and what
+// it could not do itself reaches sentry: an asyncRewake wakes every session
+// there is, and a retry is not worth a turn of each of them.
+private void toSentry(string origin, string message, int exitCode,
+                      const(char)[] sessionId, const(char)[] detail) {
+    import errors : GroundError, reportQuietly;
+    import core.stdc.time : time;
+    GroundError err;
+    err.origin      = origin;
+    err.message     = message;
+    err.exitCode    = exitCode;
+    err.sessionId   = cast(string) sessionId;
+    err.controlName = KIND;
+    err.timestamp   = cast(long) time(null);
+    err.stderr      = cast(string) detail;
+    reportQuietly(err);
+}
+
 private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
                      const(char)[] sessionId, const(char)[] mark) {
     if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) return true;
-    import exec : emitError;
-    emitError("sky.receipt",
-              "the delivery receipt did not land, so this message would be handed over without end",
-              0, 1, "", KIND, "", "", cast(string) msgId);
+    toSentry("sky.receipt",
+             "the delivery receipt did not land, so this message would be handed over without end",
+             1, "", msgId);
     return false;
 }
 
@@ -465,9 +482,8 @@ int handleSky(int argc, const(char)** argv) {
     if (sessionId is null) {
         // asyncRewake surfaces stderr on exit 2 only, so this line reached
         // nobody for as long as it has existed.
-        import exec : emitError;
-        emitError("sky.claim", "no claim file to take, so this watcher has no session",
-                  0, 1, "", KIND, "", "", "");
+        toSentry("sky.claim", "no claim file to take, so this watcher has no session",
+                 1, "", "");
         auto rdb = openDb();
         if (rdb !is null) {
             auto now = cast(long) time(null);
@@ -521,9 +537,8 @@ int handleSky(int argc, const(char)** argv) {
     import attest : qntxToken;
     const(char)[] streamToken = qntxNode.url.length > 0 ? qntxToken(qntxNode.token) : null;
     if (qntxNode.url.length > 0 && streamToken.length == 0) {
-        import exec : emitError;
-        emitError("sky.stream", "the qntx block names a node but its token file holds nothing; the stream waits",
-                  0, -1, cast(string) sessionId, KIND, "", "", cast(string) qntxNode.token);
+        toSentry("sky.stream", "the qntx block names a node but its token file holds nothing; the stream waits",
+                 -1, sessionId, qntxNode.token);
     }
     long streamBackoffUntil = 0;
     long streamed = 0;
@@ -668,17 +683,23 @@ int handleSky(int argc, const(char)** argv) {
                 foreach (c; imm.message) batchBuf[batchLen++] = c;
             }
 
-            // The effort pin, once a minute: the Fable week from the usage
-            // table against 85, and effortLevel in the user settings. What it
-            // did is delivered with the batch, so the session hears it.
+            // The effort pins, once a minute: both weekly windows from the
+            // usage table, each against the models it governs, and one
+            // modelSettings key per model in the user settings. What it did is
+            // delivered with the batch, so the session hears it.
             import effort : effortPass, EFFORT_EVERY;
             if (!stuck && cast(long) time(null) - effortLookedAt >= EFFORT_EVERY) {
                 import usagecmd : currentReading;
                 auto look = cast(long) time(null);
                 effortLookedAt = look;
                 auto fable = currentReading(db, "fable_week");
-                auto tenths = fable.found && fable.resetsAt > look ? fable.tenths : -1;
-                auto did = effortPass(db, tenths, look);
+                auto fableTenths = fable.found && fable.resetsAt > look ? fable.tenths : -1;
+                // The account's week governs every model that is not Fable.
+                // Reading one window for all of them is what put an Opus
+                // session on low because a Fable session had spent the week.
+                auto week = currentReading(db, "seven_day");
+                auto weekTenths = week.found && week.resetsAt > look ? week.tenths : -1;
+                auto did = effortPass(db, weekTenths, fableTenths, look);
                 if (did.len > 0 && batchFits(batchLen, batchBuf.length, did.len)) {
                     if (batchLen > 0) batchBuf[batchLen++] = '\n';
                     foreach (c; "ground: ") batchBuf[batchLen++] = c;
@@ -814,7 +835,6 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
     import outbox;
     import hooktiming;
     import db : versionString;
-    import exec : emitError;
 
     __gshared Batch!() logs;
     __gshared char[280_000] envelope = void;
@@ -851,7 +871,6 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
 // error: with no store to leave it in, deliverError posts it to sentry
 // itself, from a child.
 private void storeShut(const(char)[] sessionId) {
-    import exec : emitError;
     import db : dbFailureCode;
     __gshared char[200] said = 0;
     size_t n;
@@ -861,13 +880,13 @@ private void storeShut(const(char)[] sessionId) {
     char[3] d = [cast(char)('0' + code / 100 % 10), cast(char)('0' + code / 10 % 10), cast(char)('0' + code % 10)];
     put(d[]);
     put("; nothing is delivered, shipped or streamed until it does");
-    emitError("sky.store", cast(string) said[0 .. n], 0, -1, cast(string) sessionId, KIND, "", "", "");
+    toSentry("sky.store", cast(string) said[0 .. n], -1, sessionId, "");
 }
 
-// A row the node did not take for a reason that may change, said once per
-// backoff: the HTTP status, or libcurl's code below zero.
+// A row the node did not take for a reason asking again may change. Sentry is
+// told and no session is: the retry is the design, and a step inside it was
+// never a failure of intention.
 private void streamFailed(const(char)[] sessionId, int status) {
-    import exec : emitError;
     __gshared char[200] said = 0;
     size_t n;
     void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
@@ -884,14 +903,12 @@ private void streamFailed(const(char)[] sessionId, int status) {
         put(d[]);
     }
     put(" — the rows stay pending, and the next try is in a minute");
-    emitError("sky.stream", cast(string) said[0 .. n], 0, -1, cast(string) sessionId,
-              KIND, "", "", "");
+    toSentry("sky.stream", cast(string) said[0 .. n], -1, sessionId, "");
 }
 
 // A post that did not land, said once per backoff, with what sentry or
 // libcurl said about it.
 private void shipFailed(const(char)[] sessionId, const(char)[] what, int status, const(char)[] why) {
-    import exec : emitError;
     __gshared char[400] said = 0;
     size_t n;
     void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
@@ -906,6 +923,5 @@ private void shipFailed(const(char)[] sessionId, const(char)[] what, int status,
         put(why);
     }
     put(" — the rows stay pending, and the next try is in a minute");
-    emitError("sky.ship", cast(string) said[0 .. n], 0, -1, cast(string) sessionId,
-              KIND, "", "", "");
+    toSentry("sky.ship", cast(string) said[0 .. n], -1, sessionId, "");
 }

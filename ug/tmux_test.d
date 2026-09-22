@@ -136,24 +136,73 @@ char[128] week(string label, long pct, long resetsAt, long now)() {
 }
 
 enum DAY = 86_400;
-enum weekHalf = DIM ~ "claude week 51% 3d 2h left" ~ PLAIN;
-static assert(week!("claude week", 51, 1000 + 3 * DAY + 2 * 3600 + 59, 1000)()[0 .. weekHalf.length] == weekHalf);
 
-enum weekHot = RED ~ "claude week 98% 5h left" ~ PLAIN;
-static assert(week!("claude week", 98, 1000 + 5 * 3600, 1000)()[0 .. weekHot.length] == weekHot);
+// "just remove the y / right now i see it twice / instead y needs to be shown
+// onece / before ccMAX". Both weeks reset within a minute of each other, so
+// the row was spending the room twice to say one thing. The week carries the
+// label and the percentage and nothing else.
+enum weekHalf = DIM ~ "ccMAX 51%" ~ PLAIN;
+static assert(week!("ccMAX", 51, 1000 + 3 * DAY + 2 * 3600 + 59, 1000)()[0 .. weekHalf.length] == weekHalf);
 
-enum weekLast = RED ~ "claude week 85% 40m left" ~ PLAIN;
-static assert(week!("claude week", 85, 1000 + 40 * 60, 1000)()[0 .. weekLast.length] == weekLast);
+enum weekHot = RED ~ "ccMAX 98%" ~ PLAIN;
+static assert(week!("ccMAX", 98, 1000 + 5 * 3600, 1000)()[0 .. weekHot.length] == weekHot);
 
-static assert(weekInto("claude week", 62, 1000 + DAY, 1000, new char[128]) > 0, "62 is inside 60 to 62");
-static assert(weekInto("claude week", 63, 1000 + DAY, 1000, new char[128]) == 0, "63 is between bands");
-static assert(weekInto("claude week", 24, 1000 + DAY, 1000, new char[128]) == 0);
+// "y ccMAX xx%" — the time stands once, in front, in its own hand.
+import tmux : leftInto;
+
+char[32] until(long resetsAt, long now)() {
+    char[32] buf = '.';
+    leftInto(resetsAt, now, buf[]);
+    return buf;
+}
+
+static assert(until!(1000 + 3 * DAY + 2 * 3600 + 59, 1000)()[0 .. 2] == "3d");
+static assert(leftInto(1000 + 3 * DAY + 2 * 3600 + 59, 1000, new char[32]) == 2);
+static assert(until!(1000 + 5 * 3600, 1000)()[0 .. 2] == "5h");
+static assert(until!(1000 + 40 * 60, 1000)()[0 .. 3] == "40m");
+
+// The hour that used to carry its minutes carries them no longer.
+static assert(until!(1000 + 2 * 3600 + 20 * 60, 1000)()[0 .. 2] == "2h");
+
+// A window already reset has no time in front of it.
+static assert(leftInto(900, 1000, new char[32]) == 0);
+static assert(leftInto(1000, 1000, new char[32]) == 0);
+
+static assert(weekInto("ccMAX", 62, 1000 + DAY, 1000, new char[128]) > 0, "62 is inside 60 to 62");
+static assert(weekInto("ccMAX", 63, 1000 + DAY, 1000, new char[128]) == 0, "63 is between bands");
+static assert(weekInto("ccMAX", 24, 1000 + DAY, 1000, new char[128]) == 0);
 
 // A window that has already reset says nothing about the one running now.
-static assert(weekInto("claude week", 98, 900, 1000, new char[128]) == 0);
-static assert(weekInto("claude week", -1, 1000 + DAY, 1000, new char[128]) == 0, "no reading is not zero percent");
+static assert(weekInto("ccMAX", 98, 900, 1000, new char[128]) == 0);
+static assert(weekInto("ccMAX", -1, 1000 + DAY, 1000, new char[128]) == 0, "no reading is not zero percent");
 
 // "i wish we also knew about fable usage better"
 // The Fable window is the same bands under its own name.
-enum fableWarm = ORANGE ~ "fable week 71% 4d 21h left" ~ PLAIN;
-static assert(week!("fable week", 71, 1000 + 4 * DAY + 21 * 3600 + 5, 1000)()[0 .. fableWarm.length] == fableWarm);
+enum fableWarm = ORANGE ~ "FABLE 71%" ~ PLAIN;
+static assert(week!("FABLE", 71, 1000 + 4 * DAY + 21 * 3600 + 5, 1000)()[0 .. fableWarm.length] == fableWarm);
+
+// "MAX is only MAX if the subscription plan is max like ground usage displays"
+// The plan is `subscriptionType` from `claude auth status`, which ground asks
+// for and writes down as the `plan` check; `ground usage` prints it as `Plan
+// max`. The label spells whatever that says, so a week on another plan cannot
+// be read as a Max week.
+import tmux : weekLabelInto;
+
+char[16] label(const(char)[] plan)() {
+    char[16] buf = '.';
+    weekLabelInto(plan, buf[]);
+    return buf;
+}
+
+static assert(weekLabelInto("max", new char[16]) == 5);
+static assert(label!"max"()[0 .. 5] == "ccMAX");
+static assert(label!"pro"()[0 .. 5] == "ccPRO");
+static assert(label!"team"()[0 .. 6] == "ccTEAM");
+
+// A plan nobody has asked for yet is not a Max plan. The reading is still
+// worth the room, so the window keeps its name and claims nothing else.
+static assert(weekLabelInto("", new char[16]) == 2);
+static assert(label!""()[0 .. 2] == "cc");
+
+// A dest too small truncates rather than writing past it.
+static assert(weekLabelInto("max", new char[3]) == 3);
