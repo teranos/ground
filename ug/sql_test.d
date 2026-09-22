@@ -3,6 +3,30 @@ module sql_test;
 // CTFE tests — failure shows as a compile error.
 
 import sql : dbPathInto, PERFORMANCE_SQL, MAX_PERFORMANCES;
+import sql : NEWS_SQL, NEWS_SEEN_SQL, newsIdInto, newsContextsInto, newsPredicates;
+
+// The item the node left is written once whatever the poll count: the id is
+// the node's, prefixed so it cannot collide with the row that caused it.
+static assert(contains(NEWS_SQL, "INSERT OR IGNORE"));
+static assert(contains(NEWS_SEEN_SQL, "SELECT 1 FROM attestations WHERE id = ?1"));
+static assert(newsPredicates == `["immediate:news"]`);
+
+char[160] idOf(const(char)[] id)() {
+    char[160] buf = 0;
+    newsIdInto(id, buf[]);
+    return buf;
+}
+static assert(idOf!("ground:ci-status:s1:002f1ea")()[0 .. 34] == "immediate:news:ground:ci-status:s1");
+
+// Addressed to the session that pushed when the node says which; to the
+// project when it does not, so every session there hears it.
+char[256] ctxOf(const(char)[] session, const(char)[] repo)() {
+    char[256] buf = 0;
+    newsContextsInto(session, repo, buf[]);
+    return buf;
+}
+static assert(ctxOf!("sess-1", "teranos/ground")()[0 .. 18] == `["session:sess-1"]`);
+static assert(ctxOf!("", "teranos/ground")()[0 .. 26] == `["project:teranos/ground"]`);
 
 // The read stops at MAX_PERFORMANCES, so the order decides which ones a frame
 // can ever see. Oldest first meant the eight taken were the eight most expired

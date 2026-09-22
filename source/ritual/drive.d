@@ -76,8 +76,7 @@ private void driverEnded(DB)(DB db, long record, const(char)[] owed, const(char)
 private size_t resolveOwed(DB)(DB db, const(char)[] perfId, long now) {
     import immediate : DispatchRow, owedDispatches, resolveDispatch, parkImmediate;
     import deferred : checkRunByToken, CIQuery;
-    import adaptive : pickAdaptiveSleep;
-    import sky : DISPATCH_APPEAR_SEC;
+    import sky : DISPATCH_APPEAR_SEC, DISPATCH_POLL_SEC;
 
     __gshared DispatchRow[8] rows;
     auto n = owedDispatches(db, perfId, now, rows[]);
@@ -86,7 +85,9 @@ private size_t resolveOwed(DB)(DB db, const(char)[] perfId, long now) {
         if (row.repo.length == 0 || row.token.length == 0) continue;
         auto run = checkRunByToken(row.repo, row.token);
         if (run.kind == CIQuery.InProgress) {
-            parkImmediate(db, row.id, now + pickAdaptiveSleep(now - row.pushTime, row.p50, row.p90));
+            // One number, as the watcher's. No dispatch row ever carried a
+            // branch's run history, so the interval it picked was this one.
+            parkImmediate(db, row.id, now + DISPATCH_POLL_SEC);
             continue;
         }
         if (run.kind == CIQuery.NoWorkflow) {

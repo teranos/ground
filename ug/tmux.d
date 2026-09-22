@@ -241,6 +241,8 @@ int tmuxMain(const(char)[] home, long now) {
         n = isJson(answer.body_)
             ? itemsInto(answer.body_, line[])
             : oneLineInto(answer.body_, line[]);
+        // The node answered, so it can be asked what it left for this token.
+        newsPass(home);
     } else if (answer.status > 0) {
         // The node answered and the answer was a refusal. That is not silence,
         // and it must not wait out the quiet window pretending it might pass.
@@ -347,6 +349,60 @@ int tmuxMain(const(char)[] home, long now) {
         fputs("\n", stdout);
     }
     return 0;
+}
+
+// What the node left for this token, written into ground's store once each so
+// sky carries it to the session. The row is asked for as items rather than as
+// the spelled line, because an id does not survive being drawn. An item that
+// is already in the store costs one SELECT; a new one costs one more ask, for
+// the whole of it, which is where the session it is for is named.
+void newsPass(const(char)[] home) {
+    import probe : fetch;
+    import qntx : State;
+    import sql : newsSeen, leaveNews;
+
+    auto answer = fetch(home, "/am/statusline?format=json");
+    if (answer.state != State.ok || !isJson(answer.body_)) return;
+
+    size_t at = itemsAt(answer.body_);
+    while (true) {
+        auto span = nextObject(answer.body_, at);
+        if (!span.ok) break;
+        at = span.end;
+
+        auto obj = answer.body_[span.start .. span.end];
+        auto id = jsonString(obj, "id");
+        if (id is null || id.length == 0) continue;
+        if (newsSeen(home, id)) continue;
+
+        __gshared char[512] path = void;
+        size_t p = 0;
+        foreach (c; "/am/statusline/") path[p++] = c;
+        foreach (c; id) {
+            if (p + 1 >= path.length) break;
+            if (c == '/' || c == '?' || c == '#' || c == '&' || c == ' ') continue;
+            path[p++] = c;
+        }
+        auto whole = fetch(home, path[0 .. p]);
+        if (whole.state != State.ok) continue;
+
+        auto session = jsonString(whole.body_, "session");
+        auto repo = jsonString(whole.body_, "repo");
+        if (repo is null) repo = "";
+
+        // What sky speaks: the conclusion, where, and the run to open.
+        __gshared char[1024] detail = void;
+        size_t d = 0;
+        void put(const(char)[] s) { foreach (c; s) if (d < detail.length) detail[d++] = c; }
+        auto name = jsonString(obj, "name");
+        auto note = jsonString(obj, "note");
+        put(name is null ? "news" : name);
+        if (note !is null && note.length > 0) { put(": "); put(note); }
+        auto url = jsonString(whole.body_, "url");
+        if (url !is null && url.length > 0) { put(" "); put(url); }
+
+        leaveNews(home, id, session is null ? "" : session, repo, detail[0 .. d]);
+    }
 }
 
 // `ug expand <name>` — what one item on the row is doing, for a popup. The row

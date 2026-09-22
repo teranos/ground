@@ -31,33 +31,25 @@ module sky;
 //
 // Two keying models, both flow through this watcher:
 //
-//   1. SESSION-KEYED (ground's own writers: writeCIStatus, writeClippyReminder).
-//      Row contexts: ["session:<sid>"]. Row carries everything the watcher
-//      needs to resolve at delivery time — for ci-status that's repo + branch
-//      + sha parsed from the push's own stdout (see push.parsePushOutput).
-//      readImmediateMessage matches by session. cwd plays no role.
+//   1. SESSION-KEYED (ground's own writers: writeCIStatus, writeClippyReminder,
+//      and ug's news). Row contexts: ["session:<sid>"]. readImmediateMessage
+//      matches by session. cwd plays no role.
 //
 //   2. PROJECT-KEYED (external writers like QNTX). Row contexts:
 //      ["project:<path>"]. The watcher delivers when its cwd ends with the
 //      project path. Cross-session delivery to anyone in the project is
 //      intentional for lifecycle events.
 //
-// Late-binding for ci-status:
-//   The placeholder "Checking CI..." is replaced live at delivery time by
-//   checkCIStatus(repo, branch) which calls `gh -R <repo> --branch <branch>`
-//   and returns a CIQuery (see deferred.d), not a string. Four outcomes:
-//     InProgress  — not terminal, retry next cycle at the adaptive interval
-//     Terminal    — deliver it
-//     NoWorkflow  — gh answered and there is genuinely no run; mark delivered
-//                   so the row doesn't loop forever
-//     Unavailable — gh could not be run or exited non-zero; DELIVERED, not
-//                   dropped. "I could not find out" is the honest answer to
-//                   "what happened to my CI"
-//
-//   These were once a single null, and the null was read as NoWorkflow — so an
-//   expired token or a dropped connection silently discarded the user's CI
-//   result. Empty output cannot tell "nothing to report" from "the query
-//   failed"; gh's exit status can, and pclose carries it.
+// "sky whispers" / "sky doesnt compute"
+// Sky carries what it is handed and forms no view about any of it. A ci-status
+// row is the fact of a push — repo, branch, sha — written by the hook for the
+// stream. Sky streams it to the node and receipts it here unspoken; it is not
+// a message. The node's own watcher fires on it, waits on the run where the
+// socket is, and leaves the result on the status line ug polls every second.
+// ug writes that down as an immediate:news row for the session that pushed,
+// and this loop carries it like any other row. Nothing in this process asks
+// github anything about a push, and nothing in it picks an interval from a
+// run's history.
 //
 // --- Migration from legacy deferred → immediate (sequential checklist) ---
 //
@@ -67,7 +59,7 @@ module sky;
 //   [x] CI status writer: session-keyed (40a1e16); cwd killed (5f94ca7);
 //       repo + branch + sha sourced from git push's own stdout
 //   [x] Clippy reminder writer + deleter: session-keyed (40a1e16)
-//   [x] checkCIStatus uses `gh -R <repo>` (5f94ca7) — no cwd dependency
+//   [x] The CI query left this process (see the header above)
 //   [x] ImmediateMsg carries repo + branch + sha for late-binding
 //   [x] Legacy ciDeliver handler removed (no .pbt referenced it)
 //
@@ -93,11 +85,8 @@ module sky;
 //       fallback disappears. Until then, keep it.
 //
 // LATER POLISH:
-//   [x] Adaptive poll interval. writeCIStatus fetches p50/p90 of the last 20
-//       CI durations per repo+branch via gh, stores them with push_time in
-//       the row. sky.d picks sleep based on elapsed-vs-percentile bracket
-//       (see source/adaptive.d, CTFE-tested).
-//   [x] Backoff during long-running CI: same mechanism.
+//   [x] The wait on a CI run moved off this machine: QNTX's ci.watch built-in,
+//       fired by a standing watcher on the ci-status row sky streams in.
 //   [ ] claimSession's glob is not session-scoped. It lists sky-claim-*.id
 //       across ALL sessions and takes the first it can rename, so a watcher
 //       spawned for session A can claim session B. The hook JSON does reach
@@ -127,6 +116,10 @@ extern (C) {
 // How long a dispatched run may take to appear in the listing before its
 // absence is reported as an absence.
 enum DISPATCH_APPEAR_SEC = 60;
+
+// How long a dispatched run that is listed and running is left before it is
+// asked after again. One number: no history of the branch is read to pick it.
+enum DISPATCH_POLL_SEC = 5;
 
 // What the record calls this process, and the files it holds a tree and a
 // session by. Rows written before the rename say watch.
@@ -585,7 +578,7 @@ int handleSky(int argc, const(char)** argv) {
             }
         }
         if (db !is null) {
-            // Reset to default each loop; adaptive ci-status may raise it.
+            // Reset to default each loop; a parked dispatch may set it.
             nextSleep = 2;
             polls++;
             processSeen(db, record, cast(long) time(null));
@@ -600,45 +593,16 @@ int handleSky(int argc, const(char)** argv) {
                 auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
 
-                // Late-binding: ci-status resolves live. Uses the repo + branch
-                // captured at push time (from the push's own stdout). No cwd anywhere.
+                // A ci-status row is the fact of a push, written for the
+                // stream. The node's watcher fires on it and the result comes
+                // back as news ug writes. It is not a message: receipted here
+                // so the pass moves on, and nothing is spoken.
                 if (imm.name == "ci-status") {
-                    import deferred : checkCIStatus;
-                    import matcher : contains;
-                    import adaptive : pickAdaptiveSleep;
-                    import core.stdc.time : time;
-                    if (imm.repo.length == 0 || imm.branch.length == 0) {
-                        // Row predates the repo-keyed format — drop it.
-                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
-                            stuck = true;
-                            break;
-                        }
-                        continue;
+                    if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                        stuck = true;
+                        break;
                     }
-                    import deferred : CIQuery;
-                    auto ci = checkCIStatus(imm.repo, imm.branch);
-                    if (ci.kind == CIQuery.InProgress) {
-                        // Parked, not stopped: breaking here held back every
-                        // message written after this row.
-                        import immediate : parkImmediate;
-                        auto now = cast(long) time(null);
-                        auto wait = pickAdaptiveSleep(now - imm.pushTime, imm.p50, imm.p90);
-                        nextSleep = wait;
-                        parkImmediate(db, imm.msgId, now + wait);
-                        continue;
-                    }
-                    if (ci.kind == CIQuery.NoWorkflow) {
-                        // gh answered and there is genuinely no run to report.
-                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
-                            stuck = true;
-                            break;
-                        }
-                        continue;
-                    }
-                    // Unavailable falls through and is DELIVERED, not dropped.
-                    // "I could not find out" is the honest answer to "what
-                    // happened to my CI" — silently discarding the row is not.
-                    imm.message = ci.text;
+                    continue;
                 }
 
                 // A dispatch is over, but the run it sent is not. This row is
@@ -646,7 +610,6 @@ int handleSky(int argc, const(char)** argv) {
                 // driver already found is handed over as it stands.
                 if (imm.name == "dispatch" && !imm.resolved) {
                     import deferred : checkRunByToken, CIQuery;
-                    import adaptive : pickAdaptiveSleep;
                     import core.stdc.time : time;
                     if (imm.repo.length == 0 || imm.token.length == 0) {
                         if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
@@ -657,11 +620,13 @@ int handleSky(int argc, const(char)** argv) {
                     }
                     auto run = checkRunByToken(imm.repo, imm.token);
                     if (run.kind == CIQuery.InProgress) {
+                        // Parked, not stopped: breaking here held back every
+                        // message written after this row. The wait is the
+                        // same as for a run not yet listed; no history is read.
                         import immediate : parkImmediate;
                         auto now = cast(long) time(null);
-                        auto wait = pickAdaptiveSleep(now - imm.pushTime, imm.p50, imm.p90);
-                        nextSleep = wait;
-                        parkImmediate(db, imm.msgId, now + wait);
+                        nextSleep = DISPATCH_POLL_SEC;
+                        parkImmediate(db, imm.msgId, now + DISPATCH_POLL_SEC);
                         continue;
                     }
                     // A run does not appear in the listing the instant it is

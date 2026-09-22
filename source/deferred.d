@@ -456,53 +456,6 @@ int computeDelay(int avgDuration) {
     return avgDuration + buffer;
 }
 
-// p50 + p90 of the last 20 CI durations for repo+branch. Used by the
-// watcher's adaptive poll: stays quiet while elapsed < p50, polls actively
-// in the p50..p90 likely-done window, urgent beyond p90.
-struct CIPercentiles { long p50; long p90; }
-
-CIPercentiles getCIPercentiles(const(char)[] repo, const(char)[] branch) {
-    __gshared ZBuf ghCmd;
-    ghCmd.reset();
-    ghCmd.put("gh -R ");
-    ghCmd.put(repo);
-    ghCmd.put(" run list --branch ");
-    ghCmd.put(branch);
-    ghCmd.put(` --limit 20 --json startedAt,updatedAt --jq '[.[] | ((.updatedAt | fromdateiso8601) - (.startedAt | fromdateiso8601))] | sort | length as $n | if $n == 0 then "0 0" else "\(.[($n*5/10|floor)]) \(.[($n*9/10|floor)])" end'`);
-    ghCmd.putChar('\0');
-
-    auto pipe = popen(ghCmd.ptr(), "r");
-    if (pipe is null) return CIPercentiles(0, 0);
-
-    __gshared char[64] outBuf = 0;
-    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
-
-    if (n == 0) return CIPercentiles(0, 0);
-
-    // Parse "<p50> <p90>"
-    CIPercentiles result;
-    long val = 0;
-    bool inDigit = false;
-    bool gotFirst = false;
-    foreach (i; 0 .. n) {
-        char c = outBuf[i];
-        if (c >= '0' && c <= '9') {
-            val = val * 10 + (c - '0');
-            inDigit = true;
-        } else {
-            if (inDigit) {
-                if (!gotFirst) { result.p50 = val; gotFirst = true; }
-                else { result.p90 = val; return result; }
-                val = 0;
-                inDigit = false;
-            }
-        }
-    }
-    if (inDigit && gotFirst) result.p90 = val;
-    return result;
-}
-
 // What a CI query actually established. Previously all four outcomes came
 // back as a single `null`, and watch.d read that null as "no CI workflow
 // exists" — so a gh auth failure or network drop silently marked the row
@@ -519,7 +472,6 @@ struct CIStatus {
     const(char)[] text; // the status line, or what went wrong
 }
 
-// Interpret gh's exit status and stdout. Pure — the shelling out lives in
 // Room for the verdict plus the failing log under it. 520 held one line.
 enum CI_TEXT_CAP = 4096;
 
@@ -527,7 +479,8 @@ enum CI_TEXT_CAP = 4096;
 // error and the line naming what failed.
 enum CI_TAIL_LINES = "5";
 
-// checkCIStatus, the judgement lives here where it can be tested.
+// Interpret gh's exit status and stdout. Pure — the shelling out lives in
+// checkRunByToken, the judgement lives here where it can be tested.
 CIStatus interpretCIOutput(int exitStatus, const(char)[] output) {
     // Whatever gh or jq said, said. Ground's account of a failure it never
     // read is not the failure.
@@ -659,149 +612,6 @@ unittest {
     auto r = interpretCIOutput(0, " CI (pull_request)\n");
     assert(r.kind == CIQuery.Unavailable, "a line with no conclusion states nothing");
     assert(r.text.length > 0, "and it says so out loud");
-}
-
-// Query live CI status for a repo + branch. Returns a human-readable summary.
-// Uses `gh -R <repo>` so the query doesn't depend on cwd at all.
-// How many runs of the branch are read. A push starts one workflow per file in
-// .github/workflows, and thirty covers several pushes of a dozen workflows.
-enum CI_RUNS_PAGE = "30";
-
-// The runs list is fifty objects of forty fields. Room for all of it, because
-// a truncated body is a body whose last run object cannot be closed.
-enum CI_JSON_CAP = 262144;
-
-// A shell prefix that leaves $tok holding a GitHub token, or empty. gh is
-// asked only because it holds the credential, the way dispatch.d asks it.
-private void putGhToken(ref ZBuf s) {
-    s.put("tok=''\n");
-    s.put("if env | grep -q '^GH_TOKEN='; then tok=$(env | grep -m1 '^GH_TOKEN=' | cut -d= -f2-); fi\n");
-    s.put("if [ -z \"$tok\" ] && env | grep -q '^GITHUB_TOKEN='; then tok=$(env | grep -m1 '^GITHUB_TOKEN=' | cut -d= -f2-); fi\n");
-    s.put("if [ -z \"$tok\" ] && command -v gh > /dev/null 2>&1; then tok=$(gh auth token 2>/dev/null); fi\n");
-}
-
-// Every run of the branch, and the worst verdict among the newest run of each
-// workflow.
-
-// Reading one run read whichever workflow finished last, so a red lint under a
-// green deploy was never seen and ground announced green four times over.
-CIStatus checkCIStatus(const(char)[] repo, const(char)[] branch) {
-    __gshared ZBuf cmd;
-    cmd.reset();
-    putGhToken(cmd);
-
-    cmd.put(`url="https://api.github.com/repos/`);
-    cmd.put(repo);
-    cmd.put("/actions/runs?branch=");
-    cmd.put(branch);
-    cmd.put("&per_page=");
-    cmd.put(CI_RUNS_PAGE);
-    cmd.put("\"\n");
-
-    // An empty Bearer is refused where no header at all is served, so the
-    // header is sent only when there is something to put in it.
-    cmd.put("if [ -n \"$tok\" ]; then\n");
-    cmd.put("  curl -sS -m 20 -H \"Authorization: Bearer $tok\" \"$url\" 2>&1\n");
-    cmd.put("else\n");
-    cmd.put("  curl -sS -m 20 \"$url\" 2>&1\n");
-    cmd.put("fi\n");
-
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null)
-        return CIStatus(CIQuery.Unavailable, "CI status unknown: could not run curl");
-
-    __gshared char[CI_JSON_CAP] json = 0;
-    auto n = fread(&json[0], 1, json.length - 1, pipe);
-    auto status = pclose(pipe);
-    if (status != 0) return interpretCIOutput(status, json[0 .. n]);
-
-    auto body_ = json[0 .. n];
-
-    // curl without -f exits 0 on a 404, and the body is github's own message.
-    // An empty list still carries the key, so its absence is an error and not
-    // a branch that has never run anything.
-    import matcher : contains;
-    if (!contains(body_, `"workflow_runs"`)) {
-        __gshared char[520] why = 0;
-        size_t w = 0;
-        foreach (c; body_) { if (w < why.length - 1) why[w++] = c; }
-        while (w > 0 && why[w - 1] == '\n') w--;
-        if (w == 0) return CIStatus(CIQuery.Unavailable, "github answered nothing");
-        return CIStatus(CIQuery.Unavailable, cast(string) why[0 .. w]);
-    }
-
-    import ghruns : rollupRuns;
-    auto v = rollupRuns(body_);
-
-    if (v.workflows == 0) return CIStatus(CIQuery.NoWorkflow, null);
-
-    __gshared char[CI_TEXT_CAP] line = 0;
-    size_t p = 0;
-    void put(const(char)[] t) { foreach (c; t) if (p < line.length - 1) line[p++] = c; }
-
-    if (v.failedCount == 0 && v.running) return CIStatus(CIQuery.InProgress, null);
-
-    if (v.failedCount == 0) {
-        put("CI: success across ");
-        putCount(line, p, v.workflows);
-        put(v.workflows == 1 ? " workflow" : " workflows");
-        return CIStatus(CIQuery.Terminal, line[0 .. p]);
-    }
-
-    put("CI: ");
-    putCount(line, p, v.failedCount);
-    put(" of ");
-    putCount(line, p, v.workflows);
-    put(" workflows failed");
-
-    // Every one of them by name. A branch with four reds under one green was
-    // reported as the green, and naming only the first would keep three of
-    // them hidden.
-    foreach (i; 0 .. v.failedCount) {
-        auto f = v.failures[i];
-        put("\n  ");
-        put(f.conclusion);
-        put(" ");
-        put(f.name);
-        if (f.event.length > 0) { put(" ("); put(f.event); put(")"); }
-    }
-
-    // A red conclusion without its log says a thing broke and nothing about
-    // what. Each id is that run's own, so a log belongs to the failure above
-    // it rather than to whichever run happened to be newest.
-    foreach (i; 0 .. v.failedCount) {
-        auto f = v.failures[i];
-        if (f.id == 0) continue;
-        if (p + 512 >= line.length) break;
-
-        __gshared ZBuf logCmd;
-        logCmd.reset();
-        logCmd.put("gh -R ");
-        logCmd.put(repo);
-        logCmd.put(" run view ");
-        logCmd.putUint(cast(uint) f.id);
-        logCmd.put(" --log-failed 2>&1 | tail -");
-        logCmd.put(CI_TAIL_LINES);
-        auto lp = popen(logCmd.ptr(), "r");
-        if (lp is null) continue;
-
-        if (p < line.length - 1) line[p++] = '\n';
-        put(f.name);
-        put(":\n");
-        p += fread(&line[p], 1, line.length - 1 - p, lp);
-        pclose(lp);
-    }
-
-    while (p > 0 && line[p - 1] == '\n') p--;
-    return CIStatus(CIQuery.Terminal, line[0 .. p]);
-}
-
-private void putCount(ref char[CI_TEXT_CAP] buf, ref size_t p, size_t v) {
-    char[20] d = 0;
-    size_t dl = 0;
-    if (v == 0) d[dl++] = '0';
-    while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
-    foreach_reverse (i; 0 .. dl) if (p < buf.length - 1) buf[p++] = d[i];
 }
 
 // A dispatched run lands on the default branch, not on the commit that caused
