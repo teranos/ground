@@ -668,17 +668,23 @@ int handleSky(int argc, const(char)** argv) {
                 foreach (c; imm.message) batchBuf[batchLen++] = c;
             }
 
-            // The effort pin, once a minute: the Fable week from the usage
-            // table against 85, and effortLevel in the user settings. What it
-            // did is delivered with the batch, so the session hears it.
+            // The effort pins, once a minute: both weekly windows from the
+            // usage table, each against the models it governs, and one
+            // modelSettings key per model in the user settings. What it did is
+            // delivered with the batch, so the session hears it.
             import effort : effortPass, EFFORT_EVERY;
             if (!stuck && cast(long) time(null) - effortLookedAt >= EFFORT_EVERY) {
                 import usagecmd : currentReading;
                 auto look = cast(long) time(null);
                 effortLookedAt = look;
                 auto fable = currentReading(db, "fable_week");
-                auto tenths = fable.found && fable.resetsAt > look ? fable.tenths : -1;
-                auto did = effortPass(db, tenths, look);
+                auto fableTenths = fable.found && fable.resetsAt > look ? fable.tenths : -1;
+                // The account's week governs every model that is not Fable.
+                // Reading one window for all of them is what put an Opus
+                // session on low because a Fable session had spent the week.
+                auto week = currentReading(db, "seven_day");
+                auto weekTenths = week.found && week.resetsAt > look ? week.tenths : -1;
+                auto did = effortPass(db, weekTenths, fableTenths, look);
                 if (did.len > 0 && batchFits(batchLen, batchBuf.length, did.len)) {
                     if (batchLen > 0) batchBuf[batchLen++] = '\n';
                     foreach (c; "ground: ") batchBuf[batchLen++] = c;
