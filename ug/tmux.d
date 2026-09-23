@@ -372,8 +372,8 @@ void newsPass(const(char)[] home) {
     // being walked, and two rows went into the store with ids cut from the
     // middle of a detail body. The items are copied out first.
     __gshared char[65536] items = void;
-    size_t n = answer.body_.length < items.length ? answer.body_.length : items.length;
-    items[0 .. n] = answer.body_[0 .. n];
+    size_t n = 0;
+    foreach (c; answer.body_) { if (n >= items.length) break; items[n++] = c; }
     auto body_ = items[0 .. n];
 
     size_t at = itemsAt(body_);
