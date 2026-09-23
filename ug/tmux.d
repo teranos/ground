@@ -361,6 +361,9 @@ void newsPass(const(char)[] home) {
     import qntx : State;
     import sql : newsSeen, leaveNews;
 
+    // Asked for as the row's own token. The node files news under the person
+    // a token speaks for, so what the ground token's push earned is found by
+    // this one; the ground token itself cannot read the row.
     auto answer = fetch(home, "/am/statusline?format=json");
     if (answer.state != State.ok || !isJson(answer.body_)) return;
 

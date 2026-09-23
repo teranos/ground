@@ -451,6 +451,11 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import db : openDb, sqlite3_close;
                         import immediate : writeCIStatus;
                         import control_handlers : ciDelay;
+                        import git : localHeadSha;
+                        // A new branch's push line names no sha; the local ref
+                        // does. Without it the node has no commit to wait on.
+                        auto sha = info.sha;
+                        if (sha.length == 0) sha = localHeadSha(cwd, info.branch);
                         // The row is the fact of the push and nothing more.
                         // Sky streams it to the node; the node waits on the
                         // run where the socket is and leaves the result on
@@ -460,7 +465,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                             // ciFired said the push would be reported on, so a
                             // row that never landed read as CI being watched.
                             ciFired = writeCIStatus(cdb, sessionId, info.repo,
-                                                    info.branch, info.sha, ciDelay(cwd));
+                                                    info.branch, sha, ciDelay(cwd));
                             sqlite3_close(cdb);
                             if (!ciFired) {
                                 import exec : emitError;

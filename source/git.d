@@ -473,6 +473,45 @@ bool pushLanded(const(char)[] root, const(char)[] branch) {
     return landedFromRefs(outBuf[0 .. n]);
 }
 
+// The first line, which is the one objectname asked for; empty when git
+// printed nothing, which is a ref that is not there.
+const(char)[] shaFromRef(const(char)[] out_) {
+    size_t e = 0;
+    while (e < out_.length && out_[e] != '\n' && out_[e] != '\r') e++;
+    return out_[0 .. e];
+}
+
+unittest {
+    assert(shaFromRef("abc1234\n") == "abc1234");
+    assert(shaFromRef("abc1234") == "abc1234");
+    assert(shaFromRef("") == "");
+    assert(shaFromRef("\n") == "");
+}
+
+// What the local branch is at, short. A push of a new branch prints no sha
+// range — `* [new branch] x -> x` — so the row the push leaves has to read it
+// from the ref, or it names no commit for the node to wait on.
+const(char)[] localHeadSha(const(char)[] root, const(char)[] branch) {
+    if (__ctfe || root.length == 0 || branch.length == 0) return "";
+    foreach (c; root) if (c == '\'') return "";
+    foreach (c; branch) if (c == '\'') return "";
+
+    __gshared ZBuf cmd;
+    cmd.reset();
+    cmd.put("git -C '");
+    cmd.put(root);
+    cmd.put("' for-each-ref --format='%(objectname:short)' 'refs/heads/");
+    cmd.put(branch);
+    cmd.put("' 2>/dev/null");
+
+    auto pipe = popen(cmd.ptr(), "r");
+    if (pipe is null) return "";
+    __gshared char[64] outBuf = 0;
+    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
+    pclose(pipe);
+    return shaFromRef(outBuf[0 .. n]);
+}
+
 // check-ignore names what it was asked about when git ignores it, and says
 // nothing when it does not. One non-blank line is the whole answer.
 bool ignoredFromCheck(const(char)[] out_) {
