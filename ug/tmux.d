@@ -367,13 +367,22 @@ void newsPass(const(char)[] home) {
     auto answer = fetch(home, "/am/statusline?format=json");
     if (answer.state != State.ok || !isJson(answer.body_)) return;
 
-    size_t at = itemsAt(answer.body_);
+    // fetch answers out of one static buffer, and the ask for an item's
+    // detail below is a second fetch: it overwrote the items while they were
+    // being walked, and two rows went into the store with ids cut from the
+    // middle of a detail body. The items are copied out first.
+    __gshared char[65536] items = void;
+    size_t n = answer.body_.length < items.length ? answer.body_.length : items.length;
+    items[0 .. n] = answer.body_[0 .. n];
+    auto body_ = items[0 .. n];
+
+    size_t at = itemsAt(body_);
     while (true) {
-        auto span = nextObject(answer.body_, at);
+        auto span = nextObject(body_, at);
         if (!span.ok) break;
         at = span.end;
 
-        auto obj = answer.body_[span.start .. span.end];
+        auto obj = body_[span.start .. span.end];
         auto id = jsonString(obj, "id");
         if (id is null || id.length == 0) continue;
         if (newsSeen(home, id)) continue;
