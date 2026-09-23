@@ -574,13 +574,15 @@ void deleteClippyReminder(sqlite3* db, const(char)[] sessionId) {
     sqlite3_finalize(stmt);
 }
 
-// Write a ci-status immediate message for THIS session.
-// Session-keyed: any push from this session produces a row tagged with the
-// session. The session's watcher delivers it. The row carries the push's
-// repo + branch + sha (parsed from the push's own stdout via parsePushOutput)
-// so the watcher can query the right CI run regardless of cwd.
-// Deterministic ID per session — repeated pushes overwrite (INSERT OR REPLACE).
-// Also clears delivered: receipts so new pushes re-deliver.
+// Write the fact of a push for THIS session: repo + branch + sha, parsed from
+// the push's own stdout via parsePushOutput. Session-keyed, so sky receipts it
+// for the session that pushed; streamed to the node, whose standing watcher
+// fires on it and waits on the run.
+//
+// One id per push: session and commit. The node is idempotent on the id — a
+// row it holds is answered "exists", neither rewritten nor observed — so an id
+// per session made every push after a session's first one a push the node
+// never saw. The same push twice is the same row (INSERT OR REPLACE).
 bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
                    const(char)[] repo, const(char)[] branch, const(char)[] sha,
                    int delaySec) {
@@ -588,11 +590,13 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
 
     if (sessionId.length == 0) return false;
 
-    // Build deterministic ID: "immediate:ci-status:<sessionId>"
+    // "immediate:ci-status:<sessionId>:<sha>"
     __gshared ZBuf idBuf;
     idBuf.reset();
     idBuf.put("immediate:ci-status:");
     idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(sha);
 
     __gshared ZBuf predBuf;
     predBuf.reset();
@@ -667,22 +671,7 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
         if (step == SQLITE_BUSY) { usleep(50_000); continue; }
         return false;
     }
-    if (!wrote) return false;
-
-    // Clear delivered: receipts so all sessions re-deliver
-    __gshared ZBuf delPred;
-    delPred.reset();
-    delPred.put("delivered:");
-    delPred.put(idBuf.slice());
-
-    enum delSql = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') = ?1\0";
-    sqlite3_stmt* delStmt;
-    if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) != SQLITE_OK)
-        return false;
-    sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
-    sqlite3_step(delStmt);
-    sqlite3_finalize(delStmt);
-    return true;
+    return wrote;
 }
 
 // Announce that a control's script was launched, written by the parent the
@@ -1500,7 +1489,7 @@ unittest {
 
     {
         import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_text, SQLITE_ROW;
-        enum q = "SELECT attributes FROM attestations WHERE id = 'immediate:ci-status:sess-ci'\0";
+        enum q = "SELECT attributes FROM attestations WHERE id = 'immediate:ci-status:sess-ci:abc1234'\0";
         sqlite3_stmt* s;
         assert(sqlite3_prepare_v2(testDb, q.ptr, -1, &s, null) == SQLITE_OK);
         assert(sqlite3_step(s) == SQLITE_ROW);
@@ -1535,6 +1524,17 @@ unittest {
     assert(sqlite3_prepare_v2(testDb, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
     assert(sqlite3_step(stmt) == SQLITE_ROW);
     assert(sqlite3_column_int64(stmt, 0) == 1, "expected exactly 1 row after two writes");
+    sqlite3_finalize(stmt);
+
+    // A second push in the same session is a second fact. The node is
+    // idempotent on the id — a row it holds is answered "exists" and neither
+    // rewritten nor observed — so an id per session made every push after the
+    // first one the node never saw. Measured 2026-09-23: the node held this
+    // session's push of the day before and none of the five since.
+    writeCIStatus(testDb, "sess-ci-dedup", "acme/widget", "main", "def5678", 0);
+    assert(sqlite3_prepare_v2(testDb, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 2, "a push of another commit is another row");
     sqlite3_finalize(stmt);
 
     sqlite3_close(testDb);
