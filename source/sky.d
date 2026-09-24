@@ -238,6 +238,21 @@ bool takesOver(bool stopEvent, bool holderIsMine) {
     return stopEvent && holderIsMine;
 }
 
+// Whether a refusal is worth a word. A PostToolUse or SessionStart spawn that
+// finds a live holder is the normal case: the tree is walked and nothing is
+// wrong, so it leaves without opening the store. A Stop's spawn is refused
+// only by another session's holder, and then the session that just stopped
+// has no watcher of its own, which is a fact for the record.
+// "A PostToolUse or SessionStart spawn that finds a live holder is the normal case" "agreed"
+bool refusalSaid(bool stopEvent) {
+    return stopEvent;
+}
+
+unittest {
+    assert(!refusalSaid(false), "refused at PostToolUse: the tree is walked, nothing to say");
+    assert(refusalSaid(true), "refused at Stop: this session has no watcher, said");
+}
+
 // Whether the holder is gone with its row still open: it could not write its
 // own ending, and the one that finds it so writes it.
 bool diedUnsaid(bool alive, bool endedInRecord) {
@@ -456,6 +471,7 @@ int handleSky(int argc, const(char)** argv) {
     // or by nobody, and the record is how that is told apart later.
     auto holder = claimTree(cwd, myPid, sessionId, stopEvent);
     if (holder != 0) {
+        if (!refusalSaid(stopEvent)) return 0;
         auto rdb = openDb();
         if (rdb !is null) {
             auto now = cast(long) time(null);
