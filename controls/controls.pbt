@@ -81,6 +81,10 @@ scope {
       name: "kill-not-requested"
       cmd: ["kill", "pkill"]
       check_handler: "killNotRequested"
+      # "make sure the did-not-request-kill control doesnt fire for fable"
+      handler_params {
+        unless_model: "fable"
+      }
       msg: "The developer has not requested killing a process. Wait for an explicit kill request."
     }
 

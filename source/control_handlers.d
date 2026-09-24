@@ -482,18 +482,40 @@ bool isRustProject(const(char)[] cwd) {
     return stat(&pathBuf[0], &st) == 0;
 }
 
+unittest {
+    // "make sure the did-not-request-kill control doesnt fire for fable"
+    // The pbt names the word; the session's model as ug wrote it is matched on it.
+    assert(modelExempt("claude-fable-5-1", "fable"));
+    assert(modelExempt("claude-fable-5-1", "Fable"));
+    assert(!modelExempt("claude-opus-5", "fable"));
+    assert(!modelExempt("", "fable"), "a session ug never saw is not exempt");
+    assert(!modelExempt("claude-fable-5-1", ""), "no word named, nobody exempt");
+}
+
+// True when the session's model, as ug wrote it, carries the word the pbt
+// named in unless_model. No word or no model: nobody is exempt.
+bool modelExempt(const(char)[] model, const(char)[] word) {
+    if (model.length == 0 || word.length == 0) return false;
+    return containsCI(model, word);
+}
+
 CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
     if (g_sessionId.length == 0) return passes();
 
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
-                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, modelOf;
     import zbuf : ZBuf;
 
     auto db = openDb();
     if (db is null)
         return approvalVerdict(false, false,
             "denied: ground could not open its database, so it could not check whether you requested this. Denying rather than asserting you did not.");
+
+    if (modelExempt(modelOf(db, g_sessionId).model(), lookupParam("unless_model"))) {
+        sqlite3_close(db);
+        return passes();
+    }
 
     __gshared ZBuf ctx;
     ctx.reset();
