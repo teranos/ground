@@ -144,6 +144,22 @@ void reportQuietly(const ref GroundError err) {
     reportDetached(dsn, logEnvelope(dsn, it), err.sessionId, err.origin);
 }
 
+/// The quiet path, spelled the way emitError is: a worker says what went
+/// wrong in its own ask, sentry is told, and no session is woken for it.
+void sayQuietly(string origin, string message, int exitCode,
+                const(char)[] sessionId, const(char)[] controlName, const(char)[] detail) {
+    import core.stdc.time : time;
+    GroundError err;
+    err.origin      = origin;
+    err.message     = message;
+    err.exitCode    = exitCode;
+    err.sessionId   = cast(string) sessionId;
+    err.controlName = cast(string) controlName;
+    err.timestamp   = cast(long) time(null);
+    err.stderr      = cast(string) detail;
+    reportQuietly(err);
+}
+
 import sentry : Item;
 
 // One item per error: origin, control, the result line and the tail of

@@ -195,12 +195,12 @@ void refreshDue(sqlite3* db, const(char)[] sessionId, long now) {
 }
 
 private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long now) {
-    import exec : emitError;
+    import errors : sayQuietly;
 
     auto pid = fork();
     if (pid < 0) {
-        emitError("minutes.fork", "could not fork to ask github for the org's minutes",
-                  0, -1, cast(string) sessionId, "org-minutes", "", cast(string) githubOrg, "");
+        sayQuietly("minutes.fork", "could not fork to ask github for the org's minutes",
+                   -1, sessionId, "org-minutes", githubOrg);
         return;
     }
     if (pid != 0) return;
@@ -226,18 +226,19 @@ private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long 
     auto r = httpGet(url.text(), githubToken(), body_[], 20);
 
     // What was measured, whichever way it went wrong: libcurl's words when
-    // nothing answered, github's own when it answered with a refusal.
+    // nothing answered, github's own when it answered with a refusal. Said
+    // to sentry and to nobody else: this reading feeds a table the tmux bar
+    // reads, no session asked for it, and none can act on a DNS miss. The
+    // bar keeps the last reading it had.
     if (r.code != 0 || r.overran) {
-        emitError("minutes.ask", cast(string) r.why(), 0, -1, cast(string) sessionId,
-                  "org-minutes", "", cast(string) githubOrg, "");
+        sayQuietly("minutes.ask", cast(string) r.why(), -1, sessionId, "org-minutes", githubOrg);
         _exit(0);
     }
     auto used = usedMinutes(body_[0 .. r.len]);
     if (!used.ok) {
         auto said = body_[0 .. r.len > 400 ? 400 : r.len];
-        emitError("minutes.answer", "github answered without a usage list", 0, -1,
-                  cast(string) sessionId, "org-minutes", "", cast(string) githubOrg,
-                  cast(string) said);
+        sayQuietly("minutes.answer", "github answered without a usage list", -1,
+                   sessionId, "org-minutes", said);
         _exit(0);
     }
 
@@ -261,8 +262,7 @@ private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long 
             foreach_reverse (i; 0 .. dl) if (n < why.length) why[n++] = d[i];
             say(" at the schema step");
         }
-        emitError("minutes.record", cast(string) why[0 .. n], 0, -1, cast(string) sessionId,
-                  "org-minutes", "", cast(string) githubOrg, "");
+        sayQuietly("minutes.record", cast(string) why[0 .. n], -1, sessionId, "org-minutes", githubOrg);
         _exit(0);
     }
     auto wrote = recordReading(db, githubOrg, used.minutes, now);
@@ -274,8 +274,7 @@ private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long 
             : wrote.rc == SQLITE_BUSY
                 ? "the org's minutes were read, and the database stayed locked for two seconds of trying to write them down"
                 : "the org's minutes were read, and sqlite refused the write";
-        emitError("minutes.record", why, 0, -1, cast(string) sessionId,
-                  "org-minutes", "", cast(string) githubOrg, "");
+        sayQuietly("minutes.record", why, -1, sessionId, "org-minutes", githubOrg);
     }
     _exit(0);
 }
