@@ -25,6 +25,16 @@ static assert(!contains(sky, "adaptive"), "sky picks no interval from a run's hi
 static assert(!contains(sky, "checkCIStatus"), "sky asks github nothing about a push");
 static assert(!contains(sky, "p50") && !contains(sky, "p90"), "sky knows no percentiles");
 
+// The wait on a dispatched run left too. A rite's dispatch is a row streamed
+// to the node; the node finds the run by the name ground gave it and the
+// verdict comes back as news. Nothing on this laptop asks github after a run.
+static assert(!contains(sky, "checkRunByToken"), "sky asks github nothing about a dispatch");
+enum drive = import("source/ritual/drive.d");
+static assert(!contains(drive, "checkRunByToken"), "the driver asks github nothing about a dispatch");
+enum deferred = import("source/deferred.d");
+static assert(!contains(deferred, "popen("), "deferred opens no pipe to gh");
+static assert(!contains(deferred, "checkRunByToken"), "the gh half of deferred is gone");
+
 private bool contains(const(char)[] hay, const(char)[] needle) {
     if (needle.length > hay.length) return false;
     foreach (i; 0 .. hay.length - needle.length + 1)

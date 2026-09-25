@@ -768,9 +768,57 @@ unittest {
     sqlite3_close(testDb);
 }
 
+unittest {
+    // The outcome of a dispatch is what the node left and ug wrote down: an
+    // immediate:news row under the dispatch row's own id. The driver reads it
+    // there; nothing on the laptop asks github after the run.
+    import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(writeDispatchStatus(db, "sess-d", "teranos/ground", "q-deploy-1790:TARGET", 0));
+    assert(dispatchOutcome(db, "immediate:dispatch:sess-d:q-deploy-1790:TARGET") is null,
+           "nothing written yet is nothing to read");
+    enum news = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES ('immediate:news:immediate:dispatch:sess-d:q-deploy-1790:TARGET', '[\"news\"]', "
+        ~ "'[\"immediate:news\"]', '[\"session:sess-d\"]', '[\"ug\"]', '2026-09-25T21:00:00Z', 'ug', "
+        ~ "'{\"detail\":\"run: success q-deploy-1790:TARGET https://github.com/teranos/ground/actions/runs/9\",\"after\":0}')\0";
+    assert(sqlite3_exec(db, news.ptr, null, null, null) == SQLITE_OK);
+    auto got = dispatchOutcome(db, "immediate:dispatch:sess-d:q-deploy-1790:TARGET");
+    assert(got == "run: success q-deploy-1790:TARGET https://github.com/teranos/ground/actions/runs/9", "the news as ug wrote it");
+    sqlite3_close(db);
+}
+
+// The outcome of a dispatch, as the node left it and ug wrote it down: the
+// detail of the immediate:news row under the dispatch row's own id, or null
+// while none has come. Nothing on this laptop asks github after the run.
+const(char)[] dispatchOutcome(sqlite3* db, const(char)[] dispatchId) {
+    import db : sqlite3_column_text, SQLITE_ROW;
+    __gshared char[1024] out_ = 0;
+    __gshared ZBuf id;
+    id.reset();
+    id.put("immediate:news:");
+    id.put(dispatchId);
+    enum sql = "SELECT json_extract(attributes, '$.detail') FROM attestations WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return null;
+    sqlite3_bind_text(stmt, 1, id.ptr(), cast(int) id.len, SQLITE_TRANSIENT);
+    const(char)[] found = null;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto text = sqlite3_column_text(stmt, 0);
+        if (text !is null) {
+            size_t n;
+            while (text[n] != 0 && n < out_.length) { out_[n] = text[n]; n++; }
+            found = out_[0 .. n];
+        }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 // A dispatch sends a job and the walk moves on, so this row is the only record
 // that an outcome is owed. Written the instant the job is accepted, resolved by
-// the watcher against the run's own name.
+// the node against the run's own name and carried back as news.
 bool writeDispatchStatus(sqlite3* db, const(char)[] sessionId,
                          const(char)[] repo, const(char)[] token, int delaySec) {
     import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;

@@ -113,14 +113,6 @@ extern (C) {
     int pclose(FILE* stream);
 }
 
-// How long a dispatched run may take to appear in the listing before its
-// absence is reported as an absence.
-enum DISPATCH_APPEAR_SEC = 60;
-
-// How long a dispatched run that is listed and running is left before it is
-// asked after again. One number: no history of the branch is read to pick it.
-enum DISPATCH_POLL_SEC = 5;
-
 // What the record calls this process, and the files it holds a tree and a
 // session by. Rows written before the rename say watch.
 enum KIND = "sky";
@@ -605,45 +597,16 @@ int handleSky(int argc, const(char)** argv) {
                     continue;
                 }
 
-                // A dispatch is over, but the run it sent is not. This row is
-                // the only record that an outcome is still owed. One the
-                // driver already found is handed over as it stands.
-                if (imm.name == "dispatch" && !imm.resolved) {
-                    import deferred : checkRunByToken, CIQuery;
-                    import core.stdc.time : time;
-                    if (imm.repo.length == 0 || imm.token.length == 0) {
-                        if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
-                            stuck = true;
-                            break;
-                        }
-                        continue;
+                // A dispatch row is the fact that a rite sent a run, written
+                // for the stream. The node finds the run by the name ground
+                // gave it and the verdict comes back as news ug writes. Not a
+                // message: receipted here so the pass moves on.
+                if (imm.name == "dispatch") {
+                    if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
+                        stuck = true;
+                        break;
                     }
-                    auto run = checkRunByToken(imm.repo, imm.token);
-                    if (run.kind == CIQuery.InProgress) {
-                        // Parked, not stopped: breaking here held back every
-                        // message written after this row. The wait is the
-                        // same as for a run not yet listed; no history is read.
-                        import immediate : parkImmediate;
-                        auto now = cast(long) time(null);
-                        nextSleep = DISPATCH_POLL_SEC;
-                        parkImmediate(db, imm.msgId, now + DISPATCH_POLL_SEC);
-                        continue;
-                    }
-                    // A run does not appear in the listing the instant it is
-                    // dispatched, and "not there yet" is not "not coming".
-                    if (run.kind == CIQuery.NoWorkflow) {
-                        import immediate : parkImmediate;
-                        auto now = cast(long) time(null);
-                        if (now - imm.pushTime < DISPATCH_APPEAR_SEC) {
-                            nextSleep = 2;
-                            parkImmediate(db, imm.msgId, now + 2);
-                            continue;
-                        }
-                        // Long past appearing. Say so rather than drop it.
-                        imm.message = "no run carries the name ground gave it";
-                    }
-                    else imm.message = run.text;
-
+                    continue;
                 }
 
                 // A message the batch cannot hold whole is not receipted: it

@@ -450,7 +450,6 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (info.repo.length > 0 && info.branch.length > 0) {
                         import db : openDb, sqlite3_close;
                         import immediate : writeCIStatus;
-                        import control_handlers : ciDelay;
                         import git : localHeadSha;
                         // A new branch's push line names no sha; the local ref
                         // does. Without it the node has no commit to wait on.
@@ -465,7 +464,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                             // ciFired said the push would be reported on, so a
                             // row that never landed read as CI being watched.
                             ciFired = writeCIStatus(cdb, sessionId, info.repo,
-                                                    info.branch, sha, ciDelay(cwd));
+                                                    info.branch, sha, 0);
                             sqlite3_close(cdb);
                             if (!ciFired) {
                                 import exec : emitError;
