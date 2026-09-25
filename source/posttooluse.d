@@ -375,14 +375,17 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     }
 
                     import db : openDb, sqlite3_close;
-                    import deferred : writeDeferredMessage;
+                    import immediate : writeNote;
                     auto ddb = openDb();
                     if (ddb is null) continue;
 
+                    // One queue: an immediate row with a gate, handed in by
+                    // sky when the gate opens, instead of a second queue the
+                    // Stop hook read back itself.
                     auto delay = c.defer.delayFn !is null
                         ? c.defer.delayFn(cwd)
                         : c.defer.delaySec;
-                    writeDeferredMessage(ddb, c.name, cwd, sessionId, c.defer.msg, delay);
+                    cast(void) writeNote(ddb, sessionId, c.name, c.defer.msg, delay);
 
                     {
                         import db : attestControlFire;

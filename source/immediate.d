@@ -691,10 +691,26 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
 // Something ground did, said out loud. Session-keyed, deliverable at once.
 // The alternative is what worktree creation was until now: ground makes a
 // directory and a branch and the only way to find out is git worktree list.
+// A note with a delay is what a deferred control writes: the same row, gated
+// by `after`, and sky hands it in when the gate opens. One queue.
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(writeNote(db, "sess-q", "review-nudge", "Claude left a review comment.", 9999));
+    assert(readImmediateMessage(db, "/tmp", "sess-q").message is null, "gated until the delay passes");
+    assert(writeNote(db, "sess-q", "inline-not-address", "show the code instead", 0));
+    auto now = readImmediateMessage(db, "/tmp", "sess-q");
+    assert(now.message == "show the code instead", "no delay is now");
+    sqlite3_close(db);
+}
+
 bool writeNote(sqlite3* db,
                const(char)[] sessionId,
                const(char)[] key,
-               const(char)[] detail) {
+               const(char)[] detail,
+               int delaySec = 0) {
     import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
 
     if (sessionId.length == 0) return false;
@@ -710,7 +726,16 @@ bool writeNote(sqlite3* db,
     attrBuf.reset();
     attrBuf.put(`{"detail":"`);
     putJsonString(attrBuf, detail);
-    attrBuf.put(`","after":0}`);
+    attrBuf.put(`","after":`);
+    {
+        auto after = cast(long) time(null) + delaySec;
+        char[20] d = 0;
+        size_t n;
+        if (after <= 0) d[n++] = '0';
+        while (after > 0 && n < d.length) { d[n++] = cast(char)('0' + after % 10); after /= 10; }
+        foreach_reverse (i; 0 .. n) attrBuf.putChar(d[i]);
+    }
+    attrBuf.put(`}`);
 
     __gshared ZBuf ctxBuf;
     ctxBuf.reset();

@@ -31,9 +31,9 @@ static assert(!contains(sky, "p50") && !contains(sky, "p90"), "sky knows no perc
 static assert(!contains(sky, "checkRunByToken"), "sky asks github nothing about a dispatch");
 enum drive = import("source/ritual/drive.d");
 static assert(!contains(drive, "checkRunByToken"), "the driver asks github nothing about a dispatch");
-enum deferred = import("source/deferred.d");
-static assert(!contains(deferred, "popen("), "deferred opens no pipe to gh");
-static assert(!contains(deferred, "checkRunByToken"), "the gh half of deferred is gone");
+// deferred.d, which held the gh half, is gone with its queue (queue_test.d).
+enum handlers = import("source/control_handlers.d");
+static assert(!contains(handlers, "getCIAvgDuration"), "no handler asks github how long a branch's runs take");
 
 private bool contains(const(char)[] hay, const(char)[] needle) {
     if (needle.length > hay.length) return false;

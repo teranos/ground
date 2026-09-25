@@ -152,22 +152,9 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     auto tSession = usecNow();
 
-    // Check for project-scoped deferred messages (from QNTX)
-    const(char)[] projectNews = null;
-    {
-        import db : openDb, sqlite3_close;
-        import deferred : readProjectDeferredMessage, markProjectDelivered;
-        auto db = openDb();
-        if (db !is null) {
-            auto projDeferred = readProjectDeferredMessage(db, cwd);
-            if (projDeferred.message !is null) {
-                markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
-                projectNews = projDeferred.message;
-            }
-            sqlite3_close(db);
-        }
-    }
-
+    // A project-scoped deferred queue was read here for rows QNTX once wrote
+    // and no longer does. What a project is told now is an immediate row
+    // keyed by project, and sky carries it.
     auto tDeferred = usecNow();
 
     bool isStartup = source is null || contains(source, "startup") || contains(source, "clear");
@@ -375,20 +362,6 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 any = true;
             }
         }
-    }
-
-    if (projectNews !is null) {
-        import parse : writeJsonString;
-        if (any) ctx.put(" | ");
-        // projectNews needs JSON escaping — write directly
-        fputs(`{"systemMessage":"`, stdout);
-        writeJsonString(startLine.slice());
-        fputs(`","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
-        fwrite(&ctx.data[0], 1, ctx.len, stdout);
-        writeJsonString(projectNews);
-        fputs(`"}}` ~ "\n", stdout);
-        emitSessionProfile();
-        return 0;
     }
 
     if (any) {
