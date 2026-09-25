@@ -21,8 +21,8 @@ ground profile
 # one event, its phases and its worst runs:
 ground profile PreToolUse
 
-# the asyncRewake watcher, with "timeout": 86400 on its hook entry
-ground watch $PWD
+# the courier, with "timeout": 86400 on its hook entry
+ground sky $PWD
 
 # perform a ritual, by its name when that names one:
 ground ritual grove

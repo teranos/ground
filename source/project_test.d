@@ -116,7 +116,7 @@ static assert(projectWithEnvParsed.envs[0].count == 1);
 // beside its checkout.
 enum backedInput = `
 qntx {
-  url:   "https://qntx.alice.example"
+  url: "https://qntx.alice.example"
   token: "~/.qntx/ground-token"
 }
 
@@ -137,7 +137,7 @@ static assert(backedParsed.projects[0].qntx.loomPortUDP == 0);
 // "if set, we send to loom, if not set, we dont."
 enum loomInput = `
 qntx {
-  url:   "https://qntx.alice.example"
+  url: "https://qntx.alice.example"
   token: "~/.qntx/ground-token"
 }
 

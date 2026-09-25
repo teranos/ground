@@ -1,98 +1,35 @@
 module sky;
 
+// BOOK_GLOSSARY **Sky**: One courier per tree, spawned by the hooks: every two seconds it hands its session what is addressed to it, ships and streams what is pending, and computes nothing about any of it.
+//
 // ground sky <cwd>
-// "the first part of the hear me out is renaming ground watch to ground sky"
-//
-// Immediate delivery via asyncRewake. Polls the db every 2 seconds for
-// immediate: attestations matching the project, writes what is pending to
-// stderr and exits 2 — no timer, nothing held back. Claude Code's
-// asyncRewake shows stderr as a system reminder and wakes the session.
-//
-// A pass with nothing to deliver is spent as the courier: the outbox and the
-// timing rows to sentry, and the hook rows to the QNTX node (stream.d). A
-// hook opens no socket; this is the one process of a session that does.
-//
-// Spawned by PostToolUse, Stop and SessionStart:
-// {"command":"ground sky $PWD","asyncRewake":true,"timeout":86400}
-// Claude Code does NOT deduplicate async hooks
-// (confirmed by docs), so we handle it ourselves via PID files.
-//
-// The timeout is enforced on an asyncRewake hook, and defaults to 600. The
-// record showed it 2026-09-18: four watchers, each silent after 597 to 600
-// seconds of polling, none ended, no process. An idle session was then
-// unwatched until its next hook. A day is the ceiling now.
-//
-// Session identity:
-//   Stdin carries session_id and hook_event_name. The Stop handler also
-//   writes a claim file sky-claim-<sessionId>.id, which a watcher with no
-//   stdin claims (atomic rename) to learn its session ID. A Stop's watcher
-//   replaces its own session's previous watcher itself (see claimTree) —
-//   watchers from different sessions never interfere with each other.
-//
-// Two keying models, both flow through this watcher:
-//
-//   1. SESSION-KEYED (ground's own writers: writeCIStatus, writeClippyReminder,
-//      and ug's news). Row contexts: ["session:<sid>"]. readImmediateMessage
-//      matches by session. cwd plays no role.
-//
-//   2. PROJECT-KEYED (external writers like QNTX). Row contexts:
-//      ["project:<path>"]. The watcher delivers when its cwd ends with the
-//      project path. Cross-session delivery to anyone in the project is
-//      intentional for lifecycle events.
-//
 // "sky whispers" / "sky doesnt compute"
-// Sky carries what it is handed and forms no view about any of it. A ci-status
-// row is the fact of a push — repo, branch, sha — written by the hook for the
-// stream. Sky streams it to the node and receipts it here unspoken; it is not
-// a message. The node's own watcher fires on it, waits on the run where the
-// socket is, and leaves the result on the status line ug polls every second.
-// ug writes that down as an immediate:news row for the session that pushed,
-// and this loop carries it like any other row. Nothing in this process asks
-// github anything about a push, and nothing in it picks an interval from a
-// run's history.
 //
-// --- Migration from legacy deferred → immediate (sequential checklist) ---
+// One courier per tree. Hooks spawn one at every PostToolUse, Stop and
+// SessionStart, with asyncRewake and a day's timeout; the one holding the
+// tree's pid file stays and the rest leave. A Stop's courier replaces its own
+// session's; nobody replaces another session's.
 //
-// LANDED on this branch:
-//   [x] Immediate delivery pipeline + asyncRewake watcher (b0422af)
-//   [x] Per-session, per-message dedup via delivered:<msgId> attestations
-//   [x] CI status writer: session-keyed (40a1e16); cwd killed (5f94ca7);
-//       repo + branch + sha sourced from git push's own stdout
-//   [x] Clippy reminder writer + deleter: session-keyed (40a1e16)
-//   [x] The CI query left this process (see the header above)
-//   [x] ImmediateMsg carries repo + branch + sha for late-binding
-//   [x] Legacy ciDeliver handler removed (no .pbt referenced it)
+// Every two seconds it reads what is addressed to its session, or to the
+// project its tree is in, and hands it in by writing it to stderr and exiting
+// 2, which wakes the session. A receipt row per message per session is what
+// makes a delivery once rather than forever. A pass with nothing to hand in
+// ships the outbox and the timing rows to sentry and streams the hook rows to
+// the QNTX node (stream.d); a hook opens no socket, this is the one process
+// of a session that does.
 //
-// STILL OWED (move legacy deferred → immediate):
-//   [ ] PostToolUseDeferred writers (the `gh pr review` nudge today; future
-//       similar) → write to immediate with after-gate instead of polling
-//       deferred queue at Stop. Shrinks stop.d's deferred-section.
-//   [ ] Session-scoped deferred (`readDeferredMessage`) → session-keyed
-//       immediate removes the need to read the deferred queue at Stop.
-//   [ ] Project-scoped deferred (`readProjectDeferredMessage`) → either
-//       (a) project-keyed immediate (path stays in row contexts, watcher
-//       does cwd-suffix match like QNTX rows), or (b) drop the main/master
-//       gate as part of the move.
-//   [ ] Once the above land: delete deferred.d's read paths (deferred-session
-//       and deferred-project) and the stop.d sections that consume them.
-//   [ ] writeClippyReminder still cwd-aware in spirit (it doesn't run if
-//       isRustProject(cwd) is false). Decide: session-key the trigger too
-//       (any .rs edit in this session, no project gate), or keep the gate.
-//
-// POSSIBLY DROP:
-//   [ ] readImmediateMessage's project-suffix fallback path. If/when QNTX
-//       writes session-aware messages, the only reason for the project
-//       fallback disappears. Until then, keep it.
-//
-// LATER POLISH:
-//   [x] The wait on a CI run moved off this machine: QNTX's ci.watch built-in,
-//       fired by a standing watcher on the ci-status row sky streams in.
-//   [ ] claimSession's glob is not session-scoped. It lists sky-claim-*.id
-//       across ALL sessions and takes the first it can rename, so a watcher
-//       spawned for session A can claim session B. The hook JSON does reach
-//       an asyncRewake command — every live row in the process table names
-//       its session from stdin — so claimSession is the path nothing takes,
-//       and the claim file with it.
+// It computes nothing about what it carries and says nothing of its own to a
+// session. A push and a dispatch are facts written for the stream and
+// receipted here unspoken; the node waits on the run where the socket is and
+// leaves the verdict on the status line ug polls, ug writes it down as news
+// for the session, and this loop carries the news like any other row. A
+// deferred message is a row with an `after` gate, carried when it opens.
+// What sky could not do itself goes to sentry: an asyncRewake wakes every
+// session there is, and a courier's trouble is not worth a turn of each.
+enum BOOK_COMMAND = q"EOS
+# the courier, with "timeout": 86400 on its hook entry
+ground sky $PWD
+EOS";
 
 import db : sqlite3, sqlite3_close, openDb, ZBuf, SQLITE_DONE;
 import immediate : readImmediateMessage, markImmediateDelivered;
@@ -403,11 +340,6 @@ const(char)[] claimSession(const(char)[] cwd) {
 // about whether messages are being delivered: watch exits 2 by design after
 // every batch, and a watcher can hold another session's claim. The honest
 // signal is undelivered work — see immediate.countStaleExecForSession.
-
-enum BOOK_COMMAND = q"EOS
-# the asyncRewake watcher, with "timeout": 86400 on its hook entry
-ground sky $PWD
-EOS";
 
 int handleSky(int argc, const(char)** argv) {
     if (argc < 3) {

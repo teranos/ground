@@ -11,7 +11,7 @@ import backend : postings, unbacked;
 // one node, with the one token.
 enum fanInput = `
 qntx {
-  url:   "https://qntx.alice.example"
+  url: "https://qntx.alice.example"
   token: "~/.qntx/ground-token"
 }
 project {
