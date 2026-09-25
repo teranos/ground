@@ -10,21 +10,84 @@ import db : sqlite3;
 // bytes, and the envelope holds a quarter megabyte.
 enum TAKE = 100;
 
+// What a claim came to: the rows taken, and sqlite's answer to the taking.
+// A claim the store refused is not zero rows. 2026-09-25 between 20:10 and
+// 20:18 the timing index went malformed; every claim answered 11 and was read
+// as nothing to ship, and every hook lost its row the same way, for forty
+// minutes with no word from either. "fix both"
+struct TimingClaim {
+    long rows;
+    int rc;   // SQLITE_DONE when the claim ran
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK, SQLITE_DONE;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    auto fine = claimTiming(db, 1);
+    assert(fine.rc == SQLITE_DONE && fine.rows == 0, "an empty queue is a claim that ran");
+    sqlite3_exec(db, "DROP TABLE timing\0".ptr, null, null, null);
+    auto refused = claimTiming(db, 1);
+    assert(refused.rc != SQLITE_DONE, "a store that refused the claim says so in its code");
+    assert(refused.rows == 0);
+    sqlite3_close(db);
+}
+
+unittest {
+    // The hook's own row, the same way: sqlite's answer, not silence.
+    import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK, SQLITE_DONE;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(insertTiming(db, 1234, "PreToolUse", "ground", "parse=1us") == SQLITE_DONE);
+    sqlite3_exec(db, "DROP TABLE timing\0".ptr, null, null, null);
+    assert(insertTiming(db, 1234, "PreToolUse", "ground", "parse=1us") != SQLITE_DONE,
+           "a row the store refused is refused out loud");
+    sqlite3_close(db);
+}
+
 // A claim is a negative shipped_at: the pid of the watcher that took the rows.
 // Two sessions' watchers share this queue, and a row claimed is not taken twice.
-long claimTiming(sqlite3* db, long pid) {
+TimingClaim claimTiming(sqlite3* db, long pid) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
-                sqlite3_bind_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK;
+                sqlite3_bind_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_DONE;
 
     enum sql = "UPDATE timing SET shipped_at = -?1 WHERE id IN "
         ~ "(SELECT id FROM timing WHERE shipped_at = 0 ORDER BY id LIMIT ?2)\0";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    TimingClaim c;
+    c.rc = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+    if (c.rc != SQLITE_OK) return c;
     sqlite3_bind_int64(stmt, 1, pid);
     sqlite3_bind_int64(stmt, 2, TAKE);
-    sqlite3_step(stmt);
+    c.rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    return sqlite3_changes(db);
+    if (c.rc == SQLITE_DONE) c.rows = sqlite3_changes(db);
+    return c;
+}
+
+// One hook's row. Sqlite's answer comes back whole: SQLITE_DONE when the row
+// is in, its code when the store would not take it.
+int insertTiming(sqlite3* db, long elapsedUs, const(char)[] hookEvent,
+                 const(char)[] project, const(char)[] phases) {
+    import db : sqlite3_prepare_v2, sqlite3_bind_int64, sqlite3_bind_text, sqlite3_step,
+                sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
+
+    enum sql = "INSERT INTO timing (duration_us, hook_event, project, phases) VALUES (?1, ?2, ?3, ?4)\0";
+    sqlite3_stmt* stmt;
+    auto rc = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+    if (rc != SQLITE_OK) return rc;
+    sqlite3_bind_int64(stmt, 1, elapsedUs);
+    if (hookEvent.length > 0)
+        sqlite3_bind_text(stmt, 2, hookEvent.ptr, cast(int) hookEvent.length, SQLITE_TRANSIENT);
+    if (project.length > 0)
+        sqlite3_bind_text(stmt, 3, project.ptr, cast(int) project.length, SQLITE_TRANSIENT);
+    if (phases.length > 0)
+        sqlite3_bind_text(stmt, 4, phases.ptr, cast(int) phases.length, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc;
 }
 
 // A claim held by a pid that is gone is nobody's. A watcher killed between its
@@ -141,8 +204,8 @@ unittest {
 
     static bool onlyTwoTwoTwo(long pid) { return pid == 222; }
     assert(releaseDeadClaims(db, &onlyTwoTwoTwo) == 1, "111 is gone, its row is free again");
-    assert(claimTiming(db, 333) == 1, "and claimable");
-    assert(claimTiming(db, 444) == 0, "222 keeps its claim, and 500 was shipped");
+    assert(claimTiming(db, 333).rows == 1, "and claimable");
+    assert(claimTiming(db, 444).rows == 0, "222 keeps its claim, and 500 was shipped");
     sqlite3_close(db);
 }
 
@@ -170,8 +233,8 @@ unittest {
     sqlite3_exec(db, b.ptr, null, null, null);
 
     // One watcher claims; a second finds nothing left to claim.
-    assert(claimTiming(db, 111) == 2);
-    assert(claimTiming(db, 222) == 0);
+    assert(claimTiming(db, 111).rows == 2);
+    assert(claimTiming(db, 222).rows == 0);
 
     Batch!65536 batch;
     assert(claimedInto(db, 111, "v0.19.1\n", batch) == 2);
@@ -186,8 +249,8 @@ unittest {
 
     // A post that did not land hands the rows back; one that did keeps them.
     claimResolved(db, 111, false, 5000);
-    assert(claimTiming(db, 333) == 2, "handed back, so claimable again");
+    assert(claimTiming(db, 333).rows == 2, "handed back, so claimable again");
     claimResolved(db, 333, true, 5001);
-    assert(claimTiming(db, 444) == 0, "shipped is shipped");
+    assert(claimTiming(db, 444).rows == 0, "shipped is shipped");
     sqlite3_close(db);
 }

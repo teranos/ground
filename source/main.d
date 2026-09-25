@@ -148,31 +148,35 @@ const(char)[] getPhases() {
     return g_phasesBuf[0 .. g_phasesLen];
 }
 
-void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project, const(char)[] phases) {
-    import db : openDb, sqlite3_exec, sqlite3_prepare_v2, sqlite3_bind_int64,
-                    sqlite3_bind_text, sqlite3_step, sqlite3_finalize, sqlite3_close,
-                    sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
+// The hook's own row, and sqlite's answer to it. A store that would not open
+// has already been reported by openDb's chain; a store that opened and then
+// refused the row is reported here, with the code. 2026-09-25 20:1x the
+// timing index went malformed and forty minutes of hooks stepped an 11 and
+// said nothing; sentry showed a gap and nobody was told why.
+void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project,
+                  const(char)[] phases, const(char)[] sessionId) {
+    import db : openDb, sqlite3_close, SQLITE_DONE;
+    import hooktiming : insertTiming;
 
     auto db = openDb();
     if (db is null) return;
-
-    // The timing table and its three added columns live in db.applySchema,
-    // which openDb has already run on this handle.
-
-    enum sql = "INSERT INTO timing (duration_us, hook_event, project, phases) VALUES (?1, ?2, ?3, ?4)\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
-        sqlite3_bind_int64(stmt, 1, elapsedUs);
-        if (hookEvent.length > 0)
-            sqlite3_bind_text(stmt, 2, hookEvent.ptr, cast(int) hookEvent.length, SQLITE_TRANSIENT);
-        if (project.length > 0)
-            sqlite3_bind_text(stmt, 3, project.ptr, cast(int) project.length, SQLITE_TRANSIENT);
-        if (phases.length > 0)
-            sqlite3_bind_text(stmt, 4, phases.ptr, cast(int) phases.length, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-        sqlite3_finalize(stmt);
-    }
+    auto rc = insertTiming(db, elapsedUs, hookEvent, project, phases);
     sqlite3_close(db);
+    if (rc != SQLITE_DONE) {
+        import exec : emitError;
+        // The session is shown the exit and the stderr of a result, not its
+        // message, so the sentence goes in the stderr with the phases after it.
+        __gshared char[640] said = 0;
+        size_t n;
+        void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+        put("the store refused this hook's timing row: sqlite code ");
+        char[3] d = [cast(char)('0' + rc / 100 % 10), cast(char)('0' + rc / 10 % 10), cast(char)('0' + rc % 10)];
+        put(d[]);
+        put("\n");
+        put(phases);
+        emitError("hook.timing", cast(string) said[0 .. n], 0, rc,
+                  cast(string) sessionId, "hook.timing", "", "", cast(string) said[0 .. n]);
+    }
 }
 
 extern (C) int main(int argc, const(char)** argv) {
@@ -258,7 +262,7 @@ extern (C) int main(int argc, const(char)** argv) {
         row.reset();
         outerPhases(row, outer.stdinUs, outer.attestUs,
                     elapsed - outer.stdinUs - outer.attestUs, getPhases());
-        recordTiming(elapsed, eventName, project, row.slice());
+        recordTiming(elapsed, eventName, project, row.slice(), outer.sessionId);
     }
     return rc;
 }
@@ -266,7 +270,7 @@ extern (C) int main(int argc, const(char)** argv) {
 // What the handler cannot time: the read of its input and the attestation of
 // the event, both before it is called. The row used to carry the handler's
 // phases beside a duration the handler was a tenth of.
-struct Outer { long stdinUs; long attestUs; }
+struct Outer { long stdinUs; long attestUs; const(char)[] sessionId; }
 
 int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming,
         ref Outer outer) {
@@ -282,6 +286,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     if (cwd is null) cwd = "";
     auto sessionId = extractSessionId(input);
     if (sessionId is null) sessionId = "";
+    outer.sessionId = sessionId;
 
     import db : cwdTail;
     outProject = cwdTail(cwd);

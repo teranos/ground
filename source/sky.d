@@ -105,7 +105,7 @@ module sky;
 //       its session from stdin — so claimSession is the path nothing takes,
 //       and the claim file with it.
 
-import db : sqlite3, sqlite3_close, openDb, ZBuf;
+import db : sqlite3, sqlite3_close, openDb, ZBuf, SQLITE_DONE;
 import immediate : readImmediateMessage, markImmediateDelivered;
 import core.stdc.stdio : stderr, fputs, fwrite, FILE;
 
@@ -869,7 +869,12 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
 
     __gshared Batch!() metrics;
     metrics = Batch!().init;
-    if (hooktiming.claimTiming(db, pid) > 0) {
+    auto claim = hooktiming.claimTiming(db, pid);
+    if (claim.rc != SQLITE_DONE) {
+        storeRefused(sessionId, "the timing claim", claim.rc);
+        return false;
+    }
+    if (claim.rows > 0) {
         hooktiming.claimedInto(db, pid, versionString(), metrics);
         auto n = envelopeInto(metrics, dsn, METRIC_CONTENT, METRIC_TYPE, envelope[]);
         auto r = postText(dsn, envelope[0 .. n]);
@@ -897,6 +902,23 @@ private void storeShut(const(char)[] sessionId) {
     put(d[]);
     put("; nothing is delivered, shipped or streamed until it does");
     toSentry("sky.store", cast(string) said[0 .. n], -1, sessionId, "");
+}
+
+// The store answered a write with a code instead of running it. Said with the
+// number: 11 is a malformed store, and on 2026-09-25 a malformed timing index
+// was read as an empty queue for forty minutes. Said once per backoff, since
+// the pass that hit it stops.
+private void storeRefused(const(char)[] sessionId, const(char)[] what, int code) {
+    __gshared char[200] said = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+    put("the store refused ");
+    put(what);
+    put(": sqlite code ");
+    char[3] d = [cast(char)('0' + code / 100 % 10), cast(char)('0' + code / 10 % 10), cast(char)('0' + code % 10)];
+    put(d[]);
+    put(" — nothing is shipped until it is repaired");
+    toSentry("sky.store", cast(string) said[0 .. n], code, sessionId, "");
 }
 
 // A row the node did not take for a reason asking again may change. Sentry is
