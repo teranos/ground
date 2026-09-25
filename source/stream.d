@@ -55,9 +55,44 @@ enum SKELETON_SQL = "CASE json_extract(predicates, '$[0]') "
 
 // Claim up to TAKE pending rows for this sky. Any sky takes any row: the
 // UPDATE is the race, and sqlite runs one at a time.
+//
+// The read inside runs under the write lock, so it has to go by the index.
+// idx_attestations_stream is partial, qntx_at <= 0, and a WHERE that says
+// only qntx_at = 0 does not prove that to the planner: it walked every row
+// of the table, 480 thousand of them, from each sky every two seconds, and
+// every hook waited its busy timeout behind it. Sentry showed the day it
+// began, 2026-09-21, the day the stream landed.
+// "PreToolUse really used to run under 50ms"
+enum CLAIM_SQL = "UPDATE attestations SET qntx_at = -?1 WHERE rowid IN (SELECT rowid FROM attestations "
+    ~ "WHERE qntx_at <= 0 AND qntx_at = 0 AND NOT (qntx_status >= 400 AND qntx_status < 500) ORDER BY rowid LIMIT ?2)";
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, sqlite3_column_text;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    enum plan = "EXPLAIN QUERY PLAN " ~ CLAIM_SQL ~ "\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, plan.ptr, -1, &stmt, null) == SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, 1);
+    sqlite3_bind_int64(stmt, 2, 10);
+    bool byIndex = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto text = sqlite3_column_text(stmt, 3);
+        size_t n = 0;
+        while (text[n] != 0) n++;
+        auto detail = (cast(const(char)*) text)[0 .. n];
+        assert(!contains(detail, "SCAN attestations"), "the claim walked the whole table under the write lock");
+        if (contains(detail, "idx_attestations_stream")) byIndex = true;
+    }
+    sqlite3_finalize(stmt);
+    assert(byIndex, "the claim reads by idx_attestations_stream");
+    sqlite3_close(db);
+}
+
 long claimStream(sqlite3* db, long pid) {
-    enum sql = "UPDATE attestations SET qntx_at = -?1 WHERE rowid IN (SELECT rowid FROM attestations "
-        ~ "WHERE qntx_at = 0 AND NOT (qntx_status >= 400 AND qntx_status < 500) ORDER BY rowid LIMIT ?2)\0";
+    enum sql = CLAIM_SQL ~ "\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
     sqlite3_bind_int64(stmt, 1, pid);
