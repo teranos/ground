@@ -86,11 +86,14 @@ PushInfo parsePushOutput(const(char)[] output) {
             while (branchStart > 0 && line[branchStart - 1] != ' ') branchStart--;
             info.branch = line[branchStart .. branchEnd];
 
-            // SHA = bytes between ".." and the next space, anywhere before branchStart
+            // SHA = bytes after the dots and before the next space, anywhere
+            // before branchStart. A fast-forward prints two dots; a forced
+            // push prints three, and the sha starts after the last of them.
             foreach (i; 0 .. branchStart) {
                 if (i + 1 >= branchStart) break;
                 if (line[i] == '.' && line[i + 1] == '.') {
                     size_t shaStart = i + 2;
+                    while (shaStart < branchStart && line[shaStart] == '.') shaStart++;
                     size_t shaEnd = shaStart;
                     while (shaEnd < branchStart && line[shaEnd] != ' ') shaEnd++;
                     info.sha = line[shaStart .. shaEnd];

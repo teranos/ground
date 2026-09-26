@@ -31,6 +31,14 @@ enum renamedOut = "To github.com:owner/repo.git\n   aaa1111..bbb2222  local-name
 static assert(parsePushOutput(renamedOut).branch == "local-name");
 static assert(parsePushOutput(renamedOut).repo == "owner/repo");
 
+// Forced push: three dots, and the sha is what follows the last of them.
+// Read as ".b9c08f8f", the node asked github for a sha that is not one and
+// the statusline showed the refusal.
+enum forcedOut = "To github.com:teranos/QNTX.git\n + bec31583...b9c08f8f a-canvas-lives-in-its-namespace -> a-canvas-lives-in-its-namespace (forced update)\n";
+static assert(parsePushOutput(forcedOut).repo == "teranos/QNTX");
+static assert(parsePushOutput(forcedOut).branch == "a-canvas-lives-in-its-namespace");
+static assert(parsePushOutput(forcedOut).sha == "b9c08f8f");
+
 // Empty / non-push output — returns empty PushInfo
 static assert(parsePushOutput("").repo.length == 0);
 static assert(parsePushOutput("some random text\n").repo.length == 0);
