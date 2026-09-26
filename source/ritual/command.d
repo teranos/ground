@@ -158,10 +158,14 @@ void spawnDriver(const Position p, const(char)[] root,
 }
 
 // A control performing one. There is no argv and no terminal, so why it did
-// not start goes to the error record rather than to a stderr nobody reads.
-bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
-                        const(char)[] where = "",
-                        const(char)[] toolInput = "", const(char)[] toolOutput = "") {
+// not start goes to the error record, and comes back to the caller too: the
+// session whose push fired it is owed the word, and for two days it was told
+// nothing while the store refused every position.
+//
+// Null is started. Anything else is why it did not.
+const(char)[] performFromControl(const(char)[] ritualName, const(char)[] sessionId,
+                                 const(char)[] where = "",
+                                 const(char)[] toolInput = "", const(char)[] toolOutput = "") {
     import controls : allParsed;
     import db : openDb, sqlite3_close;
     import core.stdc.time : time;
@@ -173,7 +177,7 @@ bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
     if (!chosen.ok) {
         emitError("ritual.control.resolve", "a control names a ritual that does not resolve",
                   0, 1, cast(string) sessionId, cast(string) ritualName, "", "", "");
-        return false;
+        return "the control names a ritual that does not resolve";
     }
 
     auto projectPath = parsed.rituals[chosen.ritualIdx].projectPath;
@@ -181,7 +185,7 @@ bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
     if (declared.length == 0) {
         emitError("ritual.control.root", "nothing declares where that project is on disk",
                   0, 1, cast(string) sessionId, cast(string) ritualName, "", "", "");
-        return false;
+        return "nothing declares where its project is on disk";
     }
 
     // The place the tool call worked in, when it belongs to the project the
@@ -193,20 +197,20 @@ bool performFromControl(const(char)[] ritualName, const(char)[] sessionId,
     auto flat = flatten(parsed, chosen.ritualIdx);
     Staged st;
     auto p = preparePerformance(parsed, chosen.ritualIdx, root, cast(long) time(null), st);
-    if (p.riteCount == 0) return false;
+    if (p.riteCount == 0) return "the ritual has no rites";
 
     // The session whose tool call fired the control is the one owed the news.
     p.parent = sessionId;
 
     auto db = openDb();
-    if (db is null) return false;
+    if (db is null) return "the store would not open";
     auto ok = writePosition(db, p);
     sqlite3_close(db);
-    if (!ok) return false;
+    if (!ok) return "the store refused the position; the error record has sqlite's code";
 
-    if (!spawnPerformance(p, flat, root)) return false;
+    if (!spawnPerformance(p, flat, root)) return "the agent could not be started; the error record says why";
     spawnDriver(p, root, toolInput, toolOutput);
-    return true;
+    return null;
 }
 
 // The line the operator reads back, and the one collet renders: brackets say

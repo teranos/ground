@@ -21,6 +21,14 @@ static assert(contains(hook, "insertTiming("),
 static assert(contains(hook, "!= SQLITE_DONE"),
     "the hook says so when the store refuses its timing row");
 
+// 2026-09-24 and 25: q-deploy fired on every push and started on none; the
+// position could not be written to a malformed store. The failure went to the
+// error record and the session that pushed was told nothing, because the
+// caller cast the answer away.
+enum post = import("source/posttooluse.d");
+static assert(!contains(post, "cast(void) performFromControl"),
+    "a ritual that did not start is said to the session that fired it");
+
 private bool contains(const(char)[] hay, const(char)[] needle) {
     if (needle.length > hay.length) return false;
     foreach (i; 0 .. hay.length - needle.length + 1)

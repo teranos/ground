@@ -3,7 +3,7 @@ module posttooluse;
 import matcher : hasSegment, contains, envSubst;
 import hooks : Control, scopeMatches;
 import parse : extractCommand, extractFilePath, extractToolName, extractToolOutput, writeJsonString;
-import core.stdc.stdio : stdout, fputs, stderr;
+import core.stdc.stdio : stdout, fputs, fwrite, stderr;
 import db : ZBuf;
 import sessionmode : SessionMode;
 
@@ -260,7 +260,29 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (edb !is null && toolUseId.length > 0)
                         attestExecFire(edb, c.name, where, sessionId, toolUseId);
                     import ritual : performFromControl;
-                    cast(void) performFromControl(c.ritual, sessionId, where, input, toolOutput);
+                    auto why = performFromControl(c.ritual, sessionId, where, input, toolOutput);
+                    if (why !is null) {
+                        // Said twice on purpose. The error record reaches the
+                        // session through the store, and the store is the
+                        // usual thing that broke; the hook's own stderr is
+                        // the channel that does not depend on it.
+                        import exec : emitError;
+                        __gshared char[320] said = 0;
+                        size_t n;
+                        void put(const(char)[] s) { foreach (ch; s) if (n < said.length) said[n++] = ch; }
+                        put("ritual ");
+                        put(c.ritual);
+                        put(" did not start: ");
+                        put(why);
+                        // The session is shown a result's exit and stderr, not
+                        // its message, so the sentence rides in the stderr.
+                        emitError("ritual.control.start", cast(string) said[0 .. n], 0, 1,
+                                  cast(string) sessionId, cast(string) c.ritual, cast(string) toolUseId,
+                                  "", cast(string) said[0 .. n]);
+                        fputs("ground: ", stderr);
+                        fwrite(said.ptr, 1, n, stderr);
+                        fputs("\n", stderr);
+                    }
                     continue;
                 }
                 if (c.exec.length == 0) continue;
