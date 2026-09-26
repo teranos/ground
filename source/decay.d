@@ -49,14 +49,32 @@ int decayDb(sqlite3* db) {
     sqlite3_exec(db, deleteTiming.ptr, null, null, null);
     auto timingDeleted = sqlite3_changes(db);
 
+    // 4. Immediate rows nobody claimed in seven days, and their receipts. A
+    // row is pending until a session marks it delivered, and a session that
+    // ended marks nothing — so every row ever written to a session that is
+    // gone stayed pending and was walked again by every sky every two seconds.
+    // 11,297 of them on 2026-09-22, 695ms a pass, with each PreToolUse queued
+    // behind it. The receipts go first: they name the row, and a receipt for a
+    // row that is gone is a row nobody can read either.
+    enum deleteReceipts = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') LIKE 'delivered:%' "
+        ~ "AND substr(json_extract(predicates, '$[0]'), 11) IN ("
+        ~ "SELECT id FROM attestations WHERE json_extract(predicates, '$[0]') >= 'immediate:' "
+        ~ "AND json_extract(predicates, '$[0]') < 'immediate;' AND created_at < datetime('now', '-7 days'))\0";
+    sqlite3_exec(db, deleteReceipts.ptr, null, null, null);
+    auto receiptsDeleted = sqlite3_changes(db);
+    enum deleteImmediate = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') >= 'immediate:' "
+        ~ "AND json_extract(predicates, '$[0]') < 'immediate;' AND created_at < datetime('now', '-7 days')\0";
+    sqlite3_exec(db, deleteImmediate.ptr, null, null, null);
+    auto immediateDeleted = sqlite3_changes(db);
+
     // VACUUM to reclaim space
     sqlite3_exec(db, "VACUUM\0".ptr, null, null, null);
 
     long afterSize = dbPageSize(db);
 
     // Stats
-    fprintf(stderr, "ground decay: %d PostToolUse/PreToolUse stripped, %d SubagentStop stripped, %d timing deleted\n".ptr,
-        toolUseDecayed, subagentDecayed, timingDeleted);
+    fprintf(stderr, "ground decay: %d PostToolUse/PreToolUse stripped, %d SubagentStop stripped, %d timing deleted, %d immediate deleted with %d receipts\n".ptr,
+        toolUseDecayed, subagentDecayed, timingDeleted, immediateDeleted, receiptsDeleted);
     fprintf(stderr, "ground decay: db %ldKB -> %ldKB\n".ptr, beforeSize / 1024, afterSize / 1024);
 
     return 0;
@@ -146,8 +164,43 @@ unittest {
         ~ "VALUES (2000, 'PostToolUse', datetime('now', '-5 days'))\0";
     sqlite3_exec(db, recentTiming.ptr, null, null, null);
 
+    // An immediate row nobody claimed in ten days, its receipt, and one from
+    // an hour ago. A pending row is proven pending by the absence of a receipt
+    // in every session, so a session that ended leaves its rows pending for
+    // ever, and every sky reads them again every two seconds.
+    enum oldImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+        ~ "VALUES ('imm-old', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"old\",\"after\":0}', datetime('now', '-10 days'))\0";
+    sqlite3_exec(db, oldImmediate.ptr, null, null, null);
+    enum oldReceipt = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+        ~ "VALUES ('delivered:imm-old:other', '[\"x\"]', '[\"delivered:imm-old\"]', '[\"session:other\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{}', datetime('now', '-10 days'))\0";
+    sqlite3_exec(db, oldReceipt.ptr, null, null, null);
+    enum newImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+        ~ "VALUES ('imm-new', '[\"x\"]', '[\"immediate:note\"]', '[\"session:here\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"new\",\"after\":0}', datetime('now', '-1 hour'))\0";
+    sqlite3_exec(db, newImmediate.ptr, null, null, null);
+
     // Run decay
     decayDb(db);
+
+    // Verify: the old immediate row and its receipt are gone, the new one stays
+    {
+        enum sql = "SELECT count(*) FROM attestations WHERE id IN ('imm-old', 'delivered:imm-old:other')\0";
+        sqlite3_stmt* stmt;
+        assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
+        assert(sqlite3_step(stmt) == SQLITE_ROW);
+        assert(sqlite3_column_int64(stmt, 0) == 0, "an immediate row nobody claimed in a week is history, not mail");
+        sqlite3_finalize(stmt);
+    }
+    {
+        enum sql = "SELECT count(*) FROM attestations WHERE id = 'imm-new'\0";
+        sqlite3_stmt* stmt;
+        assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
+        assert(sqlite3_step(stmt) == SQLITE_ROW);
+        assert(sqlite3_column_int64(stmt, 0) == 1, "a recent immediate row is still pending");
+        sqlite3_finalize(stmt);
+    }
 
     // Verify: old PostToolUse was decayed
     {

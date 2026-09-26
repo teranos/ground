@@ -211,6 +211,14 @@ Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
     return perform(url, body_, true, token, contentType, null, timeoutSec, WEB);
 }
 
+// The same, keeping the reply in dest. For a caller that owes somebody the
+// far end's reason: a 400 with its words thrown away told nobody why 89 rows
+// were refused for a week.
+Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, char[] dest,
+                  int timeoutSec = 10, const(char)[] contentType = "application/json") {
+    return perform(url, body_, true, token, contentType, dest, timeoutSec, WEB);
+}
+
 // The HTTP status, or 0 when there was none. For a caller that reads only the
 // status; one that owes somebody the reason asks httpPost.
 int curlPost(const(char)[] url, const(char)[] body_, const(char)[] token,

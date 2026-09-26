@@ -102,10 +102,27 @@ long claimStream(sqlite3* db, long pid) {
     return sqlite3_changes(db);
 }
 
+// A row's body, whole. A hook's payload is at most readStdin's 256KB, and the
+// envelope around it is small, so a row always fits; `over` says when one did
+// not, and such a row is not posted cut. The body went through a 4096-byte
+// buffer for a week: 89 rows reached the node cut mid-JSON and were refused.
+enum STREAM_BODY_CAP = 262_144 + 16_384;
+
+struct Body {
+    char[STREAM_BODY_CAP] data = 0;
+    size_t len;
+    bool over;
+    void reset() { len = 0; over = false; }
+    void put(const(char)[] s) {
+        foreach (c; s) { if (len < data.length) data[len++] = c; else over = true; }
+    }
+    const(char)[] slice() const return { return data[0 .. len]; }
+}
+
 // One claimed row as the node takes it: the body to POST, and the row it is.
 struct Claimed {
     long rowid;
-    ZBuf body_;
+    Body body_;
 }
 
 // The next claimed row of this sky into `c`, false when there are none left.
@@ -137,17 +154,41 @@ bool nextClaimed(sqlite3* db, long pid, long after, ref Claimed c) {
     return found;
 }
 
+// How much of the node's reason is kept on the row.
+enum REASON_CAP = 300;
+
 // What the node answered for one row. Landed: the time. Not landed: the row
-// is pending again, carrying the status; a 4xx keeps it out of the next claim.
-void rowResolved(sqlite3* db, long rowid, int status, bool landed, long now) {
-    enum sql = "UPDATE attestations SET qntx_at = ?1, qntx_status = ?2 WHERE rowid = ?3\0";
+// is pending again, carrying the status and the node's words for it; a 4xx
+// keeps it out of the next claim.
+void rowResolved(sqlite3* db, long rowid, int status, bool landed, long now,
+                 const(char)[] reason = "") {
+    enum sql = "UPDATE attestations SET qntx_at = ?1, qntx_status = ?2, qntx_reason = ?4 WHERE rowid = ?3\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
+    if (reason.length > REASON_CAP) reason = reason[0 .. REASON_CAP];
     sqlite3_bind_int64(stmt, 1, landed ? now : 0);
     sqlite3_bind_int64(stmt, 2, status);
     sqlite3_bind_int64(stmt, 3, rowid);
+    sqlite3_bind_text(stmt, 4, reason.ptr, cast(int) reason.length, SQLITE_TRANSIENT);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+}
+
+// The node's reason on a row, as rowResolved left it; empty when none.
+const(char)[] reasonOf(sqlite3* db, long rowid) {
+    __gshared char[REASON_CAP] buf = 0;
+    size_t n;
+    enum sql = "SELECT qntx_reason FROM attestations WHERE rowid = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return "";
+    sqlite3_bind_int64(stmt, 1, rowid);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto text = sqlite3_column_text(stmt, 0);
+        if (text !is null)
+            while (text[n] != 0 && n < buf.length) { buf[n] = text[n]; n++; }
+    }
+    sqlite3_finalize(stmt);
+    return buf[0 .. n];
 }
 
 // Rows still claimed by this sky when its pass ends are handed back.
@@ -206,12 +247,22 @@ bool streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
     bool ok = true;
     long after = 0;
     __gshared Claimed c;
+    __gshared char[2048] reply = 0;
     while (nextClaimed(db, pid, after, c)) {
         after = c.rowid;
-        auto r = httpPost(endpoint.slice(), c.body_.slice(), token, 10);
+        // A row that did not fit is not sent cut. It stays pending with the
+        // reason on it, for a person to read; nothing here can make it fit.
+        if (c.body_.over) {
+            rowResolved(db, c.rowid, 0, false, now, "the row did not fit ground's stream buffer and was not sent");
+            continue;
+        }
+        import http : httpPostInto;
+        auto r = httpPostInto(endpoint.slice(), c.body_.slice(), token, reply[], 10);
         auto status = r.status > 0 ? r.status : -r.code;
         auto landed = r.status >= 200 && r.status < 300;
-        rowResolved(db, c.rowid, status, landed, now);
+        // The reason is the far end's words, or libcurl's when nothing answered.
+        const(char)[] reason = landed ? "" : (r.status > 0 ? reply[0 .. r.len] : r.why());
+        rowResolved(db, c.rowid, status, landed, now, reason);
         lastStatus = status;
         if (landed) { posted++; continue; }
         if (retryable(r.status)) { ok = false; break; }
@@ -260,9 +311,34 @@ unittest {
     Claimed e;
     assert(!nextClaimed(db, 111, d.rowid, e));
 
+    // A row goes whole or not at all. The body went through a 4096-byte
+    // buffer for a week and 89 rows reached the node cut mid-JSON: every
+    // pasted prompt over 4KB, every rite row, refused 400 and never retried.
+    // A hook's payload is at most readStdin's 256KB, so a row always fits.
+    {
+        enum head = `{"session_id":"sess-s","prompt":"`;
+        enum tail = `TAILMARK"}`;
+        __gshared char[200_000 + head.length + tail.length] payload = 'x';
+        payload[0 .. head.length] = head;
+        payload[$ - tail.length .. $] = tail;
+        attestEventAt(db, "UserPromptSubmit", "/tmp", "sess-s", payload[], "2026-09-19T09:03:27Z", 34350);
+        assert(claimStream(db, 555) == 1);
+        Claimed w;
+        assert(nextClaimed(db, 555, 0, w));
+        assert(!w.body_.over, "a 200KB row fits");
+        assert(contains(w.body_.slice(), "TAILMARK"), "and goes whole");
+        rowResolved(db, w.rowid, 201, true, 5000);
+        claimReleased(db, 555);
+    }
+
     // Landed is the time; refused by the node is pending with its status and
     // out of the next claim; unreachable is pending and claimed again.
     rowResolved(db, c.rowid, 201, true, 5000);
+    rowResolved(db, d.rowid, 403, false, 5000);
+    // The node's reason stays on the row. A status alone told nobody why 89
+    // rows were refused; the reason was in the reply and thrown away.
+    rowResolved(db, d.rowid, 400, false, 5000, "Invalid request body: unexpected EOF");
+    assert(reasonOf(db, d.rowid) == "Invalid request body: unexpected EOF");
     rowResolved(db, d.rowid, 403, false, 5000);
     assert(claimStream(db, 111) == 0, "a 4xx is not asked again");
     rowResolved(db, d.rowid, 503, false, 5000);

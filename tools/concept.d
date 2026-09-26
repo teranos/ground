@@ -81,10 +81,12 @@ struct Owner {
 
 immutable Owner[] owners = [
     Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git"]),
-    Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "deferred"]),
+    Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
-    Owner("models",      ["models", "effort"]),
+    // The ladder reads the week's usage and lowers the effort; the usage
+    // command is how a person reads the same windows.
+    Owner("models",      ["models", "effort", "effort_ladder", "effort_pass", "usagecmd"]),
     // What is shipped to sentry and how: the hooks leave it, the watcher posts it.
     Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org", "sky",
                           "sessionmodel"]),

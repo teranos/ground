@@ -32,9 +32,11 @@ CheckFn resolveCheck(string name) {
     }
 }
 
+// No delay handler is named by any control today. The one there was asked
+// github how long a branch's runs take, from inside PostToolUse, to time the
+// delivery of a wait that now happens on the node.
 DelayFn resolveDelay(string name) {
     switch (name) {
-        case "ciDelay": return &control_handlers.ciDelay;
         default: return null;
     }
 }

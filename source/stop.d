@@ -15,7 +15,6 @@ long usecNow() {
     gettimeofday(&tv, null);
     return tv.tv_sec * 1_000_000 + tv.tv_usec;
 }
-import deferred : DeferredMsg;
 import hooks : DeliverFn;
 
 void putInt(ref ZBuf buf, long v) {
@@ -24,32 +23,6 @@ void putInt(ref ZBuf buf, long v) {
     if (v == 0) { digits[0] = '0'; dLen = 1; }
     else { while (v > 0) { digits[dLen++] = cast(char)('0' + v % 10); v /= 10; } }
     foreach (i; 0 .. dLen) buf.putChar(digits[dLen - 1 - i]);
-}
-
-// Look up a deferred control and produce the delivery message.
-// Returns null to suppress delivery (e.g. deliverFn returned nothing).
-const(char)[] deliverDeferred(DeferredMsg deferred, const(char)[] cwd) {
-    import controls : postToolUseDeferredScopes;
-    import hooks : scopeMatches;
-
-    DeliverFn deliverFn = null;
-    foreach (ref scope_; postToolUseDeferredScopes) {
-        if (!scopeMatches(scope_, cwd)) continue;
-        foreach (ref c; scope_.controls) {
-            if (c.name == deferred.name) {
-                deliverFn = c.defer.deliverFn;
-                break;
-            }
-        }
-    }
-
-    if (deliverFn !is null) {
-        auto result = deliverFn(cwd);
-        if (result is null) return null;
-        return result;
-    }
-
-    return deferred.message;
 }
 
 // Notify loom of hook output so it appears as [hook] in weaves — the loom the
@@ -449,38 +422,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     auto t5 = usecNow();
 
-    // Check session-scoped deferred messages — deliver if ready
-    // Returns 2 to signal delivery happened (skip timing — subprocess is intentionally slow)
-    {
-        import deferred : readDeferredMessage, markDelivered;
-        auto deferred = readDeferredMessage(db, sessionId);
-        if (deferred.message !is null) {
-            markDelivered(db, deferred.name, cwd, sessionId);
-            auto msg = deliverDeferred(deferred, cwd);
-            sqlite3_close(db);
-            if (msg !is null)
-                writeStopResponseAndNotify(msg);
-            return 2;
-        }
-    }
-
-    auto tDeferSess = usecNow();
-
-    // Check project-scoped deferred messages (from QNTX)
-    // Gate: if cwd is a git repo, only deliver on main/master
-    {
-        if (branch is null || branch == "unknown" || branch == "main" || branch == "master") {
-            import deferred : readProjectDeferredMessage, markProjectDelivered;
-            auto projDeferred = readProjectDeferredMessage(db, cwd);
-            if (projDeferred.message !is null) {
-                markProjectDelivered(db, projDeferred.name, projDeferred.projectContext);
-                sqlite3_close(db);
-                writeStopResponseAndNotify(projDeferred.message);
-                return 2;
-            }
-        }
-    }
-
+    // A deferred control's message is an immediate row with a gate, and sky
+    // hands it in when the gate opens. The Stop hook read a second queue here,
+    // with a second receipt and a project-scoped path nothing wrote to.
     auto t6 = usecNow();
 
     // Per-event-type timing budgets — once per compaction window
@@ -571,10 +515,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         prof.put("us branch="); putInt(prof, branchUs);
         prof.put("us triggers="); putInt(prof, t4-t3);
         prof.put("us deliver="); putInt(prof, t5-t4);
-        prof.put("us deferred="); putInt(prof, t6-t5);
-        prof.put("us(sessQ="); putInt(prof, tDeferSess-t5);
-        prof.put("us projQ="); putInt(prof, t6-tDeferSess);
-        prof.put("us) timing="); putInt(prof, t7-t6);
+        prof.put("us timing="); putInt(prof, t7-t6);
         prof.put("us total="); putInt(prof, t7-t0);
         prof.put("us");
         setPhases(prof.slice());
@@ -586,16 +527,3 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     return 0;
 }
 
-// --- Defer delivery tests ---
-
-unittest {
-    // deliverDeferred with no matching control falls back to stored message
-    auto msg = deliverDeferred(DeferredMsg("nonexistent-control", "stored message"), "/tmp");
-    assert(msg == "stored message");
-}
-
-unittest {
-    // deliverDeferred with unknown control falls back to stored message (not null)
-    auto msg = deliverDeferred(DeferredMsg("removed-control", "fallback"), "/tmp");
-    assert(msg == "fallback");
-}

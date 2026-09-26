@@ -28,10 +28,6 @@ import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 ZBuf, jsonArray1, formatTimestamp, versionString, attestEvent;
 import core.stdc.time : time;
 
-// The shape only — the reading itself is the caller's to fetch, so writing a
-// row needs no network and no credentials.
-import deferred : CIPercentiles;
-
 extern (C) uint usleep(uint);
 
 // How much of one message reaches the reader. The watcher's batch holds a
@@ -66,11 +62,8 @@ struct ImmediateMsg {
     const(char)[] sha;
     // What a dispatched run carries in its name, so it is found and not guessed.
     const(char)[] token;
-    // Push timestamp (unix) + historical CI duration percentiles for adaptive
-    // polling. 0 when unavailable (no history, legacy rows).
+    // When the push or dispatch happened (unix). 0 on legacy rows.
     long pushTime;
-    long p50;
-    long p90;
     // A dispatch whose outcome the driver already found: the message is the
     // outcome, and nobody asks after the run again.
     bool resolved;
@@ -96,7 +89,7 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return ImmediateMsg(null, null, null, null, null, null, null, null, 0, 0, 0);
+        return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, mark.ptr, cast(int) mark.length, SQLITE_TRANSIENT);
 
@@ -278,30 +271,14 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             }
         }
 
-        // Numeric extras for adaptive polling (push_time, p50, p90).
-        long pushTime, p50, p90;
+        // When it happened, for the dispatch reader's "not there yet" window.
+        long pushTime;
         {
             auto ptIdx = indexOf(attrs, `"push_time":`);
             if (ptIdx >= 0) {
                 size_t p = cast(size_t) ptIdx + 12;
                 while (p < attrLen && attrs[p] >= '0' && attrs[p] <= '9') {
                     pushTime = pushTime * 10 + (attrs[p] - '0');
-                    p++;
-                }
-            }
-            auto p50Idx = indexOf(attrs, `"p50":`);
-            if (p50Idx >= 0) {
-                size_t p = cast(size_t) p50Idx + 6;
-                while (p < attrLen && attrs[p] >= '0' && attrs[p] <= '9') {
-                    p50 = p50 * 10 + (attrs[p] - '0');
-                    p++;
-                }
-            }
-            auto p90Idx = indexOf(attrs, `"p90":`);
-            if (p90Idx >= 0) {
-                size_t p = cast(size_t) p90Idx + 6;
-                while (p < attrLen && attrs[p] >= '0' && attrs[p] <= '9') {
-                    p90 = p90 * 10 + (attrs[p] - '0');
                     p++;
                 }
             }
@@ -318,14 +295,12 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             shaBuf[0 .. shaLen],
             tokenBuf[0 .. tokenLen],
             pushTime,
-            p50,
-            p90,
             indexOf(attrs, `"outcome":"found"`) >= 0,
         );
     }
 
     sqlite3_finalize(stmt);
-    return ImmediateMsg(null, null, null, null, null, null, null, null, 0, 0, 0);
+    return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
 }
 
 // How many runs this performance sent that nothing has answered yet. The token
@@ -360,8 +335,6 @@ struct DispatchRow {
     char[128] tokenBuf = 0;
     size_t idLen, repoLen, tokenLen;
     long pushTime;
-    long p50;
-    long p90;
     const(char)[] id() const return { return idBuf[0 .. idLen]; }
     const(char)[] repo() const return { return repoBuf[0 .. repoLen]; }
     const(char)[] token() const return { return tokenBuf[0 .. tokenLen]; }
@@ -376,8 +349,7 @@ size_t owedDispatches(sqlite3* db, const(char)[] performanceId, long now, Dispat
     if (performanceId.length == 0 || into.length == 0) return 0;
 
     enum sql = "SELECT a.id, json_extract(a.attributes,'$.repo'), json_extract(a.attributes,'$.token'), "
-        ~ "COALESCE(json_extract(a.attributes,'$.push_time'), 0), COALESCE(json_extract(a.attributes,'$.p50'), 0), "
-        ~ "COALESCE(json_extract(a.attributes,'$.p90'), 0) FROM attestations a "
+        ~ "COALESCE(json_extract(a.attributes,'$.push_time'), 0) FROM attestations a "
         ~ "WHERE json_extract(a.predicates,'$[0]') = 'immediate:dispatch' AND json_extract(a.attributes,'$.token') LIKE ?1 "
         ~ "AND json_extract(a.attributes,'$.outcome') IS NULL AND COALESCE(json_extract(a.attributes,'$.after'), 0) <= ?2 "
         ~ "AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id) "
@@ -407,8 +379,6 @@ size_t owedDispatches(sqlite3* db, const(char)[] performanceId, long now, Dispat
         row.repoLen = copyInto(sqlite3_column_text(stmt, 1), row.repoBuf[]);
         row.tokenLen = copyInto(sqlite3_column_text(stmt, 2), row.tokenBuf[]);
         row.pushTime = sqlite3_column_int64(stmt, 3);
-        row.p50 = sqlite3_column_int64(stmt, 4);
-        row.p90 = sqlite3_column_int64(stmt, 5);
         n++;
     }
     sqlite3_finalize(stmt);
@@ -604,25 +574,29 @@ void deleteClippyReminder(sqlite3* db, const(char)[] sessionId) {
     sqlite3_finalize(stmt);
 }
 
-// Write a ci-status immediate message for THIS session.
-// Session-keyed: any push from this session produces a row tagged with the
-// session. The session's watcher delivers it. The row carries the push's
-// repo + branch + sha (parsed from the push's own stdout via parsePushOutput)
-// so the watcher can query the right CI run regardless of cwd.
-// Deterministic ID per session — repeated pushes overwrite (INSERT OR REPLACE).
-// Also clears delivered: receipts so new pushes re-deliver.
+// Write the fact of a push for THIS session: repo + branch + sha, parsed from
+// the push's own stdout via parsePushOutput. Session-keyed, so sky receipts it
+// for the session that pushed; streamed to the node, whose standing watcher
+// fires on it and waits on the run.
+//
+// One id per push: session and commit. The node is idempotent on the id — a
+// row it holds is answered "exists", neither rewritten nor observed — so an id
+// per session made every push after a session's first one a push the node
+// never saw. The same push twice is the same row (INSERT OR REPLACE).
 bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
                    const(char)[] repo, const(char)[] branch, const(char)[] sha,
-                   int delaySec, CIPercentiles pct = CIPercentiles(0, 0)) {
+                   int delaySec) {
     import db : formatTimestamp, versionString;
 
     if (sessionId.length == 0) return false;
 
-    // Build deterministic ID: "immediate:ci-status:<sessionId>"
+    // "immediate:ci-status:<sessionId>:<sha>"
     __gshared ZBuf idBuf;
     idBuf.reset();
     idBuf.put("immediate:ci-status:");
     idBuf.put(sessionId);
+    idBuf.put(":");
+    idBuf.put(sha);
 
     __gshared ZBuf predBuf;
     predBuf.reset();
@@ -643,14 +617,9 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
     putJsonString(attrBuf, branch);
     attrBuf.put(`","sha":"`);
     putJsonString(attrBuf, sha);
-    // Adaptive-poll inputs: push timestamp + historical p50/p90 of CI duration.
-    // Read once, by the caller, so the watcher does not need to call gh again.
-    //
-    // They used to be fetched here, which put a network call inside a function
-    // whose work is one row: six unit tests asking for a row asked GitHub for
-    // the history of a repository that does not exist, and a suite that needs
-    // the network, gh's credentials and a live repo to write a row is a suite
-    // that fails for reasons none of its assertions are about.
+    // When the push happened. How long this branch's runs take is not on the
+    // row: the node that waits on the run reads that history itself, where
+    // the socket is, and nothing on this machine asks github for it.
     auto now = cast(long) time(null);
 
     void putLong(ref ZBuf buf, long v) {
@@ -665,8 +634,6 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
     }
 
     attrBuf.put(`","push_time":`); putLong(attrBuf, now);
-    attrBuf.put(`,"p50":`);        putLong(attrBuf, pct.p50);
-    attrBuf.put(`,"p90":`);        putLong(attrBuf, pct.p90);
     attrBuf.put(`,"after":`);      putLong(attrBuf, now + delaySec);
     attrBuf.put(`}`);
 
@@ -704,22 +671,7 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
         if (step == SQLITE_BUSY) { usleep(50_000); continue; }
         return false;
     }
-    if (!wrote) return false;
-
-    // Clear delivered: receipts so all sessions re-deliver
-    __gshared ZBuf delPred;
-    delPred.reset();
-    delPred.put("delivered:");
-    delPred.put(idBuf.slice());
-
-    enum delSql = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') = ?1\0";
-    sqlite3_stmt* delStmt;
-    if (sqlite3_prepare_v2(db, delSql.ptr, -1, &delStmt, null) != SQLITE_OK)
-        return false;
-    sqlite3_bind_text(delStmt, 1, delPred.ptr(), cast(int) delPred.len, SQLITE_TRANSIENT);
-    sqlite3_step(delStmt);
-    sqlite3_finalize(delStmt);
-    return true;
+    return wrote;
 }
 
 // Announce that a control's script was launched, written by the parent the
@@ -739,10 +691,26 @@ bool writeCIStatus(sqlite3* db, const(char)[] sessionId,
 // Something ground did, said out loud. Session-keyed, deliverable at once.
 // The alternative is what worktree creation was until now: ground makes a
 // directory and a branch and the only way to find out is git worktree list.
+// A note with a delay is what a deferred control writes: the same row, gated
+// by `after`, and sky hands it in when the gate opens. One queue.
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(writeNote(db, "sess-q", "review-nudge", "Claude left a review comment.", 9999));
+    assert(readImmediateMessage(db, "/tmp", "sess-q").message is null, "gated until the delay passes");
+    assert(writeNote(db, "sess-q", "inline-not-address", "show the code instead", 0));
+    auto now = readImmediateMessage(db, "/tmp", "sess-q");
+    assert(now.message == "show the code instead", "no delay is now");
+    sqlite3_close(db);
+}
+
 bool writeNote(sqlite3* db,
                const(char)[] sessionId,
                const(char)[] key,
-               const(char)[] detail) {
+               const(char)[] detail,
+               int delaySec = 0) {
     import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
 
     if (sessionId.length == 0) return false;
@@ -758,7 +726,16 @@ bool writeNote(sqlite3* db,
     attrBuf.reset();
     attrBuf.put(`{"detail":"`);
     putJsonString(attrBuf, detail);
-    attrBuf.put(`","after":0}`);
+    attrBuf.put(`","after":`);
+    {
+        auto after = cast(long) time(null) + delaySec;
+        char[20] d = 0;
+        size_t n;
+        if (after <= 0) d[n++] = '0';
+        while (after > 0 && n < d.length) { d[n++] = cast(char)('0' + after % 10); after /= 10; }
+        foreach_reverse (i; 0 .. n) attrBuf.putChar(d[i]);
+    }
+    attrBuf.put(`}`);
 
     __gshared ZBuf ctxBuf;
     ctxBuf.reset();
@@ -816,9 +793,57 @@ unittest {
     sqlite3_close(testDb);
 }
 
+unittest {
+    // The outcome of a dispatch is what the node left and ug wrote down: an
+    // immediate:news row under the dispatch row's own id. The driver reads it
+    // there; nothing on the laptop asks github after the run.
+    import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(writeDispatchStatus(db, "sess-d", "teranos/ground", "q-deploy-1790:TARGET", 0));
+    assert(dispatchOutcome(db, "immediate:dispatch:sess-d:q-deploy-1790:TARGET") is null,
+           "nothing written yet is nothing to read");
+    enum news = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES ('immediate:news:immediate:dispatch:sess-d:q-deploy-1790:TARGET', '[\"news\"]', "
+        ~ "'[\"immediate:news\"]', '[\"session:sess-d\"]', '[\"ug\"]', '2026-09-25T21:00:00Z', 'ug', "
+        ~ "'{\"detail\":\"run: success q-deploy-1790:TARGET https://github.com/teranos/ground/actions/runs/9\",\"after\":0}')\0";
+    assert(sqlite3_exec(db, news.ptr, null, null, null) == SQLITE_OK);
+    auto got = dispatchOutcome(db, "immediate:dispatch:sess-d:q-deploy-1790:TARGET");
+    assert(got == "run: success q-deploy-1790:TARGET https://github.com/teranos/ground/actions/runs/9", "the news as ug wrote it");
+    sqlite3_close(db);
+}
+
+// The outcome of a dispatch, as the node left it and ug wrote it down: the
+// detail of the immediate:news row under the dispatch row's own id, or null
+// while none has come. Nothing on this laptop asks github after the run.
+const(char)[] dispatchOutcome(sqlite3* db, const(char)[] dispatchId) {
+    import db : sqlite3_column_text, SQLITE_ROW;
+    __gshared char[1024] out_ = 0;
+    __gshared ZBuf id;
+    id.reset();
+    id.put("immediate:news:");
+    id.put(dispatchId);
+    enum sql = "SELECT json_extract(attributes, '$.detail') FROM attestations WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return null;
+    sqlite3_bind_text(stmt, 1, id.ptr(), cast(int) id.len, SQLITE_TRANSIENT);
+    const(char)[] found = null;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto text = sqlite3_column_text(stmt, 0);
+        if (text !is null) {
+            size_t n;
+            while (text[n] != 0 && n < out_.length) { out_[n] = text[n]; n++; }
+            found = out_[0 .. n];
+        }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 // A dispatch sends a job and the walk moves on, so this row is the only record
 // that an outcome is owed. Written the instant the job is accepted, resolved by
-// the watcher against the run's own name.
+// the node against the run's own name and carried back as news.
 bool writeDispatchStatus(sqlite3* db, const(char)[] sessionId,
                          const(char)[] repo, const(char)[] token, int delaySec) {
     import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
@@ -1218,12 +1243,12 @@ bool writeExecResult(sqlite3* db,
 // after its last batch.
 //
 // Grace is the watcher's worst-case gap between a row landing and being read:
-// the adaptive poll tops out at 30s (adaptive.d). 60s clears that twice over,
-// so anything older means nobody is reading — not that we asked too early.
+// the pass sleeps two seconds, and a batch that did not fit waits one more.
+// 60s clears that many times over, so anything older means nobody is reading
+// — not that we asked too early.
 //
-// Scoped to exec-result deliberately. The watcher parks an in_progress
-// ci-status row for the entire CI duration by design, so age carries no
-// signal about pipeline health for that row type.
+// Scoped to exec-result deliberately. A dispatch row is parked while its run
+// is not yet listed, so age carries no signal about pipeline health for it.
 long countStaleExecForSession(sqlite3* db, const(char)[] sessionId) {
     if (sessionId.length == 0) return 0;
 
@@ -1524,19 +1549,31 @@ unittest {
     enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
     sqlite3_exec(testDb, createSql.ptr, null, null, null);
 
-    // The percentiles are the caller's to hand over. Writing a row asks
-    // nobody anything: this test names a repository that does not exist, and
-    // it must still pass on a machine with no network and no gh.
-    writeCIStatus(testDb, "sess-ci", "acme/widget", "main", "abc1234", 0,
-                  CIPercentiles(111, 222));
+    // The row is the fact of a push and nothing more: repo, branch, sha. How
+    // long this branch's runs take is nobody's business on this machine — the
+    // node that watches the run asks github, and a hook opens no socket.
+    writeCIStatus(testDb, "sess-ci", "acme/widget", "main", "abc1234", 0);
     auto result = readImmediateMessage(testDb, "/tmp/anywhere", "sess-ci");
     assert(result.message !is null, "ci-status not readable after write");
     assert(result.name == "ci-status");
     assert(result.repo == "acme/widget");
     assert(result.branch == "main");
     assert(result.sha == "abc1234");
-    assert(result.p50 == 111 && result.p90 == 222,
-           "the row carries the percentiles it was handed, not ones it fetched");
+
+    {
+        import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_text, SQLITE_ROW;
+        enum q = "SELECT attributes FROM attestations WHERE id = 'immediate:ci-status:sess-ci:abc1234'\0";
+        sqlite3_stmt* s;
+        assert(sqlite3_prepare_v2(testDb, q.ptr, -1, &s, null) == SQLITE_OK);
+        assert(sqlite3_step(s) == SQLITE_ROW);
+        auto t = sqlite3_column_text(s, 0);
+        size_t n = 0;
+        while (t[n] != 0) n++;
+        auto attrs = (cast(const(char)*) t)[0 .. n];
+        assert(indexOf(attrs, `"p50"`) < 0 && indexOf(attrs, `"p90"`) < 0,
+               "the row carries no percentiles; the node that waits on the run reads its own history");
+        sqlite3_finalize(s);
+    }
 
     sqlite3_close(testDb);
 }
@@ -1560,6 +1597,17 @@ unittest {
     assert(sqlite3_prepare_v2(testDb, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
     assert(sqlite3_step(stmt) == SQLITE_ROW);
     assert(sqlite3_column_int64(stmt, 0) == 1, "expected exactly 1 row after two writes");
+    sqlite3_finalize(stmt);
+
+    // A second push in the same session is a second fact. The node is
+    // idempotent on the id — a row it holds is answered "exists" and neither
+    // rewritten nor observed — so an id per session made every push after the
+    // first one the node never saw. Measured 2026-09-23: the node held this
+    // session's push of the day before and none of the five since.
+    writeCIStatus(testDb, "sess-ci-dedup", "acme/widget", "main", "def5678", 0);
+    assert(sqlite3_prepare_v2(testDb, countSql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 2, "a push of another commit is another row");
     sqlite3_finalize(stmt);
 
     sqlite3_close(testDb);

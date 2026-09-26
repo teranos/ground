@@ -375,14 +375,17 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     }
 
                     import db : openDb, sqlite3_close;
-                    import deferred : writeDeferredMessage;
+                    import immediate : writeNote;
                     auto ddb = openDb();
                     if (ddb is null) continue;
 
+                    // One queue: an immediate row with a gate, handed in by
+                    // sky when the gate opens, instead of a second queue the
+                    // Stop hook read back itself.
                     auto delay = c.defer.delayFn !is null
                         ? c.defer.delayFn(cwd)
                         : c.defer.delaySec;
-                    writeDeferredMessage(ddb, c.name, cwd, sessionId, c.defer.msg, delay);
+                    cast(void) writeNote(ddb, sessionId, c.name, c.defer.msg, delay);
 
                     {
                         import db : attestControlFire;
@@ -450,19 +453,21 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (info.repo.length > 0 && info.branch.length > 0) {
                         import db : openDb, sqlite3_close;
                         import immediate : writeCIStatus;
-                        import control_handlers : ciDelay;
-                        import deferred : getCIPercentiles;
-                        // The one place that asks GitHub how long this repo's
-                        // CI has been taking. writeCIStatus used to ask from
-                        // inside itself, which put a network call under every
-                        // test that wanted a row.
-                        auto pct = getCIPercentiles(info.repo, info.branch);
+                        import git : localHeadSha;
+                        // A new branch's push line names no sha; the local ref
+                        // does. Without it the node has no commit to wait on.
+                        auto sha = info.sha;
+                        if (sha.length == 0) sha = localHeadSha(cwd, info.branch);
+                        // The row is the fact of the push and nothing more.
+                        // Sky streams it to the node; the node waits on the
+                        // run where the socket is and leaves the result on
+                        // the row ug polls. A hook asks github nothing.
                         auto cdb = openDb();
                         if (cdb !is null) {
                             // ciFired said the push would be reported on, so a
                             // row that never landed read as CI being watched.
                             ciFired = writeCIStatus(cdb, sessionId, info.repo,
-                                                    info.branch, info.sha, ciDelay(cwd), pct);
+                                                    info.branch, sha, 0);
                             sqlite3_close(cdb);
                             if (!ciFired) {
                                 import exec : emitError;

@@ -275,6 +275,9 @@ bool applySchema(sqlite3* db) {
         }
     }
     ensureColumn(db, "attestations", "qntx_status", "INTEGER NOT NULL DEFAULT 0");
+    // The node's own words for a refusal, beside its status. A number alone
+    // said nothing about why 89 rows were refused.
+    ensureColumn(db, "attestations", "qntx_reason", "TEXT NOT NULL DEFAULT ''");
     // The pending set is small against the table, so the index is partial.
     enum idxStream = "CREATE INDEX IF NOT EXISTS idx_attestations_stream ON attestations(qntx_at) WHERE qntx_at <= 0\0";
     sqlite3_exec(db, idxStream.ptr, null, null, null);

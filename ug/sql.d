@@ -1,8 +1,10 @@
 module sql;
 
-// Reading ground's store, and one write. ground owns the schema and every row
-// the row on screen is a view of. The one row ug inserts is a usage reading,
-// because the status line is the only place Claude Code hands one out.
+// Reading ground's store, and two writes. ground owns the schema and every row
+// the row on screen is a view of. ug inserts a usage reading, because the
+// status line is the only place Claude Code hands one out; and it inserts
+// what the node left on the row for this token, because ug is the one
+// process on this machine that asks the node anything every second.
 
 extern (C) {
     struct sqlite3;
@@ -291,6 +293,146 @@ size_t readPlan(const(char)[] home, char[] dest) {
     sqlite3_finalize(stmt);
     sqlite3_close(db);
     return n;
+}
+
+// --- News the node left, written down for sky to carry ---
+//
+// The node cannot reach this machine. It waits on a CI run where the socket
+// is and leaves the result on the row this process already polls, under an
+// id, held long enough for a once-a-second poll to see it. ug writes it into
+// ground's store in the shape immediate.d's header states, and sky — which
+// reads that store and nothing else — carries it to the session that pushed.
+
+// Sky reads the name after the colon and speaks it. Not ci-status: that is
+// the fact of a push, the row the node's watcher fires on, and a news row
+// under that predicate would be a push that never happened.
+enum newsPredicates = `["immediate:news"]`;
+
+// The node's id, prefixed so it cannot collide with the row that caused it —
+// a ci-status row's id is the very id the node hands back.
+enum NEWS_PREFIX = "immediate:news:";
+
+size_t newsIdInto(const(char)[] id, char[] dest) {
+    size_t o = 0;
+    foreach (c; NEWS_PREFIX) if (o < dest.length) dest[o++] = c;
+    foreach (c; id) if (o < dest.length) dest[o++] = c;
+    return o;
+}
+
+// To the session that pushed when the node names it; to the project when it
+// does not, so every session there hears it (immediate.d's project keying).
+size_t newsContextsInto(const(char)[] session, const(char)[] repo, char[] dest) {
+    size_t o = 0;
+    void put(const(char)[] s) { foreach (c; s) if (o < dest.length) dest[o++] = c; }
+    if (session.length > 0) {
+        put(`["session:`);
+        put(session);
+    } else {
+        put(`["project:`);
+        put(repo);
+    }
+    put(`"]`);
+    return o;
+}
+
+// Already written, whatever poll saw it first.
+enum NEWS_SEEN_SQL = "SELECT 1 FROM attestations WHERE id = ?1";
+
+// One row, the shape sky reads: detail is what it speaks, after is the gate.
+enum NEWS_SQL = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+    ~ "VALUES (?1, '[\"ci\"]', ?2, ?3, '[\"ug\"]', strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'ug', ?4)";
+
+// What goes between the quotes of a JSON string.
+private size_t putJsonInto(const(char)[] s, char[] dest, size_t o) {
+    foreach (c; s) {
+        if (o + 2 > dest.length) break;
+        if (c == '"') { dest[o++] = '\\'; dest[o++] = '"'; }
+        else if (c == '\\') { dest[o++] = '\\'; dest[o++] = '\\'; }
+        else if (c == '\n') { dest[o++] = '\\'; dest[o++] = 'n'; }
+        else if (c == '\r') { dest[o++] = '\\'; dest[o++] = 'r'; }
+        else if (c == '\t') { dest[o++] = '\\'; dest[o++] = 't'; }
+        else if (c < 0x20) continue;
+        else dest[o++] = c;
+    }
+    return o;
+}
+
+// Whether the store already holds this item. A store that is not there or will
+// not open answers "seen", because writing into it is not possible either.
+bool newsSeen(const(char)[] home, const(char)[] id) {
+    import core.stdc.stdio : fopen, fclose;
+
+    __gshared char[512] path = void;
+    if (dbPathInto(home, path[]) == 0) return true;
+    auto probe = fopen(&path[0], "rb");
+    if (probe is null) return true;
+    fclose(probe);
+
+    __gshared char[256] rowId = void;
+    auto n = newsIdInto(id, rowId[]);
+
+    sqlite3* db;
+    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return true;
+    }
+    sqlite3_busy_timeout(db, BUSY_MS);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, NEWS_SEEN_SQL.ptr, cast(int) NEWS_SEEN_SQL.length, &stmt, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return true;
+    }
+    sqlite3_bind_text(stmt, 1, rowId.ptr, cast(int) n, cast(void*) -1);
+    auto seen = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return seen;
+}
+
+// Writes the item down. True when the row is in the store, whether this call
+// put it there or an earlier poll did.
+bool leaveNews(const(char)[] home, const(char)[] id, const(char)[] session,
+               const(char)[] repo, const(char)[] detail) {
+    import core.stdc.stdio : fopen, fclose;
+
+    __gshared char[512] path = void;
+    if (dbPathInto(home, path[]) == 0) return false;
+    auto probe = fopen(&path[0], "rb");
+    if (probe is null) return false;
+    fclose(probe);
+
+    __gshared char[256] rowId = void;
+    auto idLen = newsIdInto(id, rowId[]);
+    __gshared char[512] ctx = void;
+    auto ctxLen = newsContextsInto(session, repo, ctx[]);
+
+    __gshared char[4096] attrs = void;
+    size_t a = 0;
+    foreach (c; `{"detail":"`) attrs[a++] = c;
+    a = putJsonInto(detail, attrs[], a);
+    foreach (c; `","after":0}`) if (a < attrs.length) attrs[a++] = c;
+
+    sqlite3* db;
+    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return false;
+    }
+    sqlite3_busy_timeout(db, BUSY_MS);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, NEWS_SQL.ptr, cast(int) NEWS_SQL.length, &stmt, null) != SQLITE_OK) {
+        sqlite3_close(db);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, rowId.ptr, cast(int) idLen, cast(void*) -1);
+    sqlite3_bind_text(stmt, 2, newsPredicates.ptr, cast(int) newsPredicates.length, cast(void*) -1);
+    sqlite3_bind_text(stmt, 3, ctx.ptr, cast(int) ctxLen, cast(void*) -1);
+    sqlite3_bind_text(stmt, 4, attrs.ptr, cast(int) a, cast(void*) -1);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return rc == SQLITE_DONE;
 }
 
 enum STORE = ".local/share/ground/ground.db";

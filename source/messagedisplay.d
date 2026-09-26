@@ -69,16 +69,16 @@ enum REWRITE_CONTROL = "inline-not-address";
 // marker so the second rewrite leaves nothing.
 private void noteRewriteOnce(const(char)[] cwd, const(char)[] sessionId) {
     import db : attestationExists, attestControlFire;
-    import deferred : writeDeferredMessage;
+    import immediate : writeNote;
 
     auto db = openDb();
     if (db is null) return;
 
     if (!attestationExists(db, "GroundedMessageDisplay", REWRITE_CONTROL, sessionId)) {
-        writeDeferredMessage(db, REWRITE_CONTROL, cwd, sessionId,
+        cast(void) writeNote(db, sessionId, REWRITE_CONTROL,
             "A file and line number you wrote was replaced by the lines it names, "
             ~ "before it reached the screen. The reader never sees the address, so "
-            ~ "it tells them nothing — show the code instead.", 0);
+            ~ "it tells them nothing — show the code instead.");
         attestControlFire(db, "GroundedMessageDisplay", REWRITE_CONTROL, cwd, sessionId);
         import fired : noteFired;
         noteFired(db, sessionId, "MessageDisplay", "rewrite", REWRITE_CONTROL, "rewrite", cwd);

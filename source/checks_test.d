@@ -123,7 +123,7 @@ unittest {
 // The one node, named at the top level, with its token file.
 enum backendsSrc = `
 qntx {
-  url:   "https://q.one.example"
+  url: "https://q.one.example"
   token: "~/.qntx/ground-token"
 }
 

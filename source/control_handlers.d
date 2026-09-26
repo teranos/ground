@@ -1253,17 +1253,6 @@ const(char)[] pushedFiles(const(char)[] cwd) {
 }
 
 
-// --- Delay handlers ---
-// int function(cwd) — return delay in seconds.
-
-int ciDelay(const(char)[] cwd) {
-    import deferred : getCIAvgDuration, computeDelay;
-    import db : getBranch;
-    auto branch = getBranch(cwd);
-    if (branch is null) return 60;
-    return computeDelay(getCIAvgDuration(cwd, branch));
-}
-
 // --- Deliver handlers ---
 // const(char)[] function(cwd) — return message or null to suppress.
 
