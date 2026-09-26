@@ -616,9 +616,12 @@ int handleSky(int argc, const(char)** argv) {
 
             // The orgs' Actions minutes, asked when the last asking is old.
             // Asked from here and from no hook: the asking is a round trip.
+            // Claimed now; asked below, once this pass has shut the store.
+            import minutes : dueOrgs, askDue, Due;
+            Due due;
             {
-                import minutes : refreshDue;
-                refreshDue(db, sessionId, now);
+                import controls : allOrgs;
+                due = dueOrgs(db, allOrgs, now);
             }
             if (dsn.length > 0 && now >= shipBackoffUntil) {
                 if (!shipPass(db, sessionId, dsn, myPid, now)) shipBackoffUntil = now + SHIP_BACKOFF_SEC;
@@ -634,6 +637,7 @@ int handleSky(int argc, const(char)** argv) {
                 }
             }
             sqlite3_close(db);
+            askDue(due, sessionId, now);
         }
 
         // The session that spawned this watcher is gone, and only that

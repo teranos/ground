@@ -181,17 +181,34 @@ extern (C) {
 
 // Every org that states a quota, asked when its reading is due. The asking is a
 // network round trip, so it happens in a child that has let go of the hook.
-void refreshDue(sqlite3* db, const(char)[] sessionId, long now) {
-    import controls : allOrgs;
+// The orgs this process won the claim for. Made with the store open; asked
+// after the caller shuts it, because the asking forks.
+struct Due {
+    const(char)[][8] names;
+    size_t n;
+}
+
+Due dueOrgs(Orgs)(sqlite3* db, const Orgs orgs, long now) {
     import org : githubName;
 
-    foreach (ref o; allOrgs) {
+    Due due;
+    foreach (ref o; orgs) {
+        if (due.n == due.names.length) break;
         if (o.actionsMinutes <= 0) continue;
         auto name = githubName(o.github);
         if (name.length == 0) continue;
         if (!claimAsking(db, name, o.actionsMinutes, now)) continue;
-        askDetached(name, sessionId, now);
+        due.names[due.n++] = name;
     }
+    return due;
+}
+
+// Forks once per org. A connection open across fork() leaves the child with
+// the parent's lock bookkeeping and none of its kernel locks; the child's
+// own connection then writes unlocked. Reproduced 2026-09-26: the same
+// "wrong # of entries in index" ground.db was found with. So: no store open.
+void askDue(ref const Due due, const(char)[] sessionId, long now) {
+    foreach (i; 0 .. due.n) askDetached(due.names[i], sessionId, now);
 }
 
 private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long now) {

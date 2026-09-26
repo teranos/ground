@@ -38,7 +38,29 @@ static assert(!usedMinutes("").ok);
 // watches for are two points wide, and two points of 2000 is forty minutes.
 // One asker at a time. Two sessions ending a turn in the same second both see
 // a reading that is due, and only one of them may go and ask.
-import minutes : claimAsking, recordReading;
+import minutes : claimAsking, recordReading, dueOrgs;
+
+// The claim is made with the store open; the asking forks, and forks only
+// after the caller has shut the store. So the two are two calls, and this one
+// says who is due without forking anything.
+unittest {
+    static struct Org { string github; long actionsMinutes; }
+    static immutable Org[3] orgs = [
+        Org("https://github.com/abcd-nl/", 2000),
+        Org("https://github.com/no-quota", 0),
+        Org("https://github.com/efgh", 500),
+    ];
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    auto due = dueOrgs(db, orgs[], 10_000);
+    assert(due.n == 2, "the two orgs with a quota are due on first sight");
+    assert(due.names[0] == "abcd-nl");
+    assert(due.names[1] == "efgh");
+    assert(dueOrgs(db, orgs[], 10_000).n == 0, "claimed, so nobody else is due this second");
+    sqlite3_close(db);
+}
 import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK,
             sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_int64,
             sqlite3_stmt, SQLITE_ROW;

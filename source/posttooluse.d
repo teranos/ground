@@ -260,7 +260,12 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     if (edb !is null && toolUseId.length > 0)
                         attestExecFire(edb, c.name, where, sessionId, toolUseId);
                     import ritual : performFromControl;
+                    // Performing forks twice. The store is shut first: a
+                    // child of a process with a connection open inherits its
+                    // lock bookkeeping and none of its kernel locks.
+                    if (edb !is null) { sqlite3_close(edb); edb = null; }
                     auto why = performFromControl(c.ritual, sessionId, where, input, toolOutput);
+                    edb = openDb();
                     if (why !is null) {
                         // Said twice on purpose. The error record reaches the
                         // session through the store, and the store is the
@@ -313,6 +318,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         break;
                     }
                 }
+                // Same reason as above: no connection may be open at the fork.
+                if (edb !is null) { sqlite3_close(edb); edb = null; }
                 dispatchExec(
                     c.exec,
                     c.name,
@@ -322,6 +329,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     c.envValues[0 .. c.envCount],
                     cast(string) sessionId, cwd, input, toolOutput,
                 );
+                edb = openDb();
             }
         }
         if (edb !is null) sqlite3_close(edb);

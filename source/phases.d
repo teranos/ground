@@ -30,12 +30,29 @@ void putMs(S)(ref S sink, long us) {
     sink.put("ms");
 }
 
-// The three the handler cannot see, then whatever it measured.
-void outerPhases(S)(ref S sink, long stdinUs, long attestUs, long handlerUs, const(char)[] inner) {
+// Where the event row's write to ground.db went, step by step. lock is the
+// time the busy handler slept for another writer, and lies inside write.
+struct Store {
+    long stdinUs;
+    long openUs;
+    long writeUs;
+    long lockUs;
+    long closeUs;
+    long total() const { return stdinUs + openUs + writeUs + closeUs; }
+}
+
+// What the handler cannot see, then whatever it measured.
+void outerPhases(S)(ref S sink, Store s, long handlerUs, const(char)[] inner) {
     sink.put("stdin=");
-    putUs(sink, stdinUs);
-    sink.put(" attest=");
-    putUs(sink, attestUs);
+    putUs(sink, s.stdinUs);
+    sink.put(" open=");
+    putUs(sink, s.openUs);
+    sink.put(" write=");
+    putUs(sink, s.writeUs);
+    sink.put(" lock=");
+    putUs(sink, s.lockUs);
+    sink.put(" close=");
+    putUs(sink, s.closeUs);
     sink.put(" handler=");
     putUs(sink, handlerUs);
     if (inner.length > 0) {

@@ -39,6 +39,7 @@ EOS";
 
 import parse : extractCwd, extractSessionId, extractHookEventName, extractSource;
 import controls : HookEvent;
+import phases : Store;
 import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fwrite, FILE;
 import core.stdc.stdlib : exit;
 import core.sys.posix.unistd : isatty;
@@ -260,23 +261,22 @@ extern (C) int main(int argc, const(char)** argv) {
         import phases : outerPhases;
         __gshared ZBuf row;
         row.reset();
-        outerPhases(row, outer.stdinUs, outer.attestUs,
-                    elapsed - outer.stdinUs - outer.attestUs, getPhases());
+        outerPhases(row, outer.store, elapsed - outer.store.total, getPhases());
         recordTiming(elapsed, eventName, project, row.slice(), outer.sessionId);
     }
     return rc;
 }
 
-// What the handler cannot time: the read of its input and the attestation of
-// the event, both before it is called. The row used to carry the handler's
-// phases beside a duration the handler was a tenth of.
-struct Outer { long stdinUs; long attestUs; const(char)[] sessionId; }
+// What the handler cannot time: the read of its input and the event row's
+// write to ground.db, both before it is called. The row used to carry the
+// handler's phases beside a duration the handler was a tenth of.
+struct Outer { Store store; const(char)[] sessionId; }
 
 int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming,
         ref Outer outer) {
     auto tIn = usecNow();
     auto input = readStdin();
-    outer.stdinUs = usecNow() - tIn;
+    outer.store.stdinUs = usecNow() - tIn;
     if (input is null) {
         fputs("ground: empty stdin\n", stderr);
         return 1;
@@ -297,14 +297,19 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
 
     // Attest every event — even ones we don't handle yet
     {
-        import db : openDb, attestEvent, sqlite3_close, dbUnusable, dbFailureMessage;
-        auto tAttest = usecNow();
+        import db : openDb, attestEvent, sqlite3_close, dbUnusable, dbFailureMessage, lockWaitUs;
+        auto tOpen = usecNow();
         auto db = openDb();
+        auto tWrite = usecNow();
+        outer.store.openUs = tWrite - tOpen;
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);
+            auto tClose = usecNow();
+            outer.store.writeUs = tClose - tWrite;
             sqlite3_close(db);
+            outer.store.closeUs = usecNow() - tClose;
         }
-        outer.attestUs = usecNow() - tAttest;
+        outer.store.lockUs = lockWaitUs;
         // Checked after the write, not only on a null handle: a damaged store
         // opens cleanly when its schema tree survived, and announces itself
         // only when real data moves through the broken ones.

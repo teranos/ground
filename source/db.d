@@ -144,6 +144,37 @@ extern (C) {
     const(char)* getenv(const(char)* name);
     int mkdir(const(char)* path, uint mode);
     int getpid();
+    uint usleep(uint);
+    int sqlite3_busy_handler(sqlite3* db, int function(void*, int) cb, void* arg);
+    struct timeval { long tv_sec; long tv_usec; }
+    int gettimeofday(timeval* tv, void* tz);
+}
+
+// Microseconds this process has slept waiting for ground.db's write lock.
+__gshared long lockWaitUs;
+
+enum BUSY_SLEEP_US = 1000;
+enum BUSY_LIMIT_US = 5_000_000;
+
+extern (C) int groundBusy(void*, int) {
+    if (lockWaitUs >= BUSY_LIMIT_US) return 0;
+    timeval a, b;
+    gettimeofday(&a, null);
+    usleep(BUSY_SLEEP_US);
+    gettimeofday(&b, null);
+    lockWaitUs += (b.tv_sec - a.tv_sec) * 1_000_000 + (b.tv_usec - a.tv_usec);
+    return 1;
+}
+
+// Each call sleeps once and counts what it slept; past the limit it gives up.
+unittest {
+    lockWaitUs = 0;
+    assert(groundBusy(null, 0) == 1);
+    assert(groundBusy(null, 1) == 1);
+    assert(lockWaitUs >= 2 * BUSY_SLEEP_US, "two sleeps must count as at least two sleeps");
+    lockWaitUs = BUSY_LIMIT_US;
+    assert(groundBusy(null, 2) == 0, "at the limit the handler must give up");
+    lockWaitUs = 0;
 }
 
 // Open ground's own db at ~/.local/share/ground/ground.db
@@ -182,11 +213,9 @@ sqlite3* openStandaloneDb() {
     // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
 
-    // 5s busy timeout — SQLite handles retries internally on lock
-    // contention rather than immediately returning SQLITE_BUSY. Necessary
-    // for exec wrappers to reliably persist their result rows when the
-    // main ground hook + watch + other wrappers are all writing.
-    sqlite3_exec(db, "PRAGMA busy_timeout = 5000\0".ptr, null, null, null);
+    // Up to 5s of waiting on another writer, in 1ms sleeps ground counts
+    // itself, so a hook's timing row can say it slept and for how long.
+    sqlite3_busy_handler(db, &groundBusy, null);
 
     if (!applySchema(db)) {
         sqlite3_close(db);
