@@ -128,12 +128,14 @@ struct Claimed {
 // The next claimed row of this sky into `c`, false when there are none left.
 // The body is built by sqlite: the id, the four slots, the timestamp as unix
 // seconds, the source, and the attributes as SKELETON_SQL leaves them.
+enum NEXT_CLAIMED_SQL = "SELECT rowid, json_object('id', id, 'subjects', json(subjects), 'predicates', json(predicates), "
+    ~ "'contexts', json(contexts), 'actors', json(actors), "
+    ~ "'timestamp', CAST(strftime('%s', timestamp) AS INTEGER), 'source', source, "
+    ~ "'attributes', json(" ~ SKELETON_SQL ~ ")) "
+    ~ "FROM attestations WHERE qntx_at <= 0 AND qntx_at = -?1 AND rowid > ?2 ORDER BY rowid LIMIT 1\0";
+
 bool nextClaimed(sqlite3* db, long pid, long after, ref Claimed c) {
-    enum sql = "SELECT rowid, json_object('id', id, 'subjects', json(subjects), 'predicates', json(predicates), "
-        ~ "'contexts', json(contexts), 'actors', json(actors), "
-        ~ "'timestamp', CAST(strftime('%s', timestamp) AS INTEGER), 'source', source, "
-        ~ "'attributes', json(" ~ SKELETON_SQL ~ ")) "
-        ~ "FROM attestations WHERE qntx_at = -?1 AND rowid > ?2 ORDER BY rowid LIMIT 1\0";
+    enum sql = NEXT_CLAIMED_SQL;
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
     sqlite3_bind_int64(stmt, 1, pid);
@@ -192,13 +194,59 @@ const(char)[] reasonOf(sqlite3* db, long rowid) {
 }
 
 // Rows still claimed by this sky when its pass ends are handed back.
+enum RELEASE_SQL = "UPDATE attestations SET qntx_at = 0 WHERE qntx_at <= 0 AND qntx_at = -?1\0";
+
 void claimReleased(sqlite3* db, long pid) {
-    enum sql = "UPDATE attestations SET qntx_at = 0 WHERE qntx_at = -?1\0";
+    enum sql = RELEASE_SQL;
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
     sqlite3_bind_int64(stmt, 1, pid);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+}
+
+// Does the planner reach this statement through the named index? The partial
+// index on qntx_at covers rows at or below zero, and a bound parameter does
+// not tell the planner it is negative: without the index term, every claim
+// release scanned 490k rows under the write lock. 3.2s on 2026-09-26.
+bool planUsesIndex(sqlite3* db, const(char)* sql, const(char)[] index) {
+    import db : sqlite3_column_text;
+    import matcher : contains;
+    __gshared char[8192] explain = 0;
+    size_t n = 0;
+    void put(const(char)[] s) { foreach (ch; s) if (n < explain.length - 1) explain[n++] = ch; }
+    put("EXPLAIN QUERY PLAN ");
+    size_t len = 0;
+    while (sql[len] != 0) len++;
+    put(sql[0 .. len]);
+    explain[n] = 0;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, explain.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    bool used = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto text = sqlite3_column_text(stmt, 3);
+        if (text is null) continue;
+        size_t tl = 0;
+        while (text[tl] != 0) tl++;
+        if (contains(text[0 .. tl], index)) used = true;
+    }
+    sqlite3_finalize(stmt);
+    return used;
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(planUsesIndex(db, RELEASE_SQL.ptr, "idx_attestations_stream"),
+           "releasing a claim must not scan the table");
+    assert(planUsesIndex(db, NEXT_CLAIMED_SQL.ptr, "idx_attestations_stream"),
+           "the next claimed row must not scan the table");
+    import outbox : HOLDERS_SQL;
+    assert(planUsesIndex(db, HOLDERS_SQL!("attestations", "qntx_at").ptr, "idx_attestations_stream"),
+           "listing claim holders must not scan the table");
+    sqlite3_close(db);
 }
 
 // A claim held by a sky that is gone is nobody's; BEFORE_STREAM is positive

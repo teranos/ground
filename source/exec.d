@@ -279,13 +279,16 @@ void dispatchExec(
 
     // --- Fork wrapper. Parent returns immediately. ---
 
-    auto wrapperPid = fork();
+    import forkguard : forkClean, REFUSED;
+    auto wrapperPid = forkClean(controlName, sessionId);
     if (wrapperPid < 0) {
         auto e = errno();
         close(outPipe[0]); close(outPipe[1]);
         close(errPipe[0]); close(errPipe[1]);
-        emitError("exec.fork.wrapper", "fork() failed for wrapper",
-                  e, -1, sessionId, controlName, toolUseId, "", "");
+        // A refused fork has already said why as fork.store-open.
+        if (wrapperPid != REFUSED)
+            emitError("exec.fork.wrapper", "fork() failed for wrapper",
+                      e, -1, sessionId, controlName, toolUseId, "", "");
         return;
     }
     if (wrapperPid != 0) {

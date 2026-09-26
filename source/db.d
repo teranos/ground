@@ -156,25 +156,37 @@ __gshared long lockWaitUs;
 enum BUSY_SLEEP_US = 1000;
 enum BUSY_LIMIT_US = 5_000_000;
 
-extern (C) int groundBusy(void*, int) {
-    if (lockWaitUs >= BUSY_LIMIT_US) return 0;
+// The limit is per lock attempt, as busy_timeout's was: sqlite counts each
+// attempt from zero. lockWaitUs keeps the process total for the timing row.
+__gshared long attemptUs;
+
+extern (C) int groundBusy(void*, int count) {
+    if (count == 0) attemptUs = 0;
+    if (attemptUs >= BUSY_LIMIT_US) return 0;
     timeval a, b;
     gettimeofday(&a, null);
     usleep(BUSY_SLEEP_US);
     gettimeofday(&b, null);
-    lockWaitUs += (b.tv_sec - a.tv_sec) * 1_000_000 + (b.tv_usec - a.tv_usec);
+    auto slept = (b.tv_sec - a.tv_sec) * 1_000_000 + (b.tv_usec - a.tv_usec);
+    attemptUs += slept;
+    lockWaitUs += slept;
     return 1;
 }
 
 // Each call sleeps once and counts what it slept; past the limit it gives up.
+// A new attempt starts from zero, and the process total keeps counting.
 unittest {
     lockWaitUs = 0;
     assert(groundBusy(null, 0) == 1);
     assert(groundBusy(null, 1) == 1);
     assert(lockWaitUs >= 2 * BUSY_SLEEP_US, "two sleeps must count as at least two sleeps");
-    lockWaitUs = BUSY_LIMIT_US;
-    assert(groundBusy(null, 2) == 0, "at the limit the handler must give up");
+    attemptUs = BUSY_LIMIT_US;
+    assert(groundBusy(null, 2) == 0, "at the limit the attempt gives up");
+    auto before = lockWaitUs;
+    assert(groundBusy(null, 0) == 1, "the next attempt starts from zero");
+    assert(lockWaitUs > before, "and the process total still grows");
     lockWaitUs = 0;
+    attemptUs = 0;
 }
 
 // Open ground's own db at ~/.local/share/ground/ground.db
@@ -182,11 +194,12 @@ sqlite3* openDb() {
     return openStandaloneDb();
 }
 
-sqlite3* openStandaloneDb() {
+// $HOME/.local/share/ground/ground.db, its directory made on the way. Null
+// with no HOME. One buffer, so the pointer is good until the next call.
+const(char)* storePath() {
     auto home = getenv("HOME\0".ptr);
     if (home is null) return null;
 
-    // Build path: $HOME/.local/share/ground/ground.db
     __gshared ZBuf pathBuf;
     pathBuf.reset();
 
@@ -199,15 +212,27 @@ sqlite3* openStandaloneDb() {
     mkdirP(pathBuf.slice());
 
     pathBuf.put("/ground.db");
+    return pathBuf.ptr();
+}
+
+sqlite3* openStandaloneDb() {
+    auto path = storePath();
+    if (path is null) return null;
 
     sqlite3* db;
-    if (sqlite3_open(pathBuf.ptr(), &db) != SQLITE_OK) {
+    if (sqlite3_open(path, &db) != SQLITE_OK) {
         if (db !is null) {
             noteDbFailure(sqlite3_errcode(db));
             sqlite3_close(db);
         }
         return null;
     }
+
+    // WAL is a property of the file, not of ground. A store rebuilt by
+    // .recover came back in rollback mode on 2026-09-26 and every reader
+    // blocked every writer: hooks waited two seconds on the lock. Said on
+    // every open; a no-op when the file is already WAL.
+    sqlite3_exec(db, "PRAGMA journal_mode = WAL\0".ptr, null, null, null);
 
     // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
     // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.

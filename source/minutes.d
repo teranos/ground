@@ -214,7 +214,8 @@ void askDue(ref const Due due, const(char)[] sessionId, long now) {
 private void askDetached(const(char)[] githubOrg, const(char)[] sessionId, long now) {
     import errors : sayQuietly;
 
-    auto pid = fork();
+    import forkguard : forkClean;
+    auto pid = forkClean("org-minutes", sessionId);
     if (pid < 0) {
         sayQuietly("minutes.fork", "could not fork to ask github for the org's minutes",
                    -1, sessionId, "org-minutes", githubOrg);

@@ -223,12 +223,13 @@ Check fetchRelease(sqlite3* db, long now) {
 // checks taken at `at` and writes what the backends answered beside them.
 void sendDetached(const(char)[] first, const(char)[] second, long at) {
     import core.stdc.stdio : fflush, fputs, freopen, stdin, stdout, stderr;
-    import core.sys.posix.unistd : fork, setsid, _exit;
+    import core.sys.posix.unistd : setsid, _exit;
+    import forkguard : forkClean;
 
     // A buffer the child inherits is written again when the child closes it.
     fflush(stdout);
     fflush(stderr);
-    auto pid = fork();
+    auto pid = forkClean("checks", "");
     if (pid < 0) {
         fputs("ground: could not start the copy to QNTX; the checks stay unsent\n", stderr);
         return;

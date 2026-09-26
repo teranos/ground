@@ -195,7 +195,8 @@ void reportDetached(const(char)[] dsn, const Envelope e, const(char)[] owedSessi
                     const(char)[] what) {
     if (dsn.length == 0) return;
 
-    auto pid = fork();
+    import forkguard : forkClean;
+    auto pid = forkClean(what, owedSession);
     if (pid != 0) {
         if (pid < 0) {
             import exec : emitError;
