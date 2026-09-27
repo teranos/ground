@@ -33,3 +33,14 @@ static assert(!calls(stopSource, "advance("),
     "stop.d must not walk — it ran the same rite a second time");
 static assert(!calls(skySource, "advance("),
     "the sky must not walk — it ran the same rite a second time");
+
+// "there cannot be an instance where a ritual fires while i said rituals off"
+// A performance starts in two places, and both ask the switch first.
+private enum postToolUseSource = import("source/posttooluse.d");
+private enum commandSource = import("source/ritual/command.d");
+static assert(calls(postToolUseSource, "ritualOff("), "a control asks before it performs");
+static assert(calls(commandSource, "offBecause("), "ground ritual asks before it performs");
+
+// "it should be easy for me to switch, simply by saying the words"
+private enum userPromptSource = import("source/userprompt.d");
+static assert(calls(userPromptSource, "switched("), "the prompt is where the words are said");

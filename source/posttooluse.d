@@ -254,6 +254,22 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                             continue;
                         }
                     }
+                    // "rituals off should mean totally off"
+                    {
+                        import ritual : ritualOff;
+                        import controls : allParsed;
+                        static immutable offParsed = allParsed;
+                        auto off = ritualOff(edb, offParsed, c.ritual);
+                        if (off !is null) {
+                            import core.stdc.stdio : fputs, stderr, fwrite;
+                            fputs("ground: ", stderr);
+                            fwrite(c.ritual.ptr, 1, c.ritual.length, stderr);
+                            fputs(" did not perform: ", stderr);
+                            fwrite(off.ptr, 1, off.length, stderr);
+                            fputs("\n", stderr);
+                            continue;
+                        }
+                    }
                     if (edb !is null && toolUseId.length > 0
                         && execFireExists(edb, c.name, sessionId, toolUseId))
                         continue;

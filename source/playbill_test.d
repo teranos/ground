@@ -208,3 +208,25 @@ unittest {
 
     sqlite3_close(db);
 }
+
+unittest {
+    // "if not, then the playbill is still enabled but mentions that its turned off and mentions how to turn it on (rituals on or rituals enable)"
+    import ritual : setRituals;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    static immutable scoped = bill;
+    auto cues = scoped.cues[0 .. scoped.len];
+    enum cwd = "/Users/x/teranos/QNTX";
+    char[512] buf;
+
+    auto n = unsaidBillInto(db, "off", cwd, buf[], cues);
+    assert(buf[0 .. n] == want ~ ", and rituals are off here: say rituals on to let it fire");
+
+    assert(setRituals(db, "/teranos/QNTX", true, "on", 1000));
+    n = unsaidBillInto(db, "on", cwd, buf[], cues);
+    assert(buf[0 .. n] == want);
+
+    sqlite3_close(db);
+}

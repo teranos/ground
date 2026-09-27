@@ -182,3 +182,12 @@ static assert(conceptOf("project {\n  ritual r {\n    sentry {\n      dsn: \"htt
 // owns the terms that module sets.
 static assert(opener("sentry") == "sentry");
 static assert(chapterOf("sentry") == "sentry");
+
+// "its probaly one of the first things you want to know about when working with rituals because a user will use theses"
+// Right after what a ritual is written as, before anything about a rite.
+static assert(chapterOf("onoff") == "ritual");
+static assert(rank("ritual", "onoff") == rank("ritual", "proto_ritual") + 1);
+
+// The playbill is read in the control chapter, so a case quoting the operator
+// there is the control chapter's to set.
+static assert(chapterOf("playbill") == "control");

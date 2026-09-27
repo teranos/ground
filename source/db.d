@@ -400,6 +400,13 @@ bool applySchema(sqlite3* db) {
         ~ "asked_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
     sqlite3_exec(db, visibilitySchema.ptr, null, null, null);
 
+    // "rituals on or off is always tied to the project { } block"
+    // One row per project somebody switched. A project with none is off.
+    enum ritualSwitchSchema = "CREATE TABLE IF NOT EXISTS ritual_switch ("
+        ~ "project TEXT PRIMARY KEY, enabled INTEGER NOT NULL, "
+        ~ "said_by TEXT NOT NULL DEFAULT '', said_at INTEGER NOT NULL)\0";
+    sqlite3_exec(db, ritualSwitchSchema.ptr, null, null, null);
+
     // "i want to record the usage that is left in ground itself"
     // The rate limit windows reach the status line and no hook, so ug inserts
     // these rows and ground reads them. qntx_status and qntx_exit are what the

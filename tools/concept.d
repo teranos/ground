@@ -65,7 +65,7 @@ immutable Reading[] readings = [
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
-    Reading("ritual", ["proto_ritual", "ritual", "rite", "rite_script", "choose",
+    Reading("ritual", ["proto_ritual", "onoff", "ritual", "rite", "rite_script", "choose",
                        "ritual_resolve", "advance", "briefing", "mic", "contend",
                        "consent", "delivery", "notification", "dispatch",
                        "apierror", "reap"]),
@@ -81,7 +81,8 @@ struct Owner {
 
 immutable Owner[] owners = [
     Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git"]),
-    Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers"]),
+    Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
+                          "playbill"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
@@ -96,7 +97,8 @@ immutable Owner[] owners = [
                           "ritual/drive", "mic", "receiver", "ritual/delivery",
                           "dispatch", "ritual", "ritual_resolve", "proto_ritual",
                           "rite_script", "advance", "briefing", "choose", "contend",
-                          "consent", "delivery", "notification", "reap", "apierror"]),
+                          "consent", "delivery", "notification", "reap", "apierror",
+                          "onoff"]),
     // What a row is, where it goes, and how one comes back to the session.
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "loom", "stream"]),
 ];
