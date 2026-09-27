@@ -12,11 +12,15 @@ import noul : jevBody, jevAnswer, JevAnswer;
 // The key is the primitive, the value its instructions, as eval: is a command.
 enum noulSrc = `
 rites judged {
-  NEEDED { noul: "This push is consequential and wants to be deployed" }
+  NEEDED {
+    noul: "This push is consequential and wants to be deployed"
+  }
 }
 project {
   path: "/x"
-  ritual r { judged }
+  ritual r {
+    judged
+  }
 }
 `;
 static assert(parsePbt(noulSrc).rites[0].rites[0].noul
@@ -36,11 +40,14 @@ rites judged {
     ]
     goto: DONE
   }
-  DONE { }
+  DONE {
+  }
 }
 project {
   path: "/x"
-  ritual r { judged }
+  ritual r {
+    judged
+  }
 }
 `;
 static assert(parsePbt(scoreSrc).rites[0].rites[0].score
@@ -52,9 +59,16 @@ static assert(validateRituals(parsePbt(scoreSrc)).text().length == 0);
 // A score without levels has no spectrum to place the state on.
 enum noLevelsSrc = `
 rites judged {
-  X { score: "?" }
+  X {
+    score: "?"
+  }
 }
-project { path: "/x"  ritual r { judged } }
+project {
+  path: "/x"
+  ritual r {
+    judged
+  }
+}
 `;
 static assert(validateRituals(parsePbt(noLevelsSrc)).text()
               == "rite X: a score names its levels in `criteria`");
@@ -62,18 +76,35 @@ static assert(validateRituals(parsePbt(noLevelsSrc)).text()
 // One rite, one way to answer.
 enum bothSrc = `
 rites judged {
-  X { noul: "?"  eval: "true" }
+  X {
+    noul: "?"
+    eval: "true"
+  }
 }
-project { path: "/x"  ritual r { judged } }
+project {
+  path: "/x"
+  ritual r {
+    judged
+  }
+}
 `;
 static assert(validateRituals(parsePbt(bothSrc)).text()
               == "rite X: `noul` and `eval` are two answers to one question");
 
 enum twoJevSrc = `
 rites judged {
-  X { noul: "?"  score: "?"  criteria: ["a", "b"] }
+  X {
+    noul: "?"
+    score: "?"
+    criteria: ["a", "b"]
+  }
 }
-project { path: "/x"  ritual r { judged } }
+project {
+  path: "/x"
+  ritual r {
+    judged
+  }
+}
 `;
 static assert(validateRituals(parsePbt(twoJevSrc)).text()
               == "rite X: `noul` and `score` are two answers to one question");
@@ -86,15 +117,19 @@ rites judged {
     choice: "Which rite should this push go to next?"
     criteria {
       DEPLOY: "The node or the store changes"
-      DONE:   "Nothing a running box would notice"
+      DONE: "Nothing a running box would notice"
     }
   }
-  DEPLOY { }
-  DONE { }
+  DEPLOY {
+  }
+  DONE {
+  }
 }
 project {
   path: "/x"
-  ritual r { judged }
+  ritual r {
+    judged
+  }
 }
 `;
 static assert(parsePbt(choiceSrc).rites[0].rites[0].choice
@@ -109,10 +144,17 @@ enum strayChoiceSrc = `
 rites judged {
   ROUTE {
     choice: "Where?"
-    criteria { NOWHERE: "a rite that does not exist" }
+    criteria {
+      NOWHERE: "a rite that does not exist"
+    }
   }
 }
-project { path: "/x"  ritual r { judged } }
+project {
+  path: "/x"
+  ritual r {
+    judged
+  }
+}
 `;
 static assert(validateRituals(parsePbt(strayChoiceSrc)).text()
               == "rite ROUTE: choice option `NOWHERE` names no rite");
