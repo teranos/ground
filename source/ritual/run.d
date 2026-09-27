@@ -143,6 +143,9 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     import stop : usecNow;
     auto began = usecNow();
 
+    // Where a choice sent the walk. Empty for every other rite.
+    const(char)[] chosen;
+
     // "a failed run: is critical enough for us not to want to continue and
     // return the error point blanc , keep the mic" — so nothing downstream of
     // it is asked, including an eval that would have passed.
@@ -210,6 +213,49 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                 cast(void) writeDispatchStatus(db, p.parent, t.repo, token.slice(), 0);
         }
     }
+    // "i want jev to tell me if a Rite needs to be ran or if we can just skip
+    // it". Jev is asked, not a process. "no Jev is autopass": without a token
+    // the rite advances and says so; with one, a refusal is a halt, since a
+    // tool that could not run has not answered. The verdict is the plain
+    // reading of the answer: a noul at or above 0.5 is yes; a score whose most
+    // probable level is the first criterion is the no; a choice names a rite.
+    else if (r.noul.length > 0 || r.score.length > 0 || r.choice.length > 0) {
+        import noul : jevToken, askJev, jevState, Wide, JEV_TOKEN_PATH;
+        import git : getBranch;
+        a.ran = true;
+        auto type = r.noul.length > 0 ? "noul" : r.score.length > 0 ? "score" : "choice";
+        auto instructions = r.noul.length > 0 ? r.noul : r.score.length > 0 ? r.score : r.choice;
+        auto tok = jevToken();
+        if (tok is null) {
+            a.verdict = Verdict.Advance;
+            a.output = "no Jev token at " ~ JEV_TOKEN_PATH ~ ": autopass";
+        } else {
+            __gshared Wide state;
+            __gshared char[8192] reply = 0;
+            auto branch = getBranch(p.worktree);
+            jevState(state, p.worktree, branch is null ? "" : branch);
+            auto asked = askJev(state.slice(), r.name, type, instructions,
+                                r.criteria[0 .. r.criteriaCount],
+                                r.choice.length > 0 ? r.criteriaKeys[0 .. r.criteriaCount] : [],
+                                tok, reply);
+            if (!asked.ok) {
+                a.verdict = Verdict.Halt;
+                a.code = asked.status;
+                a.output = asked.why();
+                riteError(p, sessionId, "ritual.jev", "jev did not answer the rite",
+                          asked.status, r.name, instructions, a.output);
+            } else {
+                auto ans = asked.answer;
+                if (ans.type == "noul") a.verdict = ans.noul >= 0.5 ? Verdict.Advance : Verdict.Hold;
+                else if (ans.type == "score") a.verdict = ans.level == 0 ? Verdict.Hold : Verdict.Advance;
+                else { a.verdict = Verdict.Advance; chosen = ans.choice(); }
+                // The row keeps Jev's reply as Jev sent it, and no more: the
+                // buffer outlives the rite, and a shorter reply after a longer
+                // one left the longer one's tail in the row on 2026-09-26.
+                a.output = reply[0 .. asked.replyLen];
+            }
+        }
+    }
     // A rite with a run and no eval asked nothing, so there is no code to read.
     else if (r.eval.length == 0) {
         a.ran = true;
@@ -228,12 +274,16 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     // "no, it should have jumped over them" — a rite that asks nothing has no
     // verdict to condition a jump on, so its goto is the whole of what it says.
-    bool asksNothing = r.eval.length == 0 && r.dispatch.length == 0;
+    bool asksNothing = r.eval.length == 0 && r.dispatch.length == 0
+        && r.noul.length == 0 && r.score.length == 0 && r.choice.length == 0;
 
     // A cycle that cannot be taken again is a halt, not a hold — holding
     // would leave the performance waiting on a jump it will never make.
-    bool wantsJump = r.goto_.length > 0
-        && (a.verdict == Verdict.Hold
+    // "the chosen option is where the walk goes": a choice jumps on its answer.
+    auto jumpTo = chosen.length > 0 ? chosen : r.goto_;
+    bool wantsJump = jumpTo.length > 0
+        && (chosen.length > 0
+            || a.verdict == Verdict.Hold
             || (asksNothing && a.verdict == Verdict.Advance));
     if (wantsJump && p.gotos >= f.maxGoto) {
         a.verdict = Verdict.Halt;
@@ -284,11 +334,11 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     // goto is what a caught code does when the rite names somewhere to go.
     if (wantsJump) {
-        auto target = indexOfRiteFrom(f, r.group, r.goto_);
+        auto target = indexOfRiteFrom(f, r.group, jumpTo);
         if (target >= 0) {
             moved = jump(moved, cast(size_t) target);
             moved.gotos = p.gotos + 1;
-            a.jumpedTo = r.goto_;
+            a.jumpedTo = jumpTo;
         }
     }
 

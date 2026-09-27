@@ -83,3 +83,6 @@ docs/
 # Ritual worktrees. A performance builds a sibling of the tree it names, and
 # grove now names one inside this repo.
 grove-*/
+
+# Jev key, lives at ~/.qntx/jev-token; never in the tree
+jev_token

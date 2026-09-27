@@ -332,6 +332,34 @@ static assert(contains(jumped.text(), `"body":"coinflip BACK hold, goto HERE"`))
 static assert(contains(jumped.text(), `"goto":{"value":"HERE","type":"string"}`));
 static assert(!contains(riteSent.text(), `"goto":`), "no jump, no field saying there was one");
 
+// "any of jev's answers need to end up in sentry for future analysis" — in
+// Jev's own fields, typed so they chart, and the reply whole.
+enum judged = () {
+    auto r = said("ROUTE", Verdict.Advance, 0);
+    r.jev = `{"model":"jev-1.13.0","answers":{"ROUTE":{"type":"choice","choice":"TARGET","confidence":0.93,"probabilities":{"TARGET":0.93,"VERSIONS":0.07}}},"usage":{"input_tokens":5556,"output_tokens":36}}`;
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(judged.text(), `"jev_type":{"value":"choice","type":"string"}`));
+static assert(contains(judged.text(), `"jev_choice":{"value":"TARGET","type":"string"}`));
+static assert(contains(judged.text(), `"jev_confidence":{"value":0.9300,"type":"double"}`));
+static assert(contains(judged.text(), `"jev_reply":{"value":"{\"model\":\"jev-1.13.0\"`));
+
+enum scored = () {
+    auto r = said("IMPACT", Verdict.Advance, 0);
+    r.jev = `{"answers":{"IMPACT":{"type":"score","score":3.17,"confidence":0.79,"legend":{"0":"a","1":"b"},"probabilities":{"0":0.0,"1":0.21,"2":0.79}}}}`;
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(scored.text(), `"jev_score":{"value":3.1700,"type":"double"}`));
+static assert(contains(scored.text(), `"jev_level":{"value":2,"type":"integer"}`));
+
+enum asked = () {
+    auto r = said("NEEDED", Verdict.Advance, 0);
+    r.jev = `{"answers":{"NEEDED":{"type":"noul","noul":0.72}}}`;
+    return riteEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(asked.text(), `"jev_noul":{"value":0.7200,"type":"double"}`));
+static assert(!contains(riteSent.text(), `"jev_`), "a rite Jev was not asked carries no jev field");
+
 // The bound that ended a walk is the reason it ended, so it is said where the
 // halt is said rather than left to be worked out from two numbers.
 enum spentGoto = () {

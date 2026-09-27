@@ -140,6 +140,13 @@ struct FlatRite {
     // "<owner>/<repo> <workflow>", and the fragment whose lines become -f.
     string dispatch;
     string inputs;
+    // Jev's question, where an eval would stand, in Jev's own words.
+    string noul;
+    string score;
+    string choice;
+    string[16] criteria;
+    string[16] criteriaKeys;
+    size_t criteriaCount;
     string msg;
     string mic;
     int pass;
@@ -268,6 +275,12 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
                 fr.run = src.run;
                 fr.dispatch = src.dispatch;
                 fr.inputs = src.inputs;
+                fr.noul = src.noul;
+                fr.score = src.score;
+                fr.choice = src.choice;
+                fr.criteria = src.criteria;
+                fr.criteriaKeys = src.criteriaKeys;
+                fr.criteriaCount = src.criteriaCount;
                 fr.msg = src.msg;
                 fr.mic = src.mic;
                 fr.pass = src.pass;

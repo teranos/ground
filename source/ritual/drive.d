@@ -318,6 +318,8 @@ int handleDrive(int argc, const(char)** argv) {
                 said.jumpedTo = res.jumpedTo;
                 said.gotoSpent = res.gotoSpent;
                 said.evalsSpent = res.evalsSpent;
+                if (rite.noul.length > 0 || rite.score.length > 0 || rite.choice.length > 0)
+                    said.jev = res.output;
                 riteRan = true;
                 riteSaid = riteEnvelope(dsn, cast(long) time(null), said);
             }

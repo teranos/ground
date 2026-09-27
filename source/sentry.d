@@ -489,6 +489,26 @@ struct RiteReport {
     const(char)[] jumpedTo;  // the goto this verdict took, empty when none
     bool gotoSpent;          // halted because max_goto was reached
     bool evalsSpent;         // halted because the eval bound was reached
+    // "any of jev's answers need to end up in sentry for future analysis" —
+    // Jev's reply as Jev sent it, empty for a rite Jev was not asked.
+    const(char)[] jev;
+}
+
+// A number Sentry can chart: four decimals, built without a C call so the
+// envelope test can run at compile time.
+private void putDouble(ref Envelope e, const(char)[] key, double v) {
+    e.put(`"`);
+    e.put(key);
+    e.put(`":{"value":`);
+    if (v < 0) { e.put("-"); v = -v; }
+    long scaled = cast(long) (v * 10_000 + 0.5);
+    e.putLong(scaled / 10_000);
+    e.put(".");
+    auto f = scaled % 10_000;
+    char[4] d;
+    foreach_reverse (i; 0 .. 4) { d[i] = cast(char)('0' + f % 10); f /= 10; }
+    e.put(d[]);
+    e.put(`,"type":"double"},`);
 }
 
 private void putNum(ref Envelope e, const(char)[] key, long v) {
@@ -533,6 +553,27 @@ Envelope riteEnvelope(const(char)[] dsn, long unixSeconds, const RiteReport r) {
     e.putAttr("rite", r.rite);
     e.putAttr("verdict", word);
     if (r.jumpedTo.length > 0) e.putAttr("goto", r.jumpedTo);
+
+    // Jev's answer in its own fields, typed so a series can be drawn from
+    // them, and the reply whole so nothing of it is lost to the reading.
+    if (r.jev.length > 0) {
+        import noul : jevAnswer, JevAnswer;
+        JevAnswer a;
+        if (jevAnswer(r.jev, r.rite, a)) {
+            e.putAttr("jev_type", a.type);
+            if (a.type == "noul") e.putDouble("jev_noul", a.noul);
+            if (a.type == "score") {
+                e.putDouble("jev_score", a.score);
+                e.putDouble("jev_confidence", a.confidence);
+                e.putNum("jev_level", a.level);
+            }
+            if (a.type == "choice") {
+                e.putAttr("jev_choice", a.choice());
+                e.putDouble("jev_confidence", a.confidence);
+            }
+        }
+        e.putAttr("jev_reply", r.jev);
+    }
 
     // A list has no attribute type, so the codes go as the author wrote them.
     e.put(`"catches":{"value":"`);

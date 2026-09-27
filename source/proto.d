@@ -177,6 +177,16 @@ struct ParsedRite {
     // A shell fragment run in the worktree. Each line it prints becomes one -f,
     // which is the only part of a dispatch ground cannot know for itself.
     string inputs;
+    // "see Jev's noul as another way to set a rituals rite" — Jev's three
+    // primitives, each key the primitive and its value the instructions, as
+    // eval's value is a command. `criteria` is Jev's word too: a score's
+    // levels in order, or a choice's options with what sends the walk there.
+    string noul;
+    string score;
+    string choice;
+    string[16] criteria;
+    string[16] criteriaKeys;
+    size_t criteriaCount;
     // A field this rite named that no rite has. Carried so the refusal can
     // say which one, which betterC forbids building at the parse site.
     string badKey;
@@ -448,6 +458,43 @@ Wrong validateRituals(PR)(const PR r) {
                 return wrong("rite ", r.rites[i].rites[j].name, ": `cmd` is a control's word. A rite evaluates: use `eval`");
             return wrong("rite ", r.rites[i].rites[j].name, ": unknown field `",
                          bad, "`");
+        }
+    }
+
+    // "so instead of eval: we get noul:" — instead. A rite answers one way.
+    foreach (i; 0 .. r.ritesCount) {
+        foreach (j; 0 .. r.rites[i].riteCount) {
+            auto rt = r.rites[i].rites[j];
+            string jev = rt.noul.length > 0 ? "noul" : rt.score.length > 0 ? "score"
+                       : rt.choice.length > 0 ? "choice" : "";
+            if (jev.length == 0) continue;
+            if (rt.noul.length > 0 && rt.score.length > 0)
+                return wrong("rite ", rt.name, ": `noul` and `score` are two answers to one question");
+            if (rt.noul.length > 0 && rt.choice.length > 0)
+                return wrong("rite ", rt.name, ": `noul` and `choice` are two answers to one question");
+            if (rt.score.length > 0 && rt.choice.length > 0)
+                return wrong("rite ", rt.name, ": `score` and `choice` are two answers to one question");
+            if (rt.eval.length > 0)
+                return wrong("rite ", rt.name, ": `", jev, "` and `eval` are two answers to one question");
+            if (rt.dispatch.length > 0)
+                return wrong("rite ", rt.name, ": `", jev, "` and `dispatch` are two answers to one question");
+            if (rt.score.length > 0 && rt.criteriaCount == 0)
+                return wrong("rite ", rt.name, ": a score names its levels in `criteria`");
+            if (rt.choice.length > 0 && rt.criteriaCount == 0)
+                return wrong("rite ", rt.name, ": a choice names its options in `criteria`");
+            // "the chosen option is where the walk goes" — so every option is
+            // a rite, checked the way a goto is.
+            if (rt.choice.length > 0) {
+                foreach (c; 0 .. rt.criteriaCount) {
+                    auto option = rt.criteriaKeys[c];
+                    bool found = false;
+                    foreach (m; 0 .. r.ritesCount)
+                        foreach (n; 0 .. r.rites[m].riteCount)
+                            if (r.rites[m].rites[n].name == option) found = true;
+                    if (!found)
+                        return wrong("rite ", rt.name, ": choice option `", option, "` names no rite");
+                }
+            }
         }
     }
 
@@ -1964,8 +2011,45 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
 
         auto key = readWord(input, pos);
         skipWS(input, pos);
+
+        // A choice's criteria is a block, an option per line, as Jev's is a
+        // map: `criteria { DONE: "nothing a box notices" }`.
+        if (key == "criteria" && pos < input.length && input[pos] == '{') {
+            pos++;
+            while (pos < input.length) {
+                skipWS(input, pos);
+                if (pos < input.length && input[pos] == '#') { skipLine(input, pos); continue; }
+                if (pos < input.length && input[pos] == '}') { pos++; break; }
+                auto option = readWord(input, pos);
+                skipWS(input, pos);
+                expect(input, pos, ':');
+                skipWS(input, pos);
+                assert(r.criteriaCount < r.criteria.length, "Criteria overflow");
+                r.criteriaKeys[r.criteriaCount] = option;
+                r.criteria[r.criteriaCount] = readValue(input, pos);
+                r.criteriaCount++;
+            }
+            continue;
+        }
+
         expect(input, pos, ':');
         skipWS(input, pos);
+
+        // A score's criteria is a list, its levels in order, as Jev's is.
+        if (key == "criteria") {
+            auto first = readValue(input, pos);
+            assert(first is null, "criteria: is a list of levels or a block of options");
+            while (pos < input.length) {
+                skipWS(input, pos);
+                if (pos < input.length && input[pos] == ']') { pos++; break; }
+                auto item = readValue(input, pos);
+                assert(r.criteriaCount < r.criteria.length, "Criteria overflow");
+                r.criteria[r.criteriaCount++] = item;
+                skipWS(input, pos);
+                if (pos < input.length && input[pos] == ',') pos++;
+            }
+            continue;
+        }
 
         // `catch` takes one code or a list of them; readValue returns null
         // for a list and leaves pos past the opening bracket.
@@ -2001,6 +2085,9 @@ ParsedRite parseRite(ref string input, ref size_t pos, string name) {
             case "run":  r.run = val; break;
             case "dispatch": r.dispatch = val; break;
             case "inputs":   r.inputs = val; break;
+            case "noul":     r.noul = val; break;
+            case "score":    r.score = val; break;
+            case "choice":   r.choice = val; break;
             // Recorded, not asserted: betterC has no GC, so the message that
             // names the rite and the field is built in validateRituals.
             case "cmd":  r.badKey = "cmd"; break;
