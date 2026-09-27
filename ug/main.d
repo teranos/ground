@@ -15,7 +15,7 @@ import report : ritualLines;
 
 extern (C) int main(int argc, char** argv) {
     import core.stdc.stdlib : getenv;
-    import tmux : tmuxMain, expandMain;
+    import tmux : tmuxMain;
 
     auto h = getenv("HOME\0".ptr);
     size_t hl = 0;
@@ -31,17 +31,6 @@ extern (C) int main(int argc, char** argv) {
 
         if (verb == "tmux")
             return tmuxMain(home, cast(long) time(null));
-
-        // What a click asked about. tmux hands the range name as the argument.
-        if (verb == "expand") {
-            const(char)[] which;
-            if (argc >= 3 && argv[2] !is null) {
-                size_t nl = 0;
-                while (argv[2][nl] != 0) nl++;
-                which = argv[2][0 .. nl];
-            }
-            return expandMain(home, which);
-        }
     }
 
     auto session = readStdin();
