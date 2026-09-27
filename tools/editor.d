@@ -16,7 +16,7 @@ import std.conv : to;
 
 import cases : extractCases, Case, splitLines;
 import concept : conceptOf;
-import edit : rewriteCase, Was, ending;
+import edit : rewriteCase, Was, ending, kept;
 import fmt : formatInto;
 
 enum PORT = 7777;
@@ -168,7 +168,7 @@ string save(string body_) {
 
     auto file = "source/" ~ baseName(parts[0]);
     auto was = Was(parts[1], parts[2], parts[3]);
-    auto now = Was(parts[4], parts[5], parts[6]);
+    auto now = kept(was, Was(parts[4], parts[5], parts[6]));
 
     if (!exists(file)) return "no " ~ file;
     if (was == now) return "unchanged";
@@ -278,10 +278,16 @@ string page(Row[] rows) {
         body_ ~= "<div class=\"case\" id=\"c" ~ id ~ "\">\n";
         body_ ~= "<span class=\"file\">" ~ esc(r.file) ~ "</span>\n";
         body_ ~= "<span class=\"state\" id=\"s" ~ id ~ "\"></span>\n";
-        body_ ~= "<textarea class=\"said\" id=\"q" ~ id ~ "\">" ~ esc(r.said) ~ "</textarea>\n";
+        // The quotes' box split down the middle: new typed left, old right.
+        body_ ~= "<div class=\"quotes\">\n";
+        // A reload put back what each box held before, by position, so a page
+        // that gained a box showed one case's example in another's quotes.
+        body_ ~= "<textarea class=\"said new\" id=\"q" ~ id ~ "\" autocomplete=\"off\"></textarea>\n";
+        body_ ~= "<textarea class=\"said old\" id=\"oq" ~ id ~ "\" autocomplete=\"off\" readonly>" ~ esc(r.said) ~ "</textarea>\n";
+        body_ ~= "</div>\n";
         body_ ~= "<div class=\"row\">\n";
-        body_ ~= "<textarea class=\"pbt\" id=\"p" ~ id ~ "\">" ~ esc(r.pbt) ~ "</textarea>\n";
-        body_ ~= "<textarea class=\"prose\" id=\"t" ~ id ~ "\">" ~ esc(r.prose) ~ "</textarea>\n";
+        body_ ~= "<textarea class=\"pbt\" id=\"p" ~ id ~ "\" autocomplete=\"off\">" ~ esc(r.pbt) ~ "</textarea>\n";
+        body_ ~= "<textarea class=\"prose\" id=\"t" ~ id ~ "\" autocomplete=\"off\">" ~ esc(r.prose) ~ "</textarea>\n";
         body_ ~= "</div>\n";
         body_ ~= "<script>W[" ~ id ~ "]=" ~ jsString(r.file)
                ~ ";O[" ~ id ~ "]=[" ~ jsString(r.said) ~ "," ~ jsString(r.prose) ~ "," ~ jsString(r.pbt) ~ "];</script>\n";
@@ -324,6 +330,14 @@ function field(s) { return s.length + ":" + s; }
 function el(id) { return document.getElementById(id); }
 function read(i) { return [el("q" + i).value, el("t" + i).value, el("p" + i).value]; }
 function same(a, b) { return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]; }
+// The case as a save writes it: empty quotes are the old ones, as in kept.
+function now(i) { var n = read(i); return [n[0] || O[i][0], n[1], n[2]]; }
+// The old quotes, clicked, become the new ones to edit.
+function take(i) {
+  var q = el("q" + i);
+  el("q" + i).value = O[i][0];
+  fit(q); q.focus(); edited(i);
+}
 function section(i) { return el("c" + i); }
 function status(m, failed) {
   var s = el("status");
@@ -346,7 +360,7 @@ function mark(i, state, m) {
 function key(i) { return "author:" + JSON.stringify([W[i], O[i]]); }
 function keep(i) {
   try {
-    if (same(read(i), O[i])) localStorage.removeItem(key(i));
+    if (same(now(i), O[i])) localStorage.removeItem(key(i));
     else localStorage.setItem(key(i), JSON.stringify(read(i)));
   } catch (e) {
     mark(i, "failed", "this browser would not keep the draft: " + e.message);
@@ -355,12 +369,12 @@ function keep(i) {
 }
 function edited(i) {
   keep(i);
-  if (same(read(i), O[i])) mark(i, "", "");
+  if (same(now(i), O[i])) mark(i, "", "");
   else if (!section(i).classList.contains("failed")) mark(i, "unsaved", "unsaved");
 }
 function pending() {
   var p = [];
-  for (var i in O) if (!same(read(i), O[i])) p.push(parseInt(i, 10));
+  for (var i in O) if (!same(now(i), O[i])) p.push(parseInt(i, 10));
   return p;
 }
 function saveOne(i) {
@@ -371,7 +385,9 @@ function saveOne(i) {
     .then(function (a) {
       if (!a.ok) { mark(i, "failed", "not saved: " + a.m); return false; }
       try { localStorage.removeItem(key(i)); } catch (e) {}
-      O[i] = n;
+      O[i] = now(i);
+      el("oq" + i).value = O[i][0]; fit(el("oq" + i));
+      el("q" + i).value = ""; fit(el("q" + i));
       keep(i);
       mark(i, "saved", a.m);
       return true;
@@ -450,8 +466,10 @@ document.addEventListener("DOMContentLoaded", function () {
   var all = document.querySelectorAll("textarea");
   for (var k = 0; k < all.length; k++) {
     fit(all[k]);
-    var i = parseInt(all[k].id.substring(1), 10);
-    all[k].addEventListener("input", (function (i) { return function (e) { fit(e.target); edited(i); }; })(i));
+    var old = all[k].readOnly;
+    var i = parseInt(all[k].id.substring(old ? 2 : 1), 10);
+    if (old) all[k].addEventListener("click", (function (i) { return function () { take(i); }; })(i));
+    else all[k].addEventListener("input", (function (i) { return function (e) { fit(e.target); edited(i); }; })(i));
     all[k].addEventListener("focus", (function (i) { return function () { select(i); }; })(i));
   }
 });

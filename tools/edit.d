@@ -90,6 +90,12 @@ struct Was {
     string pbt;
 }
 
+// What a save writes. Quotes are typed beside the ones they replace, so an
+// empty box keeps them; the note and the example are what was typed.
+Was kept(Was old, Was typed) {
+    return Was(typed.said.length > 0 ? typed.said : old.said, typed.prose, typed.pbt);
+}
+
 // Where a fixture's literal stands: the declaring line, the body lines, and
 // the line holding the closing mark. A one-line literal is all three at once.
 private struct Literal {
