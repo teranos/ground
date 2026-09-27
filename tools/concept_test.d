@@ -191,3 +191,6 @@ static assert(rank("ritual", "onoff") == rank("ritual", "proto_ritual") + 1);
 // The playbill is read in the control chapter, so a case quoting the operator
 // there is the control chapter's to set.
 static assert(chapterOf("playbill") == "control");
+
+// "this is another thing that ought to be in the book as part of rites in this case"
+static assert(chapterOf("noul") == "ritual");

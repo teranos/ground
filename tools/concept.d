@@ -98,7 +98,7 @@ immutable Owner[] owners = [
                           "dispatch", "ritual", "ritual_resolve", "proto_ritual",
                           "rite_script", "advance", "briefing", "choose", "contend",
                           "consent", "delivery", "notification", "reap", "apierror",
-                          "onoff"]),
+                          "onoff", "noul"]),
     // What a row is, where it goes, and how one comes back to the session.
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "loom", "stream"]),
 ];
