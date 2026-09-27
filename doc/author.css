@@ -22,7 +22,10 @@ div.row { display: flex; gap: var(--gap); align-items: flex-start; }
 /* A field is as tall as what it holds. Nothing scrolls inside a case. */
 textarea { font: 14px/1.5 var(--serif); padding: .5rem; border: 1px solid var(--rule);
            background: var(--paper); resize: none; overflow: hidden; box-sizing: border-box; }
-textarea.said { width: 50%; margin: 0 0 var(--gap) 25%; background: var(--card); display: block; }
+/* The quotes' box, where it always stood, split down the middle. */
+div.quotes { display: flex; width: 50%; margin: 0 0 var(--gap) 25%; }
+textarea.said { flex: 1 1 50%; min-width: 0; background: var(--card); }
+textarea.said.old { color: var(--muted); cursor: pointer; }
 textarea.pbt { flex: 0 0 52%; font: 14px/1.5 var(--mono); border-left: 2px solid var(--rule);
                white-space: pre; }
 textarea.prose { flex: 1; }

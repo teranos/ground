@@ -746,30 +746,30 @@ static assert(mcpBuilt.items[0].controls[1].mcpArg.value == "Bob");
 
 enum qntxInput = `
 attestation {
-  subject: "beacon:channel:1000000001"
+  subject: "beacon:channel:10001"
   predicate: "beacon:route"
-  context: "project:SBVH"
+  context: "project:dockyard"
   attributes: {
-    "chat_id": 1000000001,
-    "project": "SBVH",
+    "chat_id": 10001,
+    "project": "International Vessels",
     "chat_name": "Alice"
   }
 }
 
 attestation {
-  subject: "beacon:channel:1000000002"
+  subject: "beacon:channel:10002"
   predicate: "beacon:route"
-  context: "project:SBVH"
+  context: "project:lighthouse"
 }
 `;
 enum qntxParsed = parsePbt(qntxInput);
 static assert(qntxParsed.attestationCount == 2);
 static assert(qntxParsed.attestations[0].project == "");
-static assert(qntxParsed.attestations[0].subject == "beacon:channel:1000000001");
+static assert(qntxParsed.attestations[0].subject == "beacon:channel:10001");
 static assert(qntxParsed.attestations[0].predicate == "beacon:route");
-static assert(qntxParsed.attestations[0].context == "project:SBVH");
+static assert(qntxParsed.attestations[0].context == "project:dockyard");
 static assert(qntxParsed.attestations[0].attributes.length > 0);
-static assert(qntxParsed.attestations[1].subject == "beacon:channel:1000000002");
+static assert(qntxParsed.attestations[1].subject == "beacon:channel:10002");
 static assert(qntxParsed.attestations[1].predicate == "beacon:route");
 static assert(qntxParsed.attestations[1].attributes.length == 0);
 

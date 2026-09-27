@@ -34,6 +34,29 @@ static assert(has(PAGE_SCRIPT, "localStorage"));
 static assert(has(PAGE_SCRIPT, `e.key === "s"`));
 static assert(has(PAGE_SCRIPT, "e.metaKey"));
 
+// "i want the old text to always be there and the new text left of it, on save the old text should be replaced with the new"
+// "empty, but the old one needs to be copyable easily by just clicking on it"
+// "i was talking about the quotes"
+import editor : page, Row;
+enum onePage = page([Row("x_test.d", "ritual", `"said"`, "a note", "project {\n}")]);
+static assert(has(onePage, `<textarea class="said new" id="q0" autocomplete="off"></textarea>`));
+static assert(has(onePage, `<textarea class="said old" id="oq0" autocomplete="off" readonly>&quot;said&quot;</textarea>`));
+// "and when clicing on the old , i want it to set it to the new, so i can edit fast and save"
+static assert(has(PAGE_SCRIPT, `el("q" + i).value = O[i][0];`));
+static assert(!has(PAGE_SCRIPT, "clipboard"));
+
+// The example and the note are written over in place, as they always were.
+static assert(has(onePage, `<textarea class="pbt" id="p0" autocomplete="off">project {` ~ "\n" ~ `}</textarea>`));
+static assert(has(onePage, `<textarea class="prose" id="t0" autocomplete="off">a note</textarea>`));
+
+// A reload put back what each box held before, by position, so a page that
+// gained a box showed one case's example in another case's quotes.
+
+// Quotes left empty are quotes kept. The rest is saved as it was typed.
+import edit : Was, kept;
+static assert(kept(Was("q", "n", "p"), Was("", "N", "P")) == Was("q", "N", "P"));
+static assert(kept(Was("q", "n", "p"), Was("Q", "n", "p")) == Was("Q", "n", "p"));
+
 private bool has(string s, string n) {
     if (n.length > s.length) return false;
     foreach (i; 0 .. s.length - n.length + 1)
