@@ -284,6 +284,9 @@ struct ParsedRitual {
     // What kind of worktree it performs in. "empty" is an orphan onto the
     // empty tree, for a ritual with nothing to inspect.
     string tree;
+    // "the parameter is the rite" — where a live performance goes when the
+    // ritual fires again. Empty is every fire a performance of its own.
+    string regoto;
     string badKey;
     ParsedRiteRef[16] refs;
     size_t refCount;
@@ -574,6 +577,21 @@ Wrong validateRituals(PR)(const PR r) {
                                  refName, " needs ", need);
             }
         }
+    }
+
+    // A regoto is a goto, into the ritual's own rites: one naming nothing it
+    // performs is a jump into the dark.
+    foreach (i; 0 .. r.ritualCount) {
+        auto target = r.rituals[i].regoto;
+        if (target.length == 0) continue;
+        bool found = false;
+        foreach (j; 0 .. r.rituals[i].refCount)
+            foreach (m; 0 .. r.ritesCount)
+                if (r.rites[m].name == r.rituals[i].refs[j].name)
+                    foreach (n; 0 .. r.rites[m].riteCount)
+                        if (r.rites[m].rites[n].name == target) found = true;
+        if (!found)
+            return wrong("ritual ", r.rituals[i].name, ": regoto names no rite: ", target);
     }
 
     return Wrong();
@@ -1889,6 +1907,7 @@ ParsedRitual parseRitual(ref string input, ref size_t pos, string name, string p
                 auto val = readValue(input, pos);
                 if (refName == "system") r.system = val;
                 else if (refName == "tree") r.tree = val;
+                else if (refName == "regoto") r.regoto = val;
                 else r.badKey = refName;
                 continue;
             }
