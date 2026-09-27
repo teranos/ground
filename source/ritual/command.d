@@ -448,6 +448,20 @@ int handleRitual(int argc, const(char)** argv) {
         return 1;
     }
 
+    // "rituals off should mean totally off"
+    {
+        import ritual.onoff : offBecause;
+        auto odb = openDb();
+        auto off = offBecause(odb, projectPath);
+        if (odb !is null) sqlite3_close(odb);
+        if (off !is null) {
+            fputs("ground ritual: ", stderr);
+            fwrite(off.ptr, 1, off.length, stderr);
+            fputs("\n", stderr);
+            return 1;
+        }
+    }
+
     Staged st;
     auto p = preparePerformance(parsed, found.ritualIdx, root, cast(long) time(null), st);
 

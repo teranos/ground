@@ -22,6 +22,8 @@ struct Cue {
     // The repo a project names. Its scope carries no path, so without this the
     // cue stood everywhere while the ritual fired only in a checkout of it.
     string origin;
+    // The path the ritual's project is keyed on, which is what is on or off.
+    string project;
     string[8] cmds;
     ubyte cmdCount;
     // In walk order, which is the order a halt line counts to.
@@ -67,6 +69,7 @@ Bill cuesOf(PR)(const PR parsed) {
 
             foreach (ri; 0 .. parsed.ritualCount) {
                 if (parsed.rituals[ri].name != name) continue;
+                cue.project = parsed.rituals[ri].projectPath;
                 auto flat = flatten(parsed, ri);
                 foreach (k; 0 .. flat.count) cue.rites[k] = flat.rites[k].name;
                 cue.riteCount = flat.count;
@@ -260,6 +263,11 @@ size_t unsaidBillInto(DB)(DB db, const(char)[] sessionId, const(char)[] cwd, cha
             foreach (c; " | ") if (o < dest.length) dest[o++] = c;
         }
         o += cueInto(cue, dest[o .. $]);
+
+        import ritual.onoff : ritualsOn;
+        if (!ritualsOn(db, cue.project))
+            foreach (c; ", and rituals are off here: say rituals on to let it fire")
+                if (o < dest.length) dest[o++] = c;
     }
     return o;
 }
