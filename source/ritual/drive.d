@@ -267,6 +267,7 @@ int handleDrive(int argc, const(char)** argv) {
         import sentry : Envelope, report, performanceEnvelope, riteEnvelope;
         auto dsn = dsnOf(parsed, found.p.ritual);
         Envelope riteSaid;
+        Envelope jevSaid;
         bool riteRan = false;
 
         // When the walk arrived at the rite it stands on. The row does not keep
@@ -322,6 +323,8 @@ int handleDrive(int argc, const(char)** argv) {
                     said.jev = res.output;
                 riteRan = true;
                 riteSaid = riteEnvelope(dsn, cast(long) time(null), said);
+                import sentry : jevMetricsEnvelope;
+                jevSaid = jevMetricsEnvelope(dsn, cast(long) time(null), said);
             }
 
             // A held rite waits on the world, so asking twice a second is noise.
@@ -381,6 +384,7 @@ int handleDrive(int argc, const(char)** argv) {
         sqlite3_close(db);
         if (startNow) report(dsn, startSaid, found.p.parent, found.p.ritual);
         if (riteRan) report(dsn, riteSaid, found.p.parent, found.p.ritual);
+        if (riteRan && jevSaid.text().length > 0) report(dsn, jevSaid, found.p.parent, found.p.ritual);
         if (moved) nextSleep = 1;
         sleep(nextSleep);
     }

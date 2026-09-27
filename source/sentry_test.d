@@ -342,7 +342,24 @@ enum judged = () {
 static assert(contains(judged.text(), `"jev_type":{"value":"choice","type":"string"}`));
 static assert(contains(judged.text(), `"jev_choice":{"value":"TARGET","type":"string"}`));
 static assert(contains(judged.text(), `"jev_confidence":{"value":0.9300,"type":"double"}`));
-static assert(contains(judged.text(), `"jev_reply":{"value":"{\"model\":\"jev-1.13.0\"`));
+// The line carries the answers and nothing Sentry would filter; the usage
+// beside them goes as measurements on the performance's trace instead.
+static assert(contains(judged.text(), `"jev_reply":{"value":"{\"ROUTE\":{\"type\":\"choice\"`));
+static assert(!contains(judged.text(), `token`), "nothing on the log line for the scrubber");
+static assert(!contains(judged.text(), `usage`));
+
+import sentry : jevMetricsEnvelope;
+enum measured = () {
+    auto r = said("ROUTE", Verdict.Advance, 0);
+    r.jev = `{"model":"jev-1.13.0","answers":{"ROUTE":{"type":"choice","choice":"TARGET","confidence":0.93,"probabilities":{"TARGET":0.93,"VERSIONS":0.07}}},"usage":{"input_tokens":5556,"output_tokens":36}}`;
+    return jevMetricsEnvelope(sendDsn, 1000, r);
+}();
+static assert(contains(measured.text(), `"type":"trace_metric","item_count":2`));
+static assert(contains(measured.text(), `"name":"ground.jev.input","value":5556`));
+static assert(contains(measured.text(), `"name":"ground.jev.output","value":36`));
+static assert(contains(measured.text(), `"rite":{"value":"ROUTE","type":"string"}`));
+static assert(jevMetricsEnvelope(sendDsn, 1000, said("R", Verdict.Advance, 0)).text().length == 0,
+              "a rite Jev was not asked measures nothing");
 
 enum scored = () {
     auto r = said("IMPACT", Verdict.Advance, 0);

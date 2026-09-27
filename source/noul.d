@@ -95,6 +95,29 @@ struct JevAnswer {
     char[64] choiceBuf = 0;
     size_t choiceLen;
     const(char)[] choice() const return { return choiceBuf[0 .. choiceLen]; }
+    // What the asking cost, from the reply's usage; -1 when it carried none.
+    long inputTokens = -1;
+    long outputTokens = -1;
+}
+
+// The answers object of a reply, brace-matched, or the reply itself when it
+// has none. Sentry is sent this and not the usage beside it.
+const(char)[] answersOf(const(char)[] reply) {
+    import matcher : indexOf;
+    auto at = indexOf(reply, `"answers":`);
+    if (at < 0) return reply;
+    size_t i = cast(size_t) at + 10;
+    if (i >= reply.length || reply[i] != '{') return reply;
+    int depth = 0;
+    bool inString = false;
+    foreach (j; i .. reply.length) {
+        auto c = reply[j];
+        if (inString) { if (c == '\\') continue; if (c == '"') inString = false; continue; }
+        if (c == '"') inString = true;
+        else if (c == '{') depth++;
+        else if (c == '}') { depth--; if (depth == 0) return reply[i .. j + 1]; }
+    }
+    return reply;
 }
 
 // A decimal as Jev writes one: digits, a point, digits. No C call, so the
@@ -136,6 +159,10 @@ bool jevAnswer(const(char)[] reply, const(char)[] rite, ref JevAnswer a) {
     auto at = indexOf(reply, key[0 .. n]);
     if (at < 0) return false;
     auto obj = reply[cast(size_t) at + n .. $];
+
+    double used;
+    if (numberAfter(reply, `"input_tokens":`, used)) a.inputTokens = cast(long) used;
+    if (numberAfter(reply, `"output_tokens":`, used)) a.outputTokens = cast(long) used;
 
     auto t = indexOf(obj, `"type":"`);
     if (t < 0) return false;

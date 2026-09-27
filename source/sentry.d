@@ -572,7 +572,11 @@ Envelope riteEnvelope(const(char)[] dsn, long unixSeconds, const RiteReport r) {
                 e.putDouble("jev_confidence", a.confidence);
             }
         }
-        e.putAttr("jev_reply", r.jev);
+        // The answers alone. The usage beside them is a measurement, sent as
+        // one by jevMetricsEnvelope, and its key names got the whole reply
+        // filtered by Sentry on 2026-09-27.
+        import noul : answersOf;
+        e.putAttr("jev_reply", answersOf(r.jev));
     }
 
     // A list has no attribute type, so the codes go as the author wrote them.
@@ -593,6 +597,33 @@ Envelope riteEnvelope(const(char)[] dsn, long unixSeconds, const RiteReport r) {
     e.putFlag("max_goto_hit", r.gotoSpent);
     e.putFlag("max_evals_hit", r.evalsSpent, true);
     e.put(`}}]}` ~ "\n");
+    return e;
+}
+
+// What one asking of Jev cost, as two measurements on the performance's
+// trace. Empty when the rite was not Jev's or the reply carried no usage.
+Envelope jevMetricsEnvelope(const(char)[] dsn, long unixSeconds, const RiteReport r) {
+    import noul : jevAnswer, JevAnswer;
+    Envelope e;
+    if (r.jev.length == 0) return e;
+    JevAnswer a;
+    if (!jevAnswer(r.jev, r.rite, a)) return e;
+    if (a.inputTokens < 0 && a.outputTokens < 0) return e;
+
+    Batch!(3072) b;
+    void one(const(char)[] name, long value) {
+        auto m = metricItem(unixSeconds, r.performance, name, value, "none");
+        m.str("performance", r.performance);
+        m.str("ritual", r.ritual);
+        m.str("rite", r.rite);
+        m.str("jev_type", a.type);
+        m.close();
+        b.add(m.text());
+    }
+    if (a.inputTokens >= 0) one("ground.jev.input", a.inputTokens);
+    if (a.outputTokens >= 0) one("ground.jev.output", a.outputTokens);
+    e.len = envelopeInto(b, dsn, METRIC_CONTENT, METRIC_TYPE, e.buf[]);
+    e.over = b.over || e.len == 0;
     return e;
 }
 
