@@ -76,3 +76,261 @@ project {
 }
 `;
 static assert(validateRituals(parsePbt(badRegoto)).text() == "ritual deploy: regoto names no rite: nowhere");
+
+import ritual : secondFire, writePosition, start, RitualState;
+import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+
+private sqlite3* memDb() {
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    return db;
+}
+
+private void performing(sqlite3* db, string ritual, string id, RitualState st) {
+    auto p = start(ritual, 4);
+    p.id = id;
+    p.repo = "/alice/smartwatchapp";
+    p.rites = "STEP1,STEP2,STEP3,END";
+    p.state = st;
+    assert(writePosition(db, p));
+}
+
+unittest {
+    // A second fire of a ritual that opted in, with a performance of it live,
+    // starts nothing.
+    auto db = memDb();
+    performing(db, "stepcounter", "stepcounter-1000", RitualState.Live);
+    assert(secondFire(db, parsePbt(withRegoto), "stepcounter")
+           == "stepcounter-1000 is live, so no second performance of stepcounter starts");
+    sqlite3_close(db);
+}
+
+unittest {
+    // A performance that ended is not one a fire can land on.
+    auto db = memDb();
+    performing(db, "stepcounter", "stepcounter-1000", RitualState.Done);
+    assert(secondFire(db, parsePbt(withRegoto), "stepcounter") is null);
+    sqlite3_close(db);
+}
+
+unittest {
+    // Without regoto, every fire is its own performance, live one or not.
+    auto db = memDb();
+    performing(db, "deploy", "deploy-1000", RitualState.Live);
+    assert(secondFire(db, parsePbt(withoutRegoto), "deploy") is null);
+    sqlite3_close(db);
+}
+
+// The walk goes back like a goto, and what it counted starts over, so every
+// eval is asked again. What the rites were is left as it was.
+unittest {
+    import ritual : rewind, RiteState;
+    auto p = start("stepcounter", 4);
+    p.current = 3;
+    p.states[0] = RiteState.Passed;
+    p.states[1] = RiteState.Passed;
+    p.states[2] = RiteState.Passed;
+    p.gotos = 2; p.evals = 5; p.holds = 3; p.throws = 1;
+    p.states[3] = RiteState.Running;
+    auto q = rewind(p, 1);
+    assert(q.current == 1);
+    assert(q.gotos == 0 && q.evals == 0 && q.holds == 0 && q.throws == 0);
+    assert(q.state == RitualState.Live);
+    // What stands before the rite it went to keeps what it was. From there on
+    // every rite is to be walked again, so none of them is running or passed:
+    // W3 still drawn running beside W2 read as two rites live at once.
+    assert(q.states[0] == RiteState.Passed);
+    assert(q.states[1] == RiteState.Never);
+    assert(q.states[2] == RiteState.Never);
+    assert(q.states[3] == RiteState.Never);
+}
+
+// Real repos: a bare origin, a checkout that pushes, and a performance's tree
+// cut from that checkout the way ground cuts one.
+import core.stdc.stdlib : system, getenv;
+extern (C) char* mkdtemp(char* template_);
+
+// No GC under betterC, so every path and command is set into a buffer.
+private struct Buf {
+    char[1024] b = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < b.length - 1) b[n++] = c; }
+    const(char)[] text() const return { return b[0 .. n]; }
+    const(char)* z() return { b[n] = 0; return b.ptr; }
+}
+
+private void sh(A...)(A parts) {
+    // In a subshell, so a command's own redirect is not overruled by the
+    // silencing one after it: printf into a file wrote the file empty.
+    Buf c;
+    c.put("( ");
+    foreach (p; parts) c.put(p);
+    c.put(" )");
+    auto bare = c.n;
+    c.put(" >/dev/null 2>&1");
+    if (system(c.z()) == 0) return;
+    // Said again with its output, so a failure carries git's own reason.
+    c.n = bare;
+    cast(void) system(c.z());
+    assert(false, c.text());
+}
+
+import core.stdc.stdio : FILE;
+extern (C) FILE* popen(const(char)* command, const(char)* mode);
+extern (C) int pclose(FILE* stream);
+
+private Buf gitOut(A...)(const(char)[] tree, A args) {
+    import core.stdc.stdio : fread;
+    Buf c;
+    c.put("git -C '");
+    c.put(tree);
+    c.put("' ");
+    foreach (a; args) c.put(a);
+    auto f = popen(c.z(), "r");
+    Buf o;
+    o.n = fread(o.b.ptr, 1, o.b.length - 1, f);
+    pclose(f);
+    while (o.n > 0 && o.b[o.n - 1] == '\n') o.n--;
+    return o;
+}
+
+private struct Stage { Buf root, pusher, tree; }
+
+private Stage stage() {
+    Stage s;
+    auto base = getenv("TMPDIR");
+    size_t n;
+    if (base !is null) while (base[n]) n++;
+    const(char)[] dir = base is null ? "/tmp" : base[0 .. n];
+    if (dir.length > 0 && dir[$ - 1] == '/') dir = dir[0 .. $ - 1];
+    s.root.put(dir);
+    s.root.put("/ground-regoto-XXXXXX");
+    assert(mkdtemp(cast(char*) s.root.z()) !is null);
+    s.pusher.put(s.root.text());
+    s.pusher.put("/pusher");
+    s.tree.put(s.root.text());
+    s.tree.put("/pusher-stepcounter-1000");
+    auto root = s.root.text(), pusher = s.pusher.text(), tree = s.tree.text();
+    sh("git init -q --bare '", root, "/origin.git'");
+    sh("git clone -q '", root, "/origin.git' '", pusher, "'");
+    sh("git -C '", pusher, "' config user.name ground");
+    sh("git -C '", pusher, "' config user.email ground@example.invalid");
+    sh("git -C '", pusher, "' checkout -q -b main");
+    sh("printf 'one\\n' > '", pusher, "/steps.txt'");
+    sh("git -C '", pusher, "' add steps.txt");
+    sh("git -C '", pusher, "' commit -q -m one");
+    sh("git -C '", pusher, "' push -q origin main");
+    sh("git -C '", pusher, "' worktree add -q '", tree, "'");
+    return s;
+}
+
+// The second push: a change the performance's tree has not seen.
+private Buf push(ref Stage s, const(char)[] line) {
+    auto pusher = s.pusher.text();
+    sh("printf '", line, "\\n' >> '", pusher, "/steps.txt'");
+    sh("git -C '", pusher, "' commit -q -am ", line);
+    sh("git -C '", pusher, "' push -q origin main");
+    return gitOut(pusher, "rev-parse HEAD");
+}
+
+unittest {
+    // Work the agent had not committed is stashed, the push pulled, the work put back.
+    import ritual : moveTree;
+    auto s = stage();
+    sh("printf 'mine\\n' > '", s.tree.text(), "/notes.txt'");
+    auto commit = push(s, "two");
+    auto m = moveTree(s.tree.text(), "origin", "main", commit.text());
+    assert(m.ok, m.why());
+    assert(!m.thrown, "nothing conflicted, so the work was kept");
+    sh("git -C '", s.tree.text(), "' merge-base --is-ancestor ", commit.text(), " HEAD");
+    sh("test -f '", s.tree.text(), "/notes.txt'");
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // "maybe i just want it to throw the whole tree away and reinit"
+    // "or that can be a fallback"
+    import ritual : moveTree;
+    auto s = stage();
+    sh("printf 'mine\\n' > '", s.tree.text(), "/steps.txt'");
+    auto commit = push(s, "two");
+    auto m = moveTree(s.tree.text(), "origin", "main", commit.text());
+    assert(m.ok, m.why());
+    assert(m.thrown, "the unstash conflicted, so the tree was thrown away");
+    assert(m.why().length > 0, "and it says what git refused");
+    assert(gitOut(s.tree.text(), "rev-parse HEAD").text() == commit.text());
+    assert(gitOut(s.tree.text(), "status --porcelain").text() == "");
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // A tree that is gone cannot be moved, kept or thrown away.
+    import ritual : moveTree;
+    auto m = moveTree("/nonexistent/ground-regoto", "origin", "main", "0000000");
+    assert(!m.ok);
+    assert(m.why().length > 0);
+}
+
+unittest {
+    // The live performance lands on the regoto rite, its tree on the push.
+    import ritual : landOn, byPerformanceId;
+    auto s = stage();
+    auto db = memDb();
+    auto p = start("stepcounter", 4);
+    p.id = "stepcounter-1000";
+    p.repo = "/alice/smartwatchapp";
+    p.rites = "STEP1,STEP2,STEP3,END";
+    p.worktree = s.tree.text();
+    p.agentSession = "agent-1";
+    p.parent = "parent-1";
+    p.current = 3;
+    p.gotos = 2; p.evals = 4;
+    assert(writePosition(db, p));
+    auto commit = push(s, "two");
+
+    auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    Buf want;
+    want.put("stepcounter-1000 went to STEP2 at ");
+    want.put(commit.text()[0 .. 7]);
+    want.put(", the work in its tree kept");
+    assert(said == want.text(), said);
+    auto got = byPerformanceId(db, "stepcounter-1000");
+    assert(got.valid && got.p.current == 1 && got.p.gotos == 0 && got.p.evals == 0);
+    assert(got.p.state == RitualState.Live);
+
+    // The agent carrying it and the session owed its news are both told.
+    import immediate : readImmediateMessage;
+    assert(readImmediateMessage(db, "/tmp", "agent-1").message == want.text());
+    assert(readImmediateMessage(db, "/tmp", "parent-1").message == want.text());
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // A tree that cannot be moved halts the performance where it stands.
+    import ritual : landOn, byPerformanceId;
+    auto s = stage();
+    auto db = memDb();
+    auto p = start("stepcounter", 4);
+    p.id = "stepcounter-1000";
+    p.repo = "/alice/smartwatchapp";
+    p.rites = "STEP1,STEP2,STEP3,END";
+    p.worktree = "/nonexistent/ground-regoto";
+    p.agentSession = "agent-1";
+    p.parent = "parent-1";
+    p.current = 3;
+    assert(writePosition(db, p));
+    push(s, "two");
+
+    // The parent pushed again, so it hears it on its own push, not as a note.
+    auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "parent-1");
+    assert(said.length > 0);
+    auto got = byPerformanceId(db, "stepcounter-1000");
+    assert(got.valid && got.p.state == RitualState.Halted && got.p.current == 3);
+    import immediate : readImmediateMessage;
+    assert(readImmediateMessage(db, "/tmp", "agent-1").message == said);
+    assert(readImmediateMessage(db, "/tmp", "parent-1").message is null);
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}

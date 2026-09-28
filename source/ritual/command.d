@@ -453,13 +453,25 @@ int handleRitual(int argc, const(char)** argv) {
         import ritual.onoff : offBecause;
         auto odb = openDb();
         auto off = offBecause(odb, projectPath);
-        if (odb !is null) sqlite3_close(odb);
         if (off !is null) {
+            if (odb !is null) sqlite3_close(odb);
             fputs("ground ritual: ", stderr);
             fwrite(off.ptr, 1, off.length, stderr);
             fputs("\n", stderr);
             return 1;
         }
+        // A ritual with a regoto and a live performance starts no second one:
+        // the fire lands on the live one, its tree brought onto this one's.
+        import ritual.regoto : secondFire, landOn;
+        if (secondFire(odb, parsed, name, second) !is null) {
+            auto landed = landOn(odb, parsed, name, second, cwd);
+            if (odb !is null) sqlite3_close(odb);
+            fputs("ground ritual: ", stderr);
+            if (landed !is null) fwrite(landed.ptr, 1, landed.length, stderr);
+            fputs("\n", stderr);
+            return 1;
+        }
+        if (odb !is null) sqlite3_close(odb);
     }
 
     Staged st;

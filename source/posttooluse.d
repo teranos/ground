@@ -269,6 +269,20 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                             fputs("\n", stderr);
                             continue;
                         }
+                        // A ritual with a regoto and a live performance
+                        // starts no second one: the fire lands on the live
+                        // one instead. That is what it asked for, not an error.
+                        import ritual : secondFire, landOn;
+                        if (secondFire(edb, offParsed, c.ritual) !is null) {
+                            import core.stdc.stdio : fputs, stderr, fwrite;
+                            auto landed = landOn(edb, offParsed, c.ritual, "", where, sessionId);
+                            fputs("ground: ", stderr);
+                            fwrite(c.ritual.ptr, 1, c.ritual.length, stderr);
+                            fputs(" fired again: ", stderr);
+                            if (landed !is null) fwrite(landed.ptr, 1, landed.length, stderr);
+                            fputs("\n", stderr);
+                            continue;
+                        }
                     }
                     if (edb !is null && toolUseId.length > 0
                         && execFireExists(edb, c.name, sessionId, toolUseId))

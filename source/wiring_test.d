@@ -44,3 +44,13 @@ static assert(calls(commandSource, "offBecause("), "ground ritual asks before it
 // "it should be easy for me to switch, simply by saying the words"
 private enum userPromptSource = import("source/userprompt.d");
 static assert(calls(userPromptSource, "switched("), "the prompt is where the words are said");
+
+// A ritual that opted into regoto starts no second performance, from either
+// place a performance starts.
+static assert(calls(postToolUseSource, "secondFire("), "a control asks before it performs");
+static assert(calls(commandSource, "secondFire("), "ground ritual asks before it performs");
+
+// And the fire lands on the live one instead: its tree onto the push, its walk
+// to the regoto rite.
+static assert(calls(postToolUseSource, "landOn("), "a control's second fire lands on the live one");
+static assert(calls(commandSource, "landOn("), "ground ritual's second fire lands on the live one");
