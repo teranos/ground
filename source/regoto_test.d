@@ -9,6 +9,10 @@ import proto : parsePbt, validateRituals;
 // "the 2nd instance sees there is already one running, the ritual never runs"
 // "think of it like a goto"
 // "the parameter is the rite"
+// A second fire starts no performance. The live one's tree is brought onto the push, its walk goes to the named rite with its counts started over, and its agent and parent are told.
+// A fire after the regoto rite sends the walk back to it: regoto-walk on W3, pushed again, stood on W2 in the same row, its tree at the new push.
+// TODO open: a fire that lands before the regoto rite jumps forward to it, W1 to W2. Whether to keep that is undecided.
+// TODO open: without a tree of its own a regoto moves the checkout the ritual fired from. Whether the parser should refuse regoto without tree is undecided.
 enum withRegoto = `
 rites steps {
   STEP1 {
@@ -30,6 +34,7 @@ project {
 
   ritual stepcounter {
     regoto: STEP2
+    tree: "checkout"
     steps
   }
 }
@@ -107,7 +112,8 @@ unittest {
 }
 
 unittest {
-    // A performance that ended is not one a fire can land on.
+    // A performance that ended is not one a fire can land on. The next push
+    // after a walk has ended starts a new performance.
     auto db = memDb();
     performing(db, "stepcounter", "stepcounter-1000", RitualState.Done);
     assert(secondFire(db, parsePbt(withRegoto), "stepcounter") is null);
@@ -123,7 +129,7 @@ unittest {
 }
 
 // The walk goes back like a goto, and what it counted starts over, so every
-// eval is asked again. What the rites were is left as it was.
+// eval is asked again. The rites before it keep what they were.
 unittest {
     import ritual : rewind, RiteState;
     auto p = start("stepcounter", 4);
@@ -251,6 +257,7 @@ unittest {
 unittest {
     // "maybe i just want it to throw the whole tree away and reinit"
     // "or that can be a fallback"
+    // When the stash, pull or unstash fails, the tree is set to the push and cleaned; when that fails too, the performance halts where it stands.
     import ritual : moveTree;
     auto s = stage();
     sh("printf 'mine\\n' > '", s.tree.text(), "/steps.txt'");
@@ -300,6 +307,7 @@ unittest {
     assert(got.p.state == RitualState.Live);
 
     // The agent carrying it and the session owed its news are both told.
+    // TODO open: a note's id is its session and key, so a second regoto note to the same agent replaces the first before it is read.
     import immediate : readImmediateMessage;
     assert(readImmediateMessage(db, "/tmp", "agent-1").message == want.text());
     assert(readImmediateMessage(db, "/tmp", "parent-1").message == want.text());
@@ -323,7 +331,8 @@ unittest {
     assert(writePosition(db, p));
     push(s, "two");
 
-    // The parent pushed again, so it hears it on its own push, not as a note.
+    // The parent pushed again, so it hears it on its own push's hook output,
+    // not as a note.
     auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "parent-1");
     assert(said.length > 0);
     auto got = byPerformanceId(db, "stepcounter-1000");
