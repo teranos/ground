@@ -13,3 +13,4 @@ public import ritual.drive;     // the loop that keeps one moving
 public import ritual.intent;    // who is owed the news, before there is a row
 public import ritual.delivery;  // who a message is for, named not looked up
 public import ritual.onoff;     // rituals on, rituals off, per project
+public import ritual.regoto;    // a fire that lands on a live performance

@@ -194,3 +194,7 @@ static assert(chapterOf("playbill") == "control");
 
 // "this is another thing that ought to be in the book as part of rites in this case"
 static assert(chapterOf("noul") == "ritual");
+
+// What a second fire does is met beside whether a ritual fires at all.
+static assert(chapterOf("regoto") == "ritual");
+static assert(rank("ritual", "regoto") == rank("ritual", "onoff") + 1);

@@ -494,6 +494,30 @@ bool markEndingSaid(DB)(DB db, const(char)[] id) {
     return true;
 }
 
+// The performance of this ritual still being walked in its project, or null.
+const(char)[] liveOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import exec : emitError;
+
+    enum sql = "SELECT id FROM ritual_position WHERE ritual = ?1 AND repo = ?2 "
+        ~ "AND state = 'live' ORDER BY updated_at DESC LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        emitError("ritual.live.read", "could not ask whether a performance of the ritual is live",
+                  0, 0, "", cast(string) ritual, "", "", "");
+        return null;
+    }
+    sqlite3_bind_text(stmt, 1, ritual.ptr, cast(int) ritual.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, repo.ptr, cast(int) repo.length, SQLITE_TRANSIENT);
+
+    __gshared char[80] found = 0;
+    size_t n;
+    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    sqlite3_finalize(stmt);
+    return n > 0 ? found[0 .. n] : null;
+}
+
 // The rite already ran, so a write that lost its revision needs the current
 // one — not a second run of the rite.
 Restored byPerformanceId(DB)(DB db, const(char)[] id) {

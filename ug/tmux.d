@@ -417,45 +417,6 @@ void newsPass(const(char)[] home) {
     }
 }
 
-// `ug expand <name>` — what one item on the row is doing, for a popup. The row
-// has one line and cannot carry this, so a click is where it goes.
-int expandMain(const(char)[] home, const(char)[] name) {
-    import core.stdc.stdio : stdout, fwrite, fputs;
-    import probe : fetch;
-    import qntx : State;
-
-    if (name.length == 0) {
-        fputs("nothing to expand\n", stdout);
-        return 0;
-    }
-
-    __gshared char[512] path = void;
-    size_t p = 0;
-    foreach (c; "/am/statusline/") path[p++] = c;
-    foreach (c; name) {
-        if (p + 1 >= path.length) break;
-        // A name is a plugin's own, and anything that could steer the request
-        // elsewhere is not one.
-        if (c == '/' || c == '?' || c == '#' || c == '&' || c == ' ') continue;
-        path[p++] = c;
-    }
-
-    auto answer = fetch(home, path[0 .. p]);
-
-    if (answer.state != State.ok) {
-        fputs("QNTX did not answer for ", stdout);
-        fwrite(name.ptr, 1, name.length, stdout);
-        fputs("\n", stdout);
-        return 0;
-    }
-
-    // The body is JSON and a popup is a terminal, so it goes out as it came:
-    // readable, and nothing here pretending to format it.
-    fwrite(answer.body_.ptr, 1, answer.body_.length, stdout);
-    fputs("\n", stdout);
-    return 0;
-}
-
 // A status the node chose is more use than a word chosen for it.
 size_t statusInto(int status, char[] dest) {
     size_t o = 0;
