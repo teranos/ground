@@ -343,3 +343,48 @@ unittest {
     sqlite3_close(db);
     sh("rm -rf '", s.root.text(), "'");
 }
+
+// "for the live test you may create a ritual with W1, W2, W3 each taking 10 sec to complete"
+// "fires on push"
+// "like the deploy ritual"
+// "and happens for ground repo"
+// "THE REGOTO SHOULD BE W2"
+// "W4 IS ANOTHER 10 SEC"
+enum regotoWalk = `
+project {
+  path: "/teranos/ground"
+
+  control {
+    name: "regoto-walk"
+    event: "PostToolUse"
+    cmd: "git push"
+
+    ritual {
+      system: "You came into existence because of a git push to teranos/ground. You do nothing to the tree; each turn, say which rite the walk is on."
+      regoto: W2
+      tree: "checkout"
+
+      walk
+    }
+  }
+}
+
+rites walk {
+  W1 {
+    run: "sleep 10"
+  }
+  W2 {
+    run: "sleep 10"
+  }
+  W3 {
+    run: "sleep 10"
+  }
+  W4 {
+    run: "sleep 10"
+  }
+}
+`;
+static assert(parsePbt(regotoWalk).rituals[0].name == "regoto-walk");
+static assert(parsePbt(regotoWalk).rituals[0].regoto == "W2");
+static assert(parsePbt(regotoWalk).rituals[0].tree == "checkout");
+static assert(validateRituals(parsePbt(regotoWalk)).text() == "");
