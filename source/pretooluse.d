@@ -38,6 +38,23 @@ const(char)[] advisoryDecision(const(char)[] decision) {
     return "";
 }
 
+// What a file tool's call is answered with once both have spoken: the
+// permission for its path and the controls that matched it. A grant used to
+// answer first and return, so in auto mode no file control was ever asked.
+struct FileAnswer {
+    const(char)[] label;    // empty when neither spoke
+    const(char)[] decision;
+}
+
+FileAnswer fileAnswer(bool granted, bool controlsSpoke, const(char)[] controlDecision) {
+    if (controlsSpoke) {
+        if (controlDecision == "deny") return FileAnswer("file-control", "deny");
+        return FileAnswer("file-control", granted ? "allow" : advisoryDecision(controlDecision));
+    }
+    if (granted) return FileAnswer("file-perm-allow", "allow");
+    return FileAnswer("", "");
+}
+
 // --- JSON response writers (PreToolUse format) ---
 
 // The rewritten tool_input for the call in flight, computed once before any
@@ -735,6 +752,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     // Non-Bash tool — check permission deny rules (Read .env, secrets, etc.)
     auto filePath = extractFilePath(input);
+    bool granted = false;
     if (filePath !is null) {
         import controls : permissionScopes;
         import permission : evaluatePermission, Decision;
@@ -759,12 +777,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         // An allow was computed here and thrown away, so a write rule could
         // deny and never permit. Which meant where a session launched decided
         // whether an edit asked, and no rule could say otherwise.
+        // It is answered after the file controls, never before them: a grant
+        // that returned here left every control that would have denied unasked.
         if (permResult.decision == Decision.allow) {
-            exitLabel = "file-perm-allow";
+            granted = true;
             import fired : noteFiredNow;
             noteFiredNow(sessionId, "PreToolUse", "permission", permResult.name, "allow", cwd);
-            writeContextResponse("", "allow");
-            return 0;
         }
     }
 
@@ -958,9 +976,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         if (db !is null) sqlite3_close(db);
 
-        if (fileMsgBuf.len > 0) {
-            exitLabel = "file-control";
-            writeContextResponse(fileMsgBuf.slice(), advisoryDecision(fileDecision));
+        auto answer = fileAnswer(granted, fileMsgBuf.len > 0, fileDecision);
+        if (answer.label.length > 0) {
+            exitLabel = answer.label;
+            writeContextResponse(fileMsgBuf.len > 0 ? fileMsgBuf.slice() : "", answer.decision);
             return 0;
         }
     }
