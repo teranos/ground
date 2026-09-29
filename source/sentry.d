@@ -633,7 +633,7 @@ Envelope jevMetricsEnvelope(const(char)[] dsn, long unixSeconds, const RiteRepor
 // outranks how the ritual ended, because it is the one that costs the machine.
 Envelope performanceEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] performance,
                              const(char)[] ritual, const(char)[] state,
-                             const(char)[] agent = "") {
+                             const(char)[] agent = "", const(char)[] why = "") {
     Envelope e;
     bool leaked = agent.length > 0 && agent != "stopped";
     auto level = (leaked || state == "halted") ? "error" : state == "aborted" ? "warn" : "info";
@@ -646,10 +646,15 @@ Envelope performanceEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] 
         e.put(", agent ");
         e.putEscaped(agent);
     }
+    if (why.length > 0) {
+        e.put(": ");
+        e.putEscaped(why);
+    }
     e.put(`","attributes":{`);
     e.putAttr("performance", performance);
     e.putAttr("ritual", ritual);
     if (agent.length > 0) e.putAttr("agent", agent);
+    if (why.length > 0) e.putAttr("why", why);
     e.putAttr("state", state, true);
     e.put(`}}]}` ~ "\n");
     return e;
