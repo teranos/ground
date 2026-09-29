@@ -13,6 +13,38 @@ enum JEV_URL = "https://api.typesafe.ai/v1/systemone";
 enum JEV_TOKEN_PATH = "~/.qntx/jev-token";
 enum JEV_MODEL = "jev-latest";
 
+// "I AM ONLY INTERESTED IN JEV JUDGEMENT FOR THESE THINGS IF THE DIFF IS LESS THAN 120 LINES"
+enum JEV_MAX_DIFF_LINES = 120;
+bool jevReads(size_t diffLines) { return diffLines < JEV_MAX_DIFF_LINES; }
+
+// "IF MORE THAN X TOKENS, I WANT IT TO PASS ANYWAYS"
+bool overTokens(int status, const(char)[] reply) {
+    import matcher : indexOf;
+    return status == 400 && indexOf(reply, "max_tokens_exceeded") >= 0;
+}
+
+// The lines of the diff Jev would be sent.
+size_t diffLines(const(char)[] worktree) {
+    import db : popen, pclose;
+    import core.stdc.stdio : fread;
+    __gshared ZBuf cmd;
+    cmd.reset();
+    cmd.put("git -C '");
+    foreach (c; worktree) { if (c == '\'') cmd.put(`'\''`); else cmd.putChar(c); }
+    cmd.put("' diff HEAD~1 HEAD 2>/dev/null");
+    auto pipe = popen(cmd.ptr(), "r");
+    if (pipe is null) return 0;
+    size_t lines = 0;
+    char[4096] chunk;
+    for (;;) {
+        auto got = fread(&chunk[0], 1, chunk.length, pipe);
+        if (got == 0) break;
+        foreach (c; chunk[0 .. got]) if (c == '\n') lines++;
+    }
+    pclose(pipe);
+    return lines;
+}
+
 // The token, or null: no file at the path is no Jev, and no Jev is autopass.
 const(char)[] jevToken() {
     import attest : qntxToken;

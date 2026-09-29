@@ -202,3 +202,15 @@ unittest {
     assert(!jevAnswer(`{"answers":{"OTHER":{"type":"noul","noul":0.2}}}`, "NEEDED", a));
     assert(!jevAnswer(`{"error":"unauthorized"}`, "NEEDED", a));
 }
+
+// "I AM ONLY INTERESTED IN JEV JUDGEMENT FOR THESE THINGS IF THE DIFF IS LESS THAN 120 LINES"
+import noul : jevReads;
+static assert(jevReads(119));
+static assert(!jevReads(120));
+static assert(!jevReads(4000));
+
+// "IF MORE THAN X TOKENS, I WANT IT TO PASS ANYWAYS"
+import noul : overTokens;
+static assert(overTokens(400, `{"detail":{"error_type":"max_tokens_exceeded"}}`));
+static assert(!overTokens(400, `{"detail":{"error_type":"invalid_request"}}`));
+static assert(!overTokens(401, `{"detail":{"error_type":"max_tokens_exceeded"}}`));
