@@ -437,6 +437,14 @@ static assert(contains(refusedStop.text(), `"level":"error"`));
 // A start has no agent to have stopped, and says nothing about one.
 static assert(!contains(began.text(), `"agent":`));
 
+// "A DRIVER CANT EXIT WITHOUT TELLING"
+// "AND THE WAY A RITUAL RUN FINISHED NEEDS TO BE WRITTEN  AND NEEDS TO BE GOING TO SENTRY"
+enum treeGone = performanceEnvelope(sendDsn, 1000, "c-1", "c", "halted", "", "the tree is gone");
+static assert(contains(treeGone.text(), `"body":"c halted: the tree is gone"`));
+static assert(contains(treeGone.text(), `"level":"error"`));
+static assert(contains(treeGone.text(), `"why":{"value":"the tree is gone","type":"string"}`));
+static assert(!contains(began.text(), `"why":`));
+
 // "You know how something a msg appears about ground performance hook budgets?"
 // "it should send to sentry"
 // The notice a session reads once per window, kept where it can be counted:

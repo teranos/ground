@@ -44,7 +44,7 @@ private immutable string[3] VERDICT_WORD = ["advance", "hold", "halt"];
 
 RiteAttrs riteAttributes(const(char)[] performance, const(char)[] ritual,
                          const(char)[] rite, Verdict v, int code,
-                         const(char)[] output) {
+                         const(char)[] output, long diffLines = -1) {
     RiteAttrs a;
     a.put(`{"performance":"`);
     a.putEscaped(performance);
@@ -58,7 +58,12 @@ RiteAttrs riteAttributes(const(char)[] performance, const(char)[] ritual,
     a.putInt(code);
     a.put(`,"output":"`);
     a.putEscaped(output);
-    a.put(`"}`);
+    a.put(`"`);
+    if (diffLines >= 0) {
+        a.put(`,"diff_lines":`);
+        a.putInt(cast(int) diffLines);
+    }
+    a.put(`}`);
     return a;
 }
 
@@ -67,7 +72,7 @@ RiteAttrs riteAttributes(const(char)[] performance, const(char)[] ritual,
 // of them is a count of attempts.
 bool attestRite(DB)(DB db, const(char)[] sessionId, const Position p,
                     const(char)[] rite, Verdict v, int code,
-                    const(char)[] output, long unixSeconds) {
+                    const(char)[] output, long unixSeconds, long diffLines = -1) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
                 sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT,
                 formatTimestamp, versionString, ZBuf;
@@ -109,7 +114,7 @@ bool attestRite(DB)(DB db, const(char)[] sessionId, const Position p,
     srcBuf.put("ground ");
     srcBuf.put(versionString());
 
-    auto attrs = riteAttributes(p.id, p.ritual, rite, v, code, output);
+    auto attrs = riteAttributes(p.id, p.ritual, rite, v, code, output, diffLines);
     auto ts = formatTimestamp();
 
     sqlite3_stmt* stmt;

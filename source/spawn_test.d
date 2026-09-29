@@ -131,6 +131,53 @@ static assert(huge.text().length == 0);
 enum snug = spawnScript("/r", "p-1", "p-1", rep!(k1000, 7));
 static assert(snug.text().length > 0);
 
+// "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
+// "ITS THE SAME -BG SESSION THAT IS THE SAME ENTITY"
+enum again = spawnScript("/r", "", "p-4", "go", "", "", "2f7c2b1f-0762-47b4-8e87-13b41c67be5e");
+static assert(again.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "said=$(claude --bg --resume '2f7c2b1f-0762-47b4-8e87-13b41c67be5e' --permission-mode dontAsk 'go')\n"
+    ~ bound!("p-4"));
+
+// A ritual that has never run has no session to pick up, and starts one.
+static assert(spawnScript("/r", "", "p-2", "go", "", "", "").text() == here.text());
+
+// The session to pick up is the one that carried the ritual's latest
+// performance in its project. A performance whose agent was never bound
+// carried nobody.
+unittest {
+    import ritual : lastSessionOf, writePosition, start;
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    void performed(string ritual, string id, string session) {
+        auto p = start(ritual, 1);
+        p.id = id;
+        p.repo = "/src/proj";
+        p.rites = "START";
+        p.agentSession = session;
+        assert(writePosition(db, p));
+    }
+
+    assert(lastSessionOf(db, "probe", "/src/proj") is null);
+    performed("probe", "probe-1", "aaaa");
+    performed("probe", "probe-2", "bbbb");
+    performed("probe", "probe-3", "");
+    performed("other", "other-1", "cccc");
+    assert(lastSessionOf(db, "probe", "/src/proj") == "bbbb");
+    assert(lastSessionOf(db, "probe", "/src/else") is null);
+
+    // A dead performance halted after a later one started is not the later one.
+    import db : sqlite3_exec;
+    assert(sqlite3_exec(db, "UPDATE ritual_position SET updated_at = datetime('now', '+1 hour') WHERE id = 'probe-1'\0".ptr,
+                        null, null, null) == SQLITE_OK);
+    assert(lastSessionOf(db, "probe", "/src/proj") == "bbbb");
+    sqlite3_close(db);
+}
+
 // The ending ends the agent — reap_test.d, which selects on the session.
 
 // Ground opens no pull request and writes no commit. "making a PR at the end

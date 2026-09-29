@@ -49,6 +49,27 @@ Position rewind(Position p, size_t target) {
     return p;
 }
 
+// The performance as it stands now, sent to `target`. Anything may write the
+// row while its tree is moved, so it is read again for every try. Null is sent.
+const(char)[] sendBack(DB)(DB db, const(char)[] id, size_t target, ref Position landed) {
+    import ritual.store : byPerformanceId, writePositionIf;
+    import ritual.position : RitualState;
+    long tried = -1;
+    for (;;) {
+        auto now = byPerformanceId(db, id);
+        if (!now.valid) return "its row is gone";
+        if (now.p.state != RitualState.Live) return "it ended before it could be sent back";
+        // The same revision refused twice is a store that will not write.
+        if (now.p.rev == tried) return "the store would not write it";
+        tried = now.p.rev;
+        auto moved = rewind(now.p, target);
+        if (writePositionIf(db, moved, now.p.rev)) {
+            landed = moved;
+            return null;
+        }
+    }
+}
+
 // How a tree was brought onto a push. `thrown` is the fallback: the work in it
 // could not be kept, and `why` is what git said when it could not.
 struct Moved {
@@ -163,7 +184,8 @@ private const(char)[] trimmed(const(char)[] s) {
 // fired; the agent and the parent are told by note, unless one of them is it.
 const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualName,
                              const(char)[] project, const(char)[] where,
-                             const(char)[] speaker = "") {
+                             const(char)[] speaker = "",
+                             const(char)[] toolInput = "", const(char)[] toolOutput = "") {
     import ritual.resolve : chooseRitual, flatten, indexOfRite;
     import ritual.store : liveOf, byPerformanceId, writePositionIf;
     import ritual.position : step;
@@ -211,14 +233,24 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
 
     auto flat = flatten(r, chosen.ritualIdx);
     auto target = indexOfRite(flat, rit.regoto);
-    auto moved = rewind(p, target < 0 ? 0 : cast(size_t) target);
-    if (!writePositionIf(db, moved, p.rev)) {
+    Position moved;
+    auto refused = sendBack(db, p.id, target < 0 ? 0 : cast(size_t) target, moved);
+    if (refused !is null) {
         said.put(p.id);
-        said.put(" moved while its tree was brought onto the push, so it was not sent to ");
+        said.put(" was not sent to ");
         said.put(rit.regoto);
-        emitError("ritual.regoto.write", "the performance moved while a regoto was landing on it",
-                  0, 1, cast(string) p.parent, cast(string) rit.name, "", cast(string) p.id, "");
+        said.put(": ");
+        said.put(refused);
+        emitError("ritual.regoto.write", cast(string) said.text(),
+                  0, 1, cast(string) p.parent, cast(string) rit.name, "", cast(string) p.id,
+                  cast(string) refused);
+        cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), speaker);
         return said.text();
+    }
+    // "because the new one should be the one that is the change"
+    {
+        import ritual.store : setPush;
+        cast(void) setPush(db, p.id, branch is null ? "" : branch, toolInput, toolOutput);
     }
     said.put(p.id);
     said.put(" went to ");

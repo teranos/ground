@@ -167,14 +167,33 @@ int handleDrive(int argc, const(char)** argv) {
         }
     }
 
+    // "A DRIVER CANT EXIT WITHOUT TELLING"
+    // Why the walk was ended by the driver rather than by a rite, when it was.
+    const(char)[] endWhy = "";
+    bool storeSaid = false;
+
     for (;;) {
         auto db = openDb();
-        if (db is null) return 0;
+        if (db is null) {
+            // With no store the row cannot be ended, so the driver stays.
+            if (!storeSaid) {
+                import exec : emitError;
+                emitError("ritual.drive.store", "the driver cannot open the store, so its performance can neither be walked nor ended",
+                          0, 1, cast(string) owed, "", "", cast(string) perfId, "");
+                storeSaid = true;
+            }
+            sleep(nextSleep);
+            continue;
+        }
+        storeSaid = false;
         polls++;
         processSeen(db, record, cast(long) time(null));
 
         auto found = byPerformanceId(db, perfId);
         if (!found.valid) {
+            import exec : emitError;
+            emitError("ritual.drive.row", "the driver was started for a performance with no row, so it walked nothing",
+                      0, 1, cast(string) owed, "", "", cast(string) perfId, "");
             driverEnded(db, record, owed, perfId, "no performance by that id", polls, startedAt);
             sqlite3_close(db);
             return 0;
@@ -186,9 +205,17 @@ int handleDrive(int argc, const(char)** argv) {
         final switch (treeVerdict(access(treePath.ptr(), 0) == 0, sawTree)) {
         case TreeVerdict.Run:  sawTree = true; break;
         case TreeVerdict.Gone:
-            driverEnded(db, record, owed, perfId, "the tree is gone", polls, startedAt);
-            sqlite3_close(db);
-            return 0;
+            if (found.p.state == RitualState.Live) {
+                import ritual.store : writePositionIf;
+                import ritual.position : step;
+                if (!writePositionIf(db, step(found.p, Verdict.Halt), found.p.rev)) {
+                    sqlite3_close(db);
+                    continue;
+                }
+                found = byPerformanceId(db, perfId);
+                endWhy = "the tree is gone";
+            }
+            break;
         case TreeVerdict.Wait: sqlite3_close(db); sleep(1); continue;
         }
 
@@ -232,7 +259,7 @@ int handleDrive(int argc, const(char)** argv) {
                 auto dsn = dsnOf(parsed, found.p.ritual);
                 report(dsn, performanceEnvelope(dsn, cast(long) time(null), found.p.id,
                                                 found.p.ritual, endingWord(ended),
-                                                REAPED_WORD[cast(size_t) reaped]),
+                                                REAPED_WORD[cast(size_t) reaped], endWhy),
                        found.p.parent, found.p.ritual);
             }
 
@@ -255,6 +282,10 @@ int handleDrive(int argc, const(char)** argv) {
                     how.put(endingWord(ended));
                     how.put(", agent ");
                     how.put(REAPED_WORD[cast(size_t) reaped]);
+                    if (endWhy.length > 0) {
+                        how.put(": ");
+                        how.put(endWhy);
+                    }
                     driverEnded(edb, record, owed, perfId, how.slice(), polls, startedAt);
                     sqlite3_close(edb);
                 }
@@ -284,6 +315,20 @@ int handleDrive(int argc, const(char)** argv) {
             announced = true;
             startSaid = performanceEnvelope(dsn, cast(long) time(null), found.p.id,
                                             found.p.ritual, "started");
+        }
+
+        // "because the new one should be the one that is the change"
+        // Every rite runs under this process and reads its environment, so a
+        // push that landed on the walk reaches the rites from here.
+        {
+            import ritual.store : readPush;
+            import core.sys.posix.stdlib : setenv;
+            auto push = readPush(db, found.p.id);
+            if (push.found && push.branch().length > 0) {
+                setenv("GROUND_BRANCH", push.branch().ptr, 1);
+                setenv("GROUND_TOOL_INPUT", push.input().ptr, 1);
+                setenv("GROUND_TOOL_OUTPUT", push.output().ptr, 1);
+            }
         }
 
         // The runs this performance sent, asked after by the process that is

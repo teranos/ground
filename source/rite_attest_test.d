@@ -39,6 +39,17 @@ static assert(c.text() ==
     `{"performance":"p","ritual":"r","rite":"n",`
     ~ `"verdict":"advance","code":0,"output":"a\tb\rc"}`);
 
+// "IF YOU WANT TO BE HOENST ABOUT IT IT SHOULD ALWAYS BE ATTESTED"
+// A Jev rite carries the size of the diff, asked about or not.
+enum j = riteAttributes("q-deploy-1", "q-deploy", "JEV_CHOICE", Verdict.Advance, 0, "", 342);
+static assert(j.text() ==
+    `{"performance":"q-deploy-1","ritual":"q-deploy","rite":"JEV_CHOICE",`
+    ~ `"verdict":"advance","code":0,"output":"","diff_lines":342}`);
+
+// Every other rite has no diff to measure, and says nothing about one.
+static assert(riteAttributes("p", "r", "n", Verdict.Advance, 0, "", -1).text() ==
+    `{"performance":"p","ritual":"r","rite":"n","verdict":"advance","code":0,"output":""}`);
+
 // --- The row ---
 
 import ritual : attestRite, Position;

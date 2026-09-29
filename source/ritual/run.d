@@ -145,6 +145,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
 
     // Where a choice sent the walk. Empty for every other rite.
     const(char)[] chosen;
+    long jevLines = -1;
 
     // "a failed run: is critical enough for us not to want to continue and
     // return the error point blanc , keep the mic" — so nothing downstream of
@@ -213,22 +214,32 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                 cast(void) writeDispatchStatus(db, p.parent, t.repo, token.slice(), 0);
         }
     }
-    // "i want jev to tell me if a Rite needs to be ran or if we can just skip
-    // it". Jev is asked, not a process. "no Jev is autopass": without a token
-    // the rite advances and says so; with one, a refusal is a halt, since a
-    // tool that could not run has not answered. The verdict is the plain
-    // reading of the answer: a noul at or above 0.5 is yes; a score whose most
-    // probable level is the first criterion is the no; a choice names a rite.
+    // "AND IT NEEDS TO NOT JUDGE, JEV NEEDS TO NOT BE LOAD BEARING, ITS JUST FOR COLLECTING DATA"
+    // "EXISTING OPS NEED TO CONTINUE UNCHANGED"
+    // "I DONT WANT TO ACTUALLY BLOCK"
     else if (r.noul.length > 0 || r.score.length > 0 || r.choice.length > 0) {
-        import noul : jevToken, askJev, jevState, Wide, JEV_TOKEN_PATH;
+        import noul : jevToken, askJev, jevState, Wide, JEV_TOKEN_PATH,
+                      diffLines, jevReads, overTokens, JEV_MAX_DIFF_LINES;
         import git : getBranch;
         a.ran = true;
         auto type = r.noul.length > 0 ? "noul" : r.score.length > 0 ? "score" : "choice";
         auto instructions = r.noul.length > 0 ? r.noul : r.score.length > 0 ? r.score : r.choice;
         auto tok = jevToken();
+        auto lines = diffLines(p.worktree);
+        jevLines = cast(long) lines;
         if (tok is null) {
             a.verdict = Verdict.Advance;
             a.output = "no Jev token at " ~ JEV_TOKEN_PATH ~ ": autopass";
+        } else if (!jevReads(lines)) {
+            __gshared ZBuf big;
+            big.reset();
+            big.put("the diff is ");
+            putRev(big, cast(long) lines);
+            big.put(" lines, not less than ");
+            putRev(big, cast(long) JEV_MAX_DIFF_LINES);
+            big.put(": Jev was not asked, pass");
+            a.verdict = Verdict.Advance;
+            a.output = big.slice();
         } else {
             __gshared Wide state;
             __gshared char[8192] reply = 0;
@@ -238,20 +249,22 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                                 r.criteria[0 .. r.criteriaCount],
                                 r.choice.length > 0 ? r.criteriaKeys[0 .. r.criteriaCount] : [],
                                 tok, reply);
-            if (!asked.ok) {
-                a.verdict = Verdict.Halt;
+            if (!asked.ok && overTokens(asked.status, reply[0 .. asked.replyLen])) {
+                __gshared ZBuf over;
+                over.reset();
+                over.put(asked.why());
+                over.put(": pass");
+                a.verdict = Verdict.Advance;
+                a.output = over.slice();
+            } else if (!asked.ok) {
+                a.verdict = Verdict.Advance;
                 a.code = asked.status;
                 a.output = asked.why();
-                riteError(p, sessionId, "ritual.jev", "jev did not answer the rite",
+                riteError(p, sessionId, "ritual.jev", "jev did not answer the rite, and the walk went on",
                           asked.status, r.name, instructions, a.output);
             } else {
-                auto ans = asked.answer;
-                if (ans.type == "noul") a.verdict = ans.noul >= 0.5 ? Verdict.Advance : Verdict.Hold;
-                else if (ans.type == "score") a.verdict = ans.level == 0 ? Verdict.Hold : Verdict.Advance;
-                else { a.verdict = Verdict.Advance; chosen = ans.choice(); }
-                // The row keeps Jev's reply as Jev sent it, and no more: the
-                // buffer outlives the rite, and a shorter reply after a longer
-                // one left the longer one's tail in the row on 2026-09-26.
+                // What Jev would have decided is recorded, not acted on.
+                a.verdict = Verdict.Advance;
                 a.output = reply[0 .. asked.replyLen];
             }
         }
@@ -378,7 +391,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (!a.applied) return a;
     moved.rev = moved.rev + 1;
 
-    attestRite(db, sessionId, p, r.name, a.verdict, a.code, a.output, unixSeconds);
+    attestRite(db, sessionId, p, r.name, a.verdict, a.code, a.output, unixSeconds, jevLines);
 
     // "the outcome is what is spoken back into the mic to both the agent and
     // parent". Every rite that printed something speaks it, to its causer.
@@ -673,7 +686,8 @@ SpawnScript reapScript(const(char)[] agentSession) {
 
 SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
                         const(char)[] perfId, const(char)[] prompt,
-                        const(char)[] system = "", const(char)[] model = "") {
+                        const(char)[] system = "", const(char)[] model = "",
+                        const(char)[] resume = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
@@ -690,6 +704,12 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
         s.put(" ");
     }
     s.put("--bg ");
+    // "ITS THE SAME -BG SESSION THAT IS THE SAME ENTITY"
+    if (resume.length > 0) {
+        s.put("--resume ");
+        s.putQuoted(resume);
+        s.put(" ");
+    }
 
     // "permission should just never block". There is nobody at this session to
     // ask, and one asked anyway sits blocked until the machine runs out of

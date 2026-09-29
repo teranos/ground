@@ -128,6 +128,53 @@ unittest {
     sqlite3_close(db);
 }
 
+// The ADR-018 push landed on q-deploy-1790673902 in W500 and gave up: the row
+// was written again while the tree was being moved.
+unittest {
+    import ritual : sendBack, byPerformanceId, Position;
+    auto db = memDb();
+    performing(db, "stepcounter", "stepcounter-1000", RitualState.Live);
+    auto seen = byPerformanceId(db, "stepcounter-1000");
+    auto other = seen.p;
+    other.current = 3;
+    assert(writePosition(db, other), "somebody else writes the row");
+
+    Position landed;
+    assert(sendBack(db, "stepcounter-1000", 1, landed).length == 0);
+    auto got = byPerformanceId(db, "stepcounter-1000");
+    assert(got.p.current == 1 && got.p.state == RitualState.Live);
+    assert(landed.current == 1);
+    sqlite3_close(db);
+}
+
+// "because the new one should be the one that is the change"
+// The push a performance walks for is kept beside it, and only a push writes
+// it: a rite that finishes after a landing cannot put the old push back.
+unittest {
+    import ritual : setPush, readPush, byPerformanceId;
+    auto db = memDb();
+    performing(db, "stepcounter", "stepcounter-1000", RitualState.Live);
+    assert(setPush(db, "stepcounter-1000", "plugin-element", "git push", "a..b  plugin-element -> plugin-element"));
+    auto late = byPerformanceId(db, "stepcounter-1000").p;
+    late.branch = "github-service-root";
+    assert(writePosition(db, late));
+    auto push = readPush(db, "stepcounter-1000");
+    assert(push.branch() == "plugin-element");
+    assert(push.input() == "git push");
+    assert(push.output() == "a..b  plugin-element -> plugin-element");
+    sqlite3_close(db);
+}
+
+// A performance that ended while the tree was being moved is not sent back.
+unittest {
+    import ritual : sendBack, Position;
+    auto db = memDb();
+    performing(db, "stepcounter", "stepcounter-1000", RitualState.Halted);
+    Position landed;
+    assert(sendBack(db, "stepcounter-1000", 1, landed) == "it ended before it could be sent back");
+    sqlite3_close(db);
+}
+
 // The walk goes back like a goto, and what it counted starts over, so every
 // eval is asked again. The rites before it keep what they were.
 unittest {
@@ -296,12 +343,20 @@ unittest {
     assert(writePosition(db, p));
     auto commit = push(s, "two");
 
-    auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1",
+                       "git push", "pushed two");
     Buf want;
     want.put("stepcounter-1000 went to STEP2 at ");
     want.put(commit.text()[0 .. 7]);
     want.put(", the work in its tree kept");
     assert(said == want.text(), said);
+
+    // What walks from STEP2 on is the push that landed.
+    import ritual : readPush;
+    auto push = readPush(db, "stepcounter-1000");
+    assert(push.output() == "pushed two");
+    assert(push.input() == "git push");
+    assert(push.branch() == gitOut(s.pusher.text(), "rev-parse --abbrev-ref HEAD").text());
     auto got = byPerformanceId(db, "stepcounter-1000");
     assert(got.valid && got.p.current == 1 && got.p.gotos == 0 && got.p.evals == 0);
     assert(got.p.state == RitualState.Live);
