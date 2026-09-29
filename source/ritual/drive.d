@@ -317,6 +317,20 @@ int handleDrive(int argc, const(char)** argv) {
                                             found.p.ritual, "started");
         }
 
+        // "because the new one should be the one that is the change"
+        // Every rite runs under this process and reads its environment, so a
+        // push that landed on the walk reaches the rites from here.
+        {
+            import ritual.store : readPush;
+            import core.sys.posix.stdlib : setenv;
+            auto push = readPush(db, found.p.id);
+            if (push.found && push.branch().length > 0) {
+                setenv("GROUND_BRANCH", push.branch().ptr, 1);
+                setenv("GROUND_TOOL_INPUT", push.input().ptr, 1);
+                setenv("GROUND_TOOL_OUTPUT", push.output().ptr, 1);
+            }
+        }
+
         // The runs this performance sent, asked after by the process that is
         // waiting on them, rather than by a watcher that may not be there.
         cast(void) resolveOwed(db, found.p.id, cast(long) time(null));

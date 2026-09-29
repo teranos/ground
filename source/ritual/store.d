@@ -518,6 +518,75 @@ const(char)[] liveOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
     return n > 0 ? found[0 .. n] : null;
 }
 
+// The push a performance walks for: the one that started it, or the last one
+// that landed on it. Only a push writes these columns.
+bool setPush(DB)(DB db, const(char)[] id, const(char)[] branch,
+                 const(char)[] input, const(char)[] output) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+    import exec : emitError;
+
+    enum sql = "UPDATE ritual_position SET push_branch = ?2, push_input = ?3, push_output = ?4 "
+        ~ "WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        emitError("ritual.push.write", "could not keep the push a performance walks for",
+                  0, 0, "", "", "", cast(string) id, "");
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, branch.ptr, cast(int) branch.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, input.ptr, cast(int) input.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, output.ptr, cast(int) output.length, SQLITE_TRANSIENT);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE || sqlite3_changes(db) == 0) {
+        emitError("ritual.push.write", "the push a performance walks for did not land on its row",
+                  0, rc, "", "", "", cast(string) id, "");
+        return false;
+    }
+    return true;
+}
+
+struct Push {
+    import noul : Wide;
+    Wide* b, i, o;
+    bool found;
+    const(char)[] branch() const { return b.data[0 .. b.len]; }
+    const(char)[] input() const { return i.data[0 .. i.len]; }
+    const(char)[] output() const { return o.data[0 .. o.len]; }
+}
+
+Push readPush(DB)(DB db, const(char)[] id) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import noul : Wide;
+    import exec : emitError;
+
+    __gshared Wide b, i, o;
+    b.reset(); i.reset(); o.reset();
+    Push push = Push(&b, &i, &o, false);
+
+    enum sql = "SELECT push_branch, push_input, push_output FROM ritual_position WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return push;
+    sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        push.found = true;
+        void copy(ref Wide w, int col) {
+            auto t = sqlite3_column_text(stmt, col);
+            if (t !is null) for (size_t k = 0; t[k] != 0; k++) w.putChar(cast(char) t[k]);
+            w.data[w.len] = 0;
+        }
+        copy(b, 0); copy(i, 1); copy(o, 2);
+    }
+    sqlite3_finalize(stmt);
+    if (b.over || i.over || o.over)
+        emitError("ritual.push.read", "the push a performance walks for did not fit, so its rites would read part of it",
+                  0, 1, "", "", "", cast(string) id, "");
+    return push;
+}
+
 // "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
 // The session that carried this ritual's latest performance in its project.
 const(char)[] lastSessionOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {

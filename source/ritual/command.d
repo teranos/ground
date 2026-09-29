@@ -208,6 +208,10 @@ const(char)[] performFromControl(const(char)[] ritualName, const(char)[] session
     auto db = openDb();
     if (db is null) return "the store would not open";
     auto ok = writePosition(db, p);
+    if (ok) {
+        import ritual.store : setPush;
+        cast(void) setPush(db, p.id, p.branch, toolInput, toolOutput);
+    }
     sqlite3_close(db);
     if (!ok) return "the store refused the position; the error record has sqlite's code";
 

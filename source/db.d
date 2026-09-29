@@ -372,6 +372,10 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "ritual_position", "said", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "spoke", "INTEGER NOT NULL DEFAULT 0");
     ensureColumn(db, "ritual_position", "acted_at", "INTEGER NOT NULL DEFAULT 0");
+    // "because the new one should be the one that is the change"
+    ensureColumn(db, "ritual_position", "push_branch", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "ritual_position", "push_input", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "ritual_position", "push_output", "TEXT NOT NULL DEFAULT ''");
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";

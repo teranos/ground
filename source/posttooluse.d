@@ -275,7 +275,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import ritual : secondFire, landOn;
                         if (secondFire(edb, offParsed, c.ritual) !is null) {
                             import core.stdc.stdio : fputs, stderr, fwrite;
-                            auto landed = landOn(edb, offParsed, c.ritual, "", where, sessionId);
+                            auto landed = landOn(edb, offParsed, c.ritual, "", where, sessionId,
+                                                 input, toolOutput);
                             fputs("ground: ", stderr);
                             fwrite(c.ritual.ptr, 1, c.ritual.length, stderr);
                             fputs(" fired again: ", stderr);
