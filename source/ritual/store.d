@@ -518,6 +518,31 @@ const(char)[] liveOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
     return n > 0 ? found[0 .. n] : null;
 }
 
+// "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
+// The session that carried this ritual's latest performance in its project.
+const(char)[] lastSessionOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    import exec : emitError;
+
+    enum sql = "SELECT session FROM ritual_position WHERE ritual = ?1 AND repo = ?2 "
+        ~ "AND session != '' ORDER BY rowid DESC LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        emitError("ritual.session.read", "could not ask which session carried the ritual last",
+                  0, 0, "", cast(string) ritual, "", "", "");
+        return null;
+    }
+    sqlite3_bind_text(stmt, 1, ritual.ptr, cast(int) ritual.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, repo.ptr, cast(int) repo.length, SQLITE_TRANSIENT);
+
+    __gshared char[80] found = 0;
+    size_t n;
+    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    sqlite3_finalize(stmt);
+    return n > 0 ? found[0 .. n] : null;
+}
+
 // The rite already ran, so a write that lost its revision needs the current
 // one — not a second run of the rite.
 Restored byPerformanceId(DB)(DB db, const(char)[] id) {

@@ -686,7 +686,8 @@ SpawnScript reapScript(const(char)[] agentSession) {
 
 SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
                         const(char)[] perfId, const(char)[] prompt,
-                        const(char)[] system = "", const(char)[] model = "") {
+                        const(char)[] system = "", const(char)[] model = "",
+                        const(char)[] resume = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
@@ -703,6 +704,12 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
         s.put(" ");
     }
     s.put("--bg ");
+    // "ITS THE SAME -BG SESSION THAT IS THE SAME ENTITY"
+    if (resume.length > 0) {
+        s.put("--resume ");
+        s.putQuoted(resume);
+        s.put(" ");
+    }
 
     // "permission should just never block". There is nobody at this session to
     // ask, and one asked anyway sits blocked until the machine runs out of

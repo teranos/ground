@@ -95,11 +95,14 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
 
     import ritual.resolve : resolveModel, ModelInputs;
     ModelInputs inputs;
+    const(char)[] resume;
     {
         import db : openDb, sqlite3_close;
         import checks : lastCheck, Check;
+        import ritual.store : lastSessionOf;
         auto db = openDb();
         if (db !is null) {
+            resume = lastSessionOf(db, p.ritual, p.repo);
             __gshared Check plan;
             plan = lastCheck(db, "plan");
             inputs.planKnown = plan.found && plan.value.length > 0;
@@ -121,7 +124,7 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
                   0, 1, cast(string) p.parent, cast(string) p.ritual, "", "",
                   cast(string) choice.missing);
 
-    auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system, model);
+    auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system, model, resume);
     // No agent is better than a truncated one: the command that starts it
     // carries the briefing, and half a briefing is a different instruction.
     if (script.text().length == 0 || brief.over) {
