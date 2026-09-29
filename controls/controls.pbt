@@ -396,12 +396,6 @@ scope {
   event: "Stop"
 
   control {
-    name: "commit-means-done"
-    stop: ["want me to commit", "ready to commit", "shall I commit", "commit this", "and commit", "commit the change", "commit and push", "bump*and commit", "commit it"]
-    msg: "A commit means done — provably correct, verified, matching the developer's mental model. It is not a checkpoint, not a deploy, not a test run. Do not suggest committing. Only the developer decides when that bar is met."
-  }
-
-  control {
     name: "lazy-verify"
     stop: "Ready for you to verify"
     msg: "Do not ask the user to verify what you can verify yourself. Use your tools to verify as much as possible first. Only flag things that genuinely require human judgment or manual interaction."
