@@ -438,7 +438,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
             static immutable budgets = [
                 Budget("PreToolUse",       50_000),
                 Budget("PostToolUse",     400_000),
-                Budget("UserPromptSubmit", 50_000),
+                // "increase the budget alert hit to 60ms"
+                Budget("UserPromptSubmit", 60_000),
                 Budget("Stop",            300_000),
                 Budget("SessionStart",  2_000_000),
             ];
