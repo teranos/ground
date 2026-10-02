@@ -19,8 +19,6 @@ Read the following files:
 
 Read UNDERGROUND.md for ug, the statusline, ug/*.d
 
-Read bench.fish for CTFE scaling limits.
-
 The commands are the ground-commands skill, written by press from the
 modules that implement them.
 
