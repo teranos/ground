@@ -4,11 +4,26 @@ module lifecycle;
 // The watcher's and the driver's own record: when one started, for whom, that
 // it is still polling, and how it ended.
 
-import db : sqlite3;
+import db : sqlite3, sqlite3_stmt;
 
 // A poll is five seconds apart. Unseen for this long and not ended is a process
 // that died without a word.
 enum STALE_SEC = 10;
+
+// Who hears that the store refused a write to the process table: sentry, as a
+// worker's own failure is told. A test swaps it to listen.
+__gshared void function(const(char)[] origin, int rc) processRefused = &refusedToSentry;
+
+private void refusedToSentry(const(char)[] origin, int rc) {
+    import errors : GroundError, reportQuietly;
+    import core.stdc.time : time;
+    GroundError err;
+    err.origin = cast(string) origin;
+    err.message = "the store refused a write to the process table, so this process's record is missing or stale";
+    err.exitCode = rc;
+    err.timestamp = cast(long) time(null);
+    reportQuietly(err);
+}
 
 // One row per process. The row's id is the handle, since a pid is reused.
 long processStarted(sqlite3* db, const(char)[] kind, long pid, long ppid,
@@ -20,7 +35,11 @@ long processStarted(sqlite3* db, const(char)[] kind, long pid, long ppid,
     enum sql = "INSERT INTO process (kind, pid, ppid, who, tree, started_at, seen_at) "
         ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)\0";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    auto prc = sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null);
+    if (prc != SQLITE_OK) {
+        processRefused("lifecycle.started", prc);
+        return 0;
+    }
     sqlite3_bind_text(stmt, 1, kind.ptr, cast(int) kind.length, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, pid);
     sqlite3_bind_int64(stmt, 3, ppid);
@@ -29,55 +48,65 @@ long processStarted(sqlite3* db, const(char)[] kind, long pid, long ppid,
     sqlite3_bind_int64(stmt, 6, now);
     auto rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db) : 0;
+    if (rc != SQLITE_DONE) {
+        processRefused("lifecycle.started", rc);
+        return 0;
+    }
+    return sqlite3_last_insert_rowid(db);
+}
+
+// One statement whose step the store answered, refused out loud.
+private void stepOrSay(sqlite3* db, const(char)[] origin, const(char)* sql,
+                       scope void delegate(sqlite3_stmt*) bind) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_stmt,
+                SQLITE_OK, SQLITE_DONE;
+    sqlite3_stmt* stmt;
+    auto rc = sqlite3_prepare_v2(db, sql, -1, &stmt, null);
+    if (rc != SQLITE_OK) {
+        processRefused(origin, rc);
+        return;
+    }
+    bind(stmt);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) processRefused(origin, rc);
 }
 
 // Once a poll, so a row that stopped being seen can be told from one alive.
+// A record of 0 is a start the store refused, and that was said then.
 void processSeen(sqlite3* db, long id, long now) {
-    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
-                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK;
-
+    import db : sqlite3_bind_int64;
     if (id == 0) return;
     enum sql = "UPDATE process SET seen_at = ?2, polls = polls + 1 WHERE id = ?1\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
-    sqlite3_bind_int64(stmt, 1, id);
-    sqlite3_bind_int64(stmt, 2, now);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+    stepOrSay(db, "lifecycle.seen", sql.ptr, (sqlite3_stmt* stmt) {
+        sqlite3_bind_int64(stmt, 1, id);
+        sqlite3_bind_int64(stmt, 2, now);
+    });
 }
 
 // How it ended, in its own words, and how much it handed over on the way.
 void processEnded(sqlite3* db, long id, const(char)[] ended, long delivered, long now) {
-    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
-                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
-
+    import db : sqlite3_bind_text, sqlite3_bind_int64, SQLITE_TRANSIENT;
     if (id == 0) return;
     enum sql = "UPDATE process SET ended_at = ?2, ended = ?3, delivered = delivered + ?4, "
         ~ "seen_at = ?2 WHERE id = ?1\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
-    sqlite3_bind_int64(stmt, 1, id);
-    sqlite3_bind_int64(stmt, 2, now);
-    sqlite3_bind_text(stmt, 3, ended.ptr, cast(int) ended.length, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 4, delivered);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+    stepOrSay(db, "lifecycle.ended", sql.ptr, (sqlite3_stmt* stmt) {
+        sqlite3_bind_int64(stmt, 1, id);
+        sqlite3_bind_int64(stmt, 2, now);
+        sqlite3_bind_text(stmt, 3, ended.ptr, cast(int) ended.length, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 4, delivered);
+    });
 }
 
 // Ended by somebody else, who knows the pid and nothing more.
 void processKilled(sqlite3* db, long pid, const(char)[] why, long now) {
-    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
-                sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
-
+    import db : sqlite3_bind_text, sqlite3_bind_int64, SQLITE_TRANSIENT;
     enum sql = "UPDATE process SET ended_at = ?2, ended = ?3 WHERE pid = ?1 AND ended_at = 0\0";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return;
-    sqlite3_bind_int64(stmt, 1, pid);
-    sqlite3_bind_int64(stmt, 2, now);
-    sqlite3_bind_text(stmt, 3, why.ptr, cast(int) why.length, SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+    stepOrSay(db, "lifecycle.killed", sql.ptr, (sqlite3_stmt* stmt) {
+        sqlite3_bind_int64(stmt, 1, pid);
+        sqlite3_bind_int64(stmt, 2, now);
+        sqlite3_bind_text(stmt, 3, why.ptr, cast(int) why.length, SQLITE_TRANSIENT);
+    });
 }
 
 // Whether the newest row for a pid says it ended. A pid is reused, so only the
@@ -226,5 +255,42 @@ unittest {
     assert(watchingAt(db, "drive", "q-deploy-1", 3000).alive);
     assert(!watchingAt(db, "watch", "q-deploy-1", 3000).alive);
 
+    sqlite3_close(db);
+}
+
+unittest {
+    // A refused write to the process table returned 0 and said nothing, and
+    // every later write to record 0 did nothing either.
+    import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    __gshared int heard;
+    __gshared char[32] lastOrigin = 0;
+    __gshared size_t lastLen;
+    static void listen(const(char)[] origin, int rc) {
+        heard++;
+        lastLen = origin.length;
+        foreach (i, c; origin) lastOrigin[i] = c;
+    }
+    auto was = processRefused;
+    processRefused = &listen;
+    scope (exit) processRefused = was;
+
+    auto id = processStarted(db, "drive", 4545, 1, "q-deploy-1", "", 3000);
+    assert(id > 0);
+    processSeen(db, id, 3001);
+    assert(heard == 0, "a write that landed says nothing");
+
+    sqlite3_exec(db, "DROP TABLE process\0".ptr, null, null, null);
+    assert(processStarted(db, "drive", 4646, 1, "q-deploy-2", "", 3002) == 0);
+    assert(heard == 1 && lastOrigin[0 .. lastLen] == "lifecycle.started", "a refused start is said");
+    processSeen(db, id, 3003);
+    assert(heard == 2 && lastOrigin[0 .. lastLen] == "lifecycle.seen");
+    processEnded(db, id, "done", 0, 3004);
+    assert(heard == 3 && lastOrigin[0 .. lastLen] == "lifecycle.ended");
+    processKilled(db, 4545, "killed", 3005);
+    assert(heard == 4 && lastOrigin[0 .. lastLen] == "lifecycle.killed");
     sqlite3_close(db);
 }
