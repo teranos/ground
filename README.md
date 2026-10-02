@@ -86,7 +86,7 @@ Installs to `~/.local/bin/ground`. Override with `PREFIX=/usr/local make install
 
 ## How it works
 
-Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) across all events. Every event is attested with its full payload. Actions for command controls:
+Runs as a [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) across all events. Every event is attested with its full payload, and goes to QNTX without its tool payloads. Actions for command controls:
 
 - **arg** — insert missing arguments after the matched command
 - **omit** — strip unwanted flags from the command
