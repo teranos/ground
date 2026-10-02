@@ -65,6 +65,14 @@ void outerPhases(S)(ref S sink, Store s, long handlerUs, const(char)[] inner) {
 // each to the one before it. A zero stamp is a phase this exit never entered.
 void phaseChain(S)(ref S sink, long t0, const(string)[] keys, const(long)[] stamps,
                    long tEnd, const(char)[] exitLabel) {
+    phaseChainSpent(sink, t0, keys, stamps, null, null, null, tEnd, exitLabel);
+}
+
+// The chain, then what was spent inside it in pieces too many to stamp one by
+// one, and the slowest of those by name.
+void phaseChainSpent(S)(ref S sink, long t0, const(string)[] keys, const(long)[] stamps,
+                        const(string)[] spentKeys, const(long)[] spent,
+                        const(char)[] slowest, long tEnd, const(char)[] exitLabel) {
     long prev = t0;
     foreach (i, k; keys) {
         if (i >= stamps.length || stamps[i] == 0) continue;
@@ -73,6 +81,18 @@ void phaseChain(S)(ref S sink, long t0, const(string)[] keys, const(long)[] stam
         putUs(sink, stamps[i] - prev);
         sink.put(" ");
         prev = stamps[i];
+    }
+    foreach (i, k; spentKeys) {
+        if (i >= spent.length || spent[i] == 0) continue;
+        sink.put(k);
+        sink.put("=");
+        putUs(sink, spent[i]);
+        sink.put(" ");
+    }
+    if (slowest.length > 0) {
+        sink.put("slowest=");
+        sink.put(slowest);
+        sink.put(" ");
     }
     sink.put("total=");
     putUs(sink, tEnd - t0);
