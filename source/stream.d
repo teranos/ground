@@ -62,10 +62,17 @@ bool paceFailed(ref Pace p) {
 
 // A 2xx landed and a 4xx is the row's or the token's, and asking again changes
 // neither; the 4xx row stays pending with its status, for a person to read.
-// No answer, a code below zero and a 5xx are asked again after the backoff.
+// No answer, a code below zero and a 5xx are asked again after the backoff,
+// and so is a 429: the node saying come back later.
+// "it should be retryable"
+enum TOO_MANY = 429;
+
 bool retryable(int status) {
-    return status < 200 || status >= 500;
+    return status < 200 || status >= 500 || status == TOO_MANY;
 }
+
+// The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.
+enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
 
 // The attributes a row is posted with, in the same words decay uses on the
 // local copy, so what the node holds and what the store keeps after seven
@@ -94,7 +101,7 @@ enum SKELETON_SQL = "CASE json_extract(predicates, '$[0]') "
 // began, 2026-09-21, the day the stream landed.
 // "PreToolUse really used to run under 50ms"
 enum CLAIM_SQL = "UPDATE attestations SET qntx_at = -?1 WHERE rowid IN (SELECT rowid FROM attestations "
-    ~ "WHERE qntx_at <= 0 AND qntx_at = 0 AND NOT (qntx_status >= 400 AND qntx_status < 500) ORDER BY rowid LIMIT ?2)";
+    ~ "WHERE qntx_at <= 0 AND qntx_at = 0 AND NOT " ~ REFUSED_SQL ~ " ORDER BY rowid LIMIT ?2)";
 
 unittest {
     import db : sqlite3_open, sqlite3_close, applySchema, sqlite3_column_text;
@@ -294,8 +301,8 @@ struct Standing {
 
 Standing standing(sqlite3* db) {
     Standing s;
-    enum sql = "SELECT SUM(qntx_at = 0 AND NOT (qntx_status >= 400 AND qntx_status < 500)), "
-        ~ "SUM(qntx_at = 0 AND qntx_status >= 400 AND qntx_status < 500) "
+    enum sql = "SELECT SUM(qntx_at = 0 AND NOT " ~ REFUSED_SQL ~ "), "
+        ~ "SUM(qntx_at = 0 AND " ~ REFUSED_SQL ~ ") "
         ~ "FROM attestations WHERE qntx_at <= 0\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return s;
@@ -502,10 +509,11 @@ Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
         }
         p.grow = p.ok && claimed == take && !built.byteFull;
     } else {
-        // No answer, or a 5xx, is an outage and the rows wait it out. A 4xx
-        // for the whole list is the token or the request, and is said.
+        // No answer, a 5xx or a 429 is an outage and the rows wait it out.
+        // Any other 4xx for the whole list is the token or the request, and
+        // is said.
         p.ok = false;
-        if (r.status >= 400 && r.status < 500) {
+        if (!retryable(r.status)) {
             p.odd = true;
             p.say(reply[0 .. r.len]);
         } else if (r.status == 0) {
@@ -591,6 +599,10 @@ unittest {
     rowResolved(db, d.rowid, 503, false, 5000);
     assert(claimStream(db, 111, 10) == 1, "a 5xx is");
     claimReleased(db, 111);
+    rowResolved(db, d.rowid, 429, false, 5000);
+    assert(claimStream(db, 111, 10) == 1, "and a 429 is");
+    claimReleased(db, 111);
+    assert(standing(db).pending == 1 && standing(db).refused == 0, "a 429 is pending, not refused");
 
     auto s = standing(db);
     assert(s.pending == 1 && s.refused == 0);
@@ -615,6 +627,8 @@ unittest {
     assert(retryable(503));
     assert(!retryable(400));
     assert(!retryable(403));
+    // "it should be retryable"
+    assert(retryable(429), "the node is slow and this token sends the most; come back after Retry-After");
     assert(!retryable(201), "landed is not retried either; it is done");
 }
 
