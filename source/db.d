@@ -376,6 +376,8 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "ritual_position", "push_branch", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(db, "ritual_position", "push_input", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(db, "ritual_position", "push_output", "TEXT NOT NULL DEFAULT ''");
+    // The commit a fire left waiting for the rite in flight to end; empty when none.
+    ensureColumn(db, "ritual_position", "push_landing", "TEXT NOT NULL DEFAULT ''");
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";

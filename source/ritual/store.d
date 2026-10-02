@@ -518,12 +518,6 @@ const(char)[] liveOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
     return n > 0 ? found[0 .. n] : null;
 }
 
-// Whether the row was written by someone else since `p` was read.
-bool movedUnder(DB)(DB db, const Position p) {
-    auto now = byPerformanceId(db, p.id);
-    return now.valid && now.p.rev != p.rev;
-}
-
 // The push a performance walks for: the one that started it, or the last one
 // that landed on it. Only a push writes these columns.
 bool setPush(DB)(DB db, const(char)[] id, const(char)[] branch,
@@ -552,6 +546,56 @@ bool setPush(DB)(DB db, const(char)[] id, const(char)[] branch,
         return false;
     }
     return true;
+}
+
+// The commit a fire left waiting on the performance, for the driver to land
+// when the rite in flight ends. A newer fire replaces it.
+bool setLanding(DB)(DB db, const(char)[] id, const(char)[] commit) {
+    return landingWrite(db, "UPDATE ritual_position SET push_landing = ?2 WHERE id = ?1\0", id, commit);
+}
+
+// Cleared only if it is still the commit that landed, so a fire in between
+// keeps its own.
+bool clearLanding(DB)(DB db, const(char)[] id, const(char)[] commit) {
+    return landingWrite(db, "UPDATE ritual_position SET push_landing = '' WHERE id = ?1 AND push_landing = ?2\0",
+                        id, commit);
+}
+
+private bool landingWrite(DB)(DB db, const(char)[] sql, const(char)[] id, const(char)[] commit) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
+    import exec : emitError;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) {
+        emitError("ritual.landing.write", "could not keep the push waiting on a performance",
+                  0, 0, "", "", "", cast(string) id, "");
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, commit.ptr, cast(int) commit.length, SQLITE_TRANSIENT);
+    auto rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        emitError("ritual.landing.write", "the push waiting on a performance did not land on its row",
+                  0, rc, "", "", "", cast(string) id, "");
+        return false;
+    }
+    return true;
+}
+
+// The commit waiting on the performance, or empty.
+const(char)[] landingOf(DB)(DB db, const(char)[] id) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    __gshared char[64] found = 0;
+    enum sql = "SELECT push_landing FROM ritual_position WHERE id = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return "";
+    sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
+    size_t n;
+    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    sqlite3_finalize(stmt);
+    return found[0 .. n];
 }
 
 struct Push {

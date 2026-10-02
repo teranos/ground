@@ -51,89 +51,29 @@ Position rewind(Position p, size_t target) {
 
 // The performance as it stands now, sent to `target`. Anything may write the
 // row while its tree is moved, so it is read again for every try. Null is sent.
-const(char)[] sendBack(DB)(DB db, const(char)[] id, size_t target, ref Position landed) {
+const(char)[] sendBack(DB)(DB db, const(char)[] id, size_t target, ref Position landed,
+                           bool revive = false) {
     import ritual.store : byPerformanceId, writePositionIf;
     import ritual.position : RitualState;
     long tried = -1;
     for (;;) {
         auto now = byPerformanceId(db, id);
         if (!now.valid) return "its row is gone";
-        if (now.p.state != RitualState.Live) return "it ended before it could be sent back";
+        // A push that waited on the rite that ended the walk brings it back,
+        // unless the operator aborted it.
+        auto ended = now.p.state != RitualState.Live;
+        if (ended && !(revive && now.p.state != RitualState.Aborted))
+            return "it ended before it could be sent back";
         // The same revision refused twice is a store that will not write.
         if (now.p.rev == tried) return "the store would not write it";
         tried = now.p.rev;
         auto moved = rewind(now.p, target);
+        moved.state = RitualState.Live;
         if (writePositionIf(db, moved, now.p.rev)) {
             landed = moved;
             return null;
         }
     }
-}
-
-// The pids one command prints, one a line, into `pids`.
-private size_t pidsFrom(const(char)[] command, int[] pids) {
-    import core.stdc.stdio : fread;
-    __gshared char[512] cmd = 0;
-    size_t n;
-    foreach (c; command) if (n < cmd.length - 1) cmd[n++] = c;
-    cmd[n] = 0;
-    auto pipe = popen(&cmd[0], "r");
-    if (pipe is null) return 0;
-    char[1024] out_ = 0;
-    size_t got;
-    for (;;) {
-        auto r = fread(&out_[got], 1, out_.length - got, pipe);
-        if (r == 0) break;
-        got += r;
-        if (got >= out_.length) break;
-    }
-    pclose(pipe);
-    size_t count;
-    int v = 0;
-    bool any = false;
-    foreach (c; out_[0 .. got]) {
-        if (c >= '0' && c <= '9') { v = v * 10 + (c - '0'); any = true; continue; }
-        if (any && count < pids.length) pids[count++] = v;
-        v = 0;
-        any = false;
-    }
-    if (any && count < pids.length) pids[count++] = v;
-    return count;
-}
-
-// Everything under `pid`, deepest first, and not `pid` itself.
-private void killBelow(int pid) {
-    import core.sys.posix.signal : kill, SIGTERM;
-    char[64] cmd = 0;
-    size_t n;
-    foreach (c; "pgrep -P ") cmd[n++] = c;
-    char[12] d = 0;
-    size_t dl;
-    int v = pid;
-    do { d[dl++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
-    foreach_reverse (i; 0 .. dl) cmd[n++] = d[i];
-    int[64] children;
-    auto count = pidsFrom(cmd[0 .. n], children[]);
-    foreach (child; children[0 .. count]) {
-        killBelow(child);
-        kill(child, SIGTERM);
-    }
-}
-
-// "yes, kill the rite in flight on regoto"
-// The rite the driver is running, and whatever that started. The driver
-// itself stays, and walks on from where the row now stands.
-void killRiteInFlight(const(char)[] perfId) {
-    __gshared char[256] cmd = 0;
-    size_t n;
-    void put(const(char)[] s) { foreach (c; s) if (n < cmd.length) cmd[n++] = c; }
-    // The bracket keeps this search's own shell from matching itself.
-    put("pgrep -f '[g]round drive ");
-    put(perfId);
-    put("'");
-    int[8] drivers;
-    auto count = pidsFrom(cmd[0 .. n], drivers[]);
-    foreach (driver; drivers[0 .. count]) killBelow(driver);
 }
 
 // How a tree was brought onto a push. `thrown` is the fallback: the work in it
@@ -243,20 +183,15 @@ private const(char)[] trimmed(const(char)[] s) {
     return s;
 }
 
-// The fire that landed on a live performance: its tree brought onto the push
-// the fire came from, and its walk sent to the regoto rite. A tree that cannot
-// be moved halts the performance where it stands, in front of its parent.
-// `speaker` is the session whose fire this was. It hears the sentence where it
-// fired; the agent and the parent are told by note, unless one of them is it.
+// The fire that landed on a live performance. The push is kept on the row and
+// left waiting: the rite in flight runs on in a tree nobody moves, and the
+// driver lands the push when that rite ends. The sentence is for the pusher.
 const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualName,
                              const(char)[] project, const(char)[] where,
                              const(char)[] speaker = "",
                              const(char)[] toolInput = "", const(char)[] toolOutput = "") {
-    import ritual.resolve : chooseRitual, flatten, indexOfRite;
-    import ritual.store : liveOf, byPerformanceId, writePositionIf;
-    import ritual.position : step;
-    import ritual.delivery : deliver, PARENT;
-    import rite : Verdict;
+    import ritual.resolve : chooseRitual;
+    import ritual.store : liveOf, byPerformanceId, setPush, setLanding;
     import git : getBranch;
     import exec : emitError;
 
@@ -280,29 +215,90 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
     commit = commitBuf[0 .. commit.length];
     auto branch = getBranch(where);
 
-    Moved m;
-    if (commit.length == 0) m.say("the fire's tree has no commit: ");
-    else m = moveTree(p.worktree, "origin", branch is null ? "" : branch, commit);
+    said.put(p.id);
+    if (commit.length == 0) {
+        said.put(" was not sent to ");
+        said.put(rit.regoto);
+        said.put(": the fire's tree has no commit");
+        emitError("ritual.regoto.commit", cast(string) said.text(), 0, 1, cast(string) speaker,
+                  cast(string) rit.name, "", cast(string) p.id, cast(string) where);
+        return said.text();
+    }
+    // "because the new one should be the one that is the change"
+    cast(void) setPush(db, p.id, branch is null ? "" : branch, toolInput, toolOutput);
+    if (!setLanding(db, p.id, commit)) {
+        said.put(" was not sent to ");
+        said.put(rit.regoto);
+        said.put(": the push could not be kept waiting on it");
+        return said.text();
+    }
+    said.put(" goes to ");
+    said.put(rit.regoto);
+    said.put(" when the rite it is on ends");
+    return said.text();
+}
 
+// "But regoto should wait for the existing rite to finish and then resolve"
+// The driver's half, between rites: the tree onto the waiting push and the walk
+// to the regoto rite. Null when nothing waits.
+const(char)[] resolveLanding(DB, PR)(DB db, auto ref const PR r, const(char)[] perfId) {
+    import ritual.resolve : chooseRitual, flatten, indexOfRite;
+    import ritual.store : byPerformanceId, writePositionIf, landingOf, clearLanding, readPush;
+    import ritual.position : step, RitualState;
+    import ritual.delivery : deliver, PARENT;
+    import rite : Verdict;
+    import exec : emitError;
+
+    auto waiting = landingOf(db, perfId);
+    if (waiting.length == 0) return null;
+    __gshared char[64] commitBuf = 0;
+    foreach (i, c; waiting) commitBuf[i] = c;
+    auto commit = commitBuf[0 .. waiting.length];
+
+    auto found = byPerformanceId(db, perfId);
+    if (!found.valid) return null;
+    auto p = found.p;
+    __gshared Line said;
+    said.len = 0;
+    said.put(p.id);
+
+    if (p.state == RitualState.Aborted) {
+        cast(void) clearLanding(db, perfId, commit);
+        said.put(" was aborted, so the push that waited on it did not land");
+        cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), "");
+        return said.text();
+    }
+    auto chosen = chooseRitual(r, p.ritual, "");
+    if (!chosen.ok) {
+        cast(void) clearLanding(db, perfId, commit);
+        said.put(": its ritual is no longer declared, so the push that waited on it did not land");
+        emitError("ritual.regoto.ritual", cast(string) said.text(), 0, 1, cast(string) p.parent,
+                  cast(string) p.ritual, "", cast(string) p.id, "");
+        return said.text();
+    }
+    auto rit = r.rituals[chosen.ritualIdx];
+
+    auto push = readPush(db, perfId);
+    auto m = moveTree(p.worktree, "origin", push.branch(), commit);
     if (!m.ok) {
         auto halted = step(p, Verdict.Halt);
         cast(void) writePositionIf(db, halted, p.rev);
-        said.put(p.id);
+        cast(void) clearLanding(db, perfId, commit);
         said.put(" halted: its tree could not be brought onto the push: ");
         said.put(m.why());
         emitError("ritual.regoto.tree", "a regoto could not bring the performance's tree onto the push",
                   0, 1, cast(string) p.parent, cast(string) rit.name, "", cast(string) p.id,
                   cast(string) m.why());
-        cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), speaker);
+        cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), "");
         return said.text();
     }
 
     auto flat = flatten(r, chosen.ritualIdx);
     auto target = indexOfRite(flat, rit.regoto);
     Position moved;
-    auto refused = sendBack(db, p.id, target < 0 ? 0 : cast(size_t) target, moved);
+    auto refused = sendBack(db, p.id, target < 0 ? 0 : cast(size_t) target, moved, true);
+    cast(void) clearLanding(db, perfId, commit);
     if (refused !is null) {
-        said.put(p.id);
         said.put(" was not sent to ");
         said.put(rit.regoto);
         said.put(": ");
@@ -310,16 +306,9 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
         emitError("ritual.regoto.write", cast(string) said.text(),
                   0, 1, cast(string) p.parent, cast(string) rit.name, "", cast(string) p.id,
                   cast(string) refused);
-        cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), speaker);
+        cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), "");
         return said.text();
     }
-    // "because the new one should be the one that is the change"
-    {
-        import ritual.store : setPush;
-        cast(void) setPush(db, p.id, branch is null ? "" : branch, toolInput, toolOutput);
-    }
-    killRiteInFlight(p.id);
-    said.put(p.id);
     said.put(" went to ");
     said.put(rit.regoto);
     said.put(" at ");
@@ -328,6 +317,6 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
         said.put(", its tree thrown away onto the push: ");
         said.put(m.why());
     } else said.put(", the work in its tree kept");
-    cast(void) deliver(db, moved, PARENT, "ritual-regoto", said.text(), speaker);
+    cast(void) deliver(db, moved, PARENT, "ritual-regoto", said.text(), "");
     return said.text();
 }

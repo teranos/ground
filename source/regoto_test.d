@@ -165,22 +165,6 @@ unittest {
     sqlite3_close(db);
 }
 
-// "yes, kill the rite in flight on regoto"
-// The driver's rite came back after a regoto moved the row: what it says is
-// about a place the walk has left, so the driver drops it and walks on.
-unittest {
-    import ritual : movedUnder, byPerformanceId;
-    auto db = memDb();
-    performing(db, "stepcounter", "stepcounter-1000", RitualState.Live);
-    auto held = byPerformanceId(db, "stepcounter-1000").p;
-    assert(!movedUnder(db, held), "nobody else wrote it");
-    auto other = held;
-    other.current = 1;
-    assert(writePosition(db, other), "a regoto writes the row");
-    assert(movedUnder(db, held));
-    sqlite3_close(db);
-}
-
 // A performance that ended while the tree was being moved is not sent back.
 unittest {
     import ritual : sendBack, Position;
@@ -342,42 +326,83 @@ unittest {
     assert(m.why().length > 0);
 }
 
-unittest {
-    // The live performance lands on the regoto rite, its tree on the push.
-    import ritual : landOn, byPerformanceId;
-    auto s = stage();
-    auto db = memDb();
+private Position walking(const(char)[] tree) {
     auto p = start("stepcounter", 4);
     p.id = "stepcounter-1000";
     p.repo = "/alice/smartwatchapp";
     p.rites = "STEP1,STEP2,STEP3,END";
-    p.worktree = s.tree.text();
+    p.worktree = tree;
     p.agentSession = "agent-1";
     p.parent = "parent-1";
     p.current = 3;
     p.gotos = 2; p.evals = 4;
-    assert(writePosition(db, p));
+    return p;
+}
+import ritual : Position;
+
+unittest {
+    // "because the new one should be the one that is the change"
+    // Two pushes while one rite runs: the newer is the one that waits.
+    import ritual : landOn, landingOf;
+    auto s = stage();
+    auto db = memDb();
+    assert(writePosition(db, walking(s.tree.text())));
+    push(s, "two");
+    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    auto newer = push(s, "three");
+    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    assert(landingOf(db, "stepcounter-1000") == newer.text());
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // "But regoto should wait for the existing rite to finish and then resolve"
+    // The fire leaves the push waiting on the row. The rite in flight runs on in
+    // a tree nobody moves, and the walk stays where it is.
+    import ritual : landOn, byPerformanceId, readPush, landingOf;
+    auto s = stage();
+    auto db = memDb();
+    assert(writePosition(db, walking(s.tree.text())));
+    auto before = gitOut(s.tree.text(), "rev-parse HEAD");
     auto commit = push(s, "two");
 
     auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1",
                        "git push", "pushed two");
+    assert(said == "stepcounter-1000 goes to STEP2 when the rite it is on ends", said);
+    assert(landingOf(db, "stepcounter-1000") == commit.text());
+    auto push = readPush(db, "stepcounter-1000");
+    assert(push.output() == "pushed two" && push.input() == "git push");
+    auto got = byPerformanceId(db, "stepcounter-1000");
+    assert(got.p.current == 3 && got.p.gotos == 2, "the walk is not moved under the rite");
+    assert(gitOut(s.tree.text(), "rev-parse HEAD").text() == before.text(), "the tree is not moved under the rite");
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // Once the rite has ended the driver resolves it: the tree onto the push,
+    // the walk to the regoto rite, and the agent and the parent told.
+    import ritual : landOn, resolveLanding, byPerformanceId, landingOf;
+    auto s = stage();
+    auto db = memDb();
+    assert(writePosition(db, walking(s.tree.text())));
+    auto commit = push(s, "two");
+    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+
+    auto said = resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000");
     Buf want;
     want.put("stepcounter-1000 went to STEP2 at ");
     want.put(commit.text()[0 .. 7]);
     want.put(", the work in its tree kept");
     assert(said == want.text(), said);
-
-    // What walks from STEP2 on is the push that landed.
-    import ritual : readPush;
-    auto push = readPush(db, "stepcounter-1000");
-    assert(push.output() == "pushed two");
-    assert(push.input() == "git push");
-    assert(push.branch() == gitOut(s.pusher.text(), "rev-parse --abbrev-ref HEAD").text());
     auto got = byPerformanceId(db, "stepcounter-1000");
-    assert(got.valid && got.p.current == 1 && got.p.gotos == 0 && got.p.evals == 0);
+    assert(got.p.current == 1 && got.p.gotos == 0 && got.p.evals == 0);
     assert(got.p.state == RitualState.Live);
+    assert(gitOut(s.tree.text(), "rev-parse HEAD").text() == commit.text());
+    assert(landingOf(db, "stepcounter-1000").length == 0, "landed once");
+    assert(resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000") is null, "nothing waits");
 
-    // The agent carrying it and the session owed its news are both told.
     // TODO open: a note's id is its session and key, so a second regoto note to the same agent replaces the first before it is read.
     import immediate : readImmediateMessage;
     assert(readImmediateMessage(db, "/tmp", "agent-1").message == want.text());
@@ -387,33 +412,75 @@ unittest {
 }
 
 unittest {
-    // A tree that cannot be moved halts the performance where it stands.
-    import ritual : landOn, byPerformanceId;
+    // The rite in flight ended the walk while the push waited. The push still
+    // applies: the walk is brought back to the regoto rite.
+    import ritual : landOn, resolveLanding, byPerformanceId;
     auto s = stage();
     auto db = memDb();
-    auto p = start("stepcounter", 4);
-    p.id = "stepcounter-1000";
-    p.repo = "/alice/smartwatchapp";
-    p.rites = "STEP1,STEP2,STEP3,END";
-    p.worktree = "/nonexistent/ground-regoto";
-    p.agentSession = "agent-1";
-    p.parent = "parent-1";
-    p.current = 3;
-    assert(writePosition(db, p));
+    assert(writePosition(db, walking(s.tree.text())));
     push(s, "two");
+    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    auto ended = byPerformanceId(db, "stepcounter-1000").p;
+    ended.state = RitualState.Done;
+    assert(writePosition(db, ended));
 
-    // The parent pushed again, so it hears it on its own push's hook output,
-    // not as a note.
-    auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "parent-1");
+    assert(resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000") !is null);
+    auto got = byPerformanceId(db, "stepcounter-1000");
+    assert(got.p.state == RitualState.Live && got.p.current == 1);
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // An abort is the operator's, and a push does not undo it.
+    import ritual : landOn, resolveLanding, byPerformanceId, landingOf;
+    auto s = stage();
+    auto db = memDb();
+    assert(writePosition(db, walking(s.tree.text())));
+    push(s, "two");
+    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    auto aborted = byPerformanceId(db, "stepcounter-1000").p;
+    aborted.state = RitualState.Aborted;
+    assert(writePosition(db, aborted));
+
+    auto said = resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000");
+    assert(said == "stepcounter-1000 was aborted, so the push that waited on it did not land", said);
+    assert(byPerformanceId(db, "stepcounter-1000").p.state == RitualState.Aborted);
+    assert(landingOf(db, "stepcounter-1000").length == 0);
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}
+
+unittest {
+    // A tree that cannot be moved halts the performance where it stands.
+    import ritual : landOn, resolveLanding, byPerformanceId;
+    auto s = stage();
+    auto db = memDb();
+    assert(writePosition(db, walking("/nonexistent/ground-regoto")));
+    push(s, "two");
+    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "parent-1");
+
+    auto said = resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000");
     assert(said.length > 0);
     auto got = byPerformanceId(db, "stepcounter-1000");
     assert(got.valid && got.p.state == RitualState.Halted && got.p.current == 3);
     import immediate : readImmediateMessage;
     assert(readImmediateMessage(db, "/tmp", "agent-1").message == said);
-    assert(readImmediateMessage(db, "/tmp", "parent-1").message is null);
+    assert(readImmediateMessage(db, "/tmp", "parent-1").message == said);
     sqlite3_close(db);
     sh("rm -rf '", s.root.text(), "'");
 }
+
+// The driver resolves a waiting push between rites, and a fire kills nothing.
+private enum driveSource = import("source/ritual/drive.d");
+private enum regotoSource = import("source/ritual/regoto.d");
+private bool has(const(char)[] hay, const(char)[] needle) {
+    foreach (i; 0 .. hay.length < needle.length ? 0 : hay.length - needle.length + 1)
+        if (hay[i .. i + needle.length] == needle) return true;
+    return false;
+}
+static assert(has(driveSource, "resolveLanding("), "the driver lands a waiting push between rites");
+static assert(!has(regotoSource, "kill("), "a fire does not kill the rite in flight");
 
 // "for the live test you may create a ritual with W1, W2, W3 each taking 10 sec to complete"
 // "fires on push"

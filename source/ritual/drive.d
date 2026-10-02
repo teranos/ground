@@ -219,8 +219,26 @@ int handleDrive(int argc, const(char)** argv) {
         case TreeVerdict.Wait: sqlite3_close(db); sleep(1); continue;
         }
 
+        // "But regoto should wait for the existing rite to finish and then resolve"
+        // Here no rite is running: a push that waited on one lands now.
+        {
+            import ritual.regoto : resolveLanding;
+            if (resolveLanding(db, parsed, perfId) !is null) {
+                sqlite3_close(db);
+                continue;
+            }
+        }
+
         if (found.p.state != RitualState.Live) {
             auto ended = found.p.state;
+            // A push that landed after the look above is still owed its landing.
+            {
+                import ritual.store : landingOf;
+                if (ended != RitualState.Aborted && landingOf(db, perfId).length > 0) {
+                    sqlite3_close(db);
+                    continue;
+                }
+            }
             auto repo = found.p.repo;
             auto tree = found.p.worktree;
             const(char)[] declaredTree = "";
