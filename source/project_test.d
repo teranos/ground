@@ -112,8 +112,7 @@ static assert(projectWithEnvParsed.envs[0].count == 1);
 // "isnt there a top level place where its actually defined"
 // The node every project attests to is named once, at the top level, the way
 // sentry is: its url and the file holding the token it is spoken to with. A
-// project says nothing about the node; what it can say is what of QNTX runs
-// beside its checkout.
+// project says nothing about the node.
 enum backedInput = `
 qntx {
   url: "https://qntx.alice.example"
@@ -130,19 +129,13 @@ enum backedParsed = parsePbt(backedInput);
 static assert(backedParsed.qntx.present);
 static assert(backedParsed.qntx.url == "https://qntx.alice.example");
 static assert(backedParsed.qntx.token == "~/.qntx/ground-token");
-static assert(!backedParsed.projects[0].qntx.present, "the project names no loom");
-static assert(backedParsed.projects[0].qntx.loomPortUDP == 0);
 
-// "loom is a qntx plugin thing, and we arent using it today"
-// "if set, we send to loom, if not set, we dont."
+// "I'm saying, I want to kill it, and make sure QNTX takes over"
+// "All the UDP machinery can also go given how sky handles it"
+// A project's qntx block named the loom's port and nothing else. With the loom
+// gone a project names nothing of QNTX, and a port named anywhere is refused.
 enum loomInput = `
-qntx {
-  url: "https://qntx.alice.example"
-  token: "~/.qntx/ground-token"
-}
-
 project {
-  origin: "alice/QNTX"
   path: "/Users/Alice/projects/QNTX"
 
   qntx {
@@ -150,16 +143,11 @@ project {
   }
 }
 `;
-enum loomParsed = parsePbt(loomInput);
-static assert(loomParsed.projects[0].qntx.present);
-static assert(loomParsed.projects[0].qntx.loomPortUDP == 19470);
-
-// The port is where a hook in this project sends; a hook elsewhere sends nowhere.
-import ritual : loomPortAt;
-static assert(loomPortAt(loomParsed, "/Users/Alice/projects/QNTX") == 19470);
-static assert(loomPortAt(loomParsed, "/Users/Alice/projects/QNTX/server") == 19470);
-static assert(loomPortAt(loomParsed, "/Users/Alice/projects/other") == 0);
-static assert(loomPortAt(backedParsed, "/Users/Alice/projects/QNTX") == 0);
+static assert(!__traits(compiles, { enum bad = parsePbt(loomInput); }));
+static assert(!__traits(compiles, { enum bad = parsePbt(`qntx {
+  url: "https://qntx.alice.example"
+  loomPortUDP: "19470"
+}`); }));
 
 // No node named anywhere: nothing is posted, and nothing pretends to be.
 enum nodelessParsed = parsePbt(`project { path: "/p" }`);

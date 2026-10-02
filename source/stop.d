@@ -25,39 +25,6 @@ void putInt(ref ZBuf buf, long v) {
     foreach (i; 0 .. dLen) buf.putChar(digits[dLen - 1 - i]);
 }
 
-// Notify loom of hook output so it appears as [hook] in weaves — the loom the
-// project names, and none otherwise.
-void notifyLoomHook(const(char)[] cwd, const(char)[] sessionId, const(char)[] message) {
-    import loom : sendToLoom, loomSaid;
-    import controls : loomPortHere;
-    import db : jsonArray1, buildSubject;
-    auto port = loomPortHere(cwd);
-    if (port == 0) return;
-    auto branch = getBranch(cwd);
-    if (branch is null) branch = "unknown";
-
-    __gshared ZBuf subjects, predicates, contexts, attrBuf, subjectVal;
-    buildSubject(subjectVal, cwd, branch);
-    jsonArray1(subjects, subjectVal.slice());
-    jsonArray1(predicates, "Hook");
-
-    contexts.reset();
-    contexts.put(`["session:`);
-    contexts.put(sessionId);
-    contexts.put(`"]`);
-
-    attrBuf.reset();
-    attrBuf.put(`{"hook_output":"`);
-    foreach (c; message) {
-        if (c == '"') attrBuf.put(`\"`);
-        else if (c == '\\') attrBuf.put(`\\`);
-        else attrBuf.putChar(c);
-    }
-    attrBuf.put(`"}`);
-
-    loomSaid(sendToLoom(port, subjects, predicates, contexts, attrBuf.slice()), sessionId);
-}
-
 // Claude Code renders \n in reason as literal "\n", not as a line break.
 void writeStopResponse(const(char)[] reason) {
     fputs(`{"decision":"block","reason":"`, stdout);
@@ -83,15 +50,6 @@ void writeStopEnded(V)(const(char)[] ritual, V state) {
     fputs(state == RitualState.Aborted ? ` was aborted.` : ` ended.`, stdout);
     fputs(` This performance is over."}`, stdout);
     fputs("\n", stdout);
-}
-
-// cwd/sessionId stashed by handleStop so writeStopResponse callers don't need them
-__gshared const(char)[] g_cwd;
-__gshared const(char)[] g_sessionId;
-
-void writeStopResponseAndNotify(const(char)[] reason) {
-    writeStopResponse(reason);
-    notifyLoomHook(g_cwd, g_sessionId, reason);
 }
 
 // The briefing is the agent's keep-going signal. A ritual performs in the
@@ -123,9 +81,6 @@ bool ritualPending(const(char)[] cwd) {
 
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     auto t0 = usecNow();
-
-    g_cwd = cwd;
-    g_sessionId = sessionId;
 
     // The claim is for the watcher this Stop spawns, in case its stdin carries
     // no session. That watcher replaces the previous one itself: killing it
@@ -254,7 +209,6 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 if (!asked) return 0;
                 auto brief = briefing(found.p, flat);
                 writeStopContinue(brief.text());
-                notifyLoomHook(cwd, sessionId, brief.text());
                 return 0;
             }
         }
@@ -327,7 +281,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     }
                     sqlite3_close(db);
                     import matcher : envSubst;
-                    writeStopResponseAndNotify(envSubst(c.msg.value, cwd));
+                    writeStopResponse(envSubst(c.msg.value, cwd));
                     return 0;
                 }
             }
@@ -372,7 +326,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                 }
                 auto msg = buildUnreadClaimMessage(unread[0 .. unreadCount]);
                 sqlite3_close(db);
-                writeStopResponseAndNotify(msg.slice());
+                writeStopResponse(msg.slice());
                 return 0;
             }
         }
@@ -413,7 +367,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         noteFired(db, sessionId, "Stop", "control", c.name, "deliver", cwd);
                     }
                     sqlite3_close(db);
-                    writeStopResponseAndNotify(delivered);
+                    writeStopResponse(delivered);
                     return 0;
                 }
             }
@@ -495,7 +449,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                             cast(void) leave(db, sessionId, "warn", it, now);
                         }
                         sqlite3_close(db);
-                        writeStopResponseAndNotify(timingMsg.slice());
+                        writeStopResponse(timingMsg.slice());
                         return 0;
                     }
                 }

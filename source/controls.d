@@ -153,30 +153,8 @@ const(char)[] dsnHere(const(char)[] cwd) {
     return dsnAt(_sentryView, cwd);
 }
 
-// "if set, we send to loom, if not set, we dont."
-// The loom port of the project this cwd is in, or 0.
-import proto : ParsedQntx;
-private struct LoomView(size_t N) {
-    struct Place { string path; ParsedQntx qntx; }
-    Place[N] projects;
-    size_t projectCount;
-}
-private static immutable _loomView = () {
-    LoomView!(allParsed.projects.length) v;
-    foreach (i; 0 .. allParsed.projectCount) {
-        v.projects[i].path = allParsed.projects[i].path;
-        v.projects[i].qntx = allParsed.projects[i].qntx;
-    }
-    v.projectCount = allParsed.projectCount;
-    return v;
-}();
-
-int loomPortHere(const(char)[] cwd) {
-    import ritual.resolve : loomPortAt;
-    return loomPortAt(_loomView, cwd);
-}
-
 // The one node, as the top-level qntx block names it. url empty is no node.
+import proto : ParsedQntx;
 static immutable ParsedQntx qntxNode = allParsed.qntx;
 
 // Global strop pool. Control.stropIdx is a 1-based index into this array.

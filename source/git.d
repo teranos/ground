@@ -29,7 +29,7 @@ const(char)[] cwdTail(const(char)[] path) {
     return path[prev .. $];
 }
 
-// Build subject as "parent/repo:branch" for attestations and loom UDP.
+// Build subject as "parent/repo:branch" for attestations.
 // Uses the git repo root (not raw cwd) so subdirectories don't change the subject.
 void buildSubject(ref ZBuf buf, const(char)[] cwd, const(char)[] branch) {
     buf.reset();
