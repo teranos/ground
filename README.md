@@ -105,7 +105,7 @@ Ground stops rather than degrades. Its attestation store is a hard dependency: a
 
 ## Why D
 
-D with `-betterC`, compiled with LDC. 4.9MB binary. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage.
+D with `-betterC`, compiled with LDC. The binary's size is its controls. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage.
 
 Latency is per event, not a single figure. Run `ground profile` to see it for your own install; the numbers below are one machine over 30 days.
 
