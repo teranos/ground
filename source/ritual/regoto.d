@@ -70,6 +70,72 @@ const(char)[] sendBack(DB)(DB db, const(char)[] id, size_t target, ref Position 
     }
 }
 
+// The pids one command prints, one a line, into `pids`.
+private size_t pidsFrom(const(char)[] command, int[] pids) {
+    import core.stdc.stdio : fread;
+    __gshared char[512] cmd = 0;
+    size_t n;
+    foreach (c; command) if (n < cmd.length - 1) cmd[n++] = c;
+    cmd[n] = 0;
+    auto pipe = popen(&cmd[0], "r");
+    if (pipe is null) return 0;
+    char[1024] out_ = 0;
+    size_t got;
+    for (;;) {
+        auto r = fread(&out_[got], 1, out_.length - got, pipe);
+        if (r == 0) break;
+        got += r;
+        if (got >= out_.length) break;
+    }
+    pclose(pipe);
+    size_t count;
+    int v = 0;
+    bool any = false;
+    foreach (c; out_[0 .. got]) {
+        if (c >= '0' && c <= '9') { v = v * 10 + (c - '0'); any = true; continue; }
+        if (any && count < pids.length) pids[count++] = v;
+        v = 0;
+        any = false;
+    }
+    if (any && count < pids.length) pids[count++] = v;
+    return count;
+}
+
+// Everything under `pid`, deepest first, and not `pid` itself.
+private void killBelow(int pid) {
+    import core.sys.posix.signal : kill, SIGTERM;
+    char[64] cmd = 0;
+    size_t n;
+    foreach (c; "pgrep -P ") cmd[n++] = c;
+    char[12] d = 0;
+    size_t dl;
+    int v = pid;
+    do { d[dl++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+    foreach_reverse (i; 0 .. dl) cmd[n++] = d[i];
+    int[64] children;
+    auto count = pidsFrom(cmd[0 .. n], children[]);
+    foreach (child; children[0 .. count]) {
+        killBelow(child);
+        kill(child, SIGTERM);
+    }
+}
+
+// "yes, kill the rite in flight on regoto"
+// The rite the driver is running, and whatever that started. The driver
+// itself stays, and walks on from where the row now stands.
+void killRiteInFlight(const(char)[] perfId) {
+    __gshared char[256] cmd = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < cmd.length) cmd[n++] = c; }
+    // The bracket keeps this search's own shell from matching itself.
+    put("pgrep -f '[g]round drive ");
+    put(perfId);
+    put("'");
+    int[8] drivers;
+    auto count = pidsFrom(cmd[0 .. n], drivers[]);
+    foreach (driver; drivers[0 .. count]) killBelow(driver);
+}
+
 // How a tree was brought onto a push. `thrown` is the fallback: the work in it
 // could not be kept, and `why` is what git said when it could not.
 struct Moved {
@@ -252,6 +318,7 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
         import ritual.store : setPush;
         cast(void) setPush(db, p.id, branch is null ? "" : branch, toolInput, toolOutput);
     }
+    killRiteInFlight(p.id);
     said.put(p.id);
     said.put(" went to ");
     said.put(rit.regoto);

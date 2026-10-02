@@ -165,6 +165,22 @@ unittest {
     sqlite3_close(db);
 }
 
+// "yes, kill the rite in flight on regoto"
+// The driver's rite came back after a regoto moved the row: what it says is
+// about a place the walk has left, so the driver drops it and walks on.
+unittest {
+    import ritual : movedUnder, byPerformanceId;
+    auto db = memDb();
+    performing(db, "stepcounter", "stepcounter-1000", RitualState.Live);
+    auto held = byPerformanceId(db, "stepcounter-1000").p;
+    assert(!movedUnder(db, held), "nobody else wrote it");
+    auto other = held;
+    other.current = 1;
+    assert(writePosition(db, other), "a regoto writes the row");
+    assert(movedUnder(db, held));
+    sqlite3_close(db);
+}
+
 // A performance that ended while the tree was being moved is not sent back.
 unittest {
     import ritual : sendBack, Position;

@@ -161,6 +161,11 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             return a;
         }
         auto did = runRite(act.script.text(), cast(string) r.name, cast(string) sessionId);
+        // "yes, kill the rite in flight on regoto"
+        {
+            import ritual.store : movedUnder;
+            if (movedUnder(db, p)) return a;
+        }
         if (!did.ran || did.code != 0) {
             a.tookUs = usecNow() - began;
             a.ran = did.ran;
@@ -276,6 +281,10 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     } else {
         auto run = runRite(prepared.script.text(), cast(string) r.name, cast(string) sessionId);
         if (!run.ran) return a;
+        {
+            import ritual.store : movedUnder;
+            if (movedUnder(db, p)) return a;
+        }
 
         a.ran = true;
         a.code = run.code;

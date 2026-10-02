@@ -518,6 +518,12 @@ const(char)[] liveOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
     return n > 0 ? found[0 .. n] : null;
 }
 
+// Whether the row was written by someone else since `p` was read.
+bool movedUnder(DB)(DB db, const Position p) {
+    auto now = byPerformanceId(db, p.id);
+    return now.valid && now.p.rev != p.rev;
+}
+
 // The push a performance walks for: the one that started it, or the last one
 // that landed on it. Only a push writes these columns.
 bool setPush(DB)(DB db, const(char)[] id, const(char)[] branch,
