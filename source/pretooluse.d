@@ -352,18 +352,27 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     import main : usecNow;
     import parse : extractPermissionMode;
     auto t0 = usecNow();
-    long tParse, tBinary, tMatch, tDb, tPerm;
+    long tParse, tCorpus, tBinary, tMatch, tDb, tPerm, tFilePerm, tFileControls;
     const(char)[] exitLabel = "none";
+
+    // What the file controls spent inside their loop: in the checks they ask,
+    // and in looking up whether each already fired this session. A Write that
+    // took 14.2s said nothing past parse; these say where it went.
+    long checksUs, dedupUs, slowestUs;
+    const(char)[] slowestCheck;
 
     // One row for every exit. A deny or an early answer used to leave the
     // phases blank, and a third of the table said nothing about itself.
     scope (exit) {
-        import phases : phaseChain;
-        static immutable string[5] KEYS = ["parse", "binary", "match", "db", "perm"];
-        long[5] stamps = [tParse, tBinary, tMatch, tDb, tPerm];
+        import phases : phaseChainSpent;
+        static immutable string[8] KEYS = ["parse", "corpus", "binary", "match", "db", "perm",
+                                           "fperm", "fctl"];
+        long[8] stamps = [tParse, tCorpus, tBinary, tMatch, tDb, tPerm, tFilePerm, tFileControls];
+        static immutable string[2] SPENT = ["checks", "dedup"];
+        long[2] spent = [checksUs, dedupUs];
         __gshared ZBuf prof;
         prof.reset();
-        phaseChain(prof, t0, KEYS[], stamps[], usecNow(), exitLabel);
+        phaseChainSpent(prof, t0, KEYS[], stamps[], SPENT[], spent[], slowestCheck, usecNow(), exitLabel);
         emitProfile(prof);
     }
 
@@ -410,6 +419,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 sqlite3_close(qdb);
             }
         }
+        tCorpus = usecNow();
     }
 
     if (command !is null) {
@@ -815,6 +825,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             import fired : noteFiredNow;
             noteFiredNow(sessionId, "PreToolUse", "permission", permResult.name, "allow", cwd);
         }
+        tFilePerm = usecNow();
     }
 
     // An Agent call carries no command and no file_path, so it reached neither
@@ -971,7 +982,15 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         g_paramKeys = c.paramKeys;
                         g_paramValues = c.paramValues;
                         g_paramCount = c.paramCount;
+                        import main : usecNow;
+                        auto checkAt = usecNow();
                         auto verdict = c.sessionstart.check(cwd, input);
+                        auto took = usecNow() - checkAt;
+                        checksUs += took;
+                        if (took > slowestUs) {
+                            slowestUs = took;
+                            slowestCheck = c.name;
+                        }
                         if (!verdict.fired) continue;
                         // Truthfulness clause: the handler could not evaluate its
                         // condition, so the authored msg would assert a cause it
@@ -983,10 +1002,13 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 // Fire once per session, so advice does not nag. A denial is
                 // not advice: dedup here means the second attempt succeeds,
                 // and a gate that opens after one refusal is not a gate.
-                if (sc.decision != "deny"
-                    && db !is null
-                    && attestationExists(db, "GroundedPreToolUse", c.name, sessionId))
-                    continue;
+                if (sc.decision != "deny" && db !is null) {
+                    import main : usecNow;
+                    auto dedupAt = usecNow();
+                    auto fired = attestationExists(db, "GroundedPreToolUse", c.name, sessionId);
+                    dedupUs += usecNow() - dedupAt;
+                    if (fired) continue;
+                }
 
                 if (fileMsgBuf.len > 0) fileMsgBuf.put(" ");
                 fileMsgBuf.put(checkObserved !is null ? checkObserved : envSubst(c.msg.value, cwd));
@@ -1006,6 +1028,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         }
 
         if (db !is null) sqlite3_close(db);
+        tFileControls = usecNow();
 
         auto answer = fileAnswer(granted, fileMsgBuf.len > 0, fileDecision);
         if (answer.label.length > 0) {

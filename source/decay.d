@@ -67,9 +67,6 @@ int decayDb(sqlite3* db) {
     sqlite3_exec(db, deleteImmediate.ptr, null, null, null);
     auto immediateDeleted = sqlite3_changes(db);
 
-    // VACUUM to reclaim space
-    sqlite3_exec(db, "VACUUM\0".ptr, null, null, null);
-
     long afterSize = dbPageSize(db);
 
     // Stats
@@ -295,5 +292,32 @@ unittest {
         sqlite3_finalize(stmt);
     }
 
+    sqlite3_close(db);
+}
+
+unittest {
+    // VACUUM rewrote the 760 MB store under the write lock at 2026-10-02 09:21:24Z.
+    // Hooks that fired then waited out the 5s busy limit and lost their rows.
+    // Pages a delete frees stay in the file, and later writes reuse them.
+    import db : sqlite3_open, applySchema;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    foreach (i; 0 .. 40) {
+        __gshared ZBuf row;
+        row.reset();
+        row.put("INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) VALUES ('imm-");
+        row.putUint(cast(ulong) i);
+        row.put("', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', '2025-01-01T00:00:00Z', 'ground', "
+            ~ "json_object('detail', printf('%.4000c', 'x'), 'after', 0), datetime('now', '-10 days'))");
+        assert(sqlite3_exec(db, row.ptr(), null, null, null) == SQLITE_OK);
+    }
+    decayDb(db);
+    enum sql = "SELECT freelist_count FROM pragma_freelist_count\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) > 0, "decay does not rewrite the store under the write lock");
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
 }

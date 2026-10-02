@@ -2,7 +2,7 @@ module phases_test;
 
 // "perhaps its better to focus on improving the instrument?"
 
-import phases : Store, outerPhases, phaseChain, parsePhases, PhaseEntry, PhaseMeans, regressionLine;
+import phases : Store, outerPhases, phaseChain, phaseChainSpent, parsePhases, PhaseEntry, PhaseMeans, regressionLine;
 
 struct Sink {
     char[1024] data = 0;
@@ -58,6 +58,38 @@ static assert(() {
     long[5] stamps = [10, 20, 25, 0, 30];
     phaseChain(s, 0, keys[], stamps[], 32, "perm-allow");
     return s.slice() == "parse=10us binary=10us match=5us perm=5us total=32us exit=perm-allow";
+}());
+
+// A Write that took 14.2s said parse=484us and then nothing until total: the
+// file branch stamped no phase of its own. Its time inside the controls goes
+// beside the chain as what it spent, and the slowest check by its name.
+static assert(() {
+    Sink s;
+    static immutable string[3] keys = ["parse", "corpus", "fctl"];
+    long[3] stamps = [10, 0, 50];
+    static immutable string[2] spentKeys = ["checks", "dedup"];
+    long[2] spent = [30, 5];
+    phaseChainSpent(s, 0, keys[], stamps[], spentKeys[], spent[], "quotes", 60, "file-control");
+    return s.slice() == "parse=10us fctl=40us checks=30us dedup=5us slowest=quotes total=60us exit=file-control";
+}());
+
+// Nothing spent is not printed, and no slowest without a check.
+static assert(() {
+    Sink s;
+    static immutable string[1] keys = ["parse"];
+    long[1] stamps = [10];
+    static immutable string[2] spentKeys = ["checks", "dedup"];
+    long[2] spent = [0, 0];
+    phaseChainSpent(s, 0, keys[], stamps[], spentKeys[], spent[], "", 12, "none");
+    return s.slice() == "parse=10us total=12us exit=none";
+}());
+
+// The name is not a number, so it is no phase: a reader of the row's numbers
+// passes over it as it passes over the exit.
+static assert(() {
+    PhaseEntry[32] e;
+    auto n = parsePhases("parse=10us checks=30us slowest=quotes total=60us exit=file-control", e);
+    return n == 2 && e[1].key == "checks" && e[1].val == 30;
 }());
 
 // The regression message averages the rows it averaged, key by key. A key
