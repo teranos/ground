@@ -6,7 +6,7 @@ module lifecycle;
 
 import db : sqlite3;
 
-// A poll is two seconds apart. Unseen for this long and not ended is a process
+// A poll is five seconds apart. Unseen for this long and not ended is a process
 // that died without a word.
 enum STALE_SEC = 10;
 

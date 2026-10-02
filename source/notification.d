@@ -118,7 +118,7 @@ const(char)[] nthRite(const(char)[] rites, size_t n) {
 // the whole point: it is the only reply this event accepts, and it puts the
 // line in front of whoever is sitting there.
 // A rite line for the operator, on its own record. The immediate queue is
-// drained by the watcher every two seconds, which delivers to the model — a
+// drained by the watcher every five seconds, which delivers to the model — a
 // line put there never survives to reach a person.
 bool writeSaid(DB)(DB db, const(char)[] sessionId, const(char)[] performance,
                    const(char)[] rite, const(char)[] line, bool yieldToExisting = false) {

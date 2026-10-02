@@ -9,7 +9,7 @@ module immediate;
 //   contexts:   ["project:<path>"]          — e.g. ["project:teranos/QNTX"]
 //   attributes: {"detail":"...","after":0}  — detail is the message, after is unix timestamp gate
 //
-// The watcher (watch.d) polls every 2s. When it finds matching attestations,
+// The watcher (watch.d) polls every 5s. When it finds matching attestations,
 // it batches them and writes to stderr, then exits 2. Claude Code's asyncRewake
 // shows stderr as a system reminder and wakes the session.
 //
@@ -1243,7 +1243,7 @@ bool writeExecResult(sqlite3* db,
 // after its last batch.
 //
 // Grace is the watcher's worst-case gap between a row landing and being read:
-// the pass sleeps two seconds, and a batch that did not fit waits one more.
+// the pass sleeps five seconds, and a batch that did not fit waits one more.
 // 60s clears that many times over, so anything older means nobody is reading
 // — not that we asked too early.
 //

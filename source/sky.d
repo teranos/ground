@@ -1,6 +1,6 @@
 module sky;
 
-// BOOK_GLOSSARY **Sky**: One courier per tree, spawned by the hooks: every two seconds it hands its session what is addressed to it, ships and streams what is pending, and computes nothing about any of it.
+// BOOK_GLOSSARY **Sky**: One courier per tree, spawned by the hooks: every five seconds it hands its session what is addressed to it, ships and streams what is pending, and computes nothing about any of it.
 //
 // ground sky <cwd>
 // "sky whispers" / "sky doesnt compute"
@@ -10,7 +10,7 @@ module sky;
 // tree's pid file stays and the rest leave. A Stop's courier replaces its own
 // session's; nobody replaces another session's.
 //
-// Every two seconds it reads what is addressed to its session, or to the
+// Every five seconds it reads what is addressed to its session, or to the
 // project its tree is in, and hands it in by writing it to stderr and exiting
 // 2, which wakes the session. A receipt row per message per session is what
 // makes a delivery once rather than forever. A pass with nothing to hand in
@@ -33,6 +33,7 @@ EOS";
 
 import db : sqlite3, sqlite3_close, openDb, ZBuf, SQLITE_DONE;
 import immediate : readImmediateMessage, markImmediateDelivered;
+import stream : Pass;
 import core.stdc.stdio : stderr, fputs, fwrite, FILE;
 
 extern (C) {
@@ -475,6 +476,8 @@ int handleSky(int argc, const(char)** argv) {
     }
     long streamBackoffUntil = 0;
     long streamed = 0;
+    import stream : Pace;
+    Pace pace;
 
     // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
     long effortLookedAt = 0;
@@ -483,7 +486,7 @@ int handleSky(int argc, const(char)** argv) {
     __gshared char[4 * MESSAGE_CAP] batchBuf = 0;
     size_t batchLen = 0;
 
-    int nextSleep = 2;
+    int nextSleep = PASS_SEC;
     long storeSaidAt = 0;
 
     while (true) {
@@ -503,7 +506,7 @@ int handleSky(int argc, const(char)** argv) {
         }
         if (db !is null) {
             // Reset to default each loop; a parked dispatch may set it.
-            nextSleep = 2;
+            nextSleep = PASS_SEC;
             polls++;
             processSeen(db, record, cast(long) time(null));
 
@@ -626,14 +629,17 @@ int handleSky(int argc, const(char)** argv) {
             if (dsn.length > 0 && now >= shipBackoffUntil) {
                 if (!shipPass(db, sessionId, dsn, myPid, now)) shipBackoffUntil = now + SHIP_BACKOFF_SEC;
             }
-            // The hook rows, to the node, TAKE at a time. A pass the node did
-            // not take waits out the same minute the sentry post does.
+            // The hook rows, to the node, as one list at the pace. A pass the
+            // node did not take waits, longer each time, up to 5m.
             if (streamToken.length > 0 && now >= streamBackoffUntil) {
-                import stream : streamPass;
-                int last;
-                if (!streamPass(db, qntxNode.url, streamToken, myPid, now, last, streamed)) {
-                    streamBackoffUntil = now + SHIP_BACKOFF_SEC;
-                    streamFailed(sessionId, last);
+                import stream : streamPass, paceLanded, paceFailed;
+                auto pass = streamPass(db, qntxNode.url, streamToken, myPid, now, pace.take, streamed);
+                if (pass.ok) {
+                    if (pass.sent) paceLanded(pace, pass.grow);
+                } else {
+                    auto atMost = paceFailed(pace);
+                    streamBackoffUntil = now + pace.wait;
+                    if (atMost || pass.odd) streamFailed(sessionId, pass, pace.wait);
                 }
             }
             sqlite3_close(db);
@@ -658,8 +664,11 @@ int handleSky(int argc, const(char)** argv) {
     }
 }
 
+// "the 2s can move to 5s and just collect everything in that 5s and send it always, like it still does but batch them"
+enum PASS_SEC = 5;
+
 // How long a pass that could not post waits before trying again. A refusal
-// every two seconds would be the same refusal, said thirty times a minute.
+// every five seconds would be the same refusal, said twelve times a minute.
 enum SHIP_BACKOFF_SEC = 60;
 
 // The ending, in the record and in the outbox. The outbox item is the next
@@ -785,14 +794,21 @@ private void storeRefused(const(char)[] sessionId, const(char)[] what, int code)
     toSentry("sky.store", cast(string) said[0 .. n], code, sessionId, "");
 }
 
-// A row the node did not take for a reason asking again may change. Sentry is
-// told and no session is: the retry is the design, and a step inside it was
-// never a failure of intention.
-private void streamFailed(const(char)[] sessionId, int status) {
-    __gshared char[200] said = 0;
+// A pass the node did not take. Sentry is told and no session is: the retry
+// is the design, and a step inside it was never a failure of intention. Told
+// when the wait reaches 5m, and at once for a reply that is not an outage.
+private void streamFailed(const(char)[] sessionId, const ref Pass pass, long wait) {
+    __gshared char[600] said = 0;
     size_t n;
     void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
-    put("the stream to qntx stopped at a row: ");
+    void num(long v) {
+        char[20] d = 0;
+        size_t dl;
+        do { d[dl++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0 && dl < d.length);
+        foreach_reverse (i; 0 .. dl) put(d[i .. i + 1]);
+    }
+    auto status = pass.status;
+    put("the stream to qntx stopped: ");
     if (status > 0) {
         put("HTTP ");
         char[3] d = [cast(char)('0' + status / 100 % 10), cast(char)('0' + status / 10 % 10),
@@ -804,7 +820,13 @@ private void streamFailed(const(char)[] sessionId, int status) {
         char[3] d = [cast(char)('0' + v / 100 % 10), cast(char)('0' + v / 10 % 10), cast(char)('0' + v % 10)];
         put(d[]);
     }
-    put(" — the rows stay pending, and the next try is in a minute");
+    if (pass.whyLen > 0) {
+        put(": ");
+        put(pass.why());
+    }
+    put(" — the rows stay pending, and the next try is in ");
+    num(wait);
+    put("s");
     toSentry("sky.stream", cast(string) said[0 .. n], -1, sessionId, "");
 }
 

@@ -167,7 +167,7 @@ unittest {
     // An immediate row nobody claimed in ten days, its receipt, and one from
     // an hour ago. A pending row is proven pending by the absence of a receipt
     // in every session, so a session that ended leaves its rows pending for
-    // ever, and every sky reads them again every two seconds.
+    // ever, and every sky reads them again every five seconds.
     enum oldImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
         ~ "VALUES ('imm-old', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', "
         ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"old\",\"after\":0}', datetime('now', '-10 days'))\0";

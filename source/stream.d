@@ -5,10 +5,10 @@ module stream;
 // "by default i dont want to send the tooloutput, in the ground sqlite keep keep (fuller) data longer"
 //
 // Every attestation a hook writes goes to the QNTX node as well, by the sky,
-// one POST per row, under ground's own id — the node is idempotent on it, so
-// a lost answer is safe to send again. The row goes as it is, except the
-// attributes of the three payload-carrying events, which go as decay leaves
-// them: tool_name, file_path, command, original_size. The tool output stays
+// a pass's rows as one list in one POST, each under ground's own id — the
+// node is idempotent on it, so a lost answer is safe to send again. The row
+// goes as it is, except the attributes of the three payload-carrying events,
+// which go as decay leaves them: tool_name, file_path, command, original_size. The tool output stays
 // in the local store for its decay period and never leaves the machine.
 //
 // A row's place in the stream is qntx_at, the way an outbox item's is
@@ -26,9 +26,39 @@ import db : sqlite3, sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3
 // and of "claimed" (< 0) is never fooled by it.
 enum BEFORE_STREAM = 1;
 
-// How many rows one pass takes. A pass is one sky's turn between deliveries,
-// and each row is a round trip to the node.
-enum TAKE = 10;
+// The node refuses a request body larger than this: maxAttestationBody in
+// QNTX's server/attestation_handlers.go.
+enum NODE_BODY_CAP = 10 * 1024 * 1024;
+
+// "4 can wait for longer even, up to 5m, and be gentle with sending at the start until it catches up"
+enum STREAM_WAIT_FIRST = 60;
+enum STREAM_WAIT_MOST = 300;
+
+// How much a sky sends and how long it waits. A pass takes `take` rows; one
+// the node answered doubles it while the pass was full, and one it did not
+// answer puts it back to one row and doubles the wait, up to 5m.
+struct Pace {
+    long take = 1;
+    long wait;
+    bool toldAtMost;
+}
+
+void paceLanded(ref Pace p, bool grow) {
+    if (grow) p.take *= 2;
+    p.wait = 0;
+    p.toldAtMost = false;
+}
+
+// True once per outage: when the wait first reaches 5m. Sentry hears then.
+// "Does not need to be told this often, deploy's are commonplace, so this is expected to happen a lot."
+bool paceFailed(ref Pace p) {
+    p.take = 1;
+    if (p.wait == 0) p.wait = STREAM_WAIT_FIRST;
+    else p.wait = p.wait * 2 > STREAM_WAIT_MOST ? STREAM_WAIT_MOST : p.wait * 2;
+    if (p.wait < STREAM_WAIT_MOST || p.toldAtMost) return false;
+    p.toldAtMost = true;
+    return true;
+}
 
 // A 2xx landed and a 4xx is the row's or the token's, and asking again changes
 // neither; the 4xx row stays pending with its status, for a person to read.
@@ -53,7 +83,7 @@ enum SKELETON_SQL = "CASE json_extract(predicates, '$[0]') "
     ~   "'original_size', length(attributes)) "
     ~ "ELSE attributes END";
 
-// Claim up to TAKE pending rows for this sky. Any sky takes any row: the
+// Claim up to `take` pending rows for this sky. Any sky takes any row: the
 // UPDATE is the race, and sqlite runs one at a time.
 //
 // The read inside runs under the write lock, so it has to go by the index.
@@ -91,12 +121,12 @@ unittest {
     sqlite3_close(db);
 }
 
-long claimStream(sqlite3* db, long pid) {
+long claimStream(sqlite3* db, long pid, long take) {
     enum sql = CLAIM_SQL ~ "\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
     sqlite3_bind_int64(stmt, 1, pid);
-    sqlite3_bind_int64(stmt, 2, TAKE);
+    sqlite3_bind_int64(stmt, 2, take);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return sqlite3_changes(db);
@@ -277,25 +307,21 @@ Standing standing(sqlite3* db) {
     return s;
 }
 
-// One pass: claim, post each, resolve each. Rows a pass could not post go
-// back. Returns false when the node did not take a row for a reason that
-// asking again may change, which is what the caller backs off on.
-bool streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, long now,
-                ref int lastStatus, ref long posted) {
-    import http : httpPost;
-    import db : sqlite3_exec;
+// The claimed rows as one list, in rowid order, as far as `into` holds them.
+// A row that would take the list past `into` stops it there: it and the rows
+// after it stay claimed until the pass releases them, and go in a later pass.
+struct Built {
+    size_t len;
+    long rows;
+    bool byteFull;
+}
 
-    if (claimStream(db, pid) == 0) return true;
-
-    __gshared ZBuf endpoint;
-    endpoint.reset();
-    endpoint.put(url);
-    endpoint.put("/api/attestations");
-
-    bool ok = true;
+Built buildBatch(sqlite3* db, long pid, long now, char[] into) {
+    Built b;
+    if (into.length < 2) return b;
+    into[b.len++] = '[';
     long after = 0;
     __gshared Claimed c;
-    __gshared char[2048] reply = 0;
     while (nextClaimed(db, pid, after, c)) {
         after = c.rowid;
         // A row that did not fit is not sent cut. It stays pending with the
@@ -304,19 +330,192 @@ bool streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
             rowResolved(db, c.rowid, 0, false, now, "the row did not fit ground's stream buffer and was not sent");
             continue;
         }
-        import http : httpPostInto;
-        auto r = httpPostInto(endpoint.slice(), c.body_.slice(), token, reply[], 10);
-        auto status = r.status > 0 ? r.status : -r.code;
-        auto landed = r.status >= 200 && r.status < 300;
-        // The reason is the far end's words, or libcurl's when nothing answered.
-        const(char)[] reason = landed ? "" : (r.status > 0 ? reply[0 .. r.len] : r.why());
-        rowResolved(db, c.rowid, status, landed, now, reason);
-        lastStatus = status;
-        if (landed) { posted++; continue; }
-        if (retryable(r.status)) { ok = false; break; }
+        auto row = c.body_.slice();
+        auto need = (b.rows > 0 ? 1 : 0) + row.length + 1;
+        if (b.len + need > into.length) {
+            b.byteFull = true;
+            break;
+        }
+        if (b.rows > 0) into[b.len++] = ',';
+        foreach (ch; row) into[b.len++] = ch;
+        b.rows++;
+    }
+    into[b.len++] = ']';
+    return b;
+}
+
+// The next row this sky holds after `after`, by rowid alone.
+enum NEXT_ROWID_SQL = "SELECT rowid FROM attestations WHERE qntx_at <= 0 AND qntx_at = -?1 AND rowid > ?2 "
+    ~ "ORDER BY rowid LIMIT 1\0";
+
+private long nextClaimedRowid(sqlite3* db, long pid, long after) {
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, NEXT_ROWID_SQL.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(stmt, 1, pid);
+    sqlite3_bind_int64(stmt, 2, after);
+    long rowid = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) rowid = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rowid;
+}
+
+// One answer of the node's batch reply: {"results":[{"status":N,"answer":{..}},..]}.
+// `at` is 0 before the first, and is moved past each answer read.
+struct Answer {
+    int status;
+    const(char)[] text;
+}
+
+bool nextAnswer(const(char)[] reply, ref size_t at, ref Answer a) {
+    import matcher : indexOf;
+    if (at == 0) {
+        enum open = `"results":[`;
+        auto found = indexOf(reply, open);
+        if (found < 0) return false;
+        at = cast(size_t) found + open.length;
+    }
+    while (at < reply.length && (reply[at] == ' ' || reply[at] == ',' || reply[at] == '\n')) at++;
+    if (at >= reply.length || reply[at] != '{') return false;
+
+    // The answer object, brace-matched outside strings.
+    size_t end = at;
+    int depth = 0;
+    bool inString = false;
+    for (; end < reply.length; end++) {
+        auto c = reply[end];
+        if (inString) {
+            if (c == '\\') { end++; continue; }
+            if (c == '"') inString = false;
+            continue;
+        }
+        if (c == '"') inString = true;
+        else if (c == '{') depth++;
+        else if (c == '}' && --depth == 0) break;
+    }
+    if (end >= reply.length) return false;
+    auto obj = reply[at .. end];
+    at = end + 1;
+
+    enum statusKey = `"status":`;
+    auto s = indexOf(obj, statusKey);
+    if (s < 0) return false;
+    a.status = 0;
+    foreach (c; obj[cast(size_t) s + statusKey.length .. $]) {
+        if (c < '0' || c > '9') break;
+        a.status = a.status * 10 + (c - '0');
+    }
+    enum answerKey = `"answer":`;
+    auto t = indexOf(obj, answerKey);
+    a.text = t < 0 ? "" : obj[cast(size_t) t + answerKey.length .. $];
+    return true;
+}
+
+// The rows a batch carried, each resolved by its own answer, in the order
+// sent. `short_` is a reply that ran out of answers before the rows did; the
+// rows past it stay claimed, for the pass to release.
+struct Resolved {
+    long landed;
+    bool retry;
+    bool short_;
+    int lastStatus;
+}
+
+Resolved resolveBatch(sqlite3* db, long pid, long rows, const(char)[] reply, long now) {
+    Resolved r;
+    size_t at = 0;
+    long after = 0;
+    foreach (i; 0 .. rows) {
+        auto rowid = nextClaimedRowid(db, pid, after);
+        if (rowid == 0) break;
+        after = rowid;
+        Answer a;
+        if (!nextAnswer(reply, at, a)) {
+            r.short_ = true;
+            break;
+        }
+        auto landed = a.status >= 200 && a.status < 300;
+        rowResolved(db, rowid, a.status, landed, now, landed ? "" : a.text);
+        r.lastStatus = a.status;
+        if (landed) r.landed++;
+        else if (retryable(a.status)) r.retry = true;
+    }
+    return r;
+}
+
+// What one pass came to. `odd` is a reply that is not an outage: a 4xx for
+// the whole list, an answer too large to read, or fewer answers than rows.
+struct Pass {
+    bool sent;
+    bool ok;
+    bool grow;
+    bool odd;
+    int status;
+    char[300] whyBuf = 0;
+    size_t whyLen;
+    const(char)[] why() const return { return whyBuf[0 .. whyLen]; }
+    void say(const(char)[] s) { foreach (c; s) if (whyLen < whyBuf.length) whyBuf[whyLen++] = c; }
+}
+
+// One pass: claim at the pace, post the list, resolve each row by its answer.
+// Rows a pass did not resolve go back. Not ok is what the caller waits on.
+Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, long now,
+                long take, ref long posted) {
+    import http : httpPostInto;
+    Pass p;
+    p.ok = true;
+
+    auto claimed = claimStream(db, pid, take);
+    if (claimed == 0) return p;
+
+    __gshared char[NODE_BODY_CAP] batch = 0;
+    auto built = buildBatch(db, pid, now, batch[]);
+    if (built.rows == 0) {
+        claimReleased(db, pid);
+        return p;
+    }
+    p.sent = true;
+
+    __gshared ZBuf endpoint;
+    endpoint.reset();
+    endpoint.put(url);
+    endpoint.put("/api/attestations");
+
+    // Each answer is a few words about one row, so the reply is smaller than
+    // the list; a reply that is not is said, not read cut.
+    __gshared char[NODE_BODY_CAP] reply = 0;
+    auto r = httpPostInto(endpoint.slice(), batch[0 .. built.len], token, reply[], 10);
+    p.status = r.status > 0 ? r.status : -r.code;
+
+    if (r.overran) {
+        p.ok = false;
+        p.odd = true;
+        p.say("the node's answer to the list was larger than ground reads");
+    } else if (r.status == 200) {
+        auto res = resolveBatch(db, pid, built.rows, reply[0 .. r.len], now);
+        posted += res.landed;
+        p.ok = !res.retry && !res.short_;
+        if (res.retry) p.status = res.lastStatus;
+        if (res.short_) {
+            p.odd = true;
+            p.say("the node answered fewer results than the rows it was sent: ");
+            p.say(reply[0 .. r.len]);
+        }
+        p.grow = p.ok && claimed == take && !built.byteFull;
+    } else {
+        // No answer, or a 5xx, is an outage and the rows wait it out. A 4xx
+        // for the whole list is the token or the request, and is said.
+        p.ok = false;
+        if (r.status >= 400 && r.status < 500) {
+            p.odd = true;
+            p.say(reply[0 .. r.len]);
+        } else if (r.status == 0) {
+            p.say(r.why());
+        } else {
+            p.say(reply[0 .. r.len]);
+        }
     }
     claimReleased(db, pid);
-    return ok;
+    return p;
 }
 
 unittest {
@@ -325,7 +524,7 @@ unittest {
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
     assert(applySchema(db));
 
-    assert(claimStream(db, 111) == 0, "nothing written is nothing pending");
+    assert(claimStream(db, 111, 10) == 0, "nothing written is nothing pending");
 
     // A PostToolUse row with its output whole, and a Stop row.
     attestEventAt(db, "PostToolUse", "/tmp", "sess-s",
@@ -334,8 +533,8 @@ unittest {
     attestEventAt(db, "Stop", "/tmp", "sess-s", `{"session_id":"sess-s","stop_hook_active":false}`,
         "2026-09-19T09:03:26Z", 34349);
 
-    assert(claimStream(db, 111) == 2);
-    assert(claimStream(db, 222) == 0, "a second sky finds nothing left to claim");
+    assert(claimStream(db, 111, 10) == 2);
+    assert(claimStream(db, 222, 10) == 0, "a second sky finds nothing left to claim");
 
     // The body is ground's row as the node takes it.
     Claimed c;
@@ -370,7 +569,7 @@ unittest {
         payload[0 .. head.length] = head;
         payload[$ - tail.length .. $] = tail;
         attestEventAt(db, "UserPromptSubmit", "/tmp", "sess-s", payload[], "2026-09-19T09:03:27Z", 34350);
-        assert(claimStream(db, 555) == 1);
+        assert(claimStream(db, 555, 10) == 1);
         Claimed w;
         assert(nextClaimed(db, 555, 0, w));
         assert(!w.body_.over, "a 200KB row fits");
@@ -388,9 +587,9 @@ unittest {
     rowResolved(db, d.rowid, 400, false, 5000, "Invalid request body: unexpected EOF");
     assert(reasonOf(db, d.rowid) == "Invalid request body: unexpected EOF");
     rowResolved(db, d.rowid, 403, false, 5000);
-    assert(claimStream(db, 111) == 0, "a 4xx is not asked again");
+    assert(claimStream(db, 111, 10) == 0, "a 4xx is not asked again");
     rowResolved(db, d.rowid, 503, false, 5000);
-    assert(claimStream(db, 111) == 1, "a 5xx is");
+    assert(claimStream(db, 111, 10) == 1, "a 5xx is");
     claimReleased(db, 111);
 
     auto s = standing(db);
@@ -402,10 +601,10 @@ unittest {
     // A claim by a sky that died is freed; a landed row and a BEFORE_STREAM
     // row are not claims and are not touched.
     rowResolved(db, d.rowid, 0, false, 0);
-    assert(claimStream(db, 333) == 1);
+    assert(claimStream(db, 333, 10) == 1);
     static bool nobody(long) { return false; }
     assert(releaseDeadClaims(db, &nobody) == 1);
-    assert(claimStream(db, 444) == 1, "claimable again");
+    assert(claimStream(db, 444, 10) == 1, "claimable again");
     sqlite3_close(db);
 }
 
@@ -417,6 +616,106 @@ unittest {
     assert(!retryable(400));
     assert(!retryable(403));
     assert(!retryable(201), "landed is not retried either; it is done");
+}
+
+unittest {
+    // "be gentle with sending at the start until it catches up"
+    Pace p;
+    assert(p.take == 1, "a sky starts with one row");
+    paceLanded(p, true);
+    assert(p.take == 2);
+    paceLanded(p, true);
+    assert(p.take == 4);
+    paceLanded(p, false);
+    assert(p.take == 4, "caught up, so the next pass is no larger");
+
+    // "4 can wait for longer even, up to 5m"
+    assert(!paceFailed(p));
+    assert(p.take == 1, "a failed post is gentle again");
+    assert(p.wait == 60);
+    assert(!paceFailed(p));
+    assert(p.wait == 120);
+    assert(!paceFailed(p));
+    assert(p.wait == 240);
+    // "Does not need to be told this often, deploy's are commonplace"
+    assert(paceFailed(p), "sentry hears once, when the wait reaches 5m");
+    assert(p.wait == 300);
+    assert(!paceFailed(p), "and not again while it stays there");
+    assert(p.wait == 300);
+
+    paceLanded(p, true);
+    assert(p.wait == 0 && p.take == 2, "a post that lands ends the waiting");
+    assert(!paceFailed(p));
+    assert(p.wait == 60, "and the next outage starts from the first wait");
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, attestEventAt;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    attestEventAt(db, "Stop", "/tmp", "sess-b", `{"session_id":"sess-b","n":1}`, "2026-10-02T09:00:01Z", 1);
+    attestEventAt(db, "Stop", "/tmp", "sess-b", `{"session_id":"sess-b","n":2}`, "2026-10-02T09:00:02Z", 2);
+    attestEventAt(db, "Stop", "/tmp", "sess-b", `{"session_id":"sess-b","n":3}`, "2026-10-02T09:00:03Z", 3);
+
+    assert(claimStream(db, 7, 2) == 2, "a pass claims as many as its pace");
+    __gshared char[100_000] into = 0;
+    auto b = buildBatch(db, 7, 5000, into[]);
+    assert(b.rows == 2 && !b.byteFull);
+    auto sent = into[0 .. b.len];
+    // "the 2s can move to 5s and just collect everything in that 5s and send it always, like it still does but batch them"
+    assert(sent[0] == '[' && sent[$ - 1] == ']', "one list");
+    assert(contains(sent, `"n":1`) && contains(sent, `"n":2`));
+    assert(contains(sent, "},{"), "the rows as the node takes each one, side by side");
+    claimReleased(db, 7);
+
+    // The node's limit: a row that would take the list past it waits for
+    // the next pass, still pending.
+    assert(claimStream(db, 7, 3) == 3);
+    Claimed first;
+    assert(nextClaimed(db, 7, 0, first));
+    auto one = buildBatch(db, 7, 5000, into[0 .. first.body_.len + 2]);
+    assert(one.rows == 1 && one.byteFull);
+    assert(one.len == first.body_.len + 2);
+    assert(into[0] == '[' && into[one.len - 1] == ']');
+    assert(into[1 .. one.len - 1] == first.body_.slice(), "the first row whole, alone");
+    claimReleased(db, 7);
+    assert(claimStream(db, 7, 10) == 3, "nothing was lost to the limit");
+
+    // Each row by its own answer, in the order sent.
+    auto all = buildBatch(db, 7, 5000, into[]);
+    assert(all.rows == 3);
+    Claimed second;
+    assert(nextClaimed(db, 7, first.rowid, second));
+    enum reply = `{"results":[{"status":201,"answer":{"id":"a","status":"created"}},`
+        ~ `{"status":400,"answer":{"error":"subjects must not be empty"}},`
+        ~ `{"status":503,"answer":{"error":"busy"}}]}` ~ "\n";
+    auto r = resolveBatch(db, 7, all.rows, reply, 6000);
+    assert(r.landed == 1);
+    assert(r.retry, "a 5xx is asked again");
+    assert(!r.short_);
+    assert(reasonOf(db, second.rowid) == `{"error":"subjects must not be empty"}`, "the node's words on the row");
+    claimReleased(db, 7);
+    assert(claimStream(db, 8, 10) == 1, "landed and refused are out of the next claim; the 5xx is in it");
+
+    // Fewer answers than rows: the rows without one stay pending.
+    auto again = buildBatch(db, 8, 6000, into[]);
+    assert(again.rows == 1);
+    auto none = resolveBatch(db, 8, again.rows, `{"results":[]}`, 7000);
+    assert(none.short_ && none.landed == 0);
+    claimReleased(db, 8);
+    assert(claimStream(db, 9, 10) == 1);
+    sqlite3_close(db);
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(planUsesIndex(db, NEXT_ROWID_SQL.ptr, "idx_attestations_stream"),
+           "walking the claimed rows to resolve them must not scan the table");
+    sqlite3_close(db);
 }
 
 version (unittest)

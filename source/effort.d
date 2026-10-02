@@ -5,7 +5,7 @@ module effort;
 // The Fable week is a reading ug asks the usage endpoint for and writes to
 // the usage table. Claude Code reads effortLevel from ~/.claude/settings.json
 // and applies a change live — the same key Remote Control changes — so the
-// sky, which reads the store every two seconds, pins it: at 85.0 it writes
+// sky, which reads the store every five seconds, pins it: at 85.0 it writes
 // "low", keeps what was there in the store, and writes that back when the
 // window stands under again, which is the week after. The session it runs in
 // is told both times; every other session hears Claude Code's own
