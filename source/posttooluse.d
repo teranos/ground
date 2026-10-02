@@ -366,6 +366,20 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         if (edb !is null) sqlite3_close(edb);
     }
 
+    // "build the probe on commit, scores into QNTX"
+    // Here, with no store open: the probe forks.
+    if (command !is null) {
+        import sessiontrail : isCommit, treeOf;
+        import probe : committedSha, probeDetached;
+        import parse : extractStdout;
+        import matcher : effectiveCwd, shellHome;
+        if (isCommit(command)) {
+            auto sha = committedSha(extractStdout(input));
+            if (sha.length > 0)
+                probeDetached(sha, treeOf(command, effectiveCwd(command, cwd, shellHome())), sessionId);
+        }
+    }
+
     // Check PostToolUse controls (msg-only fire once per session)
     {
         import controls : postToolUseScopes;

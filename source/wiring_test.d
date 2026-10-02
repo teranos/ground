@@ -54,3 +54,6 @@ static assert(calls(commandSource, "secondFire("), "ground ritual asks before it
 // to the regoto rite.
 static assert(calls(postToolUseSource, "landOn("), "a control's second fire lands on the live one");
 static assert(calls(commandSource, "landOn("), "ground ritual's second fire lands on the live one");
+
+// "build the probe on commit, scores into QNTX"
+static assert(calls(postToolUseSource, "probeDetached("), "a commit's prose is scored where the commit is heard");
