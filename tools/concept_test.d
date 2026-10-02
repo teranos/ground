@@ -86,7 +86,6 @@ static assert(conceptOf("permission {\n  deny: [\"rm\"]\n}") == "permission");
 // top level, and that block is the attestation chapter's.
 static assert(conceptOf("attestation {\n  subject: \"x\"\n}") == "attestation");
 static assert(conceptOf("qntx {\n  url: \"http://x\"\n}") == "attestation");
-static assert(conceptOf("project {\n  qntx {\n    loomPortUDP: \"19470\"\n  }\n}") == "project");
 
 // Text that is not pbt belongs to no chapter.
 static assert(conceptOf("") == "");
@@ -159,7 +158,6 @@ static assert(chapterOf("org") == "sentry");
 // A message coming back to the session is an attestation read, so the module
 // that reads it is the attestation chapter's.
 static assert(chapterOf("immediate") == "attestation");
-static assert(chapterOf("loom") == "attestation");
 static assert(chapterOf("stream") == "attestation");
 
 // A module under source/ritual/ is named with its directory, so the ritual's

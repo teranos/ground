@@ -1001,15 +1001,6 @@ void attestEventAt(
     if (sqlite3_step(stmt) != SQLITE_DONE)
         noteDbFailure(sqlite3_errcode(db));
     sqlite3_finalize(stmt);
-
-    // "if set, we send to loom, if not set, we dont."
-    // One datagram to the loom the project names, and what became of it said.
-    {
-        import loom : sendToLoom, loomSaid;
-        import controls : loomPortHere;
-        auto port = loomPortHere(cwd);
-        if (port > 0) loomSaid(sendToLoom(port, subjects, predicates, contexts, payload), sessionId);
-    }
 }
 
 unittest {
