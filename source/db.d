@@ -501,6 +501,10 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, idxSubject.ptr, null, null, null);
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
     sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
+    {
+        import sessiontrail : EDIT_INDEX;
+        sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
+    }
 
     return true;
 }

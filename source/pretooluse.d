@@ -497,6 +497,34 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         tBinary = usecNow();
 
+        // "i will be able to trace back to the exact conversation, even years back"
+        bool provenanced = false;
+        {
+            import sessiontrail : isCommit, sessionsForCommit, withTrailers;
+            if (isCommit(command)) {
+                import db : openDb, sqlite3_close;
+                import exec : emitError;
+                auto pdb = openDb();
+                if (pdb is null) {
+                    emitError("provenance.store", "the store would not open, so this commit carries no session",
+                              0, 1, cast(string) sessionId, "provenance", "", cast(string) command, "");
+                } else {
+                    auto found = sessionsForCommit(pdb, command, cwd);
+                    sqlite3_close(pdb);
+                    if (found.over)
+                        emitError("provenance.sessions", "not every session behind this commit could be named on it",
+                                  0, 1, cast(string) sessionId, "provenance", "", cast(string) command, "");
+                    const(char)[][32] ids;
+                    foreach (i; 0 .. found.count) ids[i] = found.label(i);
+                    auto amended = withTrailers(command, ids[0 .. found.count]);
+                    if (amended.ptr !is command.ptr) {
+                        command = amended;
+                        provenanced = true;
+                    }
+                }
+            }
+        }
+
         // Bash — check controls. checkAllCommands tracks effective
         // cwd across `cd X &&` chains (see matcher.d::extractLeadingCd).
         auto results = checkAllCommands(command, cwd);
@@ -746,7 +774,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         if (inLivePerformance(cwd, sessionMode)) {
             if (takesUpdatedInput(toolName)) writeResponse(command, "", "allow");
             else writeContextResponse("", "allow");
+            return 0;
         }
+        // The commit with its sessions is the command, whoever else spoke.
+        if (provenanced) writeResponse(command, "", "");
         return 0;
     }
 
