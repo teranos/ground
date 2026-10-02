@@ -30,6 +30,15 @@ RED: Write a failing test before implementing, Confirm it fails
 GREEN: Write code that makes the test pass.
 REFACTOR: Cohere with the rest of the codebase, finish the implementation fully.
 
+## ORDER
+
+1. tests green
+2. install
+3. verify live
+4. commit
+
+No step is skipped, and the order never changes.
+
 ## AUTHORITY
 
 Lower number wins.
