@@ -44,6 +44,9 @@ private Found findCommit(const(char)[] cmd) {
     Found f;
     size_t at = 0;
     for (;;) {
+        // `;`, `&&` and `|` end one command and start the next.
+        while (at < cmd.length && (cmd[at] == ';' || cmd[at] == '&' || cmd[at] == '|'
+                                   || cmd[at] == ' ' || cmd[at] == '\t')) at++;
         auto w = nextWord(cmd, at);
         if (w.raw.length == 0) return f;
         at = w.end;
@@ -51,7 +54,7 @@ private Found findCommit(const(char)[] cmd) {
         const(char)[] tree;
         for (;;) {
             auto o = nextWord(cmd, at);
-            if (o.raw.length == 0) return f;
+            if (o.raw.length == 0) break;
             at = o.end;
             if (o.value == "-C" || o.value == "-c") {
                 auto arg = nextWord(cmd, at);

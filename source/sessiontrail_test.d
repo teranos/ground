@@ -26,6 +26,21 @@ unittest {
     assert(treeOf("git -C '/r/x y' commit -q", "/cwd") == "/r/x y");
     assert(treeOf("git -C /r commit", "/cwd") == "/r");
     assert(treeOf("git commit -m x", "/cwd") == "/cwd");
+
+    // A commit after `cd` and an `&&` was no commit at all: on 2026-10-02 at
+    // 15:59:14Z one carried no trailer and its prose was never scored.
+    enum chained = `cd /r && git add a.d && git commit -m "probe live"`;
+    assert(isCommit(chained));
+    assert(withTrailers(chained, two()[0 .. 1]) ==
+        `cd /r && git add a.d && git commit --trailer 'session: aaaa' -m "probe live"`);
+    assert(isCommit("git status; git commit -q"));
+    assert(!isCommit("cd /r && git log --grep=commit"));
+    assert(treeOf("cd /x && git -C /r commit", "/cwd") == "/r");
+}
+
+private const(char)[][2] two() {
+    const(char)[][2] t = ["aaaa", "bbbb"];
+    return t;
 }
 
 // Every session that edited the file since it was last committed, read by the
