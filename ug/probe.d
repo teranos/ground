@@ -85,6 +85,23 @@ Token readToken(const(char)[] home) {
     return Token(t, State.ok, true);
 }
 
+// The URL as one shell word. popen hands the line to sh, and an unquoted `&`
+// in `&plugin=` ended curl's command there: the row asked was the node's.
+// A path with a quote in it cannot be one word, so it gives nothing.
+size_t urlArgInto(const(char)[] host_, const(char)[] path, char[] dest) {
+    size_t o = 0;
+    if (dest.length == 0) return 0;
+    dest[o++] = '\'';
+    foreach (c; host_) { if (c == '\'' || o >= dest.length) return 0; dest[o++] = c; }
+    foreach (c; path) {
+        if (c == '\'' || o >= dest.length) return 0;
+        dest[o++] = c;
+    }
+    if (o >= dest.length) return 0;
+    dest[o++] = '\'';
+    return o;
+}
+
 // One request. The token goes in a config file rather than on the argv: a
 // command line is readable by every process on the machine, and a credential
 // that leaks by being used is worse than one that is merely stored.
@@ -146,8 +163,10 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     putCmd(" --config ");
     putCmd(conf[0 .. c]);
     putCmd(" --write-out '\\nHTTP %{http_code}' ");
-    putCmd(host());
-    putCmd(path);
+    __gshared char[400] url = void;
+    auto u = urlArgInto(host(), path, url[]);
+    if (u == 0) overflowed = true;
+    putCmd(url[0 .. u]);
     putCmd(" 2>/dev/null");
     cmd[m] = 0;
     if (overflowed) { remove(&conf[0]); return Answer(State.probeError, 0, ""); }
@@ -236,8 +255,10 @@ Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
     putCmd(" --config ");
     putCmd(conf[0 .. c]);
     putCmd(" --write-out '\\nHTTP %{http_code}' ");
-    putCmd(host());
-    putCmd(path);
+    __gshared char[400] url = void;
+    auto u = urlArgInto(host(), path, url[]);
+    if (u == 0) overflowed = true;
+    putCmd(url[0 .. u]);
     putCmd(" 2>/dev/null");
     cmd[m] = 0;
     if (overflowed) { remove(&conf[0]); remove(&data[0]); return Posted(0, 0); }
