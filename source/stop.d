@@ -132,6 +132,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         import controls : allParsed;
         import core.stdc.time : time;
 
+        // "I dont know how to explain how serious this defect is"
+        // A walk whose driver is gone is halted before anyone is briefed on it.
+        import ritual.orphan : sweepOrphans;
+        sweepOrphans(db);
+
         auto found = readPositionAt(db, cwd);
 
         // "ground should take responsibility"

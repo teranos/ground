@@ -271,10 +271,10 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | |
 | x | 63 | Ground commits, not the agent | "n, i dont trust the agent with it" then "we want to get rid of the auto commit" / "make commit be done by run:" / "the ritual could make itself complete itself by asking the agent to commit while its in ask" | |
 
-Row 99, not done yet — a performance whose driver is gone is halted where it
-stands at the next Stop or prompt, and its agent, its parent and sentry are
-told. Until then it stood live with nobody walking it, and the status line drew
-its rite for as long as anybody looked.
+Row 99 — a performance whose driver is gone is halted where it stands at the
+next Stop or prompt, and its agent, its parent and sentry are told. Before this
+it stood live with nobody walking it, and the status line drew its rite for as
+long as anybody looked.
 
 "I dont know how to explain how serious this defect is"
 

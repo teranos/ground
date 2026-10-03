@@ -57,3 +57,7 @@ static assert(calls(commandSource, "landOn("), "ground ritual's second fire land
 
 // "build the probe on commit, scores into QNTX"
 static assert(calls(postToolUseSource, "probeDetached("), "a commit's prose is scored where the commit is heard");
+
+// "I dont know how to explain how serious this defect is"
+static assert(calls(stopSource, "sweepOrphans("), "a turn's end halts a walk whose driver is gone");
+static assert(calls(userPromptSource, "sweepOrphans("), "typing halts a walk whose driver is gone");
