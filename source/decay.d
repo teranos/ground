@@ -62,6 +62,8 @@ int decayDb(sqlite3* db) {
         ~ "AND json_extract(predicates, '$[0]') < 'immediate;' AND created_at < datetime('now', '-7 days'))\0";
     sqlite3_exec(db, deleteReceipts.ptr, null, null, null);
     auto receiptsDeleted = sqlite3_changes(db);
+    // A row and its receipt go only once the node has them, or when they were
+    // there before the stream began: deleted unsent, QNTX never learns of them.
     enum deleteImmediate = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') >= 'immediate:' "
         ~ "AND json_extract(predicates, '$[0]') < 'immediate;' AND created_at < datetime('now', '-7 days')\0";
     sqlite3_exec(db, deleteImmediate.ptr, null, null, null);
