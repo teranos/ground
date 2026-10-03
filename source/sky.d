@@ -728,7 +728,7 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
     __gshared Batch!() logs;
     __gshared char[280_000] envelope = void;
     logs = Batch!().init;
-    if (outbox.claimOutbox(db, sessionId, pid) > 0) {
+    if (outbox.claimOutbox(db, sessionId, pid, now) > 0) {
         outbox.claimedInto(db, pid, logs);
         auto n = envelopeInto(logs, dsn, LOG_CONTENT, LOG_TYPE, envelope[]);
         auto r = postText(dsn, envelope[0 .. n]);
