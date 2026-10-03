@@ -224,6 +224,107 @@ size_t sinceInto(long since, char[] dest) {
     return o;
 }
 
+// Which plugin the row is showing instead of the node, written down because ug
+// is a fresh process every frame. Absent is the node's row.
+enum FOCUS = ".local/state/ug/focus";
+
+// A plugin's name as the node holds it. Anything else is not one, and does not
+// go into a request.
+bool isPluginName(const(char)[] name) {
+    if (name.length == 0 || name.length > 64) return false;
+    foreach (c; name) {
+        auto ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+            || c == '-' || c == '_' || c == '.';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+// What the row asks the node for: its own row, or one plugin's.
+size_t rowPathInto(const(char)[] focus, const(char)[] format, char[] dest) {
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    put("/am/statusline?format=");
+    put(format);
+    if (isPluginName(focus)) {
+        put("&plugin=");
+        put(focus);
+    }
+    return o;
+}
+
+size_t focusPathInto(const(char)[] home, char[] dest) {
+    if (home.length == 0 || home.length + FOCUS.length + 2 > dest.length) return 0;
+    size_t o = 0;
+    foreach (c; home) dest[o++] = c;
+    if (dest[o - 1] != '/') dest[o++] = '/';
+    foreach (c; FOCUS) dest[o++] = c;
+    dest[o] = 0;
+    return o;
+}
+
+const(char)[] readFocus(const(char)[] home) {
+    import core.stdc.stdio : fopen, fread, fclose;
+    __gshared char[512] path = void;
+    if (focusPathInto(home, path[]) == 0) return null;
+    auto f = fopen(&path[0], "rb");
+    if (f is null) return null;
+    __gshared char[80] buf = void;
+    auto n = fread(&buf[0], 1, buf.length, f);
+    fclose(f);
+    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == ' ')) n--;
+    return isPluginName(buf[0 .. n]) ? buf[0 .. n] : null;
+}
+
+void writeFocus(const(char)[] home, const(char)[] name) {
+    import core.stdc.stdio : fopen, fwrite, fclose;
+    import core.sys.posix.sys.stat : mkdir;
+    __gshared char[512] path = void;
+    auto n = focusPathInto(home, path[]);
+    if (n == 0) return;
+    foreach_reverse (i; 0 .. n) {
+        if (path[i] != '/') continue;
+        path[i] = 0;
+        mkdir(&path[0], 493); // 0755
+        path[i] = '/';
+        break;
+    }
+    auto f = fopen(&path[0], "wb");
+    if (f is null) return;
+    fwrite(name.ptr, 1, name.length, f);
+    fclose(f);
+}
+
+void clearFocus(const(char)[] home) {
+    import core.stdc.stdio : remove;
+    __gshared char[512] path = void;
+    if (focusPathInto(home, path[]) == 0) return;
+    remove(&path[0]);
+}
+
+// `ug click <name>`: what tmux runs when a name on the row is clicked. On the
+// node's row, a plugin's name turns the row into that plugin's row; on a
+// plugin's row, any click turns it back. The row changes in place, and tmux is
+// told to draw it again now rather than at its next interval.
+int clickMain(const(char)[] home, const(char)[] name) {
+    import core.stdc.stdlib : system;
+    import probe : fetch;
+    import qntx : State;
+
+    if (readFocus(home) !is null) {
+        clearFocus(home);
+    } else if (isPluginName(name)) {
+        // Only a name the node holds a plugin under. Clicking `handlers` or the
+        // caller leaves the row as it is.
+        __gshared char[160] path = void;
+        auto p = rowPathInto(name, "json", path[]);
+        auto answer = fetch(home, path[0 .. p]);
+        if (answer.state == State.ok) writeFocus(home, name);
+    }
+    system("tmux refresh-client -S >/dev/null 2>&1");
+    return 0;
+}
+
 // The whole of `ug tmux`: one line on stdout and nothing else. It reads no
 // stdin, because tmux has no session to tell it about.
 int tmuxMain(const(char)[] home, long now) {
@@ -231,13 +332,25 @@ int tmuxMain(const(char)[] home, long now) {
     import probe : fetch;
     import qntx : State;
 
-    auto answer = fetch(home, "/am/statusline?format=tmux");
+    auto focus = readFocus(home);
+    __gshared char[160] rowPath = void;
+    auto rp = rowPathInto(focus, "tmux", rowPath[]);
+    auto answer = fetch(home, rowPath[0 .. rp]);
+
+    // A plugin the node no longer holds is not a row to keep asking for.
+    if (focus !is null && answer.status == 404) {
+        clearFocus(home);
+        focus = null;
+        answer = fetch(home, "/am/statusline?format=tmux");
+    }
 
     __gshared char[8192] line = void;
     size_t n;
 
     if (answer.state == State.ok) {
-        keepAnswer(home, now, answer.body_);
+        // What is kept stands in for the node's row through a short silence,
+        // so a plugin's row is not what gets kept.
+        if (focus is null) keepAnswer(home, now, answer.body_);
         n = isJson(answer.body_)
             ? itemsInto(answer.body_, line[])
             : oneLineInto(answer.body_, line[]);

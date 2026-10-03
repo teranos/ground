@@ -206,3 +206,29 @@ static assert(label!""()[0 .. 2] == "cc");
 
 // A dest too small truncates rather than writing past it.
 static assert(weekLabelInto("max", new char[3]) == 3);
+
+// "click with my mouse cursor on the specific plugin in the statusline, and see
+// a plugin version of the statusline, and then click again, and get back"
+import tmux : isPluginName, rowPathInto;
+
+static assert(isPluginName("cleanAPI"));
+static assert(isPluginName("openrouter-qntx"));
+static assert(!isPluginName(""));
+static assert(!isPluginName("POST .me.draft"), "a route on a plugin's row is not a plugin");
+static assert(!isPluginName("a&b"));
+
+char[160] rowPath(const(char)[] focus, const(char)[] format)() {
+    char[160] buf = '.';
+    rowPathInto(focus, format, buf[]);
+    return buf;
+}
+
+enum nodeRow = "/am/statusline?format=tmux";
+static assert(rowPathInto(null, "tmux", new char[160]) == nodeRow.length);
+static assert(rowPath!(null, "tmux")()[0 .. nodeRow.length] == nodeRow);
+
+enum cleanRow = "/am/statusline?format=tmux&plugin=cleanAPI";
+static assert(rowPath!("cleanAPI", "tmux")()[0 .. cleanRow.length] == cleanRow);
+
+// A focus that is not a plugin's name asks for the node's row, never for it.
+static assert(rowPathInto("a&b", "tmux", new char[160]) == nodeRow.length);
