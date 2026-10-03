@@ -42,8 +42,8 @@ bool leave(sqlite3* db, const(char)[] session, const(char)[] level, const Item i
 enum TAKE = 60;
 
 // A claim is a negative shipped_at: the pid of the watcher that took the rows.
-// Items nobody's session wrote, an error raised with no session to name, go
-// with whichever watcher claims first, and one update is one claimant.
+// An item nobody's session wrote, or one STRAY_SEC old whose watcher never
+// came, goes with whichever watcher claims first; one update is one claimant.
 long claimOutbox(sqlite3* db, const(char)[] session, long pid) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
                 sqlite3_bind_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
