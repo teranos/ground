@@ -88,6 +88,8 @@ static assert(calls(mainSource, "attestCost("), "a hook's cost is attested as we
 // A store that would not open dropped the hook's timing row, and only a
 // corrupt one was ever said.
 static assert(!calls(mainSource, "if (db is null) return;"), "a timing row the store would not take is said");
+// The result line carries the message since 3cb89ce; the stderr copy said it twice.
+static assert(!calls(mainSource, `"", "", cast(string) said[0 .. n]);`), "a refused timing row is said once");
 
 // A driver ended by a catchable signal says which.
 static assert(calls(driveSource, "armDeathNote("), "the driver notes the signal that ends it");

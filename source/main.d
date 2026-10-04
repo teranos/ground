@@ -176,8 +176,6 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
     sqlite3_close(db);
     if (rc != SQLITE_DONE) {
         import exec : emitError;
-        // The session is shown the exit and the stderr of a result, not its
-        // message, so the sentence goes in the stderr with the phases after it.
         __gshared char[640] said = 0;
         size_t n;
         void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
@@ -187,7 +185,7 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
         put("\n");
         put(phases);
         emitError("hook.timing", cast(string) said[0 .. n], 0, rc,
-                  cast(string) sessionId, "hook.timing", "", "", cast(string) said[0 .. n]);
+                  cast(string) sessionId, "hook.timing", "", "", "");
     }
 }
 
