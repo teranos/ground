@@ -85,6 +85,9 @@ static assert(calls(sessionStartSource, "originOf("), "and the repo it is a chec
 // "hook timing should go to both"
 private enum mainSource = import("source/main.d");
 static assert(calls(mainSource, "attestCost("), "a hook's cost is attested as well as timed");
+// A store that would not open dropped the hook's timing row, and only a
+// corrupt one was ever said.
+static assert(!calls(mainSource, "if (db is null) return;"), "a timing row the store would not take is said");
 
 // A driver ended by a catchable signal says which.
 static assert(calls(driveSource, "armDeathNote("), "the driver notes the signal that ends it");

@@ -156,11 +156,17 @@ const(char)[] getPhases() {
 // said nothing; sentry showed a gap and nobody was told why.
 void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project,
                   const(char)[] phases, const(char)[] sessionId, const(char)[] cwd) {
-    import db : openDb, sqlite3_close, SQLITE_DONE;
+    import db : openDb, sqlite3_close, SQLITE_DONE, dbFailureCode;
     import hooktiming : insertTiming;
 
     auto db = openDb();
-    if (db is null) return;
+    if (db is null) {
+        // Corruption is said by openDb's chain; a store busy past the wait is not.
+        import exec : emitError;
+        emitError("hook.timing", "the store would not open for this hook's timing row", 0, dbFailureCode(),
+                  cast(string) sessionId, "hook.timing", "", cast(string) phases, "");
+        return;
+    }
     auto rc = insertTiming(db, elapsedUs, hookEvent, project, phases);
     // "hook timing should go to both"
     if (rc == SQLITE_DONE && sessionId.length > 0) {
