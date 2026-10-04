@@ -339,6 +339,9 @@ bool applySchema(sqlite3* db) {
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
     sqlite3_exec(db, sessionProjectSchema.ptr, null, null, null);
+    // Where the session ran, for the contexts of every event it writes.
+    ensureColumn(db, "session_project", "origin", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "session_project", "place", "TEXT NOT NULL DEFAULT ''");
 
     // Keyed on the performance, not on where it happens. The worktree is an
     // index: removing the tree loses a route to the record, not the record.
@@ -905,9 +908,12 @@ void attestEventAt(
     __gshared ZBuf subjectVal;
     __gshared char[256] sessionProjectBuf = 0;
     const(char)[] sessionProject = null;
+    __gshared char[256] originBuf = 0;
+    __gshared char[256] placeBuf = 0;
+    const(char)[] origin = null, place = null;
 
     {
-        enum lookupSql = "SELECT project FROM session_project WHERE session_id = ?1\0";
+        enum lookupSql = "SELECT project, origin, place FROM session_project WHERE session_id = ?1\0";
         sqlite3_stmt* spStmt;
         if (sqlite3_prepare_v2(db, lookupSql.ptr, -1, &spStmt, null) == SQLITE_OK) {
             __gshared ZBuf sidBuf;
@@ -924,6 +930,15 @@ void attestEventAt(
                         sessionProject = sessionProjectBuf[0 .. sLen];
                     }
                 }
+                const(char)[] column(int at, ref char[256] buf) {
+                    auto t = sqlite3_column_text(spStmt, at);
+                    if (t is null) return null;
+                    size_t n = 0;
+                    while (t[n] != 0 && n < buf.length) { buf[n] = t[n]; n++; }
+                    return n > 0 ? buf[0 .. n] : null;
+                }
+                origin = column(1, originBuf);
+                place = column(2, placeBuf);
             }
             sqlite3_finalize(spStmt);
         }
@@ -940,9 +955,13 @@ void attestEventAt(
     jsonArray1(subjects, subjectVal.slice());
     jsonArray1(predicates, eventName);
 
+    // The session first, as every reader of contexts[0] expects; then where it
+    // ran, when SessionStart wrote it down (QNTX #1068, Phase 3).
     contexts.reset();
     contexts.put(`["session:`);
     contexts.put(sessionId);
+    if (origin !is null) { contexts.put(`","origin:`); contexts.put(origin); }
+    if (place !is null) { contexts.put(`","project:`); contexts.put(place); }
     contexts.put(`"]`);
 
     jsonArray1(actors, "ground");

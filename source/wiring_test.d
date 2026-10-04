@@ -71,6 +71,11 @@ static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new bra
 // on wrote no ci-status row: the CI it owed was never asked after.
 static assert(calls(postToolUseSource, "emitControlSaid("), "a control's words are said after the rest of the hook ran");
 
+// QNTX #1068, Phase 3: where a session ran is written down when it starts.
+private enum sessionStartSource = import("source/sessionstart.d");
+static assert(calls(sessionStartSource, "placeOf("), "a session's project is resolved when it starts");
+static assert(calls(sessionStartSource, "originOf("), "and the repo it is a checkout of");
+
 // "hook timing should go to both"
 private enum mainSource = import("source/main.d");
 static assert(calls(mainSource, "attestCost("), "a hook's cost is attested as well as timed");
