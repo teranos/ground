@@ -63,3 +63,11 @@ is ug's to answer. The original numbers are kept and prefixed rug.
 
 "the agent [ and ] should have moved no further than apple"
 
+### Limitation — the node's news reaches a session only through `ug tmux`
+
+> What a built-in on the node concludes, a CI verdict or a quote with no source,
+> is left on the node's status row for two minutes. `newsPass` in `ug/tmux.d` is
+> the only thing that asks the row for it and writes it into ground's store,
+> where sky hands it to the session. With no tmux drawing `ug tmux`, nothing
+> writes it down, and the session is never told.
+
