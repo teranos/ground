@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug install install-ug wind ug book annot press binder editor
+.PHONY: build test test-tools test-ug install install-ug prune-dub-cache wind ug book annot press binder editor
 
 PREFIX ?= $(HOME)/.local
 
@@ -128,8 +128,14 @@ install: build install-ug
 	mkdir -p $(PREFIX)/bin
 	cp ground $(PREFIX)/bin/ground.new
 	mv -f $(PREFIX)/bin/ground.new $(PREFIX)/bin/ground
+	$(MAKE) prune-dub-cache
 	./ground attest
 	./ground decay
+
+# dub keys its cache by version and every commit is a version: 129 builds, 18G.
+DUB_CACHE := $(HOME)/.dub/cache/ground
+prune-dub-cache:
+	ls -td $(DUB_CACHE)/*/ | tail -n +4 | xargs rm -rf
 
 # The book is generated from the source it documents, so it cannot describe a
 # ground that does not exist. Both comment kinds are prose: a // line and a
