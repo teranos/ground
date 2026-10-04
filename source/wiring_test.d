@@ -71,6 +71,10 @@ static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new bra
 // on wrote no ci-status row: the CI it owed was never asked after.
 static assert(calls(postToolUseSource, "emitControlSaid("), "a control's words are said after the rest of the hook ran");
 
+// "hook timing should go to both"
+private enum mainSource = import("source/main.d");
+static assert(calls(mainSource, "attestCost("), "a hook's cost is attested as well as timed");
+
 // A driver ended by a catchable signal says which.
 static assert(calls(driveSource, "armDeathNote("), "the driver notes the signal that ends it");
 

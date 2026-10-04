@@ -81,7 +81,8 @@ enum SKELETON_SQL = "CASE json_extract(predicates, '$[0]') "
     ~ "WHEN 'PostToolUse' THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
     ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
     ~   "'command', json_extract(attributes, '$.tool_input.command'), "
-    ~   "'original_size', length(attributes)) "
+    ~   "'original_size', length(attributes), "
+    ~   "'duration_ms', json_extract(attributes, '$.duration_ms')) "
     ~ "WHEN 'PreToolUse' THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
     ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
     ~   "'command', json_extract(attributes, '$.tool_input.command'), "
@@ -536,7 +537,7 @@ unittest {
 
     // A PostToolUse row with its output whole, and a Stop row.
     attestEventAt(db, "PostToolUse", "/tmp", "sess-s",
-        `{"session_id":"sess-s","tool_name":"Bash","tool_input":{"command":"ls -la"},"tool_response":{"stdout":"a very long listing"}}`,
+        `{"session_id":"sess-s","tool_name":"Bash","tool_input":{"command":"ls -la"},"tool_response":{"stdout":"a very long listing"},"duration_ms":1711}`,
         "2026-09-19T09:03:25Z", 34348);
     attestEventAt(db, "Stop", "/tmp", "sess-s", `{"session_id":"sess-s","stop_hook_active":false}`,
         "2026-09-19T09:03:26Z", 34349);
@@ -557,6 +558,8 @@ unittest {
     assert(contains(body_, `"tool_name":"Bash"`));
     assert(contains(body_, `"command":"ls -la"`));
     assert(contains(body_, `"original_size":`));
+    // QNTX #1068, Phase 3: a tool's own cost goes with it.
+    assert(contains(body_, `"duration_ms":1711`), "what the tool took is sent");
     assert(!contains(body_, "a very long listing"), "the output stays home");
     assert(!contains(body_, "tool_response"));
 
