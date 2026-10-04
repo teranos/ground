@@ -352,6 +352,7 @@ int handleSky(int argc, const(char)** argv) {
     import core.stdc.time : time;
     import lifecycle : processStarted, processSeen, processEnded;
     auto cwd = argv[2][0 .. argLen(argv[2])];
+    skyCwd = cwd;
     auto tree = treeKey(cwd);
     int myPid = getpid();
     int myPpid = getppid();
@@ -437,6 +438,16 @@ int handleSky(int argc, const(char)** argv) {
         auto rdb = openDb();
         if (rdb !is null) {
             record = processStarted(rdb, KIND, myPid, myPpid, sessionId, tree, startedAt);
+            {
+                // Once when it starts, for the node; sentry hears only endings.
+                import skylife : Life, attestLife;
+                import stream : standing;
+                auto st = standing(rdb);
+                Life l;
+                l.how = "started"; l.level = "info"; l.tree = tree; l.pid = myPid;
+                l.pending = st.pending; l.refused = st.refused;
+                attestLife(rdb, cwd, sessionId, l);
+            }
             import hooktiming;
             import outbox;
             import stream;
@@ -520,23 +531,11 @@ int handleSky(int argc, const(char)** argv) {
                 auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
 
-                // A ci-status row is the fact of a push, written for the
-                // stream. The node's watcher fires on it and the result comes
-                // back as news ug writes. It is not a message: receipted here
-                // so the pass moves on, and nothing is spoken.
-                if (imm.name == "ci-status") {
-                    if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
-                        stuck = true;
-                        break;
-                    }
-                    continue;
-                }
-
-                // A dispatch row is the fact that a rite sent a run, written
-                // for the stream. The node finds the run by the name ground
-                // gave it and the verdict comes back as news ug writes. Not a
-                // message: receipted here so the pass moves on.
-                if (imm.name == "dispatch") {
+                // A ci-status or dispatch row is the fact of a push or a run,
+                // written for the stream; the node answers it as news ug
+                // writes. Receipted here so the pass moves on, and not spoken.
+                import immediate : spoken;
+                if (!spoken(imm.name)) {
                     if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
                         stuck = true;
                         break;
@@ -715,7 +714,19 @@ private void lifecycleNote(sqlite3* db, const(char)[] sessionId, const(char)[] l
     it.num("stream_refused", s.refused);
     it.close();
     cast(void) leave(db, sessionId, level, it, now);
+
+    // The same, for the node, so it can count the skies.
+    import skylife : Life, attestLife;
+    Life l;
+    l.how = how; l.level = level; l.tree = tree; l.pid = pid;
+    l.delivered = delivered; l.polls = polls; l.seconds = seconds; l.streamed = streamed;
+    l.pending = s.pending; l.refused = s.refused;
+    attestLife(db, skyCwd, sessionId, l);
 }
+
+// The tree this sky was started for, whole, so what it attests about itself
+// carries that tree's branch and subject.
+private __gshared const(char)[] skyCwd = "";
 
 // Whatever is pending for this session, posted. False when a post did not
 // land, which is what the caller backs off on. Nothing pending is true.
@@ -728,7 +739,7 @@ private bool shipPass(sqlite3* db, const(char)[] sessionId, const(char)[] dsn, i
     __gshared Batch!() logs;
     __gshared char[280_000] envelope = void;
     logs = Batch!().init;
-    if (outbox.claimOutbox(db, sessionId, pid) > 0) {
+    if (outbox.claimOutbox(db, sessionId, pid, now) > 0) {
         outbox.claimedInto(db, pid, logs);
         auto n = envelopeInto(logs, dsn, LOG_CONTENT, LOG_TYPE, envelope[]);
         auto r = postText(dsn, envelope[0 .. n]);

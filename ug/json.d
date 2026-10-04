@@ -21,6 +21,27 @@ const(char)[] jsonString(const(char)[] input, const(char)[] key) {
     return input[start .. end];
 }
 
+// A string jsonString found, as the text it stands for. \uXXXX is kept as it
+// is written; nothing the node says carries one.
+size_t jsonUnescapeInto(const(char)[] raw, char[] dest) {
+    size_t o = 0;
+    for (size_t i = 0; i < raw.length && o < dest.length; i++) {
+        char c = raw[i];
+        if (c == '\\' && i + 1 < raw.length) {
+            auto e = raw[++i];
+            switch (e) {
+                case 'n': c = '\n'; break;
+                case 't': c = '\t'; break;
+                case 'r': c = '\r'; break;
+                case 'u': dest[o++] = '\\'; if (o >= dest.length) return o; c = 'u'; break;
+                default: c = e; break;
+            }
+        }
+        dest[o++] = c;
+    }
+    return o;
+}
+
 // A numeric field, truncated to a whole number. Negative one when the key is
 // absent, which is how a segment decides not to draw.
 int jsonNumber(const(char)[] input, const(char)[] key) {

@@ -61,7 +61,7 @@ unittest {
     noteFired(db, "sess-f", "PreToolUse", "permission", "git-status", "allow", "/Users/x/teranos/ground");
 
     Batch!32768 b;
-    assert(claimOutbox(db, "sess-f", 111) == 3);
+    assert(claimOutbox(db, "sess-f", 111, 0) == 3);
     assert(claimedInto(db, 111, b) == 3);
     assert(b.count == 3);
     auto text = b.buf[0 .. b.len];

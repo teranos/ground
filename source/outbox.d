@@ -41,20 +41,25 @@ bool leave(sqlite3* db, const(char)[] session, const(char)[] level, const Item i
 // item is under four kilobytes.
 enum TAKE = 60;
 
+// A watcher passes every five seconds and waits a minute after a post that did
+// not land, so an item its own watcher ships is gone well inside five minutes.
+enum STRAY_SEC = 300;
+
 // A claim is a negative shipped_at: the pid of the watcher that took the rows.
-// Items nobody's session wrote, an error raised with no session to name, go
-// with whichever watcher claims first, and one update is one claimant.
-long claimOutbox(sqlite3* db, const(char)[] session, long pid) {
+// An item nobody's session wrote, or one STRAY_SEC old whose watcher never
+// came, goes with whichever watcher claims first; one update is one claimant.
+long claimOutbox(sqlite3* db, const(char)[] session, long pid, long now) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
                 sqlite3_bind_int64, sqlite3_changes, sqlite3_stmt, SQLITE_OK, SQLITE_TRANSIENT;
 
     enum sql = "UPDATE outbox SET shipped_at = -?2 WHERE id IN (SELECT id FROM outbox "
-        ~ "WHERE shipped_at = 0 AND (session = ?1 OR session = '') ORDER BY id LIMIT ?3)\0";
+        ~ "WHERE shipped_at = 0 AND (session = ?1 OR session = '' OR at <= ?4) ORDER BY id LIMIT ?3)\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
     sqlite3_bind_text(stmt, 1, session.ptr, cast(int) session.length, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, pid);
     sqlite3_bind_int64(stmt, 3, TAKE);
+    sqlite3_bind_int64(stmt, 4, now - STRAY_SEC);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return sqlite3_changes(db);
@@ -144,7 +149,7 @@ unittest {
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
     assert(applySchema(db));
 
-    assert(claimOutbox(db, "sess-o", 111) == 0, "nothing left is nothing pending");
+    assert(claimOutbox(db, "sess-o", 111, 0) == 0, "nothing left is nothing pending");
 
     auto a = openItem(1000, "sess-o", "info", "control x fired"); a.close();
     auto b = openItem(1001, "sess-o", "warn", "over budget"); b.close();
@@ -155,18 +160,18 @@ unittest {
 
     // One session's items, oldest first, and not another session's.
     Batch!8192 batch;
-    assert(claimOutbox(db, "sess-o", 111) == 2);
+    assert(claimOutbox(db, "sess-o", 111, 0) == 2);
     assert(claimedInto(db, 111, batch) == 2);
     assert(batch.count == 2);
 
     // Not shipped until the post landed: handed back, they are claimed again.
     claimResolved(db, 111, false, 1004);
-    assert(claimOutbox(db, "sess-o", 111) == 2);
+    assert(claimOutbox(db, "sess-o", 111, 0) == 2);
     claimResolved(db, 111, true, 1005);
-    assert(claimOutbox(db, "sess-o", 111) == 0, "shipped is shipped");
+    assert(claimOutbox(db, "sess-o", 111, 0) == 0, "shipped is shipped");
 
     // The other session's item is still its watcher's to take.
-    assert(claimOutbox(db, "sess-p", 222) == 1);
+    assert(claimOutbox(db, "sess-p", 222, 0) == 1);
 
     // An item that did not fit its buffer is not left: half an item is not JSON.
     Item over;
@@ -240,8 +245,8 @@ unittest {
     assert(leave(db, "", "warn", a, 1000));
     assert(leave(db, "sess-o", "info", b, 1001));
 
-    assert(claimOutbox(db, "sess-o", 111) == 2, "its own and the sessionless one");
-    assert(claimOutbox(db, "sess-p", 222) == 0, "the sessionless one is taken");
+    assert(claimOutbox(db, "sess-o", 111, 0) == 2, "its own and the sessionless one");
+    assert(claimOutbox(db, "sess-p", 222, 0) == 0, "the sessionless one is taken");
 
     Batch!8192 batch;
     assert(claimedInto(db, 111, batch) == 2);
@@ -249,13 +254,29 @@ unittest {
     assert(claimedInto(db, 222, none) == 0);
 
     claimResolved(db, 111, false, 2000);
-    assert(claimOutbox(db, "sess-p", 222) == 1, "handed back, the sessionless one goes to the next");
+    assert(claimOutbox(db, "sess-p", 222, 0) == 1, "handed back, the sessionless one goes to the next");
     claimResolved(db, 222, true, 2001);
-    assert(claimOutbox(db, "sess-o", 111) == 1, "sess-o's own is still pending");
+    assert(claimOutbox(db, "sess-o", 111, 0) == 1, "sess-o's own is still pending");
 
     // A claimant that died mid-post is gone, and its claim with it.
     static bool nobody(long) { return false; }
     assert(releaseDeadClaims(db, &nobody) == 1);
-    assert(claimOutbox(db, "sess-o", 333) == 1, "claimable again");
+    assert(claimOutbox(db, "sess-o", 333, 0) == 1, "claimable again");
+    sqlite3_close(db);
+}
+
+unittest {
+    // On 2026-10-03, 999 errors filed under sessions with no watcher had never
+    // reached sentry, the oldest from 2026-09-18.
+    import db : sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import sentry : openItem;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    auto e = openItem(1000, "sess-gone", "error", "ritual.drive.gone"); e.close();
+    assert(leave(db, "sess-gone", "error", e, 1000));
+    assert(claimOutbox(db, "sess-o", 111, 1000 + STRAY_SEC - 1) == 0, "young, its own watcher may still come");
+    assert(claimOutbox(db, "sess-o", 111, 1000 + STRAY_SEC) == 1, "stray, the next watcher takes it");
     sqlite3_close(db);
 }

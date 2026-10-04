@@ -67,6 +67,30 @@ RiteAttrs riteAttributes(const(char)[] performance, const(char)[] ritual,
     return a;
 }
 
+// The rite's record with the walk it ran in: who held the mic, how often the
+// walk went back or waited, and whose session is owed the news (QNTX #1068).
+RiteAttrs riteRecord(const Position p, const(char)[] rite, Verdict v, int code,
+                     const(char)[] output, long diffLines) {
+    import mic : micWord;
+    auto a = riteAttributes(p.id, p.ritual, rite, v, code, output, diffLines);
+    if (a.len == 0) return a;
+    a.len--;  // the record's closing brace, put back after the walk's fields
+    a.put(`,"branch":"`);
+    a.putEscaped(p.branch);
+    a.put(`","gotos":`);
+    a.putInt(cast(int) p.gotos);
+    a.put(`,"holds":`);
+    a.putInt(cast(int) p.holds);
+    a.put(`,"evals":`);
+    a.putInt(cast(int) p.evals);
+    a.put(`,"mic":"`);
+    a.put(micWord(p.mic));
+    a.put(`","parent":"`);
+    a.putEscaped(p.parent);
+    a.put(`"}`);
+    return a;
+}
+
 // One row per rite that ran. Keyed on the performance, the rite and the
 // attempt, so a held rite re-run twenty times leaves twenty rows and a count
 // of them is a count of attempts.
@@ -103,9 +127,10 @@ bool attestRite(DB)(DB db, const(char)[] sessionId, const Position p,
     subjBuf.put(p.ritual);
     subjBuf.put(`"]`);
 
+    // A rite that ran with no session of its own is the parent's news.
     ctxBuf.reset();
     ctxBuf.put(`["session:`);
-    ctxBuf.put(sessionId);
+    ctxBuf.put(sessionId.length > 0 ? sessionId : p.parent);
     ctxBuf.put(`","performance:`);
     ctxBuf.put(p.id);
     ctxBuf.put(`"]`);
@@ -114,7 +139,7 @@ bool attestRite(DB)(DB db, const(char)[] sessionId, const Position p,
     srcBuf.put("ground ");
     srcBuf.put(versionString());
 
-    auto attrs = riteAttributes(p.id, p.ritual, rite, v, code, output, diffLines);
+    auto attrs = riteRecord(p, rite, v, code, output, diffLines);
     auto ts = formatTimestamp();
 
     sqlite3_stmt* stmt;

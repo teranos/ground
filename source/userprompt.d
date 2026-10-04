@@ -30,6 +30,13 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
 
     auto db = openDb();
 
+    // "I dont know how to explain how serious this defect is"
+    // Typing is when a dead driver's walk is halted and said, if no Stop got there first.
+    if (db !is null) {
+        import ritual.orphan : sweepOrphans;
+        sweepOrphans(db);
+    }
+
     // A message typed mid-turn fires no hook, so the transcript is the only
     // record of it. Without this the corpus holds what was submitted rather
     // than what was said.

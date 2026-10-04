@@ -15,7 +15,7 @@ import report : ritualLines;
 
 extern (C) int main(int argc, char** argv) {
     import core.stdc.stdlib : getenv;
-    import tmux : tmuxMain;
+    import tmux : tmuxMain, clickMain;
 
     auto h = getenv("HOME\0".ptr);
     size_t hl = 0;
@@ -31,6 +31,17 @@ extern (C) int main(int argc, char** argv) {
 
         if (verb == "tmux")
             return tmuxMain(home, cast(long) time(null));
+
+        // What tmux runs on a click, with the clicked range's name.
+        if (verb == "click") {
+            const(char)[] which;
+            if (argc >= 3 && argv[2] !is null) {
+                size_t nl = 0;
+                while (argv[2][nl] != 0) nl++;
+                which = argv[2][0 .. nl];
+            }
+            return clickMain(home, which);
+        }
     }
 
     auto session = readStdin();

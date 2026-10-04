@@ -56,16 +56,27 @@ int decayDb(sqlite3* db) {
     // 11,297 of them on 2026-09-22, 695ms a pass, with each PreToolUse queued
     // behind it. The receipts go first: they name the row, and a receipt for a
     // row that is gone is a row nobody can read either.
+    enum dropGone = "DROP TABLE IF EXISTS temp.decay_gone\0";
+    sqlite3_exec(db, dropGone.ptr, null, null, null);
+
+    // A row and its receipt go only once the node has them, or when they were
+    // there before the stream began: deleted unsent, QNTX never learns of them.
+    // The unsent receipts are read by the stream's index, once, not per row.
+    enum gone = "CREATE TEMP TABLE decay_gone AS SELECT id FROM attestations "
+        ~ "WHERE json_extract(predicates, '$[0]') >= 'immediate:' AND json_extract(predicates, '$[0]') < 'immediate;' "
+        ~ "AND created_at < datetime('now', '-7 days') AND qntx_at > 0 "
+        ~ "AND id NOT IN (SELECT substr(json_extract(predicates, '$[0]'), 11) FROM attestations "
+        ~ "WHERE qntx_at <= 0 AND json_extract(predicates, '$[0]') LIKE 'delivered:%')\0";
+    sqlite3_exec(db, gone.ptr, null, null, null);
+
     enum deleteReceipts = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') LIKE 'delivered:%' "
-        ~ "AND substr(json_extract(predicates, '$[0]'), 11) IN ("
-        ~ "SELECT id FROM attestations WHERE json_extract(predicates, '$[0]') >= 'immediate:' "
-        ~ "AND json_extract(predicates, '$[0]') < 'immediate;' AND created_at < datetime('now', '-7 days'))\0";
+        ~ "AND substr(json_extract(predicates, '$[0]'), 11) IN (SELECT id FROM temp.decay_gone)\0";
     sqlite3_exec(db, deleteReceipts.ptr, null, null, null);
     auto receiptsDeleted = sqlite3_changes(db);
-    enum deleteImmediate = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') >= 'immediate:' "
-        ~ "AND json_extract(predicates, '$[0]') < 'immediate;' AND created_at < datetime('now', '-7 days')\0";
+    enum deleteImmediate = "DELETE FROM attestations WHERE id IN (SELECT id FROM temp.decay_gone)\0";
     sqlite3_exec(db, deleteImmediate.ptr, null, null, null);
     auto immediateDeleted = sqlite3_changes(db);
+    sqlite3_exec(db, dropGone.ptr, null, null, null);
 
     long afterSize = dbPageSize(db);
 
@@ -165,14 +176,36 @@ unittest {
     // an hour ago. A pending row is proven pending by the absence of a receipt
     // in every session, so a session that ended leaves its rows pending for
     // ever, and every sky reads them again every five seconds.
-    enum oldImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+    enum oldImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at, qntx_at) "
         ~ "VALUES ('imm-old', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', "
-        ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"old\",\"after\":0}', datetime('now', '-10 days'))\0";
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"old\",\"after\":0}', datetime('now', '-10 days'), 1790000000)\0";
     sqlite3_exec(db, oldImmediate.ptr, null, null, null);
-    enum oldReceipt = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+    enum oldReceipt = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at, qntx_at) "
         ~ "VALUES ('delivered:imm-old:other', '[\"x\"]', '[\"delivered:imm-old\"]', '[\"session:other\"]', '[\"ground\"]', "
-        ~ "'2025-01-01T00:00:00Z', 'ground', '{}', datetime('now', '-10 days'))\0";
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{}', datetime('now', '-10 days'), 1790000000)\0";
     sqlite3_exec(db, oldReceipt.ptr, null, null, null);
+
+    // As old, and the node never had it, nor its receipt: QNTX #1068 found
+    // decay deleting rows after seven days whether sent or not.
+    enum unsentImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+        ~ "VALUES ('imm-unsent', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"unsent\",\"after\":0}', datetime('now', '-10 days'))\0";
+    sqlite3_exec(db, unsentImmediate.ptr, null, null, null);
+    enum unsentReceipt = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at, qntx_at) "
+        ~ "VALUES ('delivered:imm-unsent:other', '[\"x\"]', '[\"delivered:imm-unsent\"]', '[\"session:other\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{}', datetime('now', '-10 days'), 1790000000)\0";
+    sqlite3_exec(db, unsentReceipt.ptr, null, null, null);
+
+    // The node has the row and not yet its receipt. Without the receipt the
+    // row is pending again, so the row waits for it.
+    enum waitingImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at, qntx_at) "
+        ~ "VALUES ('imm-waits', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"waits\",\"after\":0}', datetime('now', '-10 days'), 1790000000)\0";
+    sqlite3_exec(db, waitingImmediate.ptr, null, null, null);
+    enum waitingReceipt = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
+        ~ "VALUES ('delivered:imm-waits:other', '[\"x\"]', '[\"delivered:imm-waits\"]', '[\"session:other\"]', '[\"ground\"]', "
+        ~ "'2025-01-01T00:00:00Z', 'ground', '{}', datetime('now', '-10 days'))\0";
+    sqlite3_exec(db, waitingReceipt.ptr, null, null, null);
     enum newImmediate = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) "
         ~ "VALUES ('imm-new', '[\"x\"]', '[\"immediate:note\"]', '[\"session:here\"]', '[\"ground\"]', "
         ~ "'2025-01-01T00:00:00Z', 'ground', '{\"detail\":\"new\",\"after\":0}', datetime('now', '-1 hour'))\0";
@@ -196,6 +229,22 @@ unittest {
         assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
         assert(sqlite3_step(stmt) == SQLITE_ROW);
         assert(sqlite3_column_int64(stmt, 0) == 1, "a recent immediate row is still pending");
+        sqlite3_finalize(stmt);
+    }
+    {
+        enum sql = "SELECT count(*) FROM attestations WHERE id IN ('imm-unsent', 'delivered:imm-unsent:other')\0";
+        sqlite3_stmt* stmt;
+        assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
+        assert(sqlite3_step(stmt) == SQLITE_ROW);
+        assert(sqlite3_column_int64(stmt, 0) == 2, "a row the node never had is kept, and so is its receipt");
+        sqlite3_finalize(stmt);
+    }
+    {
+        enum sql = "SELECT count(*) FROM attestations WHERE id IN ('imm-waits', 'delivered:imm-waits:other')\0";
+        sqlite3_stmt* stmt;
+        assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
+        assert(sqlite3_step(stmt) == SQLITE_ROW);
+        assert(sqlite3_column_int64(stmt, 0) == 2, "a row whose receipt the node does not have yet waits for it");
         sqlite3_finalize(stmt);
     }
 
@@ -306,10 +355,10 @@ unittest {
     foreach (i; 0 .. 40) {
         __gshared ZBuf row;
         row.reset();
-        row.put("INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at) VALUES ('imm-");
+        row.put("INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes, created_at, qntx_at) VALUES ('imm-");
         row.putUint(cast(ulong) i);
         row.put("', '[\"x\"]', '[\"immediate:note\"]', '[\"session:gone\"]', '[\"ground\"]', '2025-01-01T00:00:00Z', 'ground', "
-            ~ "json_object('detail', printf('%.4000c', 'x'), 'after', 0), datetime('now', '-10 days'))");
+            ~ "json_object('detail', printf('%.4000c', 'x'), 'after', 0), datetime('now', '-10 days'), 1790000000)");
         assert(sqlite3_exec(db, row.ptr(), null, null, null) == SQLITE_OK);
     }
     decayDb(db);

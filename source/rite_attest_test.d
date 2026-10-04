@@ -50,6 +50,26 @@ static assert(j.text() ==
 static assert(riteAttributes("p", "r", "n", Verdict.Advance, 0, "", -1).text() ==
     `{"performance":"p","ritual":"r","rite":"n","verdict":"advance","code":0,"output":""}`);
 
+// QNTX #1068, Phase 3: the walk the rite ran in, so the node can draw who held
+// the mic and how often it went back, not only the verdict.
+import ritual : riteRecord, Position;
+import mic : Mic;
+
+Position walking() {
+    Position p;
+    p.id = "q-deploy-1";
+    p.ritual = "q-deploy";
+    p.branch = "main";
+    p.gotos = 2; p.holds = 3; p.evals = 4;
+    p.mic = Mic.Agent;
+    p.parent = "parent-1";
+    return p;
+}
+enum s = riteRecord(walking(), "SACRED", Verdict.Hold, 1, "", -1);
+static assert(s.text() ==
+    `{"performance":"q-deploy-1","ritual":"q-deploy","rite":"SACRED","verdict":"hold","code":1,"output":"",`
+    ~ `"branch":"main","gotos":2,"holds":3,"evals":4,"mic":"agent","parent":"parent-1"}`, s.text());
+
 // --- The row ---
 
 import ritual : attestRite, Position;

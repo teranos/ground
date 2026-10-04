@@ -109,6 +109,16 @@ bool postToolUseMatch(const Control c, const(char)[] command, const(char)[] file
     return false;
 }
 
+// A scope that names commands holds its controls to them, as a control's own
+// cmd does. Without this a scope's cmd was read nowhere in PostToolUse.
+bool scopeCmdMatches(S)(auto ref const S sc, const(char)[] command) {
+    if (sc.cmdCount == 0) return true;
+    if (command.length == 0) return false;
+    foreach (i; 0 .. sc.cmdCount)
+        if (hasSegment(command, sc.cmds[i])) return true;
+    return false;
+}
+
 int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
     auto t0 = usecNow();
@@ -387,8 +397,9 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         auto db = openDb();
         auto tDb = usecNow();
 
-        foreach (ref scope_; postToolUseScopes) {
+        msgScopes: foreach (ref scope_; postToolUseScopes) {
             if (!scopeMatches(scope_, cwd)) continue;
+            if (!scopeCmdMatches(scope_, command)) continue;
             foreach (ref c; scope_.controls) {
                 if (!postToolUseMatch(c, detail, filePath, toolName)) continue;
                 if (c.msg.value.length == 0) continue;
@@ -408,23 +419,11 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     import fired : noteFired;
                     noteFired(db, sessionId, "PostToolUse", "control", c.name, "context", cwd);
                 }
-                if (db !is null) sqlite3_close(db);
-
-                auto tFire = usecNow();
-                __gshared ZBuf prof;
-                prof.reset();
-                prof.put("parse="); putInt(prof, tParse-t0);
-                prof.put("us db="); putInt(prof, tDb-tParse);
-                prof.put("us match+fire="); putInt(prof, tFire-tDb);
-                prof.put("us total="); putInt(prof, tFire-t0);
-                prof.put("us exit=control");
-                emitProfile(prof);
-
-                fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"`, stdout);
-                writeJsonString(envSubst(c.msg.value, cwd));
-                fputs(`"}}`, stdout);
-                fputs("\n", stdout);
-                return 0;
+                // Kept and said at the end: the push this spoke on still owes
+                // its ci-status row, and the deferred controls still run.
+                controlSaid.reset();
+                controlSaid.put(envSubst(c.msg.value, cwd));
+                break msgScopes;
             }
         }
         if (db !is null) sqlite3_close(db);
@@ -436,6 +435,7 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
             import controls : postToolUseDeferredScopes;
             foreach (ref scope_; postToolUseDeferredScopes) {
                 if (!scopeMatches(scope_, cwd)) continue;
+                if (!scopeCmdMatches(scope_, command)) continue;
                 foreach (ref c; scope_.controls) {
                     if (c.cmd.len == 0) continue;
                     bool cmdFound = false;
@@ -530,9 +530,10 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import immediate : writeCIStatus;
                         import git : localHeadSha;
                         // A new branch's push line names no sha; the local ref
-                        // does. Without it the node has no commit to wait on.
+                        // does, in the checkout the push ran in, which -C moves.
+                        import matcher : effectiveCwd, shellHome;
                         auto sha = info.sha;
-                        if (sha.length == 0) sha = localHeadSha(cwd, info.branch);
+                        if (sha.length == 0) sha = localHeadSha(effectiveCwd(detail, cwd, shellHome()), info.branch);
                         // The row is the fact of the push and nothing more.
                         // Sky streams it to the node; the node waits on the
                         // run where the socket is and leaves the result on
@@ -569,9 +570,21 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         prof.put(" ci="); putInt(prof, tEnd-tClippy);
         prof.put(ciFired ? "us+" : "us-");
         prof.put(" total="); putInt(prof, tEnd-t0);
-        prof.put("us exit=none");
+        prof.put(controlSaid.len > 0 ? "us exit=control" : "us exit=none");
         emitProfile(prof);
     }
 
+    emitControlSaid();
     return 0;
+}
+
+// What a message control said this call, if one did, as PostToolUse's answer.
+private __gshared ZBuf controlSaid;
+
+private void emitControlSaid() {
+    if (controlSaid.len == 0) return;
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"`, stdout);
+    writeJsonString(controlSaid.slice());
+    fputs(`"}}`, stdout);
+    fputs("\n", stdout);
 }

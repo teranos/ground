@@ -5,6 +5,26 @@ import posttooluse : postToolUseMatch, modeMatches, isGitPushCommand,
 import hooks : Control, Cmd, cmd, Msg, FilePath, Mode;
 import sessionmode : SessionMode;
 
+// --- A scope's own cmd gates its controls ---
+// merged-branch-is-done sits in a scope whose cmd is git merge, and spoke on
+// the first tool call of every session, a git push and a sqlite3 among them.
+import posttooluse : scopeCmdMatches;
+import hooks : Scope;
+
+Scope mergeScope() {
+    Scope s;
+    s.cmds[0] = "git merge";
+    s.cmdCount = 1;
+    return s;
+}
+static assert(scopeCmdMatches(mergeScope(), "git merge feature"));
+static assert(scopeCmdMatches(mergeScope(), "cd /r && git merge main"));
+static assert(!scopeCmdMatches(mergeScope(), "git -C /r push -u origin main"));
+static assert(!scopeCmdMatches(mergeScope(), "sqlite3 ground.db .schema"));
+static assert(!scopeCmdMatches(mergeScope(), null), "a Read or a Write ran no command");
+static assert(scopeCmdMatches(Scope(), "anything at all"), "a scope that names no cmd gates nothing");
+static assert(scopeCmdMatches(Scope(), null));
+
 // --- isGitPushCommand: detection for the CI status writer ---
 // Closes the substring-match hole where `git -C <path> push` was silently
 // ignored. Verified on the ground db: ~20% of historical push commands

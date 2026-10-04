@@ -47,3 +47,19 @@ static assert(split(escaped, CURL_OK).body_ == `{"m":"\nHTTP 500 in a message"}`
 // proxy or an error page can, leaves the trailing marker as the answer.
 enum multi = "line one\nHTTP 500 not the marker\nHTTP 200";
 static assert(split(multi, CURL_OK).status == 200);
+
+// The plugin's row was asked for as `?format=tmux&plugin=cleanAPI`, and sh
+// cut the line at the `&`: the node's row came back.
+import probe : urlArgInto;
+
+char[200] urlArg(string h, string p)() {
+    char[200] b = '.';
+    urlArgInto(h, p, b[]);
+    return b;
+}
+
+enum pluginRow = "'https://h/am/statusline?format=tmux&plugin=cleanAPI'";
+static assert(urlArg!("https://h", "/am/statusline?format=tmux&plugin=cleanAPI")()[0 .. pluginRow.length] == pluginRow);
+static assert(urlArgInto("https://h", "/am/statusline?format=tmux&plugin=cleanAPI", new char[200]) == pluginRow.length);
+static assert(urlArgInto("https://h", "/a'b", new char[200]) == 0, "a quote cannot stand inside one");
+static assert(urlArgInto("https://h", "/long", new char[4]) == 0, "too long for the line is nothing, not half a URL");
