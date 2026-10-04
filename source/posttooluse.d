@@ -320,11 +320,9 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         put(c.ritual);
                         put(" did not start: ");
                         put(why);
-                        // The session is shown a result's exit and stderr, not
-                        // its message, so the sentence rides in the stderr.
                         emitError("ritual.control.start", cast(string) said[0 .. n], 0, 1,
                                   cast(string) sessionId, cast(string) c.ritual, cast(string) toolUseId,
-                                  "", cast(string) said[0 .. n]);
+                                  "", "");
                         fputs("ground: ", stderr);
                         fwrite(said.ptr, 1, n, stderr);
                         fputs("\n", stderr);

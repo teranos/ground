@@ -205,7 +205,7 @@ private void leaveForSentry(void* db, const ref GroundError err, const(char)[] r
 //
 // Uses a shared static buffer — no GC, no allocations. Caller must copy
 // the returned slice before the next call if it needs to retain it.
-private const(char)[] formatResult(const ref GroundError err) {
+const(char)[] formatResult(const ref GroundError err) {
     __gshared char[256] buf = 0;
     size_t pos = 0;
 
@@ -233,6 +233,9 @@ private const(char)[] formatResult(const ref GroundError err) {
         appendInt(cast(long) err.errnoVal);
     } else {
         appendStr(err.origin);
+    }
+    // The message is ground's own word on what broke, never dropped for a code.
+    if (err.message.length > 0) {
         appendStr(": ");
         appendStr(err.message);
     }
