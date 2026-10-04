@@ -249,20 +249,32 @@ const(char)[] formatResult(const ref GroundError err) {
 // simple one-line record. Best-effort — returns true if the write
 // completed, false if any step failed (mkdir/open/write). No exception
 // on failure (would itself be a swallow).
-private bool writeBreadcrumb(const ref GroundError err) {
-    import core.stdc.stdlib : getenv;
-    auto home = getenv("HOME\0".ptr);
-    if (home is null) return false;
-
-    size_t hlen = 0;
-    while (home[hlen] != 0) hlen++;
-
-    // Build directory: <home>/.local/share/ground/errors
-    char[512] dirBuf = 0;
+// <home>/.local/share/ground/errors, NUL-ended; 0 with no HOME.
+size_t breadcrumbDirInto(ref char[512] dirBuf) {
     size_t p = 0;
-    foreach (i; 0 .. hlen) { if (p < dirBuf.length - 1) dirBuf[p++] = home[i]; }
-    foreach (c; "/.local/share/ground/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+    version (unittest) {
+        import db : storeDir;
+        auto dir = storeDir();
+        if (dir is null) return 0;
+        foreach (c; dir) { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+        foreach (c; "/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+    } else {
+        import core.stdc.stdlib : getenv;
+        auto home = getenv("HOME\0".ptr);
+        if (home is null) return 0;
+        size_t hlen = 0;
+        while (home[hlen] != 0) hlen++;
+        foreach (i; 0 .. hlen) { if (p < dirBuf.length - 1) dirBuf[p++] = home[i]; }
+        foreach (c; "/.local/share/ground/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+    }
     dirBuf[p] = 0;
+    return p;
+}
+
+private bool writeBreadcrumb(const ref GroundError err) {
+    char[512] dirBuf = 0;
+    auto p = breadcrumbDirInto(dirBuf);
+    if (p == 0) return false;
 
     // mkdir (idempotent-ish; may fail because it already exists — fine).
     mkdir(&dirBuf[0], octal!755);
