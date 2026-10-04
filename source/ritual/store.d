@@ -112,25 +112,26 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
     __gshared char[80] parentBuf = 0;
     size_t idLen, repoLen, nameLen, branchLen, treeLen, rowLen, namesLen, sessLen, agentLen, parentLen;
 
-    copyText(sqlite3_column_text(stmt, 0), idBuf.ptr, idBuf.length, idLen);
-    copyText(sqlite3_column_text(stmt, 1), repoBuf.ptr, repoBuf.length, repoLen);
-    copyText(sqlite3_column_text(stmt, 2), nameBuf.ptr, nameBuf.length, nameLen);
-    copyText(sqlite3_column_text(stmt, 3), branchBuf.ptr, branchBuf.length, branchLen);
-    copyText(sqlite3_column_text(stmt, 4), treeBuf.ptr, treeBuf.length, treeLen);
+    bool whole = true;
+    whole &= copyText(sqlite3_column_text(stmt, 0), idBuf.ptr, idBuf.length, idLen);
+    whole &= copyText(sqlite3_column_text(stmt, 1), repoBuf.ptr, repoBuf.length, repoLen);
+    whole &= copyText(sqlite3_column_text(stmt, 2), nameBuf.ptr, nameBuf.length, nameLen);
+    whole &= copyText(sqlite3_column_text(stmt, 3), branchBuf.ptr, branchBuf.length, branchLen);
+    whole &= copyText(sqlite3_column_text(stmt, 4), treeBuf.ptr, treeBuf.length, treeLen);
     auto current = cast(size_t) sqlite3_column_int64(stmt, 5);
-    copyText(sqlite3_column_text(stmt, 6), rowBuf.ptr, rowBuf.length, rowLen);
-    copyText(sqlite3_column_text(stmt, 8), namesBuf.ptr, namesBuf.length, namesLen);
-    copyText(sqlite3_column_text(stmt, 9), sessBuf.ptr, sessBuf.length, sessLen);
-    copyText(sqlite3_column_text(stmt, 10), agentBuf.ptr, agentBuf.length, agentLen);
+    whole &= copyText(sqlite3_column_text(stmt, 6), rowBuf.ptr, rowBuf.length, rowLen);
+    whole &= copyText(sqlite3_column_text(stmt, 8), namesBuf.ptr, namesBuf.length, namesLen);
+    whole &= copyText(sqlite3_column_text(stmt, 9), sessBuf.ptr, sessBuf.length, sessLen);
+    whole &= copyText(sqlite3_column_text(stmt, 10), agentBuf.ptr, agentBuf.length, agentLen);
     auto gotoCount = cast(size_t) sqlite3_column_int64(stmt, 11);
-    copyText(sqlite3_column_text(stmt, 12), parentBuf.ptr, parentBuf.length, parentLen);
+    whole &= copyText(sqlite3_column_text(stmt, 12), parentBuf.ptr, parentBuf.length, parentLen);
     auto pid = cast(int) sqlite3_column_int64(stmt, 13);
     auto thrown = sqlite3_column_int64(stmt, 14);
     auto throwCount = cast(size_t) sqlite3_column_int64(stmt, 15);
     auto revision = sqlite3_column_int64(stmt, 16);
     __gshared char[16] micBuf = 0;
     size_t micLen;
-    copyText(sqlite3_column_text(stmt, 17), micBuf.ptr, micBuf.length, micLen);
+    whole &= copyText(sqlite3_column_text(stmt, 17), micBuf.ptr, micBuf.length, micLen);
     auto micHeld = sqlite3_column_int64(stmt, 18);
     auto saidHash = sqlite3_column_int64(stmt, 19);
     auto holdCount = cast(size_t) sqlite3_column_int64(stmt, 20);
@@ -143,6 +144,13 @@ private Restored readOne(DB)(DB db, string sql, const(char)[] key) {
         if (colEquals(wordPtr, w)) { st = cast(RitualState) i; knownWord = true; break; }
     }
     sqlite3_finalize(stmt);
+
+    // A cut id keys a write to a row that is not this one.
+    if (!whole) {
+        emitError("ritual.read.fit", "a column of the row is wider than ground reads, so the row is not read",
+                  0, -1, "", cast(string) nameBuf[0 .. nameLen], "", cast(string) idBuf[0 .. idLen], "");
+        return Restored(false);
+    }
 
     if (!knownWord) {
         emitError("ritual.read.state", "the row names a ritual state this build does not have",
@@ -329,7 +337,10 @@ const(char)[] sessionOfAgent(DB)(DB db, const(char)[] agentId) {
 
     __gshared char[80] found = 0;
     size_t n;
-    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    if (sqlite3_step(stmt) == SQLITE_ROW && !copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n)) {
+        cutSaid("the value read is wider than ground reads, so it is taken as absent", found[0 .. n]);
+        n = 0;
+    }
     sqlite3_finalize(stmt);
     return n > 0 ? found[0 .. n] : null;
 }
@@ -378,7 +389,10 @@ Restored byHandle(DB)(DB db, const(char)[] handle) {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         __gshared char[80] scratch = 0;
         size_t n;
-        copyText(sqlite3_column_text(stmt, 0), scratch.ptr, scratch.length, n);
+        if (!copyText(sqlite3_column_text(stmt, 0), scratch.ptr, scratch.length, n)) {
+            cutSaid("a live performance's id is wider than ground reads, so no handle names it", scratch[0 .. n]);
+            continue;
+        }
         if (n == 0) continue;
         if (shortId(scratch[0 .. n]).text() != handle) continue;
         foreach (i; 0 .. n) idBuf[i] = scratch[i];
@@ -417,9 +431,15 @@ private Restored stateHere(DB)(DB db, const(char)[] cwd, const(char)[] want) {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         __gshared char[256] repoBuf = 0;
         size_t repoLen;
-        copyText(sqlite3_column_text(stmt, 1), repoBuf.ptr, repoBuf.length, repoLen);
+        if (!copyText(sqlite3_column_text(stmt, 1), repoBuf.ptr, repoBuf.length, repoLen)) {
+            cutSaid("a performance's repo is wider than ground reads, so it is not matched to this directory", repoBuf[0 .. repoLen]);
+            continue;
+        }
         if (repoLen == 0 || !contains(cwd, repoBuf[0 .. repoLen])) continue;
-        copyText(sqlite3_column_text(stmt, 0), idBuf.ptr, idBuf.length, idLen);
+        if (!copyText(sqlite3_column_text(stmt, 0), idBuf.ptr, idBuf.length, idLen)) {
+            cutSaid("a performance's id is wider than ground reads, so it is not read", idBuf[0 .. idLen]);
+            continue;
+        }
         found = true;
         break;
     }
@@ -513,7 +533,10 @@ const(char)[] liveOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
 
     __gshared char[80] found = 0;
     size_t n;
-    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    if (sqlite3_step(stmt) == SQLITE_ROW && !copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n)) {
+        cutSaid("the value read is wider than ground reads, so it is taken as absent", found[0 .. n]);
+        n = 0;
+    }
     sqlite3_finalize(stmt);
     return n > 0 ? found[0 .. n] : null;
 }
@@ -593,7 +616,10 @@ const(char)[] landingOf(DB)(DB db, const(char)[] id) {
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return "";
     sqlite3_bind_text(stmt, 1, id.ptr, cast(int) id.length, SQLITE_TRANSIENT);
     size_t n;
-    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    if (sqlite3_step(stmt) == SQLITE_ROW && !copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n)) {
+        cutSaid("the value read is wider than ground reads, so it is taken as absent", found[0 .. n]);
+        n = 0;
+    }
     sqlite3_finalize(stmt);
     return found[0 .. n];
 }
@@ -657,7 +683,10 @@ const(char)[] lastSessionOf(DB)(DB db, const(char)[] ritual, const(char)[] repo)
 
     __gshared char[80] found = 0;
     size_t n;
-    if (sqlite3_step(stmt) == SQLITE_ROW) copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n);
+    if (sqlite3_step(stmt) == SQLITE_ROW && !copyText(sqlite3_column_text(stmt, 0), found.ptr, found.length, n)) {
+        cutSaid("the value read is wider than ground reads, so it is taken as absent", found[0 .. n]);
+        n = 0;
+    }
     sqlite3_finalize(stmt);
     return n > 0 ? found[0 .. n] : null;
 }
@@ -670,10 +699,18 @@ Restored byPerformanceId(DB)(DB db, const(char)[] id) {
     return readOne(db, sql, id);
 }
 
-private void copyText(const(char)* src, char* dst, size_t cap, ref size_t len) {
+// A value cut to its buffer is said, and the reader takes it as absent.
+private void cutSaid(string column, const(char)[] head) {
+    import exec : emitError;
+    emitError("ritual.read.fit", column, 0, -1, "", "", "", cast(string) head, "");
+}
+
+// False when the column was wider than the buffer and only its head was copied.
+private bool copyText(const(char)* src, char* dst, size_t cap, ref size_t len) {
     len = 0;
-    if (src is null) return;
+    if (src is null) return true;
     while (src[len] != 0 && len < cap) { dst[len] = src[len]; len++; }
+    return src[len] == 0;
 }
 
 private bool colEquals(const(char)* src, const(char)[] s) {
