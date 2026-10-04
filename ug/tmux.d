@@ -516,15 +516,18 @@ void newsPass(const(char)[] home) {
         if (repo is null) repo = "";
 
         // What sky speaks: the conclusion, where, and the run to open.
+        // Decoded once here, because leaveNews encodes it again for the row.
+        import json : jsonUnescapeInto;
         __gshared char[1024] detail = void;
         size_t d = 0;
         void put(const(char)[] s) { foreach (c; s) if (d < detail.length) detail[d++] = c; }
+        void putDecoded(const(char)[] raw) { d += jsonUnescapeInto(raw, detail[d .. $]); }
         auto name = jsonString(obj, "name");
         auto note = jsonString(obj, "note");
-        put(name is null ? "news" : name);
-        if (note !is null && note.length > 0) { put(": "); put(note); }
+        if (name is null) put("news"); else putDecoded(name);
+        if (note !is null && note.length > 0) { put(": "); putDecoded(note); }
         auto url = jsonString(whole.body_, "url");
-        if (url !is null && url.length > 0) { put(" "); put(url); }
+        if (url !is null && url.length > 0) { put(" "); putDecoded(url); }
 
         leaveNews(home, id, session is null ? "" : session, repo, detail[0 .. d]);
     }

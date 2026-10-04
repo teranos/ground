@@ -2,7 +2,23 @@ module json_test;
 
 // CTFE tests — failure shows as a compile error.
 
-import json : jsonString, jsonNumber, baseName;
+import json : jsonString, jsonNumber, baseName, jsonUnescapeInto;
+
+// The node's note is JSON-escaped where jsonString finds it. Written into the
+// store as it was, the escape was escaped again, and the session read a
+// backslash before every quote mark.
+char[64] unescaped(string raw)() {
+    char[64] b = '.';
+    jsonUnescapeInto(raw, b[]);
+    return b;
+}
+static assert(unescaped!(`no source: \"a b\"`)()[0 .. 15] == `no source: "a b`);
+static assert(unescaped!(`a\\b`)()[0 .. 3] == `a\b`);
+static assert(unescaped!(`a\/b`)()[0 .. 3] == "a/b");
+static assert(unescaped!(`l1\nl2`)()[0 .. 5] == "l1\nl2");
+static assert(jsonUnescapeInto(`no source: \"a b\"`, new char[64]) == 16);
+static assert(jsonUnescapeInto("plain", new char[64]) == 5);
+static assert(jsonUnescapeInto("toolong", new char[3]) == 3, "a full buffer stops, it does not overrun");
 
 enum capture = import("captures/grove/in.json");
 
