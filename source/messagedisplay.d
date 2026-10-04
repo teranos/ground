@@ -119,6 +119,8 @@ int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] s
                 // line sixteen times rather than forever. Still the same defect.
                 if (!markImmediateDelivered(db, imm.msgId, imm.projectContext, sessionId, SCREEN_MARK))
                     break;
+                import immediate : spoken;
+                if (!spoken(imm.name)) continue;
                 marked(lines, imm.msgId, imm.message);
             }
             if (lines.len > 0) lines.put("\n");

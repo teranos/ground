@@ -3,6 +3,20 @@ module messagedisplay_test;
 import messagedisplay;
 import db : ZBuf;
 
+// A ci-status or dispatch row is the fact of a push or a run, written for the
+// stream. Sky never spoke them; the screen drew Checking CI... on every push.
+import immediate : spoken;
+static assert(!spoken("ci-status"));
+static assert(!spoken("dispatch"));
+static assert(spoken("note"));
+static assert(spoken("news"));
+
+private enum displaySource = import("source/messagedisplay.d");
+private enum skySource = import("source/sky.d");
+import matcher : contains;
+static assert(contains(displaySource, "spoken(imm.name)"), "the screen asks what is spoken");
+static assert(contains(skySource, "spoken(imm.name)"), "sky asks the same");
+
 // "  ░▓▓▏[REPONAME] [BRANCHNAME] ci all checks passed ✓"
 // "   ░░▏Nix / build-go (linux-latest, goat_binary) (pull_request) Successful in 8m"
 static assert(CI_GUTTER == "  ░▓▓▏");

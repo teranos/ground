@@ -69,6 +69,12 @@ struct ImmediateMsg {
     bool resolved;
 }
 
+// Whether a row is said to anybody. A ci-status or dispatch row is the fact of
+// a push or a run, written for the stream: the node answers it, as news.
+bool spoken(const(char)[] name) {
+    return name != "ci-status" && name != "dispatch";
+}
+
 // Read a pending immediate message matching this session OR (for
 // external writers like QNTX that don't know sessions) this cwd's project.
 ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId,

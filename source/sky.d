@@ -531,23 +531,11 @@ int handleSky(int argc, const(char)** argv) {
                 auto imm = readImmediateMessage(db, cwd, sessionId, mark);
                 if (imm.message is null) break;
 
-                // A ci-status row is the fact of a push, written for the
-                // stream. The node's watcher fires on it and the result comes
-                // back as news ug writes. It is not a message: receipted here
-                // so the pass moves on, and nothing is spoken.
-                if (imm.name == "ci-status") {
-                    if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
-                        stuck = true;
-                        break;
-                    }
-                    continue;
-                }
-
-                // A dispatch row is the fact that a rite sent a run, written
-                // for the stream. The node finds the run by the name ground
-                // gave it and the verdict comes back as news ug writes. Not a
-                // message: receipted here so the pass moves on.
-                if (imm.name == "dispatch") {
+                // A ci-status or dispatch row is the fact of a push or a run,
+                // written for the stream; the node answers it as news ug
+                // writes. Receipted here so the pass moves on, and not spoken.
+                import immediate : spoken;
+                if (!spoken(imm.name)) {
                     if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) {
                         stuck = true;
                         break;
