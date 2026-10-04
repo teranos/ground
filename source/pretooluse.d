@@ -431,7 +431,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             import ritual : ritualStarted;
             import ritual.intent : writeIntent;
             auto starting = ritualStarted(command);
-            if (starting.length > 0) writeIntent(starting, sessionId);
+            auto why = starting.length > 0 ? writeIntent(starting, sessionId) : null;
+            if (why !is null) {
+                import exec : emitError;
+                emitError("ritual.intent", cast(string) why, 0, -1, cast(string) sessionId,
+                          cast(string) starting, "", cast(string) command, "");
+            }
         }
 
         // Hard deny: binary files in git add
