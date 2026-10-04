@@ -61,3 +61,6 @@ static assert(calls(postToolUseSource, "probeDetached("), "a commit's prose is s
 // "I dont know how to explain how serious this defect is"
 static assert(calls(stopSource, "sweepOrphans("), "a turn's end halts a walk whose driver is gone");
 static assert(calls(userPromptSource, "sweepOrphans("), "typing halts a walk whose driver is gone");
+
+// QNTX #1068, Phase 3: how many skies, and what each left pending and refused.
+static assert(calls(skySource, "attestLife("), "a sky tells the node it started and how it ended");
