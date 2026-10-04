@@ -4,19 +4,28 @@ module drive_test;
 // A rite run before the tree exists records "hold, code 1" with the output
 // "cd: …: No such file or directory" — a verdict about a question never asked.
 
-import ritual.drive : TreeVerdict, treeVerdict;
+import ritual.drive : TreeVerdict, treeVerdict, TREE_WAIT_SEC;
 
 // The tree is there. Nothing to decide.
-static assert(treeVerdict(true, false) == TreeVerdict.Run);
-static assert(treeVerdict(true, true) == TreeVerdict.Run);
+static assert(treeVerdict(true, false, true, 0) == TreeVerdict.Run);
+static assert(treeVerdict(true, true, true, 0) == TreeVerdict.Run);
 
 // Not there and never seen: the agent has not made it yet. `ground ritual`
 // dispatches the driver and the agent together, and the tree only exists once
 // `claude -w` fires WorktreeCreate — so the driver always starts ahead of it.
-static assert(treeVerdict(false, false) == TreeVerdict.Wait);
+static assert(treeVerdict(false, false, true, 0) == TreeVerdict.Wait);
 
 // Not there and seen before: it was removed, and the performance is over.
-static assert(treeVerdict(false, true) == TreeVerdict.Gone);
+static assert(treeVerdict(false, true, true, 0) == TreeVerdict.Gone);
+
+// The regoto test's agent could not start, so no tree came, and its driver
+// waited on W1 with nobody told; an abort could not reach it, because the
+// wait never read the row. Ended before a tree is ended: the wait is over.
+static assert(treeVerdict(false, false, false, 0) == TreeVerdict.Ended);
+
+// And a tree that does not come in time is not coming.
+static assert(treeVerdict(false, false, true, TREE_WAIT_SEC - 1) == TreeVerdict.Wait);
+static assert(treeVerdict(false, false, true, TREE_WAIT_SEC) == TreeVerdict.NeverMade);
 
 import ritual.drive : mayRemoveTree;
 import ritual.position : RitualState;
