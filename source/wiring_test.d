@@ -71,6 +71,12 @@ static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new bra
 // on wrote no ci-status row: the CI it owed was never asked after.
 static assert(calls(postToolUseSource, "emitControlSaid("), "a control's words are said after the rest of the hook ran");
 
+// Two git commits on 2026-10-04 spent 4.8s in match, which held both the
+// commit's session trailer and the controls; the trailer is its own phase.
+private enum preToolUseSource = import("source/pretooluse.d");
+import matcher : contains;
+static assert(contains(preToolUseSource, `"binary", "trail", "match"`), "the trailer is timed apart from the controls");
+
 // QNTX #1068, Phase 3: where a session ran is written down when it starts.
 private enum sessionStartSource = import("source/sessionstart.d");
 static assert(calls(sessionStartSource, "placeOf("), "a session's project is resolved when it starts");
