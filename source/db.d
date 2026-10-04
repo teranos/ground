@@ -197,16 +197,29 @@ sqlite3* openDb() {
 // $HOME/.local/share/ground/ground.db, its directory made on the way. Null
 // with no HOME. One buffer, so the pointer is good until the next call.
 const(char)* storePath() {
-    auto home = getenv("HOME\0".ptr);
-    if (home is null) return null;
-
     __gshared ZBuf pathBuf;
     pathBuf.reset();
 
-    size_t homeLen = 0;
-    while (home[homeLen] != 0) homeLen++;
-    pathBuf.put(home[0 .. homeLen]);
-    pathBuf.put("/.local/share/ground");
+    version (unittest) {
+        // A test process opens a store of its own: every test that ended in an
+        // error wrote it into the real one, one run at a time.
+        import core.sys.posix.unistd : getpid;
+        auto tmp = getenv("TMPDIR\0".ptr);
+        size_t tmpLen = 0;
+        if (tmp !is null) while (tmp[tmpLen] != 0) tmpLen++;
+        auto dir = tmpLen > 0 ? tmp[0 .. tmpLen] : "/tmp";
+        if (dir.length > 1 && dir[$ - 1] == '/') dir = dir[0 .. $ - 1];
+        pathBuf.put(dir);
+        pathBuf.put("/ground-unittest-");
+        pathBuf.putUint(cast(ulong) getpid());
+    } else {
+        auto home = getenv("HOME\0".ptr);
+        if (home is null) return null;
+        size_t homeLen = 0;
+        while (home[homeLen] != 0) homeLen++;
+        pathBuf.put(home[0 .. homeLen]);
+        pathBuf.put("/.local/share/ground");
+    }
 
     // mkdir -p: create each directory level
     mkdirP(pathBuf.slice());
