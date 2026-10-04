@@ -67,6 +67,11 @@ bool paceFailed(ref Pace p) {
 // "it should be retryable"
 enum TOO_MANY = 429;
 
+// What ground says of a row too big for its stream buffer, in the node's own
+// terms: a 4xx, so the row is refused and not asked for again. Ground's, not
+// the node's; the reason on the row says so.
+enum TOO_LARGE = 413;
+
 bool retryable(int status) {
     return status < 200 || status >= 500 || status == TOO_MANY;
 }
@@ -332,10 +337,10 @@ Built buildBatch(sqlite3* db, long pid, long now, char[] into) {
     __gshared Claimed c;
     while (nextClaimed(db, pid, after, c)) {
         after = c.rowid;
-        // A row that did not fit is not sent cut. It stays pending with the
-        // reason on it, for a person to read; nothing here can make it fit.
+        // A row that did not fit is not sent cut, and nothing here can make it
+        // fit: refused by ground itself, with the reason, and out of the claim.
         if (c.body_.over) {
-            rowResolved(db, c.rowid, 0, false, now, "the row did not fit ground's stream buffer and was not sent");
+            rowResolved(db, c.rowid, TOO_LARGE, false, now, "the row did not fit ground's stream buffer and was not sent");
             continue;
         }
         auto row = c.body_.slice();
@@ -732,6 +737,31 @@ unittest {
     assert(applySchema(db));
     assert(planUsesIndex(db, NEXT_ROWID_SQL.ptr, "idx_attestations_stream"),
            "walking the claimed rows to resolve them must not scan the table");
+    sqlite3_close(db);
+}
+
+unittest {
+    // QNTX #1068's audit of sky: a row too big for the stream buffer was asked
+    // for again every pass and never sent. It is ground's refusal, said once,
+    // counted as refused, and out of every later claim.
+    import db : sqlite3_open, sqlite3_close, applySchema, attestEventAt;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    enum head = `{"session_id":"sess-big","prompt":"`;
+    enum tail = `"}`;
+    __gshared char[STREAM_BODY_CAP + 4096] big = 'y';
+    big[0 .. head.length] = head;
+    big[$ - tail.length .. $] = tail;
+    attestEventAt(db, "UserPromptSubmit", "/tmp", "sess-big", big[], "2026-10-04T12:00:00Z", 4242);
+
+    assert(claimStream(db, 31, 10) == 1);
+    __gshared char[4096] into = 0;
+    auto b = buildBatch(db, 31, 6000, into[]);
+    assert(b.rows == 0, "nothing of it is sent");
+    claimReleased(db, 31);
+    assert(claimStream(db, 32, 10) == 0, "and it is not asked for again");
+    assert(standing(db).refused == 1 && standing(db).pending == 0, "it is counted as refused");
     sqlite3_close(db);
 }
 
