@@ -28,17 +28,20 @@ unittest {
     // "if a ritual get's enabled or disabled, a controls fires as to give direct feedback as to what happens in a simple manner."
     auto db = memDb();
     char[512] buf;
+    // A ParseResult is 3.3MB. Three enum temporaries in one frame came to more
+    // than the main thread's 8MB stack, and the test runner died of it.
+    static immutable held = parsed;
 
-    auto n = switched(db, parsed, Said.On, "/Users/x/teranos/QNTX/server", "", "", "s1", 1000, buf[]);
+    auto n = switched(db, held, Said.On, "/Users/x/teranos/QNTX/server", "", "", "s1", 1000, buf[]);
     assert(buf[0 .. n] == "rituals on for /teranos/QNTX: its rituals fire, for every session there, until one says rituals off");
     assert(ritualsOn(db, "/teranos/QNTX"));
 
-    n = switched(db, parsed, Said.Off, "/Users/x/teranos/QNTX", "", "", "s1", 1001, buf[]);
+    n = switched(db, held, Said.Off, "/Users/x/teranos/QNTX", "", "", "s1", 1001, buf[]);
     assert(buf[0 .. n] == "rituals off for /teranos/QNTX: no new performance of its rituals starts, for every session there, until one says rituals on; one already running carries on");
     assert(!ritualsOn(db, "/teranos/QNTX"));
 
     // Where no project stands, nothing is switched, and it says so.
-    n = switched(db, parsed, Said.On, "/Users/x/elsewhere", "", "", "s1", 1002, buf[]);
+    n = switched(db, held, Said.On, "/Users/x/elsewhere", "", "", "s1", 1002, buf[]);
     assert(buf[0 .. n] == "rituals on: no project { } block stands at /Users/x/elsewhere, so nothing was switched");
     sqlite3_close(db);
 }
