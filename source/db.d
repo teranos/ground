@@ -199,6 +199,17 @@ sqlite3* openDb() {
 const(char)* storePath() {
     __gshared ZBuf pathBuf;
     pathBuf.reset();
+    auto dir = storeDir();
+    if (dir is null) return null;
+    pathBuf.put(dir);
+    pathBuf.put("/ground.db");
+    return pathBuf.ptr();
+}
+
+// The directory the store and the files beside it live in, made on the way.
+const(char)[] storeDir() {
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
 
     version (unittest) {
         // A test process opens a store of its own: every test that ended in an
@@ -223,9 +234,7 @@ const(char)* storePath() {
 
     // mkdir -p: create each directory level
     mkdirP(pathBuf.slice());
-
-    pathBuf.put("/ground.db");
-    return pathBuf.ptr();
+    return pathBuf.slice();
 }
 
 sqlite3* openStandaloneDb() {

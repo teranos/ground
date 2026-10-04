@@ -13,3 +13,14 @@ unittest {
     assert(strstr(p, ".local/share/ground") is null, "a test never opens the real store");
     assert(strstr(p, "ground-unittest-") !is null, "it opens one of its own, named for the test run");
 }
+
+// The files kept beside the store go where the store went. On a fresh CI
+// runner ~/.local/share/ground was only ever made by the store's open, and
+// with the store moved, writeIntent had no directory to write into.
+unittest {
+    import sky : buildGroundPath;
+    __gshared char[512] buf = 0;
+    assert(buildGroundPath(buf, "ritual-intent-", "x", ".id") > 0);
+    assert(strstr(&buf[0], ".local/share/ground") is null, "a test never writes beside the real store");
+    assert(strstr(&buf[0], "ground-unittest-") !is null, "it writes beside its own");
+}

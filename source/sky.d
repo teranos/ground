@@ -98,11 +98,19 @@ const(char)[] getHome() {
 
 // Build path: ~/.local/share/ground/<prefix><key><suffix>
 size_t buildGroundPath(ref char[512] buf, const(char)[] prefix, const(char)[] key, const(char)[] suffix) {
-    auto home = getHome();
-    if (home is null) return 0;
     size_t pos = 0;
-    foreach (c; home) { if (pos < 510) buf[pos++] = c; }
-    foreach (c; "/.local/share/ground/") { if (pos < 510) buf[pos++] = c; }
+    version (unittest) {
+        import db : storeDir;
+        auto dir = storeDir();
+        if (dir is null) return 0;
+        foreach (c; dir) { if (pos < 510) buf[pos++] = c; }
+        if (pos < 510) buf[pos++] = '/';
+    } else {
+        auto home = getHome();
+        if (home is null) return 0;
+        foreach (c; home) { if (pos < 510) buf[pos++] = c; }
+        foreach (c; "/.local/share/ground/") { if (pos < 510) buf[pos++] = c; }
+    }
     foreach (c; prefix) { if (pos < 510) buf[pos++] = c; }
     foreach (c; key) { if (pos < 510) buf[pos++] = c; }
     foreach (c; suffix) { if (pos < 510) buf[pos++] = c; }
