@@ -2,7 +2,7 @@ module control_handlers;
 
 import matcher : contains;
 import hooks : CheckResult, fires, passes;
-import db : sqlite3;
+import db : sqlite3, ZBuf;
 
 // Verdict for the approval-gated handlers (commit / merge / kill).
 //
@@ -882,236 +882,93 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
     return contains(fileBuf[0 .. n], needle.slice());
 }
 
-// Two sources, both inside this session. What you typed, and what already
-// stands quoted in a write that completed — a denied write never reaches
-// PostToolUse, so it cannot launder its own span into the corpus.
-private enum sourceSql = "SELECT 1 FROM attestations WHERE json_extract(contexts, '$[0]') = ?1 AND ("
-    ~ "(json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND instr(json_extract(attributes, '$.prompt'), ?2) > 0)"
-    ~ " OR (json_extract(predicates, '$[0]') = 'PostToolUse' AND instr(attributes, ?3) > 0)"
-    ~ ") LIMIT 1\0";
+enum QUOTE_CLAIMS_MAX = 32;
 
-// Rank 3 of the authority list in CLAUDE.md, which the session-bound query
-// above cannot see. Words typed in an earlier session are still words the
-// user typed, and refusing them called a real quote an invention.
-private enum recordedSql = "SELECT 1 FROM attestations WHERE "
-    ~ "json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') AND "
-    ~ "instr(json_extract(attributes, '$.prompt'), ?1) > 0 LIMIT 1\0";
-
-// instr cannot measure a near miss, so the correction budgets walk the
-// prompts themselves. Same scope as recordedSql: every recorded prompt.
-private enum promptsSql = "SELECT json_extract(attributes, '$.prompt') FROM attestations WHERE "
-    ~ "json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit')\0";
-
-// Whether a verbatim source exists for the span: 1 found, 0 not found, and
-// -1 when a query would not prepare, so the caller decides what a failure
-// to look means for it.
-private int spanExactSource(sqlite3* db, const(char)[] ctx,
-                            const(char)[] text, const(char)[] quoted) {
-    import db : sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_step,
-                sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
-                SQLITE_TRANSIENT;
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sourceSql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return -1;
-    sqlite3_bind_text(stmt, 1, ctx.ptr, cast(int) ctx.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, quoted.ptr, cast(int) quoted.length, SQLITE_TRANSIENT);
-    bool found = sqlite3_step(stmt) == SQLITE_ROW;
-    sqlite3_finalize(stmt);
-    if (found) return 1;
-
-    // Ranked, not widened: this session answers first, and only what it
-    // cannot answer is asked of the whole record.
-    sqlite3_stmt* any;
-    if (sqlite3_prepare_v2(db, recordedSql.ptr, -1, &any, null) != SQLITE_OK)
-        return -1;
-    sqlite3_bind_text(any, 1, text.ptr, cast(int) text.length, SQLITE_TRANSIENT);
-    found = sqlite3_step(any) == SQLITE_ROW;
-    sqlite3_finalize(any);
-    return found ? 1 : 0;
+struct QuoteClaims {
+    size_t[QUOTE_CLAIMS_MAX] starts;
+    size_t[QUOTE_CLAIMS_MAX] ends;
+    size_t count;
+    const(char)[] span(const(char)[] written, size_t i) const { return written[starts[i] .. ends[i]]; }
 }
 
-// The nearest thing the recorded prompts offer a span that missed verbatim:
-// 2 inside the correction budget, 1 inside the warn budget only, 0 nothing
-// that near. Measured against every prompt, because a later one may sit
-// closer than the first that came near.
-private int spanNearestSource(sqlite3* db, const(char)[] text) {
-    import provenance : correctionBudget, warnBudget, withinCorrections;
-    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
-                sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
-
-    auto clean = correctionBudget(text.length);
-    auto warn = warnBudget(text.length);
-    if (warn == 0) return 0;
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, promptsSql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return 0;
-
-    int nearest = 0;
-    while (nearest < 2 && sqlite3_step(stmt) == SQLITE_ROW) {
-        auto p = sqlite3_column_text(stmt, 0);
-        if (p is null) continue;
-        size_t plen = 0;
-        while (p[plen] != 0) plen++;
-        if (!withinCorrections(p[0 .. plen], text, warn)) continue;
-        nearest = withinCorrections(p[0 .. plen], text, clean) ? 2 : 1;
+// The spans a write claims the user said: quoted, on a line that is prose,
+// more than one word, and not already standing in the file. Whether anybody
+// did is asked on the node.
+QuoteClaims quoteClaims(const(char)[] written, const(char)[] src,
+                        scope bool delegate(const(char)[] span) standsInFile) {
+    import provenance : nextQuotedSpan, onProseLine, isWord;
+    QuoteClaims c;
+    size_t from = 0;
+    while (c.count < QUOTE_CLAIMS_MAX) {
+        auto sp = nextQuotedSpan(written, from);
+        if (!sp.ok) break;
+        from = sp.end + 1;
+        if (sp.end == sp.start) continue;
+        if (!onProseLine(written, sp, src)) continue;
+        if (isWord(written, sp)) continue;
+        if (standsInFile(written[sp.start .. sp.end])) continue;
+        c.starts[c.count] = sp.start;
+        c.ends[c.count] = sp.end;
+        c.count++;
     }
-    sqlite3_finalize(stmt);
-    return nearest;
+    return c;
 }
 
-// A quoted span asserts the user said it. This checks the assertion against
-// every prompt the user has ever submitted, and denies the span that has no
-// source rather than trusting the writer to have looked. A span that misses
-// verbatim may still pass inside the warn budget: up to four corrected
-// characters per forty passes clean, five or six passes carrying the warning
-// the stretched handler delivers, and past six it does not pass at all.
+QuoteClaims quoteClaims(const(char)[] written, const(char)[] src,
+                        bool function(const(char)[] span) standsInFile) {
+    return quoteClaims(written, src, (const(char)[] s) => standsInFile(s));
+}
+
+// What the node is sent: the file and the spans, one JSON object.
+void claimsInto(ref ZBuf o, const(char)[] filePath, const(char)[] written, const ref QuoteClaims c) {
+    import immediate : putJsonString;
+    o.put(`{"file_path":"`);
+    putJsonString(o, filePath);
+    o.put(`","spans":[`);
+    foreach (i; 0 .. c.count) {
+        if (i > 0) o.put(",");
+        o.put(`"`);
+        putJsonString(o, c.span(written, i));
+        o.put(`"`);
+    }
+    o.put("]}");
+}
+
+// "Quote needs to pass always, and sky needs to be told later by QNTX that the Quote is nonexistent, if that is true"
+// The write passes. What it claims is attested for sky to carry to the node,
+// where quote.provenance asks it of the prompts.
+enum QUOTE_CLAIMED = "quote:claimed";
+
+// A quoted span asserts the user said it. The write passes; the spans it
+// claims are attested for the node to check. With no session or no store the
+// claim cannot be recorded, which is said, and the write still passes.
 CheckResult quoteProvenance(const(char)[] cwd, const(char)[] input) {
     import parse : extractWrittenText, extractFilePath;
-    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine, isWord;
-    import db : openDb, sqlite3_close;
-    import zbuf : ZBuf;
+    import db : openDb, sqlite3_close, attestEvent;
+    import exec : emitError;
 
     auto written = extractWrittenText(input);
     if (written is null) return passes();
-
-    if (g_sessionId.length == 0)
-        return CheckResult(true,
-            "denied: ground has no session id here, so it could not bound the search to this session. Denying rather than asserting the quote has a source.");
-
-    auto db = openDb();
-    if (db is null)
-        return CheckResult(true,
-            "denied: ground could not open its database, so it could not check whether you typed this. Denying rather than asserting the quote has a source.");
-
-    __gshared ZBuf ctx;
-    ctx.reset();
-    ctx.put("session:");
-    ctx.put(g_sessionId);
-
     auto src = extractFilePath(input);
 
-    __gshared ZBuf quoted;
-    __gshared ZBuf observed;
-    size_t from = 0;
-    while (true) {
-        auto sp = nextQuotedSpan(written, from);
-        if (!sp.ok) break;
-        from = sp.end + 1;
-        if (!onProseLine(written, sp, src)) continue;
-        if (isWord(written, sp)) continue;
+    auto claims = quoteClaims(written, src, (const(char)[] span) => spanStandsInFile(input, span));
+    if (claims.count == 0) return passes();
 
-        auto text = written[sp.start .. sp.end];
-        if (text.length == 0) {
-            sqlite3_close(db);
-            return CheckResult(true, "an empty quoted span asserts the user said nothing, which nothing can source");
-        }
-
-        // Matched with its quote marks attached, so prose ground saw once
-        // cannot graduate into a quote it never was. The span is encoded the
-        // way the store holds it, or a backslash matches nothing.
-        __gshared char[8192] esc;
-        auto escLen = jsonEscapeInto(text, esc[]);
-        if (escLen < 0) {
-            sqlite3_close(db);
-            return CheckResult(true,
-                "this quoted span is longer than ground can encode to search for, so its source was never looked for");
-        }
-
-        quoted.reset();
-        quoted.put("\\\"");
-        quoted.put(cast(const(char)[]) esc[0 .. escLen]);
-        quoted.put("\\\"");
-
-        // The file itself is a source. A quote already standing in it predates
-        // this session and is not something the writer invented now.
-        if (spanStandsInFile(input, text)) continue;
-
-        auto exact = spanExactSource(db, ctx.slice(), text, quoted.slice());
-        if (exact < 0) {
-            sqlite3_close(db);
-            return CheckResult(true,
-                "denied: ground could not query its database, so it could not check whether you typed this.");
-        }
-        if (exact > 0) continue;
-
-        // Verbatim failed. The user allowed correction of their words, so
-        // anything the warn budget reaches still passes here; how much of
-        // the budget it spent is the stretched handler's to say.
-        if (spanNearestSource(db, text) > 0) continue;
-
-        observed.reset();
-        observed.put("no prompt you submitted, in this session or any recorded one, contains this quoted span or anything inside its correction budget: \"");
-        observed.put(text.length > 200 ? text[0 .. 200] : text);
-        observed.put("\"");
-        sqlite3_close(db);
-        return CheckResult(true, cast(string) observed.slice());
+    if (g_sessionId.length == 0) {
+        emitError("quote.claim", "a write claimed quoted spans and ground had no session to file the claim under, so QNTX never checks them",
+                  0, 1, "", "quotes-deserve-provenance", "", "", cast(string) src);
+        return passes();
     }
-
-    sqlite3_close(db);
-    return passes();
-}
-
-// Five or six corrected characters per forty is more than a minor correction
-// spends, and still passes: the span is warned about instead of refused.
-// Advisory, so everything quoteProvenance fails closed on passes silently
-// here — a denial does not need a warning stacked on top of it.
-CheckResult quoteProvenanceStretched(const(char)[] cwd, const(char)[] input) {
-    import parse : extractWrittenText, extractFilePath;
-    import provenance : nextQuotedSpan, jsonEscapeInto, onProseLine, isWord;
-    import db : openDb, sqlite3_close;
-    import zbuf : ZBuf;
-
-    auto written = extractWrittenText(input);
-    if (written is null) return passes();
-    if (g_sessionId.length == 0) return passes();
-
     auto db = openDb();
-    if (db is null) return passes();
-
-    __gshared ZBuf ctx;
-    ctx.reset();
-    ctx.put("session:");
-    ctx.put(g_sessionId);
-
-    auto src = extractFilePath(input);
-
-    __gshared ZBuf quoted;
-    __gshared ZBuf observed;
-    size_t from = 0;
-    while (true) {
-        auto sp = nextQuotedSpan(written, from);
-        if (!sp.ok) break;
-        from = sp.end + 1;
-        if (!onProseLine(written, sp, src)) continue;
-        if (isWord(written, sp)) continue;
-
-        auto text = written[sp.start .. sp.end];
-        if (text.length == 0) continue;
-
-        __gshared char[8192] esc;
-        auto escLen = jsonEscapeInto(text, esc[]);
-        if (escLen < 0) continue;
-
-        quoted.reset();
-        quoted.put("\\\"");
-        quoted.put(cast(const(char)[]) esc[0 .. escLen]);
-        quoted.put("\\\"");
-
-        if (spanStandsInFile(input, text)) continue;
-        if (spanExactSource(db, ctx.slice(), text, quoted.slice()) != 0) continue;
-        if (spanNearestSource(db, text) != 1) continue;
-
-        observed.reset();
-        observed.put("this quoted span passes on more corrections than the four per forty a minor one is allowed: \"");
-        observed.put(text.length > 200 ? text[0 .. 200] : text);
-        observed.put("\"");
-        sqlite3_close(db);
-        return CheckResult(true, cast(string) observed.slice());
+    if (db is null) {
+        emitError("quote.claim", "a write claimed quoted spans and ground could not open its store, so QNTX never checks them",
+                  0, 1, cast(string) g_sessionId, "quotes-deserve-provenance", "", "", cast(string) src);
+        return passes();
     }
-
+    __gshared ZBuf body_;
+    body_.reset();
+    claimsInto(body_, src, written, claims);
+    attestEvent(db, QUOTE_CLAIMED, cwd, g_sessionId, body_.slice(), "quote");
     sqlite3_close(db);
     return passes();
 }

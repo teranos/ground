@@ -59,17 +59,3 @@ scope {
     msg: "Quoted spans appear in a different order than they were said."
   }
 }
-
-# No decision: the control injects context and the write proceeds. The span
-# passed provenance on five or six corrections per forty, which is more than
-# a minor correction spends, and the warning says so.
-
-scope {
-  event: "PreToolUse"
-
-  control {
-    name: "quotes-stretched-thin"
-    check_handler: "quoteProvenanceStretched"
-    msg: "A quoted span spent more than a minor correction to pass."
-  }
-}
