@@ -23,6 +23,19 @@ unittest {
            formatResult(err));
 }
 
+// ground drive on an id with no row ended in signal 11, the store held open:
+// an error owed to no session was posted detached, the fork refused, and the
+// refusal was such an error too, round again until the stack ran out.
+unittest {
+    import exec : emitError;
+    import db : openDb, sqlite3_close;
+    auto held = openDb();
+    assert(held !is null);
+    emitError("ritual.drive.row", "the driver was started for a performance with no row, so it walked nothing",
+              0, 1, "", "", "", "no-such-performance", "");
+    sqlite3_close(held);
+}
+
 // With no message, an error says only its code.
 unittest {
     GroundError err;

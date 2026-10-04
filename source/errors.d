@@ -75,10 +75,12 @@ const(char)[] deliverError(const ref GroundError err) {
     // Primary: db write. writeExecResult retries on SQLITE_BUSY and
     // returns true only if the row was persisted. If it returns false
     // (retries exhausted, or non-busy step error), we escalate.
+    bool opened = false;
     {
         import db : openDb, sqlite3_close;
         import immediate : writeExecResult;
         auto db = openDb();
+        opened = db !is null;
         if (db !is null) {
             auto result = formatResult(err);
             auto ok = writeExecResult(db, err.sessionId, err.controlName, result, err.stdout, err.stderr);
@@ -94,8 +96,9 @@ const(char)[] deliverError(const ref GroundError err) {
     // The store would not open, so nothing can be left for the sky to post:
     // the same item goes to sentry now, from a child that has let go of the
     // hook's pipes, so the hook waits on no network. The dsn is the top
-    // level's; a store that will not open is nobody's project.
-    {
+    // level's; a store that will not open is nobody's project. A store that
+    // opened has the item in its outbox already.
+    if (!opened) {
         import sentry : logEnvelope, reportDetached;
         import controls : dsnHere;
         auto dsn = dsnHere("");
