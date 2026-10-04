@@ -23,6 +23,17 @@ unittest {
            formatResult(err));
 }
 
+// The line was cut at 256 bytes, and ritual.control.start builds its sentence
+// in 320.
+unittest {
+    static immutable char[300] long_ = 'x';
+    GroundError err;
+    err.origin = "ritual.control.start";
+    err.message = long_[];
+    err.exitCode = 1;
+    assert(formatResult(err).length == "exit 1: ".length + long_.length);
+}
+
 // ground drive on an id with no row ended in signal 11, the store held open:
 // an error owed to no session was posted detached, the fork refused, and the
 // refusal was such an error too, round again until the stack ran out.

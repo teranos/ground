@@ -209,21 +209,15 @@ private void leaveForSentry(void* db, const ref GroundError err, const(char)[] r
 // Uses a shared static buffer — no GC, no allocations. Caller must copy
 // the returned slice before the next call if it needs to retain it.
 const(char)[] formatResult(const ref GroundError err) {
-    __gshared char[256] buf = 0;
-    size_t pos = 0;
+    // As wide as the row it lands in, which is a ZBuf too.
+    import zbuf : ZBuf;
+    __gshared ZBuf buf;
+    buf.reset();
 
-    void appendStr(const(char)[] s) {
-        foreach (c; s) { if (pos < buf.length - 1) buf[pos++] = c; }
-    }
+    void appendStr(const(char)[] s) { buf.put(s); }
     void appendInt(long v) {
-        if (v == 0) { appendStr("0"); return; }
-        bool neg = v < 0;
-        if (neg) v = -v;
-        char[24] nb = 0;
-        int nl = 0;
-        while (v > 0 && nl < 23) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; }
-        if (neg) appendStr("-");
-        foreach_reverse (i; 0 .. nl) { if (pos < buf.length - 1) buf[pos++] = nb[i]; }
+        if (v < 0) { appendStr("-"); v = -v; }
+        buf.putUint(cast(ulong) v);
     }
 
     if (err.exitCode >= 0) {
@@ -242,7 +236,7 @@ const(char)[] formatResult(const ref GroundError err) {
         appendStr(": ");
         appendStr(err.message);
     }
-    return buf[0 .. pos];
+    return buf.slice();
 }
 
 // Append the Error to ~/.local/share/ground/errors/<sessionId>.log as a
