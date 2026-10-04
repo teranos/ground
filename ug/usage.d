@@ -246,18 +246,26 @@ void recordUsage(const(char)[] home, const(char)[] input, long now) {
     // The session's model and effort, a row when either changed. Ground's
     // statement, so ground reads exactly what ug wrote.
     {
-        import sessionmodel : RECORD_MODEL_SQL;
+        import sessionmodel : RECORD_MODEL_SQL, ATTEST_MODEL_SQL;
         auto m = modelIn(input);
         if (m.model.length > 0 && session.length > 0) {
-            sqlite3_stmt* ins;
-            if (sqlite3_prepare_v2(db, RECORD_MODEL_SQL.ptr, cast(int) RECORD_MODEL_SQL.length, &ins, null) == SQLITE_OK) {
+            // The row, and when it was new, the same change for the node.
+            static immutable string[2] statements = [RECORD_MODEL_SQL, ATTEST_MODEL_SQL];
+            bool changed = false;
+            foreach (i, text; statements) {
+                if (i == 1 && !changed) break;
+                sqlite3_stmt* ins;
+                if (sqlite3_prepare_v2(db, text.ptr, cast(int) text.length, &ins, null) != SQLITE_OK) {
+                    fputs("ug: usage: cannot prepare the model row\n", stderr);
+                    break;
+                }
                 sqlite3_bind_text(ins, 1, session.ptr, cast(int) session.length, cast(void*) -1);
                 sqlite3_bind_text(ins, 2, m.model.ptr, cast(int) m.model.length, cast(void*) -1);
                 sqlite3_bind_text(ins, 3, m.effort.ptr, cast(int) m.effort.length, cast(void*) -1);
                 sqlite3_bind_int64(ins, 4, now);
-                sqlite3_step(ins);
+                changed = sqlite3_step(ins) == SQLITE_DONE && sqlite3_changes(db) == 1;
                 sqlite3_finalize(ins);
-            } else fputs("ug: usage: cannot prepare the model row\n", stderr);
+            }
         }
     }
 
