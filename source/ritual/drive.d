@@ -136,6 +136,15 @@ int handleDrive(int argc, const(char)** argv) {
     // and the tree cannot say which this drives.
     auto perfId = argv[2][0 .. argLen(argv[2])];
 
+    // "I dont know how to explain how serious this defect is"
+    // Driver 75014 ended with nothing written anywhere. A signal this one can
+    // catch leaves a note of which, for the sweep that finds it gone.
+    {
+        import ritual.deathnote : armDeathNote;
+        import sky : getpid;
+        armDeathNote(getpid());
+    }
+
     static immutable parsed = allParsed;
     uint nextSleep = 2;
 

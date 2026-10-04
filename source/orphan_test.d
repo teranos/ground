@@ -96,6 +96,39 @@ unittest {
     sqlite3_close(db);
 }
 
+// Driver 75014 ended with nothing written anywhere. One that a signal ends
+// writes which, and the halt says it.
+import ritual.deathnote : signalName, deathNoteInto, signalIn;
+static assert(signalName(15) == "SIGTERM");
+static assert(signalName(1) == "SIGHUP");
+static assert(signalName(2) == "SIGINT");
+static assert(signalName(3) == "SIGQUIT");
+static assert(signalName(99) == "", "a number with no name is said as a number");
+static assert(signalIn("15\n") == 15);
+static assert(signalIn("") == 0, "no note is no signal");
+static assert(signalIn("x") == 0);
+
+char[8] note(int sig)() {
+    char[8] b = '.';
+    deathNoteInto(sig, b[]);
+    return b;
+}
+static assert(note!15()[0 .. 3] == "15\n");
+
+private int termedDead(long pid) { return pid == DEAD_PID ? 15 : 0; }
+
+unittest {
+    auto db = memDb();
+    assert(writePosition(db, deploying("q-deploy-6")));
+    processStarted(db, "drive", DEAD_PID, 1, "q-deploy-6", "", 1000);
+    const(char)[] heard;
+    auto swept = haltOrphans(db, 2000, &onlyLiveAnswers,
+        (const Position p, long pid, const(char)[] said) { heard = said; }, &termedDead);
+    assert(swept.halted == 1);
+    assert(heard == "q-deploy-6 halted on SACRED: its driver, pid 75014, was ended by signal 15 (SIGTERM)", heard);
+    sqlite3_close(db);
+}
+
 unittest {
     // An ended performance is not looked at, whatever became of its driver.
     auto db = memDb();

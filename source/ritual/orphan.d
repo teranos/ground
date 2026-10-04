@@ -25,7 +25,8 @@ enum ID_MAX = 80;
 // driver's record ended, and its agent and parent told which rite. `gone` is
 // the caller's, for what reaches past the store: sentry, and the agent's stop.
 Swept haltOrphans(DB)(DB db, long now, bool function(long) alive,
-                      scope void delegate(const Position p, long pid, const(char)[] said) gone) {
+                      scope void delegate(const Position p, long pid, const(char)[] said) gone,
+                      int function(long pid) diedBy = null) {
     import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_text,
                 sqlite3_stmt, SQLITE_OK, SQLITE_ROW, ZBuf;
     import lifecycle : watchingAt, processKilled;
@@ -71,10 +72,26 @@ Swept haltOrphans(DB)(DB db, long now, bool function(long) alive,
         said.put(nthRite(p.rites, p.current));
         said.put(": its driver, pid ");
         said.putUint(cast(ulong) w.lastPid);
-        said.put(", is gone, so nobody was walking it");
+
+        // What the driver noted as it was ended, if it could note anything.
+        import ritual.deathnote : signalName;
+        auto sig = diedBy !is null ? diedBy(w.lastPid) : 0;
+        __gshared ZBuf how;
+        how.reset();
+        if (sig > 0) {
+            how.put("was ended by signal ");
+            how.putUint(cast(ulong) sig);
+            auto name = signalName(sig);
+            if (name.length > 0) { how.put(" ("); how.put(name); how.put(")"); }
+            said.put(", ");
+            said.put(how.slice());
+        } else {
+            how.put("gone without a word, found so by a hook");
+            said.put(", is gone, so nobody was walking it");
+        }
 
         if (w.lastEndedAt == 0)
-            processKilled(db, w.lastPid, "gone without a word, found so by a hook", now);
+            processKilled(db, w.lastPid, how.slice(), now);
         cast(void) deliver(db, p, PARENT, "ritual-orphan", said.slice(), "");
         gone(p, w.lastPid, said.slice());
         swept.halted++;
@@ -87,6 +104,11 @@ extern (C) private int kill(int pid, int sig);
 // Signal 0 asks whether the pid exists and delivers nothing.
 private bool pidAnswers(long pid) {
     return pid > 0 && kill(cast(int) pid, 0) == 0;
+}
+
+private int noted(long pid) {
+    import ritual.deathnote : readDeathNote;
+    return readDeathNote(pid);
 }
 
 // From a hook. The store carries the halt and the notes; sentry hears the
@@ -108,7 +130,7 @@ void sweepOrphans(DB)(DB db) {
             err.timestamp = now;
             reportQuietly(err);
             cast(void) reapNow(p, "its driver is gone, so the performance was halted and its agent did not stop");
-        });
+        }, &noted);
     if (swept.refused != 0) {
         GroundError err;
         err.origin = "ritual.drive.sweep";

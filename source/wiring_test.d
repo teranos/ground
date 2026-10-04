@@ -71,5 +71,8 @@ static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new bra
 // on wrote no ci-status row: the CI it owed was never asked after.
 static assert(calls(postToolUseSource, "emitControlSaid("), "a control's words are said after the rest of the hook ran");
 
+// A driver ended by a catchable signal says which.
+static assert(calls(driveSource, "armDeathNote("), "the driver notes the signal that ends it");
+
 // QNTX #1068, Phase 3: how many skies, and what each left pending and refused.
 static assert(calls(skySource, "attestLife("), "a sky tells the node it started and how it ended");
