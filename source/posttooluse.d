@@ -530,9 +530,10 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                         import immediate : writeCIStatus;
                         import git : localHeadSha;
                         // A new branch's push line names no sha; the local ref
-                        // does. Without it the node has no commit to wait on.
+                        // does, in the checkout the push ran in, which -C moves.
+                        import matcher : effectiveCwd, shellHome;
                         auto sha = info.sha;
-                        if (sha.length == 0) sha = localHeadSha(cwd, info.branch);
+                        if (sha.length == 0) sha = localHeadSha(effectiveCwd(detail, cwd, shellHome()), info.branch);
                         // The row is the fact of the push and nothing more.
                         // Sky streams it to the node; the node waits on the
                         // run where the socket is and leaves the result on

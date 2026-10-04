@@ -62,5 +62,10 @@ static assert(calls(postToolUseSource, "probeDetached("), "a commit's prose is s
 static assert(calls(stopSource, "sweepOrphans("), "a turn's end halts a walk whose driver is gone");
 static assert(calls(userPromptSource, "sweepOrphans("), "typing halts a walk whose driver is gone");
 
+// git -C <QNTX checkout> push, from a session standing in ground: the row named
+// teranos/QNTX and ground's 640c106, and the node asked github for a commit
+// that repo never had. The sha is the pushed checkout's.
+static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new branch's sha is read where the push ran");
+
 // QNTX #1068, Phase 3: how many skies, and what each left pending and refused.
 static assert(calls(skySource, "attestLife("), "a sky tells the node it started and how it ended");
