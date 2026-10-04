@@ -274,7 +274,9 @@ Not in the example above, and therefore not implementable from it:
 Row 99 — a performance whose driver is gone is halted where it stands at the
 next Stop or prompt, and its agent, its parent and sentry are told. Before this
 it stood live with nobody walking it, and the status line drew its rite for as
-long as anybody looked.
+long as anybody looked. A driver ended by a signal it can catch leaves a note of
+which one, and the halt names it; a write to a reader that is gone fails as an
+error instead of killing the driver. Only SIGKILL is still gone without a word.
 
 "I dont know how to explain how serious this defect is"
 
