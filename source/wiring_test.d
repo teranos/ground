@@ -67,5 +67,9 @@ static assert(calls(userPromptSource, "sweepOrphans("), "typing halts a walk who
 // that repo never had. The sha is the pushed checkout's.
 static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new branch's sha is read where the push ran");
 
+// A message control returned from PostToolUse at once, and the push it spoke
+// on wrote no ci-status row: the CI it owed was never asked after.
+static assert(calls(postToolUseSource, "emitControlSaid("), "a control's words are said after the rest of the hook ran");
+
 // QNTX #1068, Phase 3: how many skies, and what each left pending and refused.
 static assert(calls(skySource, "attestLife("), "a sky tells the node it started and how it ended");
