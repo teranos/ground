@@ -352,7 +352,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     import main : usecNow;
     import parse : extractPermissionMode;
     auto t0 = usecNow();
-    long tParse, tCorpus, tBinary, tMatch, tDb, tPerm, tFilePerm, tFileControls;
+    long tParse, tCorpus, tBinary, tTrail, tMatch, tDb, tPerm, tFilePerm, tFileControls;
     const(char)[] exitLabel = "none";
 
     // What the file controls spent inside their loop: in the checks they ask,
@@ -365,9 +365,9 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     // phases blank, and a third of the table said nothing about itself.
     scope (exit) {
         import phases : phaseChainSpent;
-        static immutable string[8] KEYS = ["parse", "corpus", "binary", "match", "db", "perm",
+        static immutable string[9] KEYS = ["parse", "corpus", "binary", "trail", "match", "db", "perm",
                                            "fperm", "fctl"];
-        long[8] stamps = [tParse, tCorpus, tBinary, tMatch, tDb, tPerm, tFilePerm, tFileControls];
+        long[9] stamps = [tParse, tCorpus, tBinary, tTrail, tMatch, tDb, tPerm, tFilePerm, tFileControls];
         static immutable string[2] SPENT = ["checks", "dedup"];
         long[2] spent = [checksUs, dedupUs];
         __gshared ZBuf prof;
@@ -431,7 +431,12 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             import ritual : ritualStarted;
             import ritual.intent : writeIntent;
             auto starting = ritualStarted(command);
-            if (starting.length > 0) writeIntent(starting, sessionId);
+            auto why = starting.length > 0 ? writeIntent(starting, sessionId) : null;
+            if (why !is null) {
+                import exec : emitError;
+                emitError("ritual.intent", cast(string) why, 0, -1, cast(string) sessionId,
+                          cast(string) starting, "", cast(string) command, "");
+            }
         }
 
         // Hard deny: binary files in git add
@@ -534,6 +539,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 }
             }
         }
+
+        tTrail = usecNow();
 
         // Bash — check controls. checkAllCommands tracks effective
         // cwd across `cd X &&` chains (see matcher.d::extractLeadingCd).

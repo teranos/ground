@@ -67,6 +67,11 @@ bool paceFailed(ref Pace p) {
 // "it should be retryable"
 enum TOO_MANY = 429;
 
+// What ground says of a row too big for its stream buffer, in the node's own
+// terms: a 4xx, so the row is refused and not asked for again. Ground's, not
+// the node's; the reason on the row says so.
+enum TOO_LARGE = 413;
+
 bool retryable(int status) {
     return status < 200 || status >= 500 || status == TOO_MANY;
 }
@@ -81,7 +86,8 @@ enum SKELETON_SQL = "CASE json_extract(predicates, '$[0]') "
     ~ "WHEN 'PostToolUse' THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
     ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
     ~   "'command', json_extract(attributes, '$.tool_input.command'), "
-    ~   "'original_size', length(attributes)) "
+    ~   "'original_size', length(attributes), "
+    ~   "'duration_ms', json_extract(attributes, '$.duration_ms')) "
     ~ "WHEN 'PreToolUse' THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
     ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
     ~   "'command', json_extract(attributes, '$.tool_input.command'), "
@@ -331,10 +337,10 @@ Built buildBatch(sqlite3* db, long pid, long now, char[] into) {
     __gshared Claimed c;
     while (nextClaimed(db, pid, after, c)) {
         after = c.rowid;
-        // A row that did not fit is not sent cut. It stays pending with the
-        // reason on it, for a person to read; nothing here can make it fit.
+        // A row that did not fit is not sent cut, and nothing here can make it
+        // fit: refused by ground itself, with the reason, and out of the claim.
         if (c.body_.over) {
-            rowResolved(db, c.rowid, 0, false, now, "the row did not fit ground's stream buffer and was not sent");
+            rowResolved(db, c.rowid, TOO_LARGE, false, now, "the row did not fit ground's stream buffer and was not sent");
             continue;
         }
         auto row = c.body_.slice();
@@ -536,7 +542,7 @@ unittest {
 
     // A PostToolUse row with its output whole, and a Stop row.
     attestEventAt(db, "PostToolUse", "/tmp", "sess-s",
-        `{"session_id":"sess-s","tool_name":"Bash","tool_input":{"command":"ls -la"},"tool_response":{"stdout":"a very long listing"}}`,
+        `{"session_id":"sess-s","tool_name":"Bash","tool_input":{"command":"ls -la"},"tool_response":{"stdout":"a very long listing"},"duration_ms":1711}`,
         "2026-09-19T09:03:25Z", 34348);
     attestEventAt(db, "Stop", "/tmp", "sess-s", `{"session_id":"sess-s","stop_hook_active":false}`,
         "2026-09-19T09:03:26Z", 34349);
@@ -557,6 +563,8 @@ unittest {
     assert(contains(body_, `"tool_name":"Bash"`));
     assert(contains(body_, `"command":"ls -la"`));
     assert(contains(body_, `"original_size":`));
+    // QNTX #1068, Phase 3: a tool's own cost goes with it.
+    assert(contains(body_, `"duration_ms":1711`), "what the tool took is sent");
     assert(!contains(body_, "a very long listing"), "the output stays home");
     assert(!contains(body_, "tool_response"));
 
@@ -729,6 +737,31 @@ unittest {
     assert(applySchema(db));
     assert(planUsesIndex(db, NEXT_ROWID_SQL.ptr, "idx_attestations_stream"),
            "walking the claimed rows to resolve them must not scan the table");
+    sqlite3_close(db);
+}
+
+unittest {
+    // QNTX #1068's audit of sky: a row too big for the stream buffer was asked
+    // for again every pass and never sent. It is ground's refusal, said once,
+    // counted as refused, and out of every later claim.
+    import db : sqlite3_open, sqlite3_close, applySchema, attestEventAt;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    enum head = `{"session_id":"sess-big","prompt":"`;
+    enum tail = `"}`;
+    __gshared char[STREAM_BODY_CAP + 4096] big = 'y';
+    big[0 .. head.length] = head;
+    big[$ - tail.length .. $] = tail;
+    attestEventAt(db, "UserPromptSubmit", "/tmp", "sess-big", big[], "2026-10-04T12:00:00Z", 4242);
+
+    assert(claimStream(db, 31, 10) == 1);
+    __gshared char[4096] into = 0;
+    auto b = buildBatch(db, 31, 6000, into[]);
+    assert(b.rows == 0, "nothing of it is sent");
+    claimReleased(db, 31);
+    assert(claimStream(db, 32, 10) == 0, "and it is not asked for again");
+    assert(standing(db).refused == 1 && standing(db).pending == 0, "it is counted as refused");
     sqlite3_close(db);
 }
 

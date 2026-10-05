@@ -13,11 +13,17 @@ extern (C) int access(const(char)* path, int mode);
 
 // A tree that is not there is two different facts, and the driver ran rites
 // through both of them.
-enum TreeVerdict { Run, Wait, Gone }
+enum TreeVerdict { Run, Wait, Gone, Ended, NeverMade }
 
-TreeVerdict treeVerdict(bool exists, bool sawTree) {
+// The slowest start recorded put its first rite 135s after the performance
+// began (q-deploy-1790352400); ten minutes is past that four times over.
+enum TREE_WAIT_SEC = 600;
+
+TreeVerdict treeVerdict(bool exists, bool sawTree, bool live, long waitedSec) {
     if (exists) return TreeVerdict.Run;
-    return sawTree ? TreeVerdict.Gone : TreeVerdict.Wait;
+    if (sawTree) return TreeVerdict.Gone;
+    if (!live) return TreeVerdict.Ended;
+    return waitedSec >= TREE_WAIT_SEC ? TreeVerdict.NeverMade : TreeVerdict.Wait;
 }
 
 // Only a tree ground cut is ground's to remove. A ritual that names none
@@ -136,6 +142,15 @@ int handleDrive(int argc, const(char)** argv) {
     // and the tree cannot say which this drives.
     auto perfId = argv[2][0 .. argLen(argv[2])];
 
+    // "I dont know how to explain how serious this defect is"
+    // Driver 75014 ended with nothing written anywhere. A signal this one can
+    // catch leaves a note of which, for the sweep that finds it gone.
+    {
+        import ritual.deathnote : armDeathNote;
+        import sky : getpid;
+        armDeathNote(getpid());
+    }
+
     static immutable parsed = allParsed;
     uint nextSleep = 2;
 
@@ -202,8 +217,34 @@ int handleDrive(int argc, const(char)** argv) {
 
         treePath.reset();
         treePath.put(found.p.worktree);
-        final switch (treeVerdict(access(treePath.ptr(), 0) == 0, sawTree)) {
+        final switch (treeVerdict(access(treePath.ptr(), 0) == 0, sawTree,
+                                  found.p.state == RitualState.Live,
+                                  cast(long) time(null) - startedAt)) {
         case TreeVerdict.Run:  sawTree = true; break;
+        // Ended before any tree was made: the ending below runs, and stops the agent.
+        case TreeVerdict.Ended: break;
+        case TreeVerdict.NeverMade:
+            {
+                import ritual.store : writePositionIf;
+                import ritual.position : step;
+                import ritual.delivery : deliver, PARENT;
+                import exec : emitError;
+                if (!writePositionIf(db, step(found.p, Verdict.Halt), found.p.rev)) {
+                    sqlite3_close(db);
+                    continue;
+                }
+                endWhy = "its agent never made its tree, so nothing could run";
+                __gshared ZBuf said;
+                said.reset();
+                said.put(found.p.id);
+                said.put(" halted: ");
+                said.put(endWhy);
+                emitError("ritual.drive.tree", cast(string) said.slice(), 0, 1, cast(string) found.p.parent,
+                          cast(string) found.p.ritual, "", cast(string) found.p.id, cast(string) found.p.worktree);
+                cast(void) deliver(db, found.p, PARENT, "ritual-no-tree", said.slice(), "");
+                found = byPerformanceId(db, perfId);
+            }
+            break;
         case TreeVerdict.Gone:
             if (found.p.state == RitualState.Live) {
                 import ritual.store : writePositionIf;

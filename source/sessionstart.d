@@ -132,17 +132,29 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                         cwdTail, ZBuf;
         auto db = openDb();
         if (db !is null) {
-            enum sql = "INSERT OR IGNORE INTO session_project (session_id, project) VALUES (?1, ?2)\0";
+            // Where it ran, too: the repo it is a checkout of, and the project
+            // ground's pbt names there (QNTX #1068, Phase 3). A resumed session
+            // keeps its project and gets the place it may never have had.
+            enum sql = "INSERT INTO session_project (session_id, project, origin, place) VALUES (?1, ?2, ?3, ?4) "
+                ~ "ON CONFLICT(session_id) DO UPDATE SET origin = excluded.origin, place = excluded.place\0";
             sqlite3_stmt* stmt;
             if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
+                import git : originOf, repoRoot;
+                import place : placeOf;
+                import controls : allParsed;
+                static immutable parsed = allParsed;
                 __gshared ZBuf sidBuf;
                 __gshared ZBuf projBuf;
                 sidBuf.reset();
                 sidBuf.put(sessionId);
                 projBuf.reset();
                 projBuf.put(cwdTail(cwd));
+                auto origin = originOf(cwd);
+                auto where = placeOf(parsed, cwd, repoRoot(cwd), origin);
                 sqlite3_bind_text(stmt, 1, sidBuf.ptr(), cast(int) sidBuf.len, SQLITE_TRANSIENT);
                 sqlite3_bind_text(stmt, 2, projBuf.ptr(), cast(int) projBuf.len, SQLITE_TRANSIENT);
+                sqlite3_bind_text(stmt, 3, origin.ptr, cast(int) origin.length, SQLITE_TRANSIENT);
+                sqlite3_bind_text(stmt, 4, where.ptr, cast(int) where.length, SQLITE_TRANSIENT);
                 sqlite3_step(stmt);
                 sqlite3_finalize(stmt);
             }

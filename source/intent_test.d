@@ -27,6 +27,13 @@ unittest {
     assert(takeIntent("willow-test") is null);
 }
 
+// A claim that cannot be written says so. On a fresh CI runner the directory
+// was missing, the fopen failed, and the test read back nothing it could name.
+unittest {
+    import ritual.intent : intentInto;
+    assert(intentInto("/nonexistent/ground/ritual-intent-x.id\0".ptr, "sess-abc") !is null);
+}
+
 // No claim is not an error. A ritual started by hand from a terminal has no
 // session owed anything, and that must not stop it from running.
 unittest {

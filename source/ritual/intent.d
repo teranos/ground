@@ -23,16 +23,22 @@ bool nameable(const(char)[] name) {
     return true;
 }
 
-void writeIntent(const(char)[] ritual, const(char)[] sessionId) {
-    if (!nameable(ritual) || sessionId.length == 0) return;
+// Null when written, else why not. The caller owns delivering it.
+const(char)[] writeIntent(const(char)[] ritual, const(char)[] sessionId) {
+    if (!nameable(ritual) || sessionId.length == 0) return null;
 
     __gshared char[512] path = 0;
-    if (buildGroundPath(path, "ritual-intent-", ritual, ".id") == 0) return;
+    if (buildGroundPath(path, "ritual-intent-", ritual, ".id") == 0)
+        return "no HOME, so the claim has no path";
+    return intentInto(&path[0], sessionId);
+}
 
-    auto f = fopen(&path[0], "w");
-    if (f is null) return;
-    fwrite(sessionId.ptr, 1, sessionId.length, f);
-    fclose(f);
+const(char)[] intentInto(const(char)* path, const(char)[] sessionId) {
+    auto f = fopen(path, "w");
+    if (f is null) return "the claim file would not open for writing";
+    auto n = fwrite(sessionId.ptr, 1, sessionId.length, f);
+    if (fclose(f) != 0 || n != sessionId.length) return "the claim file was not written whole";
+    return null;
 }
 
 const(char)[] takeIntent(const(char)[] ritual) {

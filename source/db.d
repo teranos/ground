@@ -197,22 +197,44 @@ sqlite3* openDb() {
 // $HOME/.local/share/ground/ground.db, its directory made on the way. Null
 // with no HOME. One buffer, so the pointer is good until the next call.
 const(char)* storePath() {
-    auto home = getenv("HOME\0".ptr);
-    if (home is null) return null;
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
+    auto dir = storeDir();
+    if (dir is null) return null;
+    pathBuf.put(dir);
+    pathBuf.put("/ground.db");
+    return pathBuf.ptr();
+}
 
+// The directory the store and the files beside it live in, made on the way.
+const(char)[] storeDir() {
     __gshared ZBuf pathBuf;
     pathBuf.reset();
 
-    size_t homeLen = 0;
-    while (home[homeLen] != 0) homeLen++;
-    pathBuf.put(home[0 .. homeLen]);
-    pathBuf.put("/.local/share/ground");
+    version (unittest) {
+        // A test process opens a store of its own: every test that ended in an
+        // error wrote it into the real one, one run at a time.
+        import core.sys.posix.unistd : getpid;
+        auto tmp = getenv("TMPDIR\0".ptr);
+        size_t tmpLen = 0;
+        if (tmp !is null) while (tmp[tmpLen] != 0) tmpLen++;
+        auto dir = tmpLen > 0 ? tmp[0 .. tmpLen] : "/tmp";
+        if (dir.length > 1 && dir[$ - 1] == '/') dir = dir[0 .. $ - 1];
+        pathBuf.put(dir);
+        pathBuf.put("/ground-unittest-");
+        pathBuf.putUint(cast(ulong) getpid());
+    } else {
+        auto home = getenv("HOME\0".ptr);
+        if (home is null) return null;
+        size_t homeLen = 0;
+        while (home[homeLen] != 0) homeLen++;
+        pathBuf.put(home[0 .. homeLen]);
+        pathBuf.put("/.local/share/ground");
+    }
 
     // mkdir -p: create each directory level
     mkdirP(pathBuf.slice());
-
-    pathBuf.put("/ground.db");
-    return pathBuf.ptr();
+    return pathBuf.slice();
 }
 
 sqlite3* openStandaloneDb() {
@@ -339,6 +361,9 @@ bool applySchema(sqlite3* db) {
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
     sqlite3_exec(db, sessionProjectSchema.ptr, null, null, null);
+    // Where the session ran, for the contexts of every event it writes.
+    ensureColumn(db, "session_project", "origin", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "session_project", "place", "TEXT NOT NULL DEFAULT ''");
 
     // Keyed on the performance, not on where it happens. The worktree is an
     // index: removing the tree loses a route to the record, not the record.
@@ -905,9 +930,12 @@ void attestEventAt(
     __gshared ZBuf subjectVal;
     __gshared char[256] sessionProjectBuf = 0;
     const(char)[] sessionProject = null;
+    __gshared char[256] originBuf = 0;
+    __gshared char[256] placeBuf = 0;
+    const(char)[] origin = null, place = null;
 
     {
-        enum lookupSql = "SELECT project FROM session_project WHERE session_id = ?1\0";
+        enum lookupSql = "SELECT project, origin, place FROM session_project WHERE session_id = ?1\0";
         sqlite3_stmt* spStmt;
         if (sqlite3_prepare_v2(db, lookupSql.ptr, -1, &spStmt, null) == SQLITE_OK) {
             __gshared ZBuf sidBuf;
@@ -924,6 +952,15 @@ void attestEventAt(
                         sessionProject = sessionProjectBuf[0 .. sLen];
                     }
                 }
+                const(char)[] column(int at, ref char[256] buf) {
+                    auto t = sqlite3_column_text(spStmt, at);
+                    if (t is null) return null;
+                    size_t n = 0;
+                    while (t[n] != 0 && n < buf.length) { buf[n] = t[n]; n++; }
+                    return n > 0 ? buf[0 .. n] : null;
+                }
+                origin = column(1, originBuf);
+                place = column(2, placeBuf);
             }
             sqlite3_finalize(spStmt);
         }
@@ -940,9 +977,13 @@ void attestEventAt(
     jsonArray1(subjects, subjectVal.slice());
     jsonArray1(predicates, eventName);
 
+    // The session first, as every reader of contexts[0] expects; then where it
+    // ran, when SessionStart wrote it down (QNTX #1068, Phase 3).
     contexts.reset();
     contexts.put(`["session:`);
     contexts.put(sessionId);
+    if (origin !is null) { contexts.put(`","origin:`); contexts.put(origin); }
+    if (place !is null) { contexts.put(`","project:`); contexts.put(place); }
     contexts.put(`"]`);
 
     jsonArray1(actors, "ground");

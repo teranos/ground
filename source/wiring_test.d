@@ -71,5 +71,28 @@ static assert(calls(postToolUseSource, "localHeadSha(effectiveCwd("), "a new bra
 // on wrote no ci-status row: the CI it owed was never asked after.
 static assert(calls(postToolUseSource, "emitControlSaid("), "a control's words are said after the rest of the hook ran");
 
+// Two git commits on 2026-10-04 spent 4.8s in match, which held both the
+// commit's session trailer and the controls; the trailer is its own phase.
+private enum preToolUseSource = import("source/pretooluse.d");
+import matcher : contains;
+static assert(contains(preToolUseSource, `"binary", "trail", "match"`), "the trailer is timed apart from the controls");
+
+// QNTX #1068, Phase 3: where a session ran is written down when it starts.
+private enum sessionStartSource = import("source/sessionstart.d");
+static assert(calls(sessionStartSource, "placeOf("), "a session's project is resolved when it starts");
+static assert(calls(sessionStartSource, "originOf("), "and the repo it is a checkout of");
+
+// "hook timing should go to both"
+private enum mainSource = import("source/main.d");
+static assert(calls(mainSource, "attestCost("), "a hook's cost is attested as well as timed");
+// A store that would not open dropped the hook's timing row, and only a
+// corrupt one was ever said.
+static assert(!calls(mainSource, "if (db is null) return;"), "a timing row the store would not take is said");
+// The result line carries the message since 3cb89ce; the stderr copy said it twice.
+static assert(!calls(mainSource, `"", "", cast(string) said[0 .. n]);`), "a refused timing row is said once");
+
+// A driver ended by a catchable signal says which.
+static assert(calls(driveSource, "armDeathNote("), "the driver notes the signal that ends it");
+
 // QNTX #1068, Phase 3: how many skies, and what each left pending and refused.
 static assert(calls(skySource, "attestLife("), "a sky tells the node it started and how it ended");

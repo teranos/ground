@@ -155,18 +155,27 @@ const(char)[] getPhases() {
 // timing index went malformed and forty minutes of hooks stepped an 11 and
 // said nothing; sentry showed a gap and nobody was told why.
 void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project,
-                  const(char)[] phases, const(char)[] sessionId) {
-    import db : openDb, sqlite3_close, SQLITE_DONE;
+                  const(char)[] phases, const(char)[] sessionId, const(char)[] cwd) {
+    import db : openDb, sqlite3_close, SQLITE_DONE, dbFailureCode;
     import hooktiming : insertTiming;
 
     auto db = openDb();
-    if (db is null) return;
+    if (db is null) {
+        // Corruption is said by openDb's chain; a store busy past the wait is not.
+        import exec : emitError;
+        emitError("hook.timing", "the store would not open for this hook's timing row", 0, dbFailureCode(),
+                  cast(string) sessionId, "hook.timing", "", cast(string) phases, "");
+        return;
+    }
     auto rc = insertTiming(db, elapsedUs, hookEvent, project, phases);
+    // "hook timing should go to both"
+    if (rc == SQLITE_DONE && sessionId.length > 0) {
+        import hookcost : attestCost;
+        attestCost(db, cwd, sessionId, hookEvent, elapsedUs, project, phases);
+    }
     sqlite3_close(db);
     if (rc != SQLITE_DONE) {
         import exec : emitError;
-        // The session is shown the exit and the stderr of a result, not its
-        // message, so the sentence goes in the stderr with the phases after it.
         __gshared char[640] said = 0;
         size_t n;
         void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
@@ -176,7 +185,7 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
         put("\n");
         put(phases);
         emitError("hook.timing", cast(string) said[0 .. n], 0, rc,
-                  cast(string) sessionId, "hook.timing", "", "", cast(string) said[0 .. n]);
+                  cast(string) sessionId, "hook.timing", "", "", "");
     }
 }
 
@@ -262,7 +271,7 @@ extern (C) int main(int argc, const(char)** argv) {
         __gshared ZBuf row;
         row.reset();
         outerPhases(row, outer.store, elapsed - outer.store.total, getPhases());
-        recordTiming(elapsed, eventName, project, row.slice(), outer.sessionId);
+        recordTiming(elapsed, eventName, project, row.slice(), outer.sessionId, outer.cwd);
     }
     return rc;
 }
@@ -270,7 +279,7 @@ extern (C) int main(int argc, const(char)** argv) {
 // What the handler cannot time: the read of its input and the event row's
 // write to ground.db, both before it is called. The row used to carry the
 // handler's phases beside a duration the handler was a tenth of.
-struct Outer { Store store; const(char)[] sessionId; }
+struct Outer { Store store; const(char)[] sessionId; const(char)[] cwd; }
 
 int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool outSkipTiming,
         ref Outer outer) {
@@ -287,6 +296,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     auto sessionId = extractSessionId(input);
     if (sessionId is null) sessionId = "";
     outer.sessionId = sessionId;
+    outer.cwd = cwd;
 
     import db : cwdTail;
     outProject = cwdTail(cwd);

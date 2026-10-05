@@ -75,10 +75,12 @@ const(char)[] deliverError(const ref GroundError err) {
     // Primary: db write. writeExecResult retries on SQLITE_BUSY and
     // returns true only if the row was persisted. If it returns false
     // (retries exhausted, or non-busy step error), we escalate.
+    bool opened = false;
     {
         import db : openDb, sqlite3_close;
         import immediate : writeExecResult;
         auto db = openDb();
+        opened = db !is null;
         if (db !is null) {
             auto result = formatResult(err);
             auto ok = writeExecResult(db, err.sessionId, err.controlName, result, err.stdout, err.stderr);
@@ -94,8 +96,9 @@ const(char)[] deliverError(const ref GroundError err) {
     // The store would not open, so nothing can be left for the sky to post:
     // the same item goes to sentry now, from a child that has let go of the
     // hook's pipes, so the hook waits on no network. The dsn is the top
-    // level's; a store that will not open is nobody's project.
-    {
+    // level's; a store that will not open is nobody's project. A store that
+    // opened has the item in its outbox already.
+    if (!opened) {
         import sentry : logEnvelope, reportDetached;
         import controls : dsnHere;
         auto dsn = dsnHere("");
@@ -205,22 +208,16 @@ private void leaveForSentry(void* db, const ref GroundError err, const(char)[] r
 //
 // Uses a shared static buffer — no GC, no allocations. Caller must copy
 // the returned slice before the next call if it needs to retain it.
-private const(char)[] formatResult(const ref GroundError err) {
-    __gshared char[256] buf = 0;
-    size_t pos = 0;
+const(char)[] formatResult(const ref GroundError err) {
+    // As wide as the row it lands in, which is a ZBuf too.
+    import zbuf : ZBuf;
+    __gshared ZBuf buf;
+    buf.reset();
 
-    void appendStr(const(char)[] s) {
-        foreach (c; s) { if (pos < buf.length - 1) buf[pos++] = c; }
-    }
+    void appendStr(const(char)[] s) { buf.put(s); }
     void appendInt(long v) {
-        if (v == 0) { appendStr("0"); return; }
-        bool neg = v < 0;
-        if (neg) v = -v;
-        char[24] nb = 0;
-        int nl = 0;
-        while (v > 0 && nl < 23) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; }
-        if (neg) appendStr("-");
-        foreach_reverse (i; 0 .. nl) { if (pos < buf.length - 1) buf[pos++] = nb[i]; }
+        if (v < 0) { appendStr("-"); v = -v; }
+        buf.putUint(cast(ulong) v);
     }
 
     if (err.exitCode >= 0) {
@@ -233,30 +230,45 @@ private const(char)[] formatResult(const ref GroundError err) {
         appendInt(cast(long) err.errnoVal);
     } else {
         appendStr(err.origin);
+    }
+    // The message is ground's own word on what broke, never dropped for a code.
+    if (err.message.length > 0) {
         appendStr(": ");
         appendStr(err.message);
     }
-    return buf[0 .. pos];
+    return buf.slice();
 }
 
 // Append the Error to ~/.local/share/ground/errors/<sessionId>.log as a
 // simple one-line record. Best-effort — returns true if the write
 // completed, false if any step failed (mkdir/open/write). No exception
 // on failure (would itself be a swallow).
-private bool writeBreadcrumb(const ref GroundError err) {
-    import core.stdc.stdlib : getenv;
-    auto home = getenv("HOME\0".ptr);
-    if (home is null) return false;
-
-    size_t hlen = 0;
-    while (home[hlen] != 0) hlen++;
-
-    // Build directory: <home>/.local/share/ground/errors
-    char[512] dirBuf = 0;
+// <home>/.local/share/ground/errors, NUL-ended; 0 with no HOME.
+size_t breadcrumbDirInto(ref char[512] dirBuf) {
     size_t p = 0;
-    foreach (i; 0 .. hlen) { if (p < dirBuf.length - 1) dirBuf[p++] = home[i]; }
-    foreach (c; "/.local/share/ground/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+    version (unittest) {
+        import db : storeDir;
+        auto dir = storeDir();
+        if (dir is null) return 0;
+        foreach (c; dir) { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+        foreach (c; "/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+    } else {
+        import core.stdc.stdlib : getenv;
+        auto home = getenv("HOME\0".ptr);
+        if (home is null) return 0;
+        size_t hlen = 0;
+        while (home[hlen] != 0) hlen++;
+        foreach (i; 0 .. hlen) { if (p < dirBuf.length - 1) dirBuf[p++] = home[i]; }
+        foreach (c; "/.local/share/ground/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+    }
     dirBuf[p] = 0;
+    return p;
+}
+
+private bool writeBreadcrumb(const ref GroundError err) {
+    char[512] dirBuf = 0;
+    auto p = breadcrumbDirInto(dirBuf);
+    if (p == 0) return false;
 
     // mkdir (idempotent-ish; may fail because it already exists — fine).
     mkdir(&dirBuf[0], octal!755);

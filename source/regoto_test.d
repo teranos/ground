@@ -82,6 +82,11 @@ project {
 `;
 static assert(validateRituals(parsePbt(badRegoto)).text() == "ritual deploy: regoto names no rite: nowhere");
 
+// Held once: a ParseResult is 3.3MB, and parsed in a call it is a temporary on
+// the stack and a by-value copy in the callee, over 8MB run outside dub.
+static immutable regotoParsed = parsePbt(withRegoto);
+static immutable noRegotoParsed = parsePbt(withoutRegoto);
+
 import ritual : secondFire, writePosition, start, RitualState;
 import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
 
@@ -106,7 +111,7 @@ unittest {
     // starts nothing.
     auto db = memDb();
     performing(db, "stepcounter", "stepcounter-1000", RitualState.Live);
-    assert(secondFire(db, parsePbt(withRegoto), "stepcounter")
+    assert(secondFire(db, regotoParsed, "stepcounter")
            == "stepcounter-1000 is live, so no second performance of stepcounter starts");
     sqlite3_close(db);
 }
@@ -116,7 +121,7 @@ unittest {
     // after a walk has ended starts a new performance.
     auto db = memDb();
     performing(db, "stepcounter", "stepcounter-1000", RitualState.Done);
-    assert(secondFire(db, parsePbt(withRegoto), "stepcounter") is null);
+    assert(secondFire(db, regotoParsed, "stepcounter") is null);
     sqlite3_close(db);
 }
 
@@ -124,7 +129,7 @@ unittest {
     // Without regoto, every fire is its own performance, live one or not.
     auto db = memDb();
     performing(db, "deploy", "deploy-1000", RitualState.Live);
-    assert(secondFire(db, parsePbt(withoutRegoto), "deploy") is null);
+    assert(secondFire(db, noRegotoParsed, "deploy") is null);
     sqlite3_close(db);
 }
 
@@ -348,9 +353,9 @@ unittest {
     auto db = memDb();
     assert(writePosition(db, walking(s.tree.text())));
     push(s, "two");
-    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    cast(void) landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1");
     auto newer = push(s, "three");
-    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    cast(void) landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1");
     assert(landingOf(db, "stepcounter-1000") == newer.text());
     sqlite3_close(db);
     sh("rm -rf '", s.root.text(), "'");
@@ -367,7 +372,7 @@ unittest {
     auto before = gitOut(s.tree.text(), "rev-parse HEAD");
     auto commit = push(s, "two");
 
-    auto said = landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1",
+    auto said = landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1",
                        "git push", "pushed two");
     assert(said == "stepcounter-1000 goes to STEP2 when the rite it is on ends", said);
     assert(landingOf(db, "stepcounter-1000") == commit.text());
@@ -388,9 +393,9 @@ unittest {
     auto db = memDb();
     assert(writePosition(db, walking(s.tree.text())));
     auto commit = push(s, "two");
-    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    cast(void) landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1");
 
-    auto said = resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000");
+    auto said = resolveLanding(db, regotoParsed, "stepcounter-1000");
     Buf want;
     want.put("stepcounter-1000 went to STEP2 at ");
     want.put(commit.text()[0 .. 7]);
@@ -401,7 +406,7 @@ unittest {
     assert(got.p.state == RitualState.Live);
     assert(gitOut(s.tree.text(), "rev-parse HEAD").text() == commit.text());
     assert(landingOf(db, "stepcounter-1000").length == 0, "landed once");
-    assert(resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000") is null, "nothing waits");
+    assert(resolveLanding(db, regotoParsed, "stepcounter-1000") is null, "nothing waits");
 
     // TODO open: a note's id is its session and key, so a second regoto note to the same agent replaces the first before it is read.
     import immediate : readImmediateMessage;
@@ -419,12 +424,12 @@ unittest {
     auto db = memDb();
     assert(writePosition(db, walking(s.tree.text())));
     push(s, "two");
-    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    cast(void) landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1");
     auto ended = byPerformanceId(db, "stepcounter-1000").p;
     ended.state = RitualState.Done;
     assert(writePosition(db, ended));
 
-    assert(resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000") !is null);
+    assert(resolveLanding(db, regotoParsed, "stepcounter-1000") !is null);
     auto got = byPerformanceId(db, "stepcounter-1000");
     assert(got.p.state == RitualState.Live && got.p.current == 1);
     sqlite3_close(db);
@@ -438,12 +443,12 @@ unittest {
     auto db = memDb();
     assert(writePosition(db, walking(s.tree.text())));
     push(s, "two");
-    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "pusher-1");
+    cast(void) landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1");
     auto aborted = byPerformanceId(db, "stepcounter-1000").p;
     aborted.state = RitualState.Aborted;
     assert(writePosition(db, aborted));
 
-    auto said = resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000");
+    auto said = resolveLanding(db, regotoParsed, "stepcounter-1000");
     assert(said == "stepcounter-1000 was aborted, so the push that waited on it did not land", said);
     assert(byPerformanceId(db, "stepcounter-1000").p.state == RitualState.Aborted);
     assert(landingOf(db, "stepcounter-1000").length == 0);
@@ -458,9 +463,9 @@ unittest {
     auto db = memDb();
     assert(writePosition(db, walking("/nonexistent/ground-regoto")));
     push(s, "two");
-    cast(void) landOn(db, parsePbt(withRegoto), "stepcounter", "", s.pusher.text(), "parent-1");
+    cast(void) landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "parent-1");
 
-    auto said = resolveLanding(db, parsePbt(withRegoto), "stepcounter-1000");
+    auto said = resolveLanding(db, regotoParsed, "stepcounter-1000");
     assert(said.length > 0);
     auto got = byPerformanceId(db, "stepcounter-1000");
     assert(got.valid && got.p.state == RitualState.Halted && got.p.current == 3);
