@@ -17,11 +17,8 @@ scope {
     # below. N is the placeholder marking where the integer lives;
     # >= names the relation; <min> is the floor (decimal).
     # Silent — no msg; the longer output is the signal.
-    control {
-      name: "tail-min-40"
-      cmd: "tail"
-      clamp: "tail -N>=40"
-    }
+    # tail-min-40 clamped every tail to 40 lines, until 2026-10-08:
+    # "i want to disable this control actually"
 
   #  control {
   #    name: "no-co-authored-by"
