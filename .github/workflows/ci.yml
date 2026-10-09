@@ -66,7 +66,7 @@
       }
     },
     "test": {
-      "runs-on": "ubuntu-latest",
+      "runs-on": "${{ matrix.os }}",
       "steps": [
         {
           "uses": "actions/checkout@v6",
@@ -83,7 +83,15 @@
         {
           "run": "nix develop .#default --command sh -c 'make wind && dub test'"
         }
-      ]
+      ],
+      "strategy": {
+        "matrix": {
+          "os": [
+            "ubuntu-latest",
+            "macos-latest"
+          ]
+        }
+      }
     }
   },
   "name": "CI",

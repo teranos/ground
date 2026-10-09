@@ -26,7 +26,7 @@
             src = ./.;
 
             nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git ];
-            buildInputs = [ pkgs.sqlite pkgs.curl ];
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ];
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -58,7 +58,9 @@
         let pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.mkShell {
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.dub ];
+            # dub asks pkg-config for each lib. Without the pinned one in the
+            # shell it asked Homebrew's, which named an x86_64 libgit2.
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config ];
           };
         }
       );

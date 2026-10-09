@@ -24,8 +24,11 @@ in
   };
 
   jobs = {
+    # Both systems ground is released for, so a link that only one of them
+    # refuses is seen before a tag is cut.
     test = {
-      runs-on = "ubuntu-latest";
+      strategy.matrix.os = [ "ubuntu-latest" "macos-latest" ];
+      runs-on = "\${{ matrix.os }}";
       steps = [
         checkout
         installNix

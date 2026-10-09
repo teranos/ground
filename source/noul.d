@@ -25,23 +25,17 @@ bool overTokens(int status, const(char)[] reply) {
 
 // The lines of the diff Jev would be sent.
 size_t diffLines(const(char)[] worktree) {
-    import db : popen, pclose;
-    import core.stdc.stdio : fread;
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("git -C '");
-    foreach (c; worktree) { if (c == '\'') cmd.put(`'\''`); else cmd.putChar(c); }
-    cmd.put("' diff HEAD~1 HEAD 2>/dev/null");
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) return 0;
-    size_t lines = 0;
-    char[4096] chunk;
-    for (;;) {
-        auto got = fread(&chunk[0], 1, chunk.length, pipe);
-        if (got == 0) break;
-        foreach (c; chunk[0 .. got]) if (c == '\n') lines++;
-    }
-    pclose(pipe);
+    import libgit2 : Repo, Shown;
+    __gshared Repo g;
+    __gshared char[4 * 1024 * 1024] patch = 0;
+    if (!g.open(worktree)) return 0;
+    scope (exit) g.close();
+    auto text = g.between("HEAD~1", "HEAD", 3, Shown.patch, patch[]);
+    // Larger than four megabytes is far past what Jev reads.
+    if (text !is null && g.overflowed) return size_t.max;
+    if (text is null || text.length == 0) return 0;
+    size_t lines = 1;
+    foreach (c; text) if (c == '\n') lines++;
     return lines;
 }
 
@@ -251,36 +245,21 @@ void jevState(ref Wide s, const(char)[] worktree, const(char)[] branch) {
     while (start > 0 && worktree[start - 1] != '/') start--;
     putJson(s, worktree[start .. $]);
     s.put(`","branch":"`); putJson(s, branch);
-    s.put(`","commit":"`); gitJson(s, worktree, "log -1 --format=%h");
-    s.put(`","subject":"`); gitJson(s, worktree, "log -1 --format=%s");
-    s.put(`","summary":"`); gitJson(s, worktree, "diff --shortstat HEAD~1 HEAD");
-    s.put(`","files_changed":"`); gitJson(s, worktree, "diff --name-only HEAD~1 HEAD");
-    s.put(`","diff":"`); gitJson(s, worktree, "diff HEAD~1 HEAD");
-    s.put(`"}`);
-}
+    // Read in this process by libgit2. What it refused is said where git's
+    // own words stood when the git program refused.
+    import libgit2 : Repo, Shown;
+    __gshared Repo g;
+    __gshared char[262_144] got = 0;
+    bool open = g.open(worktree);
+    scope (exit) if (open) g.close();
+    void fact(const(char)[] value) { putJson(s, value is null ? g.why() : value); }
 
-private void gitJson(ref Wide s, const(char)[] worktree, const(char)[] args) {
-    import db : popen, pclose;
-    import core.stdc.stdio : fread;
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("git -C '");
-    foreach (c; worktree) { if (c == '\'') cmd.put(`'\''`); else cmd.putChar(c); }
-    cmd.put("' ");
-    cmd.put(args);
-    cmd.put(" 2>&1");
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) return;
-    char[4096] chunk;
-    for (;;) {
-        auto got = fread(&chunk[0], 1, chunk.length, pipe);
-        if (got == 0) break;
-        putJson(s, chunk[0 .. got]);
-        if (s.over) break;
-    }
-    pclose(pipe);
-    // A trailing newline is git's, not the value's.
-    if (s.len >= 2 && s.data[s.len - 2] == '\\' && s.data[s.len - 1] == 'n') s.len -= 2;
+    s.put(`","commit":"`); fact(open ? g.shortId("HEAD") : null);
+    s.put(`","subject":"`); fact(open ? g.subject("HEAD") : null);
+    s.put(`","summary":"`); fact(open ? g.between("HEAD~1", "HEAD", 3, Shown.shortStat, got[]) : null);
+    s.put(`","files_changed":"`); fact(open ? g.between("HEAD~1", "HEAD", 3, Shown.names, got[]) : null);
+    s.put(`","diff":"`); fact(open ? g.between("HEAD~1", "HEAD", 3, Shown.patch, got[]) : null);
+    s.put(`"}`);
 }
 
 // How the asking went. `answer` is only an answer when `ok`.

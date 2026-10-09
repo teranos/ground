@@ -87,100 +87,31 @@ struct Moved {
     void say(const(char)[] s) { foreach (c; s) if (whyLen < whyBuf.length) whyBuf[whyLen++] = c; }
 }
 
-private struct Git {
-    int status;
-    char[512] outBuf = 0;
-    size_t len;
-    const(char)[] output() const return { return outBuf[0 .. len]; }
-}
-
-extern (C) {
-    import core.stdc.stdio : FILE;
-    private FILE* popen(const(char)* command, const(char)* mode);
-    private int pclose(FILE* stream);
-}
-
-// One git command in the tree, with its words quoted. What it printed is kept,
-// since that is the reason when it refuses.
-private Git git(const(char)[] tree, const(char)[][] words) {
-    import worktree : addQuoted;
-    import core.stdc.stdio : fread;
-    Git g;
-    g.status = -1;
-    __gshared char[2048] cmd = 0;
-    size_t n;
-    bool fits = true;
-    void add(const(char)[] s) { foreach (c; s) { if (n < cmd.length - 1) cmd[n++] = c; else fits = false; } }
-    add("git -C ");
-    fits = addQuoted(cmd[], n, tree) && fits;
-    foreach (w; words) { add(" "); fits = addQuoted(cmd[], n, w) && fits; }
-    add(" 2>&1");
-    cmd[n] = 0;
-    if (!fits) {
-        foreach (c; "the git command did not fit") g.outBuf[g.len++] = c;
-        return g;
-    }
-    auto pipe = popen(&cmd[0], "r");
-    if (pipe is null) {
-        foreach (c; "git could not be run") g.outBuf[g.len++] = c;
-        return g;
-    }
-    for (;;) {
-        auto got = fread(&g.outBuf[g.len], 1, g.outBuf.length - g.len, pipe);
-        if (got == 0) break;
-        g.len += got;
-        if (g.len >= g.outBuf.length) break;
-    }
-    auto st = pclose(pipe);
-    g.status = (st >> 8) & 0xFF;
-    return g;
-}
-
-private bool says(const(char)[] hay, const(char)[] needle) {
-    import matcher : contains;
-    return contains(hay, needle);
-}
-
 // "make sure nothing can interrupt the branch from being updated"
 // The agent's uncommitted work is stashed, the push pulled and the work put
 // back. When any of that fails the tree is set to the push and cleaned.
 Moved moveTree(const(char)[] tree, const(char)[] remote, const(char)[] branch,
                const(char)[] commit) {
+    import libgit2 : Repo;
     Moved m;
+    __gshared Repo g;
+    if (!g.open(tree)) { m.say("open: "); m.say(g.why()); return m; }
+    scope (exit) g.close();
     bool kept = true;
-    bool stashed = false;
 
-    const(char)[][5] stash = ["stash", "push", "--include-untracked", "-m", "ground regoto"];
-    auto s = git(tree, stash[]);
-    if (s.status != 0) { kept = false; m.say("stash: "); m.say(s.output()); }
-    else stashed = !says(s.output(), "No local changes to save");
+    auto s = g.stashPush("ground regoto");
+    if (s < 0) { kept = false; m.say("stash: "); m.say(g.why()); }
+    bool stashed = s == 1;
 
-    if (kept) {
-        const(char)[][5] pull = ["pull", "--no-rebase", "--no-edit", remote, branch];
-        auto p = git(tree, pull[]);
-        if (p.status != 0) { kept = false; m.say("pull: "); m.say(p.output()); }
-    }
-    if (kept && stashed) {
-        const(char)[][2] pop = ["stash", "pop"];
-        auto u = git(tree, pop[]);
-        if (u.status != 0) { kept = false; m.say("stash pop: "); m.say(u.output()); }
-    }
+    if (kept && !g.pull(remote, branch)) { kept = false; m.say("pull: "); m.say(g.why()); }
+    if (kept && stashed && !g.stashPop()) { kept = false; m.say("stash pop: "); m.say(g.why()); }
     if (kept) { m.ok = true; return m; }
 
-    const(char)[][3] reset = ["reset", "--hard", commit];
-    auto r = git(tree, reset[]);
-    if (r.status != 0) { m.say("; reset: "); m.say(r.output()); return m; }
-    const(char)[][2] clean = ["clean", "-ffdx"];
-    auto c = git(tree, clean[]);
-    if (c.status != 0) { m.say("; clean: "); m.say(c.output()); return m; }
+    if (!g.resetHard(commit)) { m.say("; reset: "); m.say(g.why()); return m; }
+    if (!g.cleanAll()) { m.say("; clean: "); m.say(g.why()); return m; }
     m.ok = true;
     m.thrown = true;
     return m;
-}
-
-private const(char)[] trimmed(const(char)[] s) {
-    while (s.length > 0 && (s[$ - 1] == '\n' || s[$ - 1] == '\r' || s[$ - 1] == ' ')) s = s[0 .. $ - 1];
-    return s;
 }
 
 // The fire that landed on a live performance. The push is kept on the row and
@@ -207,12 +138,19 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
     auto p = found.p;
 
     __gshared char[64] commitBuf = 0;
-    const(char)[][2] revParse = ["rev-parse", "HEAD"];
-    auto head = git(where, revParse[]);
-    auto commit = trimmed(head.output());
-    if (head.status != 0 || commit.length == 0 || commit.length > commitBuf.length) commit = "";
-    foreach (i, c; commit) commitBuf[i] = c;
-    commit = commitBuf[0 .. commit.length];
+    const(char)[] commit = "";
+    {
+        import libgit2 : Repo;
+        __gshared Repo g;
+        if (g.open(where)) {
+            auto id = g.headId();
+            if (id !is null) {
+                foreach (i, c; id) commitBuf[i] = c;
+                commit = commitBuf[0 .. id.length];
+            }
+            g.close();
+        }
+    }
     auto branch = getBranch(where);
 
     said.put(p.id);

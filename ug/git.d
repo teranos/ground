@@ -3,42 +3,16 @@ module git;
 // The branch, read out of .git/HEAD. No process is spawned for it: a frame is
 // a fresh process already, and the file is one line.
 
-// What `git status --porcelain` says about the tree. The one thing on the row
-// that cannot be read off a file: git owns the comparison, not us.
+// The codes `git status --porcelain` opens each line with, one a line. The one
+// thing on the row that cannot be read off a file, read by libgit2 in this
+// process; it writes nothing back to the index, as --no-optional-locks did not.
 const(char)[] readPorcelain(const(char)[] cwd) {
-    import core.stdc.stdio : FILE, fread;
-    import core.sys.posix.stdio : popen, pclose;
-
-    __gshared char[8192] cmd = void;
-    enum head = "cd '";
-    // --no-optional-locks: status refreshes the index and takes .git/index.lock
-    // to write it back. Once a frame, in every repo on the row, against whatever
-    // the operator is running in the same repo.
-    enum tail = "' 2>/dev/null && git --no-optional-locks status --porcelain 2>/dev/null";
-    if (cwd.length + head.length + tail.length + 1 > cmd.length) return null;
-
-    // A path holding a quote would end the quoting and run what follows.
-    foreach (c; cwd) if (c == '\'') return null;
-
-    size_t p = 0;
-    foreach (c; head) cmd[p++] = c;
-    foreach (c; cwd) cmd[p++] = c;
-    foreach (c; tail) cmd[p++] = c;
-    cmd[p] = 0;
-
-    auto f = popen(&cmd[0], "r");
-    if (f is null) return null;
-
+    import libgit2 : Repo;
+    __gshared Repo g;
     __gshared char[65536] buf = void;
-    size_t total = 0;
-    while (total < buf.length) {
-        auto n = fread(&buf[total], 1, buf.length - total, f);
-        if (n == 0) break;
-        total += n;
-    }
-    pclose(f);
-
-    return buf[0 .. total];
+    if (!g.open(cwd)) return null;
+    scope (exit) g.close();
+    return g.statusCodes(buf[]);
 }
 
 // The contents of a repository's HEAD, or null when there is none to read.

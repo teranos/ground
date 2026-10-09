@@ -1,5 +1,6 @@
 {
     "name": "ground",
+    "version": "0.19.1",
     "description": "Workflow enforcement for Claude Code",
     "targetType": "executable",
     "targetName": "ground",
@@ -7,9 +8,9 @@
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC", "--lowmem"],
-    "libs": ["sqlite3", "curl"],
+    "libs": ["sqlite3", "curl", "git2"],
     "extraDependencyFiles": [".ctfe/sand"],
-    "preBuildCommands": ["git describe --tags --always > .version || true", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
+    "preBuildCommands": ["date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
 
     "configurations": [
         {

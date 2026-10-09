@@ -23,8 +23,8 @@ $(wordlist 2,$(words $(GOALS)),$(GOALS)):
 endif
 else
 
-wind: tools/wind.d tools/filelist.d tools/openapi.d
-	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d tools/openapi.d
+wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
+	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d -L-lgit2
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
@@ -62,13 +62,13 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d
+             ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d
 
-# sqlite3 is the one library ug links. ground owns the schema and every row ug
-# reads. ug writes one thing: the usage reading from its input, which no hook
-# is handed, every four hours and once per new session.
+# ground owns the schema and every row ug reads. ug writes one thing: the usage
+# reading from its input, which no hook is handed, every four hours and once
+# per new session. libgit2 reads the tree's status in its own process.
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3
+	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2
 
 test: test-tools test-ug
 	dub test
@@ -93,7 +93,7 @@ test-ug:
 # -J=. lets row_test read captures/grove/out.bytes at CTFE, so parity is
 # asserted against collet's own output rather than a transcription of it.
 	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/json.d ug/json_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug ug/git.d ug/git_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/git.d ug/git_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/status.d ug/status_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/perf_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/scan_test.d

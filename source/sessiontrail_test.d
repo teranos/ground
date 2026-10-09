@@ -110,3 +110,109 @@ unittest {
     assert(found.labelOf("writer") == "writer");
     sqlite3_close(db);
 }
+
+// Every path in one asking still reads the edit-path index, path by path.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, sqlite3_prepare_v2, sqlite3_step,
+                sqlite3_finalize, sqlite3_column_text, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+    import sessiontrail : editorsAllSql;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    __gshared char[4096] sql = 0;
+    __gshared char[4200] plan = 0;
+    enum lead = "EXPLAIN QUERY PLAN ";
+    foreach (i, c; lead) plan[i] = c;
+    auto body_ = editorsAllSql(3, sql[]);
+    foreach (i, c; body_) plan[lead.length + i] = c;
+    plan[lead.length + body_.length] = 0;
+
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, &plan[0], -1, &stmt, null) == SQLITE_OK);
+    bool byIndex;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto t = sqlite3_column_text(stmt, 3);
+        size_t n;
+        while (t[n] != 0) n++;
+        auto detail = (cast(const(char)*) t)[0 .. n];
+        foreach (i; 0 .. detail.length)
+            if (i + 26 <= detail.length && detail[i .. i + 26] == "idx_attestations_edit_path") byIndex = true;
+    }
+    sqlite3_finalize(stmt);
+    assert(byIndex, "the edits of every path are found by the path's index");
+}
+
+// "i will be able to trace back to the exact conversation, even years back"
+// The sessions on a commit are the ones the git program and a query per file
+// named: the same sessions, in the same order, with the same last edit.
+unittest {
+    import libgit2_test : fixture, gitOut, Buf;
+    import sessiontrail : sessionsForCommit, collectEditors, describe, Editors;
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, attestEventAt, SQLITE_OK;
+
+    auto fx = fixture();
+    auto root = gitOut(fx.text(), "rev-parse --show-toplevel");
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    void edit(const(char)[] session, const(char)[] tool, const(char)[] name, const(char)[] when) {
+        Buf a;
+        a.put(`{"tool_name":"`);
+        a.put(tool);
+        a.put(`","tool_input":{"file_path":"`);
+        a.put(root.text());
+        a.put("/");
+        a.put(name);
+        a.put(`"}}`);
+        attestEventAt(db, "PostToolUse", "/tmp", session, a.text(), when, 1);
+    }
+    edit("early", "Edit", "a.d", "2026-01-01T00:00:01Z");
+    edit("late", "Edit", "a.d", "2026-02-01T00:00:00Z");
+    edit("fresh", "Write", "new.d", "2026-03-01T00:00:00Z");
+    edit("mover", "Edit", "sub/moved.d", "2026-02-02T00:00:00Z");
+    edit("late", "Edit", "plain.d", "2026-04-01T00:00:00Z");
+    edit("aside", "Edit", "side.d", "2026-05-01T00:00:00Z");
+    edit("remover", "Edit", "evil.d", "2026-01-01T00:00:06Z");
+
+    // The answer as it was asked before: the git program, file by file.
+    Editors expected;
+    auto names = gitOut(fx.text(), "diff --cached --name-only");
+    size_t start;
+    foreach (i; 0 .. names.n + 1) {
+        if (i < names.n && names.b[i] != '\n') continue;
+        auto name = names.b[start .. i];
+        start = i + 1;
+        if (name.length == 0) continue;
+        auto ct = gitOut(root.text(), "log -1 --format=%ct -- '", name, "'");
+        long since;
+        foreach (c; ct.text()) { if (c < '0' || c > '9') break; since = since * 10 + (c - '0'); }
+        Buf path;
+        path.put(root.text());
+        path.put("/");
+        path.put(name);
+        collectEditors(db, path.text(), since, expected);
+    }
+    describe(db, expected);
+
+    Buf cmd;
+    cmd.put("git -C '");
+    cmd.put(fx.text());
+    cmd.put("' commit -m x");
+    auto found = sessionsForCommit(db, cmd.text(), "/cwd");
+    assert(!found.over);
+    assert(found.count == expected.count);
+    foreach (i; 0 .. found.count) {
+        assert(found.at(i) == expected.at(i), found.at(i));
+        assert(found.lastAt[i] == expected.lastAt[i], found.at(i));
+    }
+
+    // Read off the fixture, so the comparison is known to cover each case.
+    assert(found.count == 4);
+    assert(found.has("late") && found.has("fresh") && found.has("mover") && found.has("remover"));
+    assert(!found.has("early"), "edited before the file was last committed");
+    assert(!found.has("aside"), "edited a file that is not staged");
+}

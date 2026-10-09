@@ -194,8 +194,7 @@ private bool probedAlready(sqlite3* db, const(char)[] sha) {
 void probeCommit(const(char)[] sha, const(char)[] tree, const(char)[] sessionId) {
     import errors : sayQuietly;
     import noul : jevToken, askJev, answersOf, Wide;
-    import db : openDb, sqlite3_close, attestEvent, popen, pclose;
-    import core.stdc.stdio : fread;
+    import db : openDb, sqlite3_close, attestEvent;
 
     auto token = jevToken();
     if (token.length == 0) {
@@ -204,29 +203,25 @@ void probeCommit(const(char)[] sha, const(char)[] tree, const(char)[] sessionId)
         return;
     }
 
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("git -C '");
-    foreach (c; tree) { if (c == '\'') cmd.put(`'\''`); else cmd.putChar(c); }
-    cmd.put("' show --unified=0 --format= ");
-    cmd.put(sha);
-    cmd.put(" 2>&1");
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) {
-        sayQuietly("probe.diff", "git show could not be started, so this commit's prose was not scored",
+    // The commit as `git show --unified=0 --format=` prints it, read in this
+    // process by libgit2.
+    import libgit2 : Repo;
+    __gshared Repo g;
+    if (!g.open(tree)) {
+        sayQuietly("probe.diff", "the tree would not open, so this commit's prose was not scored",
                    -1, sessionId, PREDICATE, sha);
         return;
     }
     __gshared char[4 * 1024 * 1024] diff = 0;
-    size_t len = 0;
-    bool over = false;
-    for (;;) {
-        if (len == diff.length) { over = true; break; }
-        auto got = fread(&diff[len], 1, diff.length - len, pipe);
-        if (got == 0) break;
-        len += got;
+    auto shown = g.show(sha, diff[]);
+    auto over = g.overflowed;
+    g.close();
+    if (shown is null) {
+        sayQuietly("probe.diff", "the commit would not read, so its prose was not scored",
+                   -1, sessionId, PREDICATE, sha);
+        return;
     }
-    pclose(pipe);
+    size_t len = shown.length;
     if (over)
         sayQuietly("probe.diff", "the commit's diff is larger than the probe reads; the prose past it was not scored",
                    -1, sessionId, PREDICATE, sha);

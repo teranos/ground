@@ -208,44 +208,86 @@ void collectEditors(sqlite3* db, const(char)[] path, long since, ref Editors fou
     sqlite3_finalize(stmt);
 }
 
-// What one git command printed, in the tree, or null when it could not run.
-private const(char)[] gitSays(const(char)[] tree, const(char)[] args, char[] into) {
-    import db : popen, pclose;
-    import core.stdc.stdio : fread;
-    __gshared char[4096] cmd = 0;
+// How many paths one asking of the store carries.
+enum EDITORS_AT_ONCE = 256;
+
+// The asking for `count` paths, NUL-terminated in `into`.
+const(char)[] editorsAllSql(size_t count, char[] into) {
     size_t n;
-    void put(const(char)[] s) { foreach (c; s) if (n < cmd.length - 1) cmd[n++] = c; }
-    put("git -C '");
-    foreach (c; tree) { if (c == '\'') put(`'\''`); else put((&c)[0 .. 1]); }
-    put("' ");
-    put(args);
-    put(" 2>/dev/null");
-    cmd[n] = 0;
-    auto pipe = popen(&cmd[0], "r");
-    if (pipe is null) return null;
-    size_t got = 0;
-    for (;;) {
-        auto r = fread(&into[got], 1, into.length - got, pipe);
-        if (r == 0) break;
-        got += r;
-        if (got >= into.length) break;
-    }
-    pclose(pipe);
-    return into[0 .. got];
+    void put(const(char)[] s) { foreach (c; s) into[n++] = c; }
+    put("WITH p(i, path, since) AS (VALUES ");
+    foreach (k; 0 .. count) put(k == 0 ? "(?,?,?)" : ",(?,?,?)");
+    put(") SELECT p.i, substr(json_extract(contexts, '$[0]'), 9), "
+        ~ "MAX(CAST(strftime('%s', timestamp) AS INTEGER)) FROM p CROSS JOIN attestations "
+        ~ "WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND " ~ EDIT_PATH ~ " = p.path "
+        ~ "AND json_extract(attributes, '$.tool_name') IN ('Edit', 'Write', 'NotebookEdit') "
+        ~ "AND timestamp > strftime('%Y-%m-%dT%H:%M:%SZ', p.since, 'unixepoch') "
+        ~ "GROUP BY 1, 2 ORDER BY 1, 2");
+    into[n] = 0;
+    return into[0 .. n];
 }
 
-// The sessions behind what is staged in the commit's tree.
+// Every session that edited one of `paths` after that path's own `since`, in
+// one asking: by path, then by session, the order asking path by path gave.
+void collectEditorsAll(sqlite3* db, const(char[])[] paths, const(long)[] sinces, ref Editors found) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_text,
+                sqlite3_bind_int64, sqlite3_column_text, sqlite3_column_int64, sqlite3_stmt,
+                SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    if (paths.length == 0) return;
+    if (paths.length > EDITORS_AT_ONCE || sinces.length != paths.length) { found.over = true; return; }
+
+    __gshared char[EDITORS_AT_ONCE * 8 + 1024] sql = 0;
+    editorsAllSql(paths.length, sql[]);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, &sql[0], -1, &stmt, null) != SQLITE_OK) { found.over = true; return; }
+    foreach (k, path; paths) {
+        sqlite3_bind_int64(stmt, cast(int) (k * 3 + 1), cast(long) k);
+        sqlite3_bind_text(stmt, cast(int) (k * 3 + 2), path.ptr, cast(int) path.length, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, cast(int) (k * 3 + 3), sinces[k]);
+    }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto t = sqlite3_column_text(stmt, 1);
+        if (t is null) continue;
+        size_t len = 0;
+        while (t[len] != 0) len++;
+        found.add((cast(const(char)*) t)[0 .. len], sqlite3_column_int64(stmt, 2));
+    }
+    sqlite3_finalize(stmt);
+}
+
+// The sessions behind what is staged in the commit's tree. libgit2 reads the
+// tree in this process; no git program runs.
 Editors sessionsForCommit(sqlite3* db, const(char)[] command, const(char)[] cwd) {
+    import libgit2 : Repo, GIT_ENOTFOUND;
+    import exec : emitError;
     Editors found;
     auto tree = treeOf(command, cwd);
 
-    __gshared char[1024] rootBuf = 0;
-    auto root = gitSays(tree, "rev-parse --show-toplevel", rootBuf[]);
-    while (root.length > 0 && (root[$ - 1] == '\n' || root[$ - 1] == '\r')) root = root[0 .. $ - 1];
+    Repo g;
+    if (!g.open(tree)) {
+        // No repository is no commit: git refuses it on its own.
+        if (g.code != GIT_ENOTFOUND)
+            emitError("provenance.repo", cast(string) g.why(), 0, 1, "", "provenance", "", cast(string) command, "");
+        return found;
+    }
+    scope (exit) g.close();
+    auto root = g.root();
     if (root.length == 0) return found;
 
-    __gshared char[65536] staged = 0;
-    auto names = gitSays(root, "diff --cached --name-only", staged[]);
+    __gshared char[1 << 20] staged = 0;
+    auto names = g.staged(staged[]);
+    if (names is null) {
+        emitError("provenance.staged", cast(string) g.why(), 0, 1, "", "provenance", "", cast(string) command, "");
+        found.over = true;
+        return found;
+    }
+
+    __gshared char[2048][EDITORS_AT_ONCE] pathBufs;
+    __gshared const(char)[][EDITORS_AT_ONCE] paths;
+    __gshared long[EDITORS_AT_ONCE] sinces;
+    size_t held;
+
     size_t start = 0;
     foreach (i; 0 .. names.length + 1) {
         if (i < names.length && names[i] != '\n') continue;
@@ -253,24 +295,22 @@ Editors sessionsForCommit(sqlite3* db, const(char)[] command, const(char)[] cwd)
         start = i + 1;
         if (name.length == 0) continue;
 
-        __gshared char[2048] logArgs = 0;
-        size_t ln;
-        void put(const(char)[] s) { foreach (c; s) if (ln < logArgs.length) logArgs[ln++] = c; }
-        put("log -1 --format=%ct -- '");
-        foreach (c; name) { if (c == '\'') put(`'\''`); else put((&c)[0 .. 1]); }
-        put("'");
-        __gshared char[64] when = 0;
-        auto ct = gitSays(root, logArgs[0 .. ln], when[]);
-        long since = 0;
-        foreach (c; ct) { if (c < '0' || c > '9') break; since = since * 10 + (c - '0'); }
+        auto last = g.lastTouched(name);
+        if (!last.ok)
+            emitError("provenance.history", cast(string) g.why(), 0, 1, "", "provenance", "", cast(string) name, "");
 
-        __gshared char[2048] path = 0;
         size_t pn;
-        foreach (c; root) if (pn < path.length) path[pn++] = c;
-        if (pn < path.length) path[pn++] = '/';
-        foreach (c; name) if (pn < path.length) path[pn++] = c;
-        collectEditors(db, path[0 .. pn], since, found);
+        foreach (c; root) if (pn < pathBufs[held].length) pathBufs[held][pn++] = c;
+        if (pn < pathBufs[held].length) pathBufs[held][pn++] = '/';
+        foreach (c; name) if (pn < pathBufs[held].length) pathBufs[held][pn++] = c;
+        paths[held] = pathBufs[held][0 .. pn];
+        sinces[held] = last.since;
+        if (++held == EDITORS_AT_ONCE) {
+            collectEditorsAll(db, paths[0 .. held], sinces[0 .. held], found);
+            held = 0;
+        }
     }
+    collectEditorsAll(db, paths[0 .. held], sinces[0 .. held], found);
     describe(db, found);
     return found;
 }
