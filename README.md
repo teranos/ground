@@ -74,7 +74,7 @@ claude /plugin install ground@teranos-ground
 
 On first session, ground detects the binary isn't installed and tells Claude how to set it up — prebuilt binaries are available from [GitHub Releases](https://github.com/teranos/ground/releases).
 
-To build from source instead (requires [Nix](https://nixos.org/download/); `flake.lock` pins LDC, dub and libsqlite3):
+To build from source instead (requires [Nix](https://nixos.org/download/); `flake.lock` pins LDC, dub, libsqlite3, libcurl and libgit2):
 
 ```
 git clone https://github.com/teranos/ground.git
@@ -105,7 +105,7 @@ Ground stops rather than degrades. Its attestation store is a hard dependency: a
 
 ## Why D
 
-D with `-betterC`, compiled with LDC. The binary's size is its controls. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage.
+D with `-betterC`, compiled with LDC. The binary's size is its controls. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage, libcurl for HTTP and libgit2 for git: ground itself starts no git process; a rite or control command an author writes runs as written.
 
 Latency is per event, not a single figure. Run `ground profile` to see it for your own install; the numbers below are one machine over 30 days.
 

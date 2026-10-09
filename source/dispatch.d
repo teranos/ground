@@ -2,8 +2,25 @@ module dispatch;
 
 // BOOK_GLOSSARY **Dispatch**: A workflow sent to a repo's own default branch, over when the job is sent and not when it concludes.
 
-import worktree : addQuoted;
 import rite : RITE_UNREACHED;
+
+// A script is sh source, so a value put in it is sh source until quoted.
+// `'\''` closes the quote, emits a literal one, and reopens: total over any
+// byte string, so a value is refused only for its size.
+bool addQuoted(char[] buf, ref size_t n, const(char)[] s) {
+    bool one(char c) {
+        if (n >= buf.length - 1) return false;
+        buf[n++] = c;
+        return true;
+    }
+    if (!one('\'')) return false;
+    foreach (c; s) {
+        if (c == '\'') {
+            if (!one('\'') || !one('\\') || !one('\'') || !one('\'')) return false;
+        } else if (!one(c)) return false;
+    }
+    return one('\'');
+}
 
 // Where a job lives and which job it is. Two words, in the order said.
 struct Target {

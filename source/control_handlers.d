@@ -1064,18 +1064,7 @@ __gshared bool g_pushedFilesValid;
 const(char)[] pushedFiles(const(char)[] cwd) {
     if (g_pushedFilesValid) return g_pushedFilesBuf[0 .. g_pushedFilesLen];
 
-    import db : popen, pclose;
-    import core.stdc.stdio : fread;
-    import zbuf : ZBuf;
-
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("cd \"");
-    cmd.put(cwd);
-    cmd.put("\" && git log -3 --name-only --pretty= 2>/dev/null");
-    cmd.putChar('\0');
-
-    auto pipe = popen(cmd.ptr(), "r");
+    import libgit2 : Repo;
     g_pushedFilesValid = true;
 
     // A failure here is invisible downstream: `pushed_paths:` matchers read an
@@ -1095,17 +1084,28 @@ const(char)[] pushedFiles(const(char)[] cwd) {
         cast(void) deliverError(err);
     }
 
-    if (pipe is null) {
+    // The last three commits' files, as `git log -3 --name-only` names them.
+    __gshared Repo g;
+    __gshared char[1024] said = 0;
+    const(char)[] refused(const(char)[] why) {
+        size_t n;
+        foreach (c; why) if (n < said.length) said[n++] = c;
+        foreach (c; " — pushed_paths controls did not evaluate") if (n < said.length) said[n++] = c;
+        return said[0 .. n];
+    }
+    if (!g.open(cwd)) {
         g_pushedFilesLen = 0;
-        reportUnreadable("could not run git log to read the pushed file list — pushed_paths controls did not evaluate");
+        reportUnreadable(cast(string) refused(g.why()));
         return g_pushedFilesBuf[0 .. 0];
     }
-    g_pushedFilesLen = fread(&g_pushedFilesBuf[0], 1, g_pushedFilesBuf.length, pipe);
-    if (pclose(pipe) != 0) {
+    scope (exit) g.close();
+    auto names = g.recent(3, g_pushedFilesBuf[]);
+    if (names is null) {
         g_pushedFilesLen = 0;
-        reportUnreadable("git log exited non-zero while reading the pushed file list — pushed_paths controls did not evaluate");
+        reportUnreadable(cast(string) refused(g.why()));
         return g_pushedFilesBuf[0 .. 0];
     }
+    g_pushedFilesLen = names.length;
     return g_pushedFilesBuf[0 .. g_pushedFilesLen];
 }
 
@@ -1190,24 +1190,15 @@ unittest {
 const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     import db : popen, pclose, ZBuf;
     import core.stdc.stdio : fread, FILE;
+    import libgit2 : Repo;
 
-    // Get upstream repo owner/name
-    __gshared ZBuf repoCmd;
-    repoCmd.reset();
-    repoCmd.put("cd \"");
-    repoCmd.put(cwd);
-    repoCmd.put("\" && git remote get-url upstream 2>/dev/null");
-    repoCmd.putChar('\0');
-
-    auto repoPipe = popen(repoCmd.ptr(), "r");
-    if (repoPipe is null)
-        return "upstream briefing unavailable: could not run git to read the upstream remote";
-
-    __gshared char[256] repoBuf = 0;
-    auto rn = fread(&repoBuf[0], 1, repoBuf.length - 1, repoPipe);
-    pclose(repoPipe);
-
-    auto parsed = parseUpstreamUrl(repoBuf[0 .. rn]);
+    // The upstream remote and what it has that main does not, read in this
+    // process by libgit2; gh asks GitHub for the rest.
+    __gshared Repo g;
+    if (!g.open(cwd)) return null; // no repository is no upstream to brief
+    scope (exit) g.close();
+    auto upstreamUrl = g.remoteUrl("upstream");
+    auto parsed = parseUpstreamUrl(upstreamUrl is null ? "" : upstreamUrl);
     if (parsed.problem !is null) return parsed.problem;
     if (parsed.repo is null) return null; // no upstream configured — nothing to brief
     auto repo = parsed.repo;
@@ -1225,7 +1216,6 @@ const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
     ghCmd.put(" && echo 'Releases:' && gh release list -R ");
     ghCmd.put(repo);
     ghCmd.put(" --limit 3 2>/dev/null");
-    ghCmd.put(" && echo 'Commits (missing):' && git fetch upstream 2>/dev/null && git log --oneline main..upstream/main 2>/dev/null");
     ghCmd.putChar('\0');
 
     auto pipe = popen(ghCmd.ptr(), "r");
@@ -1241,6 +1231,19 @@ const(char)[] upstreamBriefingDeliver(const(char)[] cwd) {
         return "upstream briefing unavailable: gh exited non-zero (auth or network?)";
     if (n == 0)
         return "upstream briefing unavailable: gh returned nothing";
+
+    // What upstream's main has that main does not.
+    __gshared ZBuf unavailable;
+    unavailable.reset();
+    unavailable.put("upstream briefing unavailable: ");
+    if (!g.fetch("upstream", null)) { unavailable.put(g.why()); return unavailable.slice(); }
+    __gshared char[2048] missing = 0;
+    auto log = g.oneline("main", "upstream/main", missing[]);
+    if (log is null) { unavailable.put(g.why()); return unavailable.slice(); }
+    enum head = "Commits (missing):\n";
+    if (n + head.length < outBuf.length - 1) foreach (c; head) outBuf[n++] = c;
+    foreach (c; log) if (n < outBuf.length - 1) outBuf[n++] = c;
+    if (log.length > 0 && n < outBuf.length - 1) outBuf[n++] = '\n';
 
     __gshared ZBuf result;
     result.reset();

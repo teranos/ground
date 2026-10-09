@@ -443,34 +443,22 @@ bool landedFromRefs(const(char)[] out_) {
     return seen == 2 && first == second;
 }
 
-// Whether the remote already has what this branch has. Runs once per push, so
-// the subprocess getBranch avoids is affordable here.
+// Whether the remote already has what this branch has: the branch and origin's
+// tracking ref both there, naming one commit. Read in this process by libgit2.
 bool pushLanded(const(char)[] root, const(char)[] branch) {
     if (__ctfe || root.length == 0 || branch.length == 0) return false;
-
-    // popen is /bin/sh, so a quote in either value is sh source. Neither is
-    // worth escaping for: answer no and let the caller say the push did not land.
-    foreach (c; root) if (c == '\'') return false;
-    foreach (c; branch) if (c == '\'') return false;
-
-    __gshared ZBuf cmd;
-    cmd.reset();
-    // for-each-ref and not rev-parse: --verify takes one revision, and a ref
-    // that is not there prints nothing rather than failing the whole command.
-    cmd.put("git -C '");
-    cmd.put(root);
-    cmd.put("' for-each-ref --format='%(objectname)' 'refs/heads/");
-    cmd.put(branch);
-    cmd.put("' 'refs/remotes/origin/");
-    cmd.put(branch);
-    cmd.put("' 2>/dev/null");
-
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) return false;
-    __gshared char[256] outBuf = 0;
-    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
-    return landedFromRefs(outBuf[0 .. n]);
+    import libgit2 : Repo;
+    Repo g;
+    if (!g.open(root)) return false;
+    scope (exit) g.close();
+    __gshared ZBuf local, remote;
+    local.reset();
+    local.put("refs/heads/");
+    local.put(branch);
+    remote.reset();
+    remote.put("refs/remotes/origin/");
+    remote.put(branch);
+    return g.refsAgree(local.slice(), remote.slice());
 }
 
 // The first line, which is the one objectname asked for; empty when git
@@ -493,23 +481,19 @@ unittest {
 // from the ref, or it names no commit for the node to wait on.
 const(char)[] localHeadSha(const(char)[] root, const(char)[] branch) {
     if (__ctfe || root.length == 0 || branch.length == 0) return "";
-    foreach (c; root) if (c == '\'') return "";
-    foreach (c; branch) if (c == '\'') return "";
-
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("git -C '");
-    cmd.put(root);
-    cmd.put("' for-each-ref --format='%(objectname:short)' 'refs/heads/");
-    cmd.put(branch);
-    cmd.put("' 2>/dev/null");
-
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) return "";
-    __gshared char[64] outBuf = 0;
-    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
-    return shaFromRef(outBuf[0 .. n]);
+    import libgit2 : Repo;
+    __gshared Repo g;
+    if (!g.open(root)) return "";
+    scope (exit) g.close();
+    __gshared ZBuf local;
+    local.reset();
+    local.put("refs/heads/");
+    local.put(branch);
+    __gshared char[41] sha = 0;
+    auto s = g.shortId(local.slice());
+    if (s is null) return "";
+    foreach (i, c; s) sha[i] = c;
+    return sha[0 .. s.length];
 }
 
 // check-ignore names what it was asked about when git ignores it, and says
@@ -522,28 +506,14 @@ bool ignoredFromCheck(const(char)[] out_) {
 
 // Whether git ignores this path. A file git ignores never reaches the remote,
 // so a rule protecting what the remote shows has nothing to protect in it.
+// A refusal answers no: the rewrite then applies, which is the safe side.
 bool isIgnored(const(char)[] root, const(char)[] path) {
     if (__ctfe || root.length == 0 || path.length == 0) return false;
-
-    // popen is /bin/sh, so a quote in either value is sh source. Answer no:
-    // the rewrite then applies, which is the safe side.
-    foreach (c; root) if (c == '\'') return false;
-    foreach (c; path) if (c == '\'') return false;
-
-    __gshared ZBuf cmd;
-    cmd.reset();
-    cmd.put("git -C '");
-    cmd.put(root);
-    cmd.put("' check-ignore -- '");
-    cmd.put(path);
-    cmd.put("' 2>/dev/null");
-
-    auto pipe = popen(cmd.ptr(), "r");
-    if (pipe is null) return false;
-    __gshared char[4096] outBuf = 0;
-    auto n = fread(&outBuf[0], 1, outBuf.length - 1, pipe);
-    pclose(pipe);
-    return ignoredFromCheck(outBuf[0 .. n]);
+    import libgit2 : Repo;
+    __gshared Repo g;
+    if (!g.open(root)) return false;
+    scope (exit) g.close();
+    return g.ignored(path) == 1;
 }
 
 const(char)[] getBranch(const(char)[] cwd) {

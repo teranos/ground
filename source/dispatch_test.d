@@ -4,7 +4,48 @@ module dispatch_test;
 // "in case i wanted to dispatch another job and track its completion with an
 // agent in a ritual"
 
-import dispatch : dispatchScript, dispatchTarget;
+import dispatch : dispatchScript, dispatchTarget, addQuoted;
+
+// Every value a script carries is quoted. `'\''` closes, emits a literal
+// quote, and reopens, so no value needs refusing for what it contains.
+private auto quoted(const(char)[] s) {
+    struct R {
+        char[64] buf = 0;
+        size_t n;
+        bool ok;
+        const(char)[] text() const return { return buf[0 .. n]; }
+    }
+    R r;
+    r.ok = addQuoted(r.buf[], r.n, s);
+    return r;
+}
+
+enum plain = quoted("/home/u/src/proj-probe");
+static assert(plain.ok);
+static assert(plain.text() == "'/home/u/src/proj-probe'");
+
+enum tick = quoted("it's");
+static assert(tick.ok);
+static assert(tick.text() == `'it'\''s'`);
+
+// The injection this closes: a name that ends the quote and starts a command.
+enum evil = quoted("x'; rm -rf /; echo '");
+static assert(evil.ok);
+static assert(evil.text() == `'x'\''; rm -rf /; echo '\'''`);
+
+// A newline stays inside the quotes, so sh reads it as a byte, not a separator.
+enum nl = quoted("a\nb");
+static assert(nl.ok);
+static assert(nl.text() == "'a\nb'");
+
+// A value too big to quote is a command ground must not run: truncating here
+// severs the closing quote and hands sh something else entirely.
+private template rep(string s, int n) {
+    static if (n <= 0) enum rep = "";
+    else enum rep = s ~ rep!(s, n - 1);
+}
+enum tooBig = quoted(rep!("aaaaaaaaaa", 20));
+static assert(!tooBig.ok);
 
 // `dispatch: "<owner>/<repo> <workflow>"` — two words, in the order said.
 enum t = dispatchTarget("sbvh-nl/grove long-coin.yml");
