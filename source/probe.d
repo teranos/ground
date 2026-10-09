@@ -173,6 +173,9 @@ void probeDetached(const(char)[] sha, const(char)[] tree, const(char)[] sessionI
         freopen("/dev/null\0".ptr, "w\0".ptr, stdout);
         freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
     }
+    // Read before the scoring, which needs a Jev token and the removal check does not.
+    import quoteremoval : attestRemovals;
+    attestRemovals(sha, tree, sessionId);
     probeCommit(sha, tree, sessionId);
     _exit(0);
 }
