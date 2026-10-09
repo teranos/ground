@@ -234,7 +234,8 @@ private const(char)[] gitSays(const(char)[] tree, const(char)[] args, char[] int
     return into[0 .. got];
 }
 
-// The sessions behind what is staged in the commit's tree.
+// The sessions behind what is staged in the commit's tree, for two git
+// processes and one store query however much it stages.
 Editors sessionsForCommit(sqlite3* db, const(char)[] command, const(char)[] cwd) {
     Editors found;
     auto tree = treeOf(command, cwd);
