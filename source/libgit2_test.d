@@ -438,6 +438,57 @@ unittest {
     assert(mine == theirs, codes);
 }
 
+// "3. sure"
+// What a commit carries when `git add` runs in the same command: the names
+// `git diff --cached` gives once those adds have run.
+unittest {
+    import libgit2 : Repo, Adding;
+    auto root = fixture();
+    auto r = root.text();
+    commitAt(r, "2026-01-01T00:00:06Z", "staged");
+    sh("printf 'four\\n' >> '", r, "/a.d'");
+    sh("printf 'x\\n' > '", r, "/sub/x.d'");
+    sh("printf 'y\\n' > '", r, "/y.d'");
+    sh("rm '", r, "/side.d'");
+    sh("printf 'ignored\\n' > '", r, "/skip.log'");
+    sh("printf '*.log\\n' > '", r, "/.gitignore'");
+
+    // Each case: what the command adds, from where, and the git that does it.
+    static struct Case { string base; string[] specs; bool update; bool all; string git; }
+    static immutable Case[5] cases = [
+        Case("", ["a.d"], false, false, "add a.d"),
+        Case("sub", ["x.d"], false, false, "-C sub add x.d"),
+        Case("", ["."], false, false, "add ."),
+        Case("", [], true, false, "add -u"),
+        Case("", [], false, true, "commit -a --dry-run"),
+    ];
+    foreach (c; cases) {
+        Repo g;
+        assert(g.open(r), g.why());
+        __gshared char[8192] got = 0;
+        const(char)[][4] specs;
+        foreach (i, s; c.specs) specs[i] = s;
+        Adding[1] adds = [Adding(c.base, specs[0 .. c.specs.length], c.update)];
+        auto names = g.stagedAfter(c.all ? adds[0 .. 0] : adds[], c.all, got[]);
+        assert(names !is null, g.why());
+        g.close();
+
+        // The same adds run by git on a copy, and what it then has staged.
+        auto copy = scratch("added");
+        sh("cp -R '", r, "/.' '", copy.text(), "'");
+        Buf want;
+        if (c.all) {
+            sh("git -C '", copy.text(), "' add -u");
+        } else {
+            sh("git -C '", copy.text(), "' ", c.git);
+        }
+        want = gitOut(copy.text(), "diff --cached --name-only");
+        assert(names == want.text(), c.git);
+    }
+    // The index on disk was read, never written.
+    assert(gitOut(r, "diff --cached --name-only").n == 0);
+}
+
 // What wind lists for a project is what `git ls-files` lists.
 unittest {
     import libgit2 : Repo;
