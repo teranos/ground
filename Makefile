@@ -23,8 +23,8 @@ $(wordlist 2,$(words $(GOALS)),$(GOALS)):
 endif
 else
 
-wind: tools/wind.d tools/filelist.d tools/openapi.d
-	ldc2 -of=tools/wind -I=tools tools/wind.d tools/filelist.d tools/openapi.d
+wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
+	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d -L-lgit2
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every

@@ -438,6 +438,42 @@ unittest {
     assert(mine == theirs, codes);
 }
 
+// What wind lists for a project is what `git ls-files` lists.
+unittest {
+    import libgit2 : Repo;
+    auto root = fixture();
+    auto r = root.text();
+    Repo g;
+    assert(g.open(r), g.why());
+    scope (exit) g.close();
+    __gshared char[8192] got = 0;
+    auto files = g.tracked(got[]);
+    assert(files !is null, g.why());
+    assert(files == gitOut(r, "ls-files").text(), files);
+}
+
+// The version stamped into ground is what `git describe --tags --always` says:
+// a bare id with no tag, the tag and the distance from it, the tag alone on it.
+unittest {
+    import libgit2 : Repo;
+    auto root = fixture();
+    auto r = root.text();
+    __gshared char[256] got = 0;
+    void same(const(char)[] when) {
+        Repo g;
+        assert(g.open(r), g.why());
+        scope (exit) g.close();
+        auto d = g.describeHead(got[]);
+        assert(d !is null, g.why());
+        assert(d == gitOut(r, "describe --tags --always").text(), when);
+    }
+    same("no tag");
+    sh("git -C '", r, "' tag -a v0.1.0 -m v0.1.0 HEAD~2");
+    same("two past an annotated tag");
+    sh("git -C '", r, "' tag v0.2.0");
+    same("on a lightweight tag");
+}
+
 // A push landed when the branch and origin's tracking ref name one commit,
 // as for-each-ref printed them; a ref that is not there is no landing.
 unittest {

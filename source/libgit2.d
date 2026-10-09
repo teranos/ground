@@ -91,7 +91,35 @@ extern (C) {
 
     struct git_odb;
     struct git_config;
-    struct git_index_entry;
+    // Only the path is read; the 64 bytes before it are times, ids and modes.
+    struct git_index_entry {
+        ubyte[64] head;
+        const(char)* path;
+    }
+    size_t git_index_entrycount(const(git_index)* index);
+    const(git_index_entry)* git_index_get_byindex(git_index* index, size_t n);
+    int git_index_entry_stage(const(git_index_entry)* entry);
+
+    struct git_describe_result;
+    struct git_describe_options {
+        uint version_;
+        uint max_candidates_tags;
+        uint describe_strategy;
+        const(char)* pattern;
+        int only_follow_first_parent;
+        int show_commit_oid_as_fallback;
+    }
+    struct git_describe_format_options {
+        uint version_;
+        uint abbreviated_size;
+        int always_use_long_format;
+        const(char)* dirty_suffix;
+    }
+    int git_describe_options_init(git_describe_options* opts, uint version_);
+    int git_describe_format_options_init(git_describe_format_options* opts, uint version_);
+    int git_describe_commit(git_describe_result** result, git_object* committish, git_describe_options* opts);
+    int git_describe_format(git_buf* out_, const(git_describe_result)* result, const(git_describe_format_options)* opts);
+    void git_describe_result_free(git_describe_result* result);
 
     int git_ignore_path_is_ignored(int* ignored, git_repository* repo, const(char)* path);
     const(git_index_entry)* git_index_get_bypath(git_index* index, const(char)* path, int stage);
@@ -323,6 +351,15 @@ enum Shown { patch, shortStat, names }
 
 enum GIT_EAMBIGUOUS = -5;
 
+static assert(git_index_entry.sizeof == 72 && git_index_entry.path.offsetof == 64);
+static assert(git_describe_options.sizeof == 32 && git_describe_options.describe_strategy.offsetof == 8
+              && git_describe_options.pattern.offsetof == 16
+              && git_describe_options.show_commit_oid_as_fallback.offsetof == 28);
+static assert(git_describe_format_options.sizeof == 24
+              && git_describe_format_options.abbreviated_size.offsetof == 4
+              && git_describe_format_options.dirty_suffix.offsetof == 16);
+enum GIT_DESCRIBE_TAGS = 1;
+
 static assert(git_oid.sizeof == 20);
 static assert(git_error.sizeof == 16);
 static assert(git_strarray.sizeof == 16);
@@ -478,6 +515,16 @@ private int findRenames(git_diff* diff) {
     if (git_diff_find_options_init(&opts, 1) < 0) return -1;
     opts.metric = &gitMetric;
     return git_diff_find_similar(diff, &opts);
+}
+
+// Bytewise by path, as git orders its index, then by stage.
+extern (C) private int entryOrder(const(void)* a, const(void)* b) {
+    import core.stdc.string : strcmp;
+    auto x = *cast(const(git_index_entry)**) a;
+    auto y = *cast(const(git_index_entry)**) b;
+    auto c = strcmp(x.path, y.path);
+    if (c != 0) return c;
+    return git_index_entry_stage(x) - git_index_entry_stage(y);
 }
 
 // A deletion by its old name, everything else by its new one.
@@ -1684,6 +1731,56 @@ struct Repo {
             }
         }
         return branch == "main" || branch == "master";
+    }
+
+    // What `git ls-files` prints: every index entry's path in byte order, a
+    // conflicted path once for each of its stages. libgit2 keeps the index
+    // ignoring case where core.ignorecase is set, and git prints it bytewise.
+    const(char)[] tracked(char[] into) return {
+        import core.stdc.stdlib : malloc, free, qsort;
+        git_index* index;
+        if (git_repository_index(&index, repo) < 0) { say("the index would not read"); return null; }
+        scope (exit) git_index_free(index);
+        auto count = git_index_entrycount(index);
+        auto entries = cast(const(git_index_entry)**) malloc((count + 1) * (void*).sizeof);
+        if (entries is null) { refuse("no memory to sort the index"); return null; }
+        scope (exit) free(entries);
+        foreach (i; 0 .. count) entries[i] = git_index_get_byindex(index, i);
+        qsort(entries, count, (void*).sizeof, &entryOrder);
+        size_t n;
+        foreach (i; 0 .. count) {
+            auto p = entries[i].path;
+            size_t len;
+            while (p[len] != 0) len++;
+            if (n + len + 1 > into.length) { refuse("more files than ground holds"); return null; }
+            if (n > 0) into[n++] = '\n';
+            foreach (c; p[0 .. len]) into[n++] = c;
+        }
+        return into[0 .. n];
+    }
+
+    // What `git describe --tags --always` prints for HEAD: the nearest tag,
+    // lightweight or not, with the distance and id past it, or the id alone.
+    const(char)[] describeHead(char[] into) return {
+        git_object* head;
+        if (git_revparse_single(&head, repo, "HEAD") < 0) { say("HEAD would not resolve"); return null; }
+        scope (exit) git_object_free(head);
+        git_describe_options opts;
+        if (git_describe_options_init(&opts, 1) < 0) { say("describe"); return null; }
+        opts.describe_strategy = GIT_DESCRIBE_TAGS;
+        opts.show_commit_oid_as_fallback = 1;
+        git_describe_result* result;
+        if (git_describe_commit(&result, head, &opts) < 0) { say("describe"); return null; }
+        scope (exit) git_describe_result_free(result);
+        git_describe_format_options format;
+        if (git_describe_format_options_init(&format, 1) < 0) { say("describe"); return null; }
+        format.abbreviated_size = cast(uint) abbrevLength();
+        git_buf buf;
+        scope (exit) git_buf_dispose(&buf);
+        if (git_describe_format(&buf, result, &format) < 0) { say("describe"); return null; }
+        if (buf.size > into.length) { refuse("the description is longer than ground holds"); return null; }
+        copy(into[0 .. buf.size], buf.ptr[0 .. buf.size]);
+        return into[0 .. buf.size];
     }
 
     // Whether both refs are there and name one commit, as the two lines

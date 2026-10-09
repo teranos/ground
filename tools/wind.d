@@ -8,14 +8,51 @@ import std.file : dirEntries, read, SpanMode, mkdirRecurse, exists, write, isDir
 import std.algorithm : sort;
 import std.array : array;
 import std.path : baseName, absolutePath, buildNormalizedPath;
-import std.process : executeShell;
 import std.stdio : stderr;
 import std.string : indexOf, splitLines, strip;
 
 import filelist : renderFileList;
 import openapi : renderRoutes;
+import libgit2 : Repo;
+
+// What `git describe --tags --always` printed into .version, read by libgit2.
+// Nothing to describe leaves it empty, as the redirect that wrote it did.
+void stampVersion() {
+    Repo g;
+    char[256] buf;
+    string stamp = "";
+    if (g.open(".")) {
+        auto d = g.describeHead(buf[]);
+        if (d !is null) stamp = d.idup ~ "\n";
+        g.close();
+    }
+    write(".version", stamp);
+}
+
+// What `cd <path> && git ls-files` printed: the files beneath `path`,
+// relative to it, in the index's byte order. Null when no repository opens.
+string[] trackedUnder(string path, out string why) {
+    Repo g;
+    if (!g.open(path)) { why = g.why().idup; return null; }
+    scope (exit) g.close();
+    auto root = g.root().idup;
+    auto buf = new char[](1 << 24);
+    auto names = g.tracked(buf);
+    if (names is null) { why = g.why().idup; return null; }
+    auto here = buildNormalizedPath(absolutePath(path));
+    import std.path : asRelativePath;
+    import std.conv : to;
+    auto prefix = here == root ? "" : asRelativePath(here, root).to!string ~ "/";
+    string[] paths;
+    foreach (line; splitLines(names)) {
+        if (line.length <= prefix.length || line[0 .. prefix.length] != prefix) continue;
+        paths ~= line[prefix.length .. $].idup;
+    }
+    return paths;
+}
 
 void main() {
+    stampVersion();
     mkdirRecurse(".ctfe");
 
     // --- Phase 1: concatenate pbt → sand ---
@@ -102,18 +139,14 @@ void main() {
             continue;
         }
 
-        // git ls-files defers to .gitignore for what counts as a project file.
-        // Source of truth lives in each project's gitignore, not in a hardcoded
-        // exclusion list here.
-        auto gitResult = executeShell("cd " ~ proj.path ~ " && git ls-files");
-        if (gitResult.status != 0) {
-            stderr.writefln("wind: skip %s (git ls-files exited %d)",
-                proj.path, gitResult.status);
+        // The tracked files defer to .gitignore for what counts as a project
+        // file. Source of truth lives in each project's gitignore, not in a
+        // hardcoded exclusion list here.
+        string why;
+        auto paths = trackedUnder(proj.path, why);
+        if (paths is null) {
+            stderr.writefln("wind: skip %s (%s)", proj.path, why);
             continue;
-        }
-        string[] paths;
-        foreach (line; splitLines(gitResult.output)) {
-            if (line.length > 0) paths ~= line.idup;
         }
         auto fileList = renderFileList(paths);
         auto count = paths.length;
