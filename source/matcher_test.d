@@ -727,6 +727,13 @@ unittest {
 }
 
 unittest {
+    // "human user quotes should never count towards the consecutive comment run control"
+    assert(maxCommentRun("// \"one\"\n// a\n// b\n// c") == 3);
+    assert(maxCommentRun("# \"one\"\n# \"two\"\n# \"three\"\n# \"four\"") == 0);
+    assert(maxCommentRun("// a\n// \"q\"\n// b") == 2);
+}
+
+unittest {
     // A hash that is not at the start of a line is not a comment.
     assert(maxCommentRun("color = \"#9b59b6\"\nsize = \"#fff\"") == 0);
 }

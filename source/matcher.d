@@ -161,6 +161,18 @@ int maxCommentRun(const(char)[] text) {
 
         if (closes) inBlock = false;
 
+        // "human user quotes should never count towards the consecutive comment run control"
+        // A line whose text opens with a double quote neither counts nor ends a
+        // run. Whether the quote is real is quotes-deserve-provenance's to say.
+        if (isComment) {
+            size_t q = p + (line[p] == '/' ? 2 : 1);
+            while (q < line.length && (line[q] == ' ' || line[q] == '\t')) q++;
+            if (q < line.length && line[q] == '\x22') {
+                i = next;
+                continue;
+            }
+        }
+
         if (isComment) {
             run++;
             if (run > best) best = run;
