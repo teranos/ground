@@ -378,13 +378,14 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // Here, with no store open: the probe forks.
     if (command !is null) {
         import sessiontrail : isCommit, treeOf;
-        import probe : committedSha, probeDetached;
+        import probe : commitOf, probeDetached;
         import parse : extractStdout;
         import matcher : effectiveCwd, shellHome;
         if (isCommit(command)) {
-            auto sha = committedSha(extractStdout(input));
+            auto tree = treeOf(command, effectiveCwd(command, cwd, shellHome()));
+            auto sha = commitOf(extractStdout(input), tree);
             if (sha.length > 0)
-                probeDetached(sha, treeOf(command, effectiveCwd(command, cwd, shellHome())), sessionId);
+                probeDetached(sha, tree, sessionId);
         }
     }
 

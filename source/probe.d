@@ -106,6 +106,25 @@ const(char)[] committedSha(const(char)[] stdout) {
     return buf[0 .. sha.length];
 }
 
+// The commit a PostToolUse commit made. `git commit -q` prints nothing, and
+// PostToolUse is only heard for a command that exited 0, so silence names the
+// tree's HEAD. Anything else printed without a sha made no commit.
+const(char)[] commitOf(const(char)[] stdout, const(char)[] tree) {
+    auto sha = committedSha(stdout);
+    if (sha.length > 0) return sha;
+    foreach (c; stdout)
+        if (c != '\n' && c != '\r' && c != ' ' && c != '\t') return "";
+    import libgit2 : Repo;
+    __gshared Repo g;
+    __gshared char[40] head = 0;
+    if (!g.open(tree)) return "";
+    auto id = g.headId();
+    size_t n;
+    if (id !is null) foreach (i, c; id) { head[i] = c; n = i + 1; }
+    g.close();
+    return head[0 .. n];
+}
+
 private void putJson(ref char[] dest, ref size_t n, const(char)[] s) {
     foreach (c; s) {
         const(char)[] esc;
@@ -173,6 +192,9 @@ void probeDetached(const(char)[] sha, const(char)[] tree, const(char)[] sessionI
         freopen("/dev/null\0".ptr, "w\0".ptr, stdout);
         freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
     }
+    // Read before the scoring, which needs a Jev token and the removal check does not.
+    import quoteremoval : attestRemovals;
+    attestRemovals(sha, tree, sessionId);
     probeCommit(sha, tree, sessionId);
     _exit(0);
 }
@@ -325,6 +347,19 @@ unittest {
     assert(committedSha("On branch main\nnothing to commit, working tree clean\n") == "",
         "no commit made is no commit to probe");
     assert(committedSha("") == "");
+}
+
+unittest {
+    // `git commit -q` prints nothing, and PostToolUse is only heard for a
+    // command that exited 0, so the commit it made is the tree's HEAD.
+    import libgit2_test : fixture, gitOut;
+    auto root = fixture();
+    auto head = gitOut(root.text(), "rev-parse HEAD");
+    assert(commitOf("", root.text()) == head.text());
+    assert(commitOf("\n", root.text()) == head.text());
+    assert(commitOf("[main d4bf9cd] x\n", root.text()) == "d4bf9cd");
+    assert(commitOf("On branch main\nnothing to commit, working tree clean\n", root.text()) == "",
+        "a command that printed something else made no commit");
 }
 
 unittest {
