@@ -8,12 +8,12 @@ Read the following files:
 - source/strop.d for value-shape validation on extracted flag values.
 - source/controls.d for CTFE wiring — how pbt becomes static immutable scope arrays.
 - source/control_handlers.d for check, delay, and deliver handler implementations.
-- source/deferred.d for deferred delivery
-- source/immediate.d for immediate delivery — attestation format for external writers (QNTX, etc).
+- source/immediate.d for immediate delivery — attestation format for external writers (QNTX, etc). A deferred message is an immediate row with an `after` gate.
+- source/sky.d for the courier that carries the immediate queue to its session.
 - source/exec.d for exec dispatch — fork+pipe+wrapper, stdout/stderr capture, timeout.
 - source/errors.d for the GroundError primitive and deliverError fallback chain (db → breadcrumb → stderr).
 - source/pretooluse.d and source/stop.d for the two hook handlers everything above is wired into.
-- source/git.d for git discovery — repo root and branch are file reads; check-ignore is the one subprocess left in the hot path.
+- source/git.d for git discovery — repo root and branch are file reads, check-ignore is libgit2; its one subprocess is `gh auth token`, asked when the env holds no token and the store has no visibility for a GitHub origin.
 - grove/controls/*.pbt for the rituals — each carries its agent's `system:`, so nothing else has to describe them.
 - RITUAL.md for what a ritual is and what each numbered item of it means.
 
