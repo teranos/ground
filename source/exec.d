@@ -295,8 +295,8 @@ void dispatchExec(
         close(outPipe[0]); close(outPipe[1]);
         close(errPipe[0]); close(errPipe[1]);
         // Parent-side inflight marker. If the wrapper dies before its own
-        // terminal emitError clears this marker, scanVanishedWrappers picks
-        // it up on the next hook cycle and emits exec.wrapper.vanished.
+        // terminal emitError clears this marker, scanVanishedWrappers finds
+        // it on sky's next pass and emits exec.wrapper.vanished.
         import errors : writeInflightMarker;
         import core.stdc.time : time;
         writeInflightMarker(sessionId, controlName, toolUseId,
@@ -482,8 +482,8 @@ void dispatchExec(
     string stdoutData = cast(string) outBuf[0 .. outLen];
     string stderrData = cast(string) errBuf[0 .. errLen];
     // Clear the inflight marker BEFORE the terminal emit. If deliverError
-    // itself hangs (shouldn't), the marker being gone means the next
-    // hook's scanVanishedWrappers won't false-positive.
+    // itself hangs (shouldn't), the marker being gone means sky's
+    // scanVanishedWrappers won't false-positive.
     import errors : clearInflightMarker;
     clearInflightMarker(sessionId, myPid);
     if (timedOut) {

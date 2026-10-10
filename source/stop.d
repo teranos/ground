@@ -90,12 +90,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         writeWatchClaim(sessionId);
     }
 
-    // ERROR AXIOM: catch wrapper processes that died before delivering,
-    // and check the delivery pipeline itself is alive. Stop runs both since
-    // it fires when Claude finishes responding, after the agentic loop.
+    // ERROR AXIOM: check the delivery pipeline itself is alive. A wrapper
+    // that died before delivering is found by sky's pass, not here.
     if (sessionId !is null) {
-        import errors : scanVanishedWrappers, immediateBacklogMessage;
-        scanVanishedWrappers(cast(string) sessionId);
+        import errors : immediateBacklogMessage;
         // This used to block the Stop with a count of undelivered rows. It
         // ran every turn, said nothing about what was owed, and the session
         // had no action that could clear it — "nothing is ever stuck".

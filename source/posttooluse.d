@@ -123,13 +123,9 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     import main : usecNow;
     auto t0 = usecNow();
 
-    // ERROR AXIOM: catch wrapper processes that died before delivering.
-    // Scans this session's inflight markers; any older than
-    // startTs+timeoutSec+GRACE_SEC emits exec.wrapper.vanished via
-    // deliverError and unlinks the marker.
+    // A wrapper that died before delivering is found by sky's pass, not here.
     {
-        import errors : scanVanishedWrappers, writeImmediateBacklogStderr;
-        scanVanishedWrappers(cast(string) sessionId);
+        import errors : writeImmediateBacklogStderr;
         // Delivery-pipeline health: watch daemon dead + rows pending →
         // stderr + breadcrumb. Point-of-interaction surfacing happens at
         // Stop (see handleStop's exit) since that's where writeStopResponse

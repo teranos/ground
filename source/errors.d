@@ -49,13 +49,6 @@ extern (C) {
 public import core.sys.posix.fcntl : O_WRONLY, O_RDONLY, O_CREAT, O_TRUNC, O_APPEND;
 enum STDERR_FD = 2;
 
-// Grace period added to a control's timeoutSec before scanVanishedWrappers
-// treats a marker as stale. The wrapper's timeout path SIGTERM→wait2s→SIGKILL
-// →waitpid→clearMarker→emitError. Worst case is timeoutSec + ~2s to reach
-// the clear. 5s covers that comfortably without making user wait long
-// after a genuinely-vanished wrapper.
-enum GRACE_SEC = 5;
-
 // Deliver an Error through progressively cheaper channels. Returns the
 // name of the channel that succeeded, or empty if ALL channels failed
 // (which is itself a bug per the axiom — caller should log this too).
@@ -370,15 +363,10 @@ private bool writeStderr(const ref GroundError err) {
 //   - parent writes a marker at ~/.local/share/ground/exec-inflight/<sid>__<pid>.mark
 //     containing startTs, timeoutSec, controlName, toolUseId, cwd
 //   - wrapper unlinks its own marker before every terminal emitError
-//   - every hook cycle calls scanVanishedWrappers(sessionId), which finds
-//     markers older than startTs + timeoutSec + GRACE_SEC, emits a
-//     GroundError with origin="exec.wrapper.vanished", and unlinks
+//   - each pass of the session's sky calls scanVanishedWrappers, which says
+//     every marker whose pid the kernel has no process for, and unlinks it
 //
-// Two ways a marker can be stale:
-//   (a) wrapper died silently — the case this exists for
-//   (b) the scanning hook fired before the wrapper cleared — impossible
-//       within timeoutSec+GRACE_SEC, since the wrapper's timeout branch
-//       clears+emits after SIGTERM+SIGKILL sequence which takes ≤2s
+// Every PostToolUse and Stop ran this through popen(ls), 66ms at the median.
 
 private const(char)[] getHomeStr() {
     auto h = getenv("HOME\0".ptr);
@@ -391,11 +379,19 @@ private const(char)[] getHomeStr() {
 // Fill buf with "<home>/.local/share/ground/exec-inflight" and return length
 // (excluding the trailing NUL that is also written). Zero on failure.
 package size_t buildInflightDir(ref char[512] buf) {
-    auto home = getHomeStr();
-    if (home is null) return 0;
     size_t p = 0;
-    foreach (c; home) { if (p < buf.length - 1) buf[p++] = c; }
-    foreach (c; "/.local/share/ground/exec-inflight") { if (p < buf.length - 1) buf[p++] = c; }
+    version (unittest) {
+        import db : storeDir;
+        auto dir = storeDir();
+        if (dir is null) return 0;
+        foreach (c; dir) { if (p < buf.length - 1) buf[p++] = c; }
+        foreach (c; "/exec-inflight") { if (p < buf.length - 1) buf[p++] = c; }
+    } else {
+        auto home = getHomeStr();
+        if (home is null) return 0;
+        foreach (c; home) { if (p < buf.length - 1) buf[p++] = c; }
+        foreach (c; "/.local/share/ground/exec-inflight") { if (p < buf.length - 1) buf[p++] = c; }
+    }
     buf[p] = 0;
     return p;
 }
@@ -475,126 +471,114 @@ void clearInflightMarker(string sessionId, int wrapperPid) {
     unlink(&pathBuf[0]);
 }
 
-// Every-hook: scan this session's inflight markers. For any older than
-// startTs + timeoutSec + GRACE_SEC, emit a GroundError via deliverError
-// (origin "exec.wrapper.vanished") and unlink so we don't re-emit on
-// subsequent hooks. Best-effort — failure to enumerate is itself silent
-// (there's no meaningful Error to raise about a missing HOME).
-void scanVanishedWrappers(string sessionId) {
+// This session's markers whose wrapper the kernel says is gone, each said as
+// exec.wrapper.vanished and unlinked so it is said once. Run by sky's pass.
+size_t scanVanishedWrappers(string sessionId, bool function(long) alive) {
+    import core.sys.posix.dirent : opendir, readdir, closedir;
     import core.stdc.time : time;
 
-    if (sessionId.length == 0) return;
+    if (sessionId.length == 0) return 0;
 
-    auto home = getHomeStr();
-    if (home is null) return;
+    char[512] dirBuf = 0;
+    if (buildInflightDir(dirBuf) == 0) return 0;
+    auto dir = opendir(&dirBuf[0]);
+    if (dir is null) return 0;
+    scope (exit) closedir(dir);
 
-    // Enumerate via popen(ls) — same pattern as sky.d. readdir on macOS
-    // links against the 32-bit-inode struct which D's core.stdc.dirent
-    // doesn't match, so shell-out is the portable path.
-    char[1024] cmd = 0;
-    size_t cp = 0;
-    void put(const(char)[] s) { foreach (c; s) if (cp < cmd.length - 1) cmd[cp++] = c; }
-    put("ls ");
-    put(home);
-    put("/.local/share/ground/exec-inflight/");
-    put(sessionId);
-    put("__*.mark 2>/dev/null");
-    cmd[cp] = 0;
+    size_t found;
+    for (auto e = readdir(dir); e !is null; e = readdir(dir)) {
+        size_t len;
+        while (e.d_name[len] != 0) len++;
+        auto name = e.d_name[0 .. len];
 
-    auto pipe = popen(&cmd[0], "r\0".ptr);
-    if (pipe is null) return;
-
-    auto now = cast(long) time(null);
-
-    char[512] line = 0;
-    while (true) {
-        size_t ll = 0;
-        while (ll < line.length - 1) {
-            char[1] ch;
-            if (fread(&ch[0], 1, 1, pipe) != 1) break;
-            if (ch[0] == '\n') break;
-            line[ll++] = ch[0];
+        // <sid>__<pid>.mark, and only this session's.
+        if (len < sessionId.length + 2 + 5) continue;
+        if (name[0 .. sessionId.length] != sessionId) continue;
+        if (name[sessionId.length .. sessionId.length + 2] != "__") continue;
+        if (name[$ - 5 .. $] != ".mark") continue;
+        int wrapperPid = 0;
+        bool digits = true;
+        foreach (c; name[sessionId.length + 2 .. $ - 5]) {
+            if (c < '0' || c > '9') { digits = false; break; }
+            wrapperPid = wrapperPid * 10 + (c - '0');
         }
-        if (ll == 0) break;
-        line[ll] = 0;
+        if (!digits || wrapperPid <= 0) continue;
+        if (alive(wrapperPid)) continue;
 
-        // Read the marker file's own content for its metadata.
-        int fd = open(&line[0], O_RDONLY, 0);
+        char[512] path = 0;
+        if (buildInflightPath(path, sessionId, wrapperPid) == 0) continue;
+
+        // startTs\ntimeoutSec\ncontrolName\ntoolUseId\ncwd
+        int fd = open(&path[0], O_RDONLY, 0);
         if (fd < 0) continue;
         char[4096] cbuf = 0;
         auto n = read(fd, &cbuf[0], cbuf.length - 1);
         close(fd);
-        if (n <= 0) continue;
-        auto body_ = cast(const(char)[]) cbuf[0 .. cast(size_t) n];
-
-        // Parse: startTs\ntimeoutSec\ncontrolName\ntoolUseId\ncwd
-        long startTs = 0;
-        int timeoutSec = 0;
-        const(char)[] controlName;
-        const(char)[] toolUseId;
+        auto body_ = n > 0 ? cast(const(char)[]) cbuf[0 .. cast(size_t) n] : "";
+        const(char)[][4] fields;
         {
-            size_t i = 0;
-            // startTs
-            while (i < body_.length && body_[i] >= '0' && body_[i] <= '9') {
-                startTs = startTs * 10 + (body_[i] - '0'); i++;
+            size_t f, s;
+            foreach (i, c; body_) {
+                if (c != '\n') continue;
+                if (f < fields.length) fields[f++] = body_[s .. i];
+                s = i + 1;
             }
-            if (i < body_.length && body_[i] == '\n') i++;
-            // timeoutSec
-            while (i < body_.length && body_[i] >= '0' && body_[i] <= '9') {
-                timeoutSec = timeoutSec * 10 + (body_[i] - '0'); i++;
-            }
-            if (i < body_.length && body_[i] == '\n') i++;
-            // controlName up to next \n
-            auto cs = i;
-            while (i < body_.length && body_[i] != '\n') i++;
-            controlName = body_[cs .. i];
-            if (i < body_.length) i++;
-            // toolUseId up to next \n
-            auto ts = i;
-            while (i < body_.length && body_[i] != '\n') i++;
-            toolUseId = body_[ts .. i];
         }
-
-        auto ageDeadline = startTs + cast(long) timeoutSec + GRACE_SEC;
-        if (now < ageDeadline) continue;
-
-        // Extract wrapperPid from the filename tail: <sid>__<pid>.mark
-        int wrapperPid = 0;
-        {
-            // scan from end backwards past ".mark"
-            size_t e = ll;
-            if (e > 5) e -= 5; // skip ".mark"
-            size_t s = e;
-            while (s > 0 && line[s - 1] >= '0' && line[s - 1] <= '9') s--;
-            foreach (i; s .. e) wrapperPid = wrapperPid * 10 + (line[i] - '0');
-        }
-
-        // Copy fields so the strings survive after we unlink the file /
-        // reuse cbuf. cbuf is stack; copy into __gshared bufs.
-        __gshared char[256] cnBuf = 0;
-        __gshared char[128] tuBuf = 0;
-        size_t cnl = controlName.length < cnBuf.length ? controlName.length : cnBuf.length - 1;
-        foreach (i; 0 .. cnl) cnBuf[i] = controlName[i];
-        size_t tul = toolUseId.length < tuBuf.length ? toolUseId.length : tuBuf.length - 1;
-        foreach (i; 0 .. tul) tuBuf[i] = toolUseId[i];
 
         GroundError err;
         err.origin      = "exec.wrapper.vanished";
         err.message     = "wrapper process died before delivering result";
-        err.errnoVal    = 0;
         err.exitCode    = -1;
         err.sessionId   = sessionId;
-        err.controlName = cast(string) cnBuf[0 .. cnl];
-        err.toolUseId   = cast(string) tuBuf[0 .. tul];
-        err.timestamp   = now;
-        err.stdout      = "";
-        err.stderr      = "";
+        err.controlName = cast(string) fields[2];
+        err.toolUseId   = cast(string) fields[3];
+        err.timestamp   = cast(long) time(null);
         cast(void) deliverError(err);
 
-        unlink(&line[0]);
+        unlink(&path[0]);
+        found++;
     }
+    return found;
+}
 
-    pclose(pipe);
+unittest {
+    // A wrapper is gone when the kernel says its pid is, not when its marker is
+    // old: the fresh marker of a dead wrapper is the error, and the ancient
+    // marker of a live one is a run still going.
+    import core.stdc.time : time;
+    import db : openDb, sqlite3_close, sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+                sqlite3_column_int64, sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+
+    writeInflightMarker("sess-vanish", "ctl-dead", "toolu_dead", 4242, cast(long) time(null), 500, "/tmp");
+    writeInflightMarker("sess-vanish", "ctl-live", "toolu_live", 4343, 0, 1, "/tmp");
+    writeInflightMarker("sess-other", "ctl-dead", "toolu_x", 4242, cast(long) time(null), 500, "/tmp");
+
+    static bool onlyFourThreeFourThree(long pid) { return pid == 4343; }
+    assert(scanVanishedWrappers("sess-vanish", &onlyFourThreeFourThree) == 1,
+           "the dead wrapper is found at once, and the live one is left");
+
+    static bool exists(string sid, int pid) {
+        import core.sys.posix.unistd : access, F_OK;
+        char[512] p = 0;
+        if (buildInflightPath(p, sid, pid) == 0) return false;
+        return access(&p[0], F_OK) == 0;
+    }
+    assert(!exists("sess-vanish", 4242), "the dead wrapper's marker is gone, so it is said once");
+    assert(exists("sess-vanish", 4343), "a run still going keeps its marker");
+    assert(exists("sess-other", 4242), "another session's markers are its own sky's");
+
+    auto db = openDb();
+    assert(db !is null);
+    scope (exit) sqlite3_close(db);
+    enum sql = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'immediate:exec-result' "
+        ~ "AND contexts = '[\"session:sess-vanish\"]' AND attributes LIKE '%exec ctl-dead: exec.wrapper.vanished%'\0";
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK);
+    scope (exit) sqlite3_finalize(stmt);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 1, "the session is handed the error as a row");
+
+    assert(scanVanishedWrappers("sess-vanish", &onlyFourThreeFourThree) == 0, "said once");
 }
 
 // --- Watch health / delivery-pipeline check ---

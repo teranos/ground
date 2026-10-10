@@ -509,6 +509,12 @@ int handleSky(int argc, const(char)** argv) {
     long storeSaidAt = 0;
 
     while (true) {
+        // A wrapper the kernel has no process for left its run unsaid. Said
+        // first, so this pass hands the session the row it becomes.
+        {
+            import errors : scanVanishedWrappers;
+            cast(void) scanVanishedWrappers(cast(string) sessionId, &pidAlive);
+        }
         auto db = openDb();
         // "errors should go to sentry as errors"
         // A store that will not open used to be a two-second sleep, said
