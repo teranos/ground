@@ -490,13 +490,25 @@ unittest {
     assert(!modelExempt("claude-opus-5", "fable"));
     assert(!modelExempt("", "fable"), "a session ug never saw is not exempt");
     assert(!modelExempt("claude-fable-5-1", ""), "no word named, nobody exempt");
+    // "disable the ground control for the branch refusal for models that are Opus or Fable"
+    assert(modelExempt("claude-opus-5-5", "opus,fable"));
+    assert(modelExempt("claude-fable-5-1", "opus,fable"));
+    assert(!modelExempt("claude-sonnet-5-5", "opus,fable"));
+    assert(!modelExempt("claude-sonnet-5-5", "opus,,fable,"), "an empty word exempts nobody");
 }
 
-// True when the session's model, as ug wrote it, carries the word the pbt
-// named in unless_model. No word or no model: nobody is exempt.
-bool modelExempt(const(char)[] model, const(char)[] word) {
-    if (model.length == 0 || word.length == 0) return false;
-    return containsCI(model, word);
+// True when the session's model, as ug wrote it, carries one of the comma-
+// separated words the pbt named in unless_model. No word or no model: nobody is exempt.
+bool modelExempt(const(char)[] model, const(char)[] words) {
+    if (model.length == 0) return false;
+    size_t start = 0;
+    foreach (i; 0 .. words.length + 1) {
+        if (i < words.length && words[i] != ',') continue;
+        auto word = words[start .. i];
+        if (word.length > 0 && containsCI(model, word)) return true;
+        start = i + 1;
+    }
+    return false;
 }
 
 CheckResult killNotRequested(const(char)[] cwd, const(char)[] input) {
@@ -699,13 +711,18 @@ CheckResult branchNotRequested(const(char)[] cwd, const(char)[] input) {
 
     import db : openDb, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_column_text, sqlite3_finalize, sqlite3_close,
-                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, modelOf;
     import zbuf : ZBuf;
 
     auto db = openDb();
     if (db is null)
         return approvalVerdict(false, false,
             "denied: ground could not open its database, so it could not check whether you asked for a branch. Denying rather than asserting you did not.");
+
+    if (modelExempt(modelOf(db, g_sessionId).model(), lookupParam("unless_model"))) {
+        sqlite3_close(db);
+        return passes();
+    }
 
     __gshared ZBuf ctx;
     ctx.reset();

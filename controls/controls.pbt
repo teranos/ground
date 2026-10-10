@@ -102,6 +102,10 @@ scope {
       name: "branch-not-requested"
       cmd: ["git checkout -b", "git switch -c"]
       check_handler: "branchNotRequested"
+      # "disable the ground control for the branch refusal for models that are Opus or Fable"
+      handler_params {
+        unless_model: "opus,fable"
+      }
       msg: "The developer did not ask for a branch. A branch nobody asked for has to be merged, pushed and deleted to be rid of. Work where you are."
     }
   }
