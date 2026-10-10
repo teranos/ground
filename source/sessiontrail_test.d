@@ -17,6 +17,32 @@ unittest {
     assert(withTrailers("git commit -m 'x'", two[0 .. 0]) == "git commit -m 'x'");
 }
 
+// "3. sure"
+// What `git add` and `git commit -a` in the same command will stage, read off
+// the command as the shell runs it: each add from where it stands.
+unittest {
+    import sessiontrail : addsBefore;
+    auto a = addsBefore(`cd /r && git add a.d sub/b.d && git commit -m x`, "/cwd");
+    assert(a.count == 1 && a.adds[0].dir == "/r" && a.adds[0].specs.length == 2);
+    assert(a.adds[0].specs[0] == "a.d" && a.adds[0].specs[1] == "sub/b.d");
+    assert(!a.all);
+
+    auto u = addsBefore(`git -C /r add -u && git -C /r commit -m x`, "/cwd");
+    assert(u.count == 1 && u.adds[0].update && u.adds[0].dir == "/r" && u.adds[0].specs.length == 0);
+
+    auto am = addsBefore(`git commit -am "x"`, "/cwd");
+    assert(am.count == 0 && am.all, "-a, combined with -m, stages every tracked change");
+    assert(addsBefore(`git commit --all -m x`, "/cwd").all);
+
+    // A dry run stages nothing, and an add after the commit is not in it.
+    assert(addsBefore(`git add -n a.d && git commit -m x`, "/cwd").count == 0);
+    assert(addsBefore(`git commit -m x && git add a.d`, "/cwd").count == 0);
+
+    // A relative cd is taken from where the shell stands.
+    auto rel = addsBefore(`cd sub && git add . && git commit -m x`, "/r");
+    assert(rel.adds[0].dir == "/r/sub" && rel.adds[0].specs[0] == ".");
+}
+
 // Where the commit happens: the tree `git -C` names, or where the call stands.
 unittest {
     assert(isCommit("git -C '/r' commit -q"));
@@ -148,7 +174,7 @@ unittest {
 // The sessions on a commit are the ones the git program and a query per file
 // named: the same sessions, in the same order, with the same last edit.
 unittest {
-    import libgit2_test : fixture, gitOut, Buf;
+    import libgit2_test : fixture, gitOut, Buf, sh;
     import sessiontrail : sessionsForCommit, collectEditors, describe, Editors;
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, attestEventAt, SQLITE_OK;
 
@@ -208,6 +234,20 @@ unittest {
     foreach (i; 0 .. found.count) {
         assert(found.at(i) == expected.at(i), found.at(i));
         assert(found.lastAt[i] == expected.lastAt[i], found.at(i));
+    }
+
+    // fe71e8a's shape: the add in the same command as the commit. The file is
+    // not staged yet when the hook reads the tree, and its editor is named.
+    {
+        sh("printf 'five\\n' >> '", root.text(), "/side.d'");
+        edit("sider", "Edit", "side.d", "2026-06-01T00:00:00Z");
+        Buf same;
+        same.put("cd '");
+        same.put(fx.text());
+        same.put("' && git add side.d && git commit -m x");
+        auto withAdd = sessionsForCommit(db, same.text(), "/cwd");
+        assert(withAdd.has("sider"), "an add in the same command is staged by the time the commit runs");
+        assert(gitOut(fx.text(), "diff --cached --name-only -- side.d").n == 0, "and the hook staged nothing itself");
     }
 
     // Read off the fixture, so the comparison is known to cover each case.

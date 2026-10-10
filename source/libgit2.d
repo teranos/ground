@@ -99,6 +99,10 @@ extern (C) {
     size_t git_index_entrycount(const(git_index)* index);
     const(git_index_entry)* git_index_get_byindex(git_index* index, size_t n);
     int git_index_entry_stage(const(git_index_entry)* entry);
+    int git_index_add_all(git_index* index, const(git_strarray)* pathspec, uint flags,
+                          void* callback, void* payload);
+    int git_index_update_all(git_index* index, const(git_strarray)* pathspec,
+                             void* callback, void* payload);
 
     struct git_describe_result;
     struct git_describe_options {
@@ -359,6 +363,7 @@ static assert(git_describe_format_options.sizeof == 24
               && git_describe_format_options.abbreviated_size.offsetof == 4
               && git_describe_format_options.dirty_suffix.offsetof == 16);
 enum GIT_DESCRIBE_TAGS = 1;
+enum GIT_INDEX_ADD_DEFAULT = 0u;
 
 static assert(git_oid.sizeof == 20);
 static assert(git_error.sizeof == 16);
@@ -515,6 +520,52 @@ private int findRenames(git_diff* diff) {
     if (git_diff_find_options_init(&opts, 1) < 0) return -1;
     opts.metric = &gitMetric;
     return git_diff_find_similar(diff, &opts);
+}
+
+// One `git add`: where it stood, relative to the top of the tree, and what it
+// named from there. `update` is -u, tracked files only.
+struct Adding {
+    const(char)[] base;
+    const(char)[][] specs;
+    bool update;
+}
+
+// A path an add named, from where it stood, as one from the top of the tree:
+// `.` and `..` walked, NUL-terminated in `into`. 0 is the whole tree.
+size_t joinSpec(const(char)[] base, const(char)[] spec, char[] into) {
+    char[1024] joined = 0;
+    size_t jn;
+    void put(const(char)[] s) { foreach (c; s) if (jn < joined.length) joined[jn++] = c; }
+    if (spec.length == 0 || spec[0] != '/') { put(base); put("/"); }
+    put(spec);
+
+    size_t n;
+    size_t i;
+    while (i < jn) {
+        size_t e = i;
+        while (e < jn && joined[e] != '/') e++;
+        auto seg = joined[i .. e];
+        i = e + 1;
+        if (seg.length == 0 || seg == ".") continue;
+        if (seg == "..") {
+            while (n > 0 && into[n - 1] != '/') n--;
+            if (n > 0) n--;
+            continue;
+        }
+        if (n > 0) into[n++] = '/';
+        foreach (c; seg) if (n < into.length - 1) into[n++] = c;
+    }
+    into[n] = 0;
+    return n;
+}
+
+unittest {
+    char[64] b;
+    assert(joinSpec("", "a.d", b[]) == 3 && b[0 .. 3] == "a.d");
+    assert(joinSpec("sub", "x.d", b[]) == 7 && b[0 .. 7] == "sub/x.d");
+    assert(joinSpec("sub", ".", b[]) == 3 && b[0 .. 3] == "sub");
+    assert(joinSpec("", ".", b[]) == 0, "the whole tree");
+    assert(joinSpec("sub/deep", "../x.d", b[]) == 7 && b[0 .. 7] == "sub/x.d");
 }
 
 // Bytewise by path, as git orders its index, then by stage.
@@ -1731,6 +1782,53 @@ struct Repo {
             }
         }
         return branch == "main" || branch == "master";
+    }
+
+    // What `git diff --cached --name-only` will name once `adds`, and commit
+    // -a when `all`, have run: applied to the index in memory, read against
+    // HEAD, thrown away. The index on disk is never written.
+    const(char)[] stagedAfter(const(Adding)[] adds, bool all, char[] into) return {
+        git_tree* head;
+        git_object* obj;
+        auto rc = git_revparse_single(&obj, repo, "HEAD^{tree}");
+        if (rc == 0) head = cast(git_tree*) obj;
+        else if (rc != GIT_ENOTFOUND && rc != GIT_EUNBORNBRANCH) { say("HEAD's tree would not read"); return null; }
+        scope (exit) if (head !is null) git_object_free(cast(git_object*) head);
+
+        git_index* index;
+        if (git_repository_index(&index, repo) < 0) { say("the index would not read"); return null; }
+        // Back to what is on disk, so nothing applied here outlives this call.
+        scope (exit) { git_index_read(index, 1); git_index_free(index); }
+
+        __gshared char[1024][16] specBufs;
+        __gshared char*[16] specPtrs;
+        foreach (ref a; adds) {
+            size_t count;
+            bool whole;
+            foreach (spec; a.specs) {
+                if (count == specPtrs.length) { refuse("more paths in one add than ground holds"); return null; }
+                auto len = joinSpec(a.base, spec, specBufs[count][]);
+                if (len == 0) { whole = true; continue; }
+                specPtrs[count] = &specBufs[count][0];
+                count++;
+            }
+            if (a.specs.length == 0 && !a.update) continue;
+            git_strarray paths = git_strarray(&specPtrs[0], count);
+            auto pathspec = (whole || a.specs.length == 0) ? null : &paths;
+            if (!a.update && git_index_add_all(index, pathspec, GIT_INDEX_ADD_DEFAULT, null, null) < 0) { say("add"); return null; }
+            if (git_index_update_all(index, pathspec, null, null) < 0) { say("add"); return null; }
+        }
+        if (all && git_index_update_all(index, null, null, null) < 0) { say("commit -a"); return null; }
+
+        git_diff_options opts;
+        if (!diffOptions(opts)) return null;
+        git_diff* diff;
+        if (git_diff_tree_to_index(&diff, repo, head, index, &opts) < 0) { say("the index would not diff"); return null; }
+        scope (exit) git_diff_free(diff);
+        if (findRenames(diff) < 0) { say("renames would not be found"); return null; }
+        size_t n;
+        if (!namesOf(diff, into, n)) return null;
+        return into[0 .. n];
     }
 
     // What `git ls-files` prints: every index entry's path in byte order, a

@@ -209,12 +209,31 @@ Check askPlan(sqlite3* db, long now) {
     return lastCheck(db, "plan");
 }
 
+// "5. oh, fix it"
+// The exit the curl program gave with -sf, from what libcurl said: its own
+// code when the transfer failed, 22 for an HTTP error, 23 for a body too big.
+long releaseExit(int code, int status, bool overran) {
+    if (code != 0) return code;
+    if (overran) return 23;
+    if (status >= 400) return 22;
+    return 0;
+}
+
+unittest {
+    assert(releaseExit(0, 200, false) == 0);
+    assert(releaseExit(0, 404, false) == 22, "-f: an HTTP error is curl's 22");
+    assert(releaseExit(28, 0, false) == 28, "a timeout is libcurl's own 28, as curl exited with it");
+    assert(releaseExit(6, 0, false) == 6, "no name resolved");
+    assert(releaseExit(0, 200, true) == 23, "a body bigger than ground reads");
+}
+
+// The latest release's tag, asked of GitHub through libcurl in this process.
 Check fetchRelease(sqlite3* db, long now) {
+    import http : httpGet;
     __gshared char[16384] out_ = 0;
-    size_t n;
-    auto code = runInto("/usr/bin/curl -sf --max-time 5 https://api.github.com/repos/teranos/ground/releases/latest 2>/dev/null\0".ptr,
-                        out_[], n);
-    auto tag = code == 0 ? tagIn(out_[0 .. n]) : null;
+    auto r = httpGet("https://api.github.com/repos/teranos/ground/releases/latest", null, out_[], 5);
+    auto code = releaseExit(r.code, r.status, r.overran);
+    auto tag = code == 0 ? tagIn(out_[0 .. r.len]) : null;
     recordCheck(db, "release", tag, tag is null && code == 0 ? 1 : code, now);
     return lastCheck(db, "release");
 }

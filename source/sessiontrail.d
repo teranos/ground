@@ -71,10 +71,163 @@ private Found findCommit(const(char)[] cmd) {
 
 bool isCommit(const(char)[] cmd) { return findCommit(cmd).ok; }
 
-// The tree the commit is made in.
+// Where `to` leads from `here`: an absolute path replaces it.
+private size_t joinDir(const(char)[] here, const(char)[] to, char[] into) {
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < into.length) into[n++] = c; }
+    if (to.length == 0 || to[0] != '/') {
+        put(here);
+        if (n > 0 && into[n - 1] != '/') put("/");
+    }
+    put(to);
+    while (n > 1 && into[n - 1] == '/') n--;
+    return n;
+}
+
+// One `git add` the shell runs before the commit: where it stood and what it
+// named from there. `whole` is -A with nothing named, the whole tree.
+struct AddCmd {
+    char[1024] dirBuf = 0;
+    size_t dirLen;
+    const(char)[][16] specArr;
+    size_t specCount;
+    bool update;
+    bool whole;
+    const(char)[] dir() const return { return dirBuf[0 .. dirLen]; }
+    const(const(char)[])[] specs() const return { return specArr[0 .. specCount]; }
+}
+
+// What a command stages before its commit runs, and where the commit stands.
+struct AddsBefore {
+    AddCmd[8] adds;
+    size_t count;
+    bool all;     // commit -a
+    bool found;   // a commit at all
+    bool over;    // more adds than are held
+    char[1024] treeBuf = 0;
+    size_t treeLen;
+    const(char)[] tree() const return { return treeBuf[0 .. treeLen]; }
+}
+
+// The command walked as the shell walks it: `cd` moves, `git -C` names a tree
+// for one git, each `git add` before the commit is kept, `commit -a` is noted.
+AddsBefore addsBefore(const(char)[] cmd, const(char)[] cwd) {
+    AddsBefore r;
+    char[1024] here = 0;
+    size_t hereLen;
+    foreach (c; cwd) if (hereLen < here.length) here[hereLen++] = c;
+
+    bool atSeparator(size_t at) { return at < cmd.length && (cmd[at] == ';' || cmd[at] == '&' || cmd[at] == '|'); }
+    size_t at = 0;
+    for (;;) {
+        while (at < cmd.length && (cmd[at] == ';' || cmd[at] == '&' || cmd[at] == '|'
+                                   || cmd[at] == ' ' || cmd[at] == '\t')) at++;
+        auto w = nextWord(cmd, at);
+        if (w.raw.length == 0) return r;
+        at = w.end;
+
+        if (w.value == "cd") {
+            auto to = nextWord(cmd, at);
+            at = to.end;
+            char[1024] moved = 0;
+            auto mn = joinDir(here[0 .. hereLen], to.value, moved[]);
+            foreach (i; 0 .. mn) here[i] = moved[i];
+            hereLen = mn;
+            continue;
+        }
+        if (w.value != "git") {
+            while (at < cmd.length && !atSeparator(at)) { auto s = nextWord(cmd, at); if (s.raw.length == 0) break; at = s.end; }
+            continue;
+        }
+
+        char[1024] dir = 0;
+        size_t dirLen;
+        foreach (i; 0 .. hereLen) dir[dirLen++] = here[i];
+        const(char)[] sub;
+        for (;;) {
+            auto o = nextWord(cmd, at);
+            if (o.raw.length == 0) break;
+            at = o.end;
+            if (o.value == "-C" || o.value == "-c") {
+                auto arg = nextWord(cmd, at);
+                at = arg.end;
+                if (o.value == "-C") {
+                    char[1024] moved = 0;
+                    auto mn = joinDir(dir[0 .. dirLen], arg.value, moved[]);
+                    foreach (i; 0 .. mn) dir[i] = moved[i];
+                    dirLen = mn;
+                }
+                continue;
+            }
+            if (o.value.length > 0 && o.value[0] == '-') continue;
+            sub = o.value;
+            break;
+        }
+
+        if (sub == "commit") {
+            r.found = true;
+            foreach (i; 0 .. dirLen) r.treeBuf[i] = dir[i];
+            r.treeLen = dirLen;
+            while (!atSeparator(at)) {
+                auto o = nextWord(cmd, at);
+                if (o.raw.length == 0) break;
+                at = o.end;
+                auto v = o.value;
+                if (v == "--all") { r.all = true; continue; }
+                if (v.length >= 2 && v[0] == '-' && v[1] != '-') {
+                    foreach (k, c; v[1 .. $]) {
+                        if (c == 'a') r.all = true;
+                        // A flag that takes a value takes the next word when it ends the cluster.
+                        if ((c == 'm' || c == 'F' || c == 'c' || c == 'C' || c == 't') && k == v.length - 2) {
+                            auto arg = nextWord(cmd, at);
+                            at = arg.end;
+                            break;
+                        }
+                    }
+                }
+            }
+            return r;
+        }
+
+        if (sub != "add") {
+            while (!atSeparator(at)) { auto s = nextWord(cmd, at); if (s.raw.length == 0) break; at = s.end; }
+            continue;
+        }
+
+        AddCmd a;
+        foreach (i; 0 .. dirLen) a.dirBuf[i] = dir[i];
+        a.dirLen = dirLen;
+        bool dry, interactive, everything, paths;
+        while (!atSeparator(at)) {
+            auto o = nextWord(cmd, at);
+            if (o.raw.length == 0) break;
+            at = o.end;
+            auto v = o.value;
+            if (!paths && v == "--") { paths = true; continue; }
+            if (!paths && v.length > 1 && v[0] == '-') {
+                if (v == "-u" || v == "--update") a.update = true;
+                else if (v == "-A" || v == "--all" || v == "--no-ignore-removal") everything = true;
+                else if (v == "-n" || v == "--dry-run") dry = true;
+                else if (v == "-p" || v == "--patch" || v == "-i" || v == "--interactive" || v == "-e" || v == "--edit")
+                    interactive = true;
+                continue;
+            }
+            if (a.specCount < a.specArr.length) a.specArr[a.specCount++] = v;
+        }
+        // A dry run stages nothing; what an interactive add stages is not known.
+        if (dry || interactive) continue;
+        a.whole = everything && a.specCount == 0;
+        if (a.specCount == 0 && !a.update && !a.whole) continue;
+        if (r.count == r.adds.length) { r.over = true; continue; }
+        r.adds[r.count++] = a;
+    }
+}
+
+// The tree the commit is made in: where the shell stands when it runs.
 const(char)[] treeOf(const(char)[] cmd, const(char)[] cwd) {
-    auto f = findCommit(cmd);
-    return f.ok && f.tree.length > 0 ? f.tree : cwd;
+    __gshared AddsBefore plan;
+    plan = addsBefore(cmd, cwd);
+    return plan.found && plan.treeLen > 0 ? plan.tree : cwd;
 }
 
 // The command with a `--trailer 'session: <id>'` per session, right after
@@ -256,6 +409,51 @@ void collectEditorsAll(sqlite3* db, const(char[])[] paths, const(long)[] sinces,
     sqlite3_finalize(stmt);
 }
 
+// The adds as libgit2 takes them: each one's directory made relative to the
+// top of the tree, an absolute path made one from that top. An add that
+// stood outside the tree stages into another repository, and is left out.
+private const(char)[] stagedAfterAdds(R)(ref R g, const(char)[] root, const ref AddsBefore plan, char[] into) {
+    import libgit2 : Adding, realpath;
+    __gshared Adding[8] adds;
+    __gshared char[1024][8] bases;
+    __gshared const(char)[][16][8] specs;
+    __gshared char[1024][16][8] specBufs;
+    size_t n;
+    foreach (i; 0 .. plan.count) {
+        auto a = &plan.adds[i];
+        char[1024] z = 0;
+        foreach (k, c; a.dir) if (k < z.length - 1) z[k] = c;
+        char[4096] real_ = 0;
+        if (realpath(&z[0], &real_[0]) is null) continue;
+        size_t rl;
+        while (real_[rl] != 0) rl++;
+        auto dir = real_[0 .. rl];
+        const(char)[] base;
+        if (dir == root) base = "";
+        else if (dir.length > root.length && dir[0 .. root.length] == root && dir[root.length] == '/')
+            base = dir[root.length + 1 .. $];
+        else continue;
+        foreach (k, c; base) bases[n][k] = c;
+
+        size_t sc;
+        if (a.whole) specs[n][sc++] = "/";
+        foreach (s; a.specs) {
+            if (s.length > 0 && s[0] == '/') {
+                // An absolute path inside the tree, written as one from its top.
+                if (s.length < root.length || s[0 .. root.length] != root) continue;
+                size_t bl;
+                foreach (c; s[root.length .. $]) if (bl < specBufs[n][sc].length) specBufs[n][sc][bl++] = c;
+                if (bl == 0) specBufs[n][sc][bl++] = '/';
+                specs[n][sc] = specBufs[n][sc][0 .. bl];
+            } else specs[n][sc] = s;
+            sc++;
+        }
+        adds[n] = Adding(bases[n][0 .. base.length], specs[n][0 .. sc], a.update);
+        n++;
+    }
+    return g.stagedAfter(adds[0 .. n], plan.all, into);
+}
+
 // The sessions behind what is staged in the commit's tree. libgit2 reads the
 // tree in this process; no git program runs.
 Editors sessionsForCommit(sqlite3* db, const(char)[] command, const(char)[] cwd) {
@@ -275,8 +473,15 @@ Editors sessionsForCommit(sqlite3* db, const(char)[] command, const(char)[] cwd)
     auto root = g.root();
     if (root.length == 0) return found;
 
+    // "3. sure"
+    // What the commit will carry: what is staged, and what a `git add` or
+    // commit -a in the same command stages before it runs.
     __gshared char[1 << 20] staged = 0;
-    auto names = g.staged(staged[]);
+    __gshared AddsBefore plan;
+    plan = addsBefore(command, cwd);
+    const(char)[] names;
+    if (plan.count == 0 && !plan.all) names = g.staged(staged[]);
+    else names = stagedAfterAdds(g, root, plan, staged[]);
     if (names is null) {
         emitError("provenance.staged", cast(string) g.why(), 0, 1, "", "provenance", "", cast(string) command, "");
         found.over = true;
