@@ -101,6 +101,8 @@ Rewrites (arg/omit/omitLine/clamp/substitute_for_cmd) are silent — the command
 
 Controls are defined in `controls/*.pbt` and compiled into the binary. The binary is the config. A repo declared with `project { path: "..." }` contributes its own `controls/*.pbt` the same way — the pbt governing a repo lives beside the code it governs.
 
+A control that only one machine should run is declared in that machine's `controls/local/*.pbt`, which is not tracked. A scope names paths and events, never a host, so the local directory is how a machine opts in: the install that declares it is the install that has it, and every other one does not. A deny is the strongest reason to want this — one operator's guard is another's blocked tool call — so a control that stops a tool outright belongs there rather than in the shared pbt.
+
 Ground stops rather than degrades. Its attestation store is a hard dependency: a damaged SQLite database returns zero rows to every read, which is indistinguishable from a database that is merely empty, so continuing would report an all-clear it cannot have verified. On detecting corruption ground reports on every hook and denies none of them — it refuses to operate, never to let you work, since blocking your own tool calls would take away what you need to repair it.
 
 ## Why D
