@@ -115,6 +115,42 @@ bool handOver(ref ZBuf out_, const(char)[] path, const(char)[] baseDir) {
     return true;
 }
 
+// The opening bytes of the file a read command names, for a caller that needs
+// only how far the file's prose reaches. Bounded: nothing past the cap can
+// change the answer, and the hook pays for no more than it reads.
+size_t headOf(ref ZBuf out_, const(char)[] cmd, const(string)[] utils,
+              const(char)[] baseDir, size_t cap) {
+    import errors : open, read, close, O_RDONLY;
+
+    auto targets = readTargets(cmd, utils);
+    if (targets.count == 0 || cap == 0) return 0;
+    auto path = targets.paths[0];
+
+    __gshared ZBuf full;
+    full.reset();
+    if (path.length > 0 && path[0] != '/' && baseDir.length > 0) {
+        full.put(baseDir);
+        full.put("/");
+    }
+    full.put(path);
+
+    auto fd = open(full.ptr(), O_RDONLY, 0);
+    if (fd < 0) return 0;
+
+    __gshared char[8192] chunk;
+    size_t total;
+    while (total < cap) {
+        auto want = cap - total;
+        if (want > chunk.length) want = chunk.length;
+        auto n = read(fd, &chunk[0], want);
+        if (n <= 0) break;
+        out_.put(chunk[0 .. cast(size_t) n]);
+        total += cast(size_t) n;
+    }
+    close(fd);
+    return total;
+}
+
 // Which files this command was going to read. Empty when it reads a pipe,
 // when the utility is not one of ours, or when the read is on another machine.
 Targets readTargets(const(char)[] cmd, const(string)[] utils) {

@@ -78,12 +78,16 @@ private bool hasControl(string name)() {
 // "the sed rewrite rule, i want it to behave differently based on our usage. if our weekly is over 40% it should start to taper down in how much it gives back with 70%+ weekly usage going back to what the model normally does. so at 70% the sed rewrite rule would not even be applied anymore. do you hear what im saying actually?"
 // The control carries the two marks; the week is read from the store when it
 // fires. The arithmetic between them is applyRange's, tested beside it.
-static assert(() {
-    foreach (ref sc; allScopes)
-        foreach (ref c; sc.controls)
-            if (c.name == "sed-from-the-top") return c.taper.value == "40,70";
-    return false;
-}());
+// Declared in controls/local by the install that wants it, so the marks are
+// asserted where it stands and nothing is asserted where it does not.
+static if (hasControl!"sed-from-the-top") {
+    static assert(() {
+        foreach (ref sc; allScopes)
+            foreach (ref c; sc.controls)
+                if (c.name == "sed-from-the-top") return c.taper.value == "40,70";
+        return false;
+    }());
+}
 
 // --- clamp tests ---
 //
