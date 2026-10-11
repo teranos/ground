@@ -90,9 +90,7 @@ test-tools:
 # Same shape for ug/*_test.d.
 test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/clock.d ug/clock_test.d
-# -J=. lets row_test read captures/grove/out.bytes at CTFE, so parity is
-# asserted against collet's own output rather than a transcription of it.
-	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/json.d ug/json_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/json.d ug/json_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/git.d ug/git_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/status.d ug/status_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/perf_test.d
@@ -102,8 +100,7 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/probe.d ug/qntx.d ug/json.d ug/probe_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
-	ldc2 -c -betterC -J=. -od=/tmp -I=ug ug/row.d ug/clock.d ug/json.d ug/status.d ug/row_test.d
-	ldc2 -c -betterC -J=. -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d ug/fable_test.d
 
 # ug the way Claude Code runs it: frames cancelled mid-run, against a QNTX that

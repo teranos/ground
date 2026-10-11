@@ -19,8 +19,8 @@ Rewrite allR(const(char)[] text, const(char)[] from = FROM) {
 }
 
 // The whole point: the string goes, the rest of the line stands.
-enum one = "COLLET=/Users/x/bin/c";
-enum oneWant = "COLLET=" ~ TO ~ "/bin/c";
+enum one = "RENDERER=/Users/x/bin/c";
+enum oneWant = "RENDERER=" ~ TO ~ "/bin/c";
 static assert(allR(one).found == 1);
 static assert(all!one()[0 .. oneWant.length] == oneWant);
 

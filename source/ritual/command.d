@@ -33,7 +33,7 @@ Position preparePerformance(PR)(auto ref const PR parsed, size_t ritualIdx,
     p.id = st.pid.text();
     p.repo = parsed.rituals[ritualIdx].projectPath;
 
-    // The names travel with the row so collet can draw the line from it alone,
+    // The names travel with the row so the line can be drawn from it alone,
     // without the pbt.
     st.names = riteNames(flat);
     p.rites = st.names.text();
@@ -220,7 +220,7 @@ const(char)[] performFromControl(const(char)[] ritualName, const(char)[] session
     return null;
 }
 
-// The line the operator reads back, and the one collet renders: brackets say
+// The line the operator reads back, and the one the row renders: brackets say
 // where, the names say what is behind and ahead.
 void printLine(const Position p, const Flattened f) {
     import core.stdc.stdio : stdout, fputs, fwrite;

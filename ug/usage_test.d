@@ -27,7 +27,8 @@ static assert(!rateLimits(contextLast).w[0].present);
 static assert(rateLimits(contextLast).w[1].percent == "41.2");
 
 // A window Claude Code dropped is absent, not zero percent used.
-enum capture = import("captures/grove/in.json");
+enum capture = `{"session_id":"62dd6ff4-2dac-4c93-972c-3aaa2d488db5",`
+             ~ `"cwd":"/home/x/sbvh-nl/grove","context_window":{"used_percentage":12.5}}`;
 static assert(!rateLimits(capture).w[0].present);
 static assert(!rateLimits(capture).w[1].present);
 

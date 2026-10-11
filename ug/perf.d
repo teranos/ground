@@ -2,7 +2,6 @@ module perf;
 
 // One line per performance: the rites in order, brackets on the one being
 // performed, colour for what each has been.
-// Rules read from collet's render_performance and rite_color.
 
 enum GREEN      = "\033[32m";
 enum RED        = "\033[31m";

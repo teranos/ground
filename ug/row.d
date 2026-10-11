@@ -1,6 +1,6 @@
 module row;
 
-// Line one of the row, segment by segment, against captures/grove/out.bytes.
+// Line one of the row, segment by segment.
 
 import clock : clockInto;
 import path : pathInto;

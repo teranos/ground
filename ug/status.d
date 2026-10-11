@@ -1,7 +1,6 @@
 module status;
 
 // The working tree, counted off `git status --porcelain`.
-// Rule read from collet's own git_status, not inferred from the capture.
 
 enum YELLOW = "\033[33m";
 enum RED    = "\033[31m";

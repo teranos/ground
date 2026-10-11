@@ -41,7 +41,7 @@ static assert(drawn!("/Users/x/tmp", "", HOME)()[0 .. 5] == "~/tmp");
 // No home either leaves the path as it is.
 static assert(drawn!("/Users/x/tmp", "", "")()[0 .. 12] == "/Users/x/tmp");
 
-// A worktree beside the project matches the prefix test, so collet draws it
-// as though it were inside: `starts_with?` sees no directory boundary. Matched
-// rather than corrected — parity first.
+// A worktree beside the project matches the prefix test, so the row draws it
+// as though it were inside: a prefix sees no directory boundary. Left as it is
+// rather than corrected, so the drawing stays the one the row has always made.
 static assert(drawn!(GROVE ~ "-willow-1", GROVE, HOME)()[0 .. 16] == "grove/-willow-1.");

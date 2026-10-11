@@ -65,8 +65,8 @@ static assert(jumped.states[2] == RiteState.Passed);
 static assert(jump(atLast, 9).current == atLast.current);
 
 // --- What the row holds ---
-// One character per rite, so collet reads the line without a join and a
-// person reads the row without a decoder.
+// One character per rite, so the line is read without a join and a person
+// reads the row without a decoder.
 
 static assert(encodeStates(fresh)     == "...");
 static assert(encodeStates(passedOne) == "+..");
