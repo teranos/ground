@@ -118,7 +118,9 @@ Stop                    500    69ms    61ms   107ms   202ms   627ms
 PreToolUse             1584     5ms     4ms    11ms    36ms   288ms
 ```
 
-`PreToolUse` gates every command and is the one that has to be invisible. `PostToolUse` carries the tool result, so it grows with payload size. `ground profile <event>` breaks a single event down by project and by phase. The budgets ground holds itself to, and reports against when it breaches them, are in `source/stop.d`.
+`PreToolUse` gates every command and is the one that has to be invisible. `PostToolUse` carries the tool result, so it grows with payload size. `ground profile <event>` breaks a single event down by project and by phase. The budgets ground holds itself to are in `source/stop.d`.
+
+The breach is reported only where a control asks for it. Performance work is ground's own, not something to interrupt a stranger's session with, so the notice is opt-in: a `Stop` scope carrying `timing: "true"` turns it on for the paths that scope names, and an install that declares none never sees it. A scope with no `path:` names every project, so the default is expressible — it is simply not the shipped one.
 
 ## [Countdown](COUNTDOWN.md)
    

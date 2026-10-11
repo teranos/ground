@@ -67,6 +67,22 @@ bool agentAsked(bool hasEval, bool gated) {
     return hasEval && !gated;
 }
 
+// "i dont expect normal users to drop everything they do and do ground performance work"
+// "could be a global default, but i want it to be opt in, not on by default"
+
+// So a budget breach is told to whoever asked to hear it: a Stop scope naming
+// this place and carrying a control with timing. A scope naming no path names
+// every project, so a global default is expressible without being shipped on.
+bool timingAsked(S)(const(S)[] scopes, const(char)[] cwd, const(char)[] root) {
+    import hooks : scopeMatchesIn;
+    foreach (ref sc; scopes) {
+        if (!scopeMatchesIn(sc, cwd, root)) continue;
+        foreach (ref c; sc.controls)
+            if (c.timing) return true;
+    }
+    return false;
+}
+
 // A live performance with a rite still to meet.
 bool ritualPending(const(char)[] cwd) {
     import db : openDb, sqlite3_close;
@@ -390,7 +406,10 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                         sqlite3_bind_text, sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
                         SQLITE_TRANSIENT, cwdTail;
 
-        if (!attestationExists(db, "GroundedStop", "timing-regression", sessionId)) {
+        import controls : stopScopes;
+        import git : repoRoot;
+        if (timingAsked(stopScopes, cwd, repoRoot(cwd))
+            && !attestationExists(db, "GroundedStop", "timing-regression", sessionId)) {
             struct Budget { string event; long thresholdUs; }
             static immutable budgets = [
                 // "increase the budget alert hit to 60ms"
