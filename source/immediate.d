@@ -75,29 +75,53 @@ bool spoken(const(char)[] name) {
     return name != "ci-status" && name != "dispatch";
 }
 
-// Read a pending immediate message matching this session OR (for
-// external writers like QNTX that don't know sessions) this cwd's project.
-ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId,
-                                  const(char)[] mark = "delivered:") {
-    auto now = cast(long) time(null);
+// The rows waiting for one reader, picked by address in the index. Reading
+// every queued row of every session cost MessageDisplay up to 3.6s.
+enum PENDING_SQL = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a INDEXED BY idx_attestations_pred_session WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND json_extract(a.contexts, '$[0]') IN (SELECT value FROM json_each(?3)) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
 
-    // The mark is a parameter because one row is read twice, once per channel:
-    // exit 2 wakes the model and hides the text, exit 0 shows the text and
-    // wakes nobody, so neither reader may consume the other's copy.
-    enum sql = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
-
-    // Build session LIKE pattern: %session:<id>%
+// ?3 is every address this reader answers to: session:<id>, then project:<p>
+// for cwd and each tail of it that starts after a '/'.
+void bindPending(sqlite3_stmt* stmt, const(char)[] cwd, const(char)[] sessionId,
+                 const(char)[] mark) {
     __gshared ZBuf sessPattern;
     sessPattern.reset();
     sessPattern.put(`%session:`);
     sessPattern.put(sessionId);
     sessPattern.put(`%`);
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK)
-        return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
+    __gshared ZBuf addrs;
+    addrs.reset();
+    addrs.put(`["session:`);
+    putJsonString(addrs, sessionId);
+    addrs.put(`"`);
+    auto dir = cwd;
+    while (dir.length > 0 && dir[$ - 1] == '/') dir = dir[0 .. $ - 1];
+    foreach (i; 0 .. dir.length) {
+        if (i > 0 && dir[i - 1] != '/') continue;
+        addrs.put(`,"project:`);
+        putJsonString(addrs, dir[i .. $]);
+        addrs.put(`"`);
+    }
+    addrs.put(`]`);
+
     sqlite3_bind_text(stmt, 1, sessPattern.ptr(), cast(int) sessPattern.len, SQLITE_TRANSIENT);
+    // The mark is a parameter because one row is read twice, once per channel:
+    // exit 2 wakes the model and hides the text, exit 0 shows the text and
+    // wakes nobody, so neither reader may consume the other's copy.
     sqlite3_bind_text(stmt, 2, mark.ptr, cast(int) mark.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, addrs.ptr(), cast(int) addrs.len, SQLITE_TRANSIENT);
+}
+
+// Read a pending immediate message matching this session OR (for
+// external writers like QNTX that don't know sessions) this cwd's project.
+ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId,
+                                  const(char)[] mark = "delivered:") {
+    auto now = cast(long) time(null);
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, PENDING_SQL.ptr, -1, &stmt, null) != SQLITE_OK)
+        return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
+    bindPending(stmt, cwd, sessionId, mark);
 
     __gshared char[128] idBuf = 0;
     __gshared char[256] nameBuf = 0;
@@ -787,8 +811,7 @@ unittest {
     import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     assert(writeNote(testDb, "sess-note", "worktree", "made a worktree at /tmp/x"));
     auto msg = readImmediateMessage(testDb, "/tmp/anywhere", "sess-note");
@@ -1084,8 +1107,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     assert(writeExecStarted(testDb, "sess-start", "q-web-deploy-on-push", 1),
            "dispatch announcement must persist");
@@ -1107,8 +1129,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     assert(writeExecStarted(testDb, "sess-twice", "ctl", 111));
     assert(writeExecStarted(testDb, "sess-twice", "ctl", 222));
@@ -1312,14 +1333,16 @@ long countPendingImmediateForSession(sqlite3* db, const(char)[] sessionId) {
 
 // --- Tests ---
 
+// The schema the store has, index PENDING_SQL is read through included.
+version (unittest) import db : applySchema;
+
 unittest {
     // Immediate message is readable by readImmediateMessage
     import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
+    assert(applySchema(db));
 
     enum insertSql = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('test-1', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx-server\"]', '2026-05-08 15:15:57', 'qntx-server', '{\"event\":\"started\",\"detail\":\"QNTX started on port 8770\",\"after\":0}')\0";
     sqlite3_exec(db, insertSql.ptr, null, null, null);
@@ -1338,8 +1361,7 @@ unittest {
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
+    assert(applySchema(db));
 
     // 6 stale messages for a different project (older timestamps, fill any LIMIT)
     enum s1 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('stale-1', '[\"x\"]', '[\"immediate:lifecycle\"]', '[\"project:QNTX/server\"]', '[\"x\"]', '2026-05-09 16:00:00', 'x', '{\"detail\":\"stale1\",\"after\":0}')\0";
@@ -1368,13 +1390,52 @@ unittest {
 }
 
 unittest {
+    // Every MessageDisplay and Notification read all 3922 queued rows of every
+    // session to hand in one; 1.7s to 3.6s on the screen today.
+    import db : sqlite3_open, sqlite3_exec, sqlite3_close, sqlite3_finalize, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    foreach (i; 0 .. 40) {
+        ZBuf other;
+        other.put("other-sess-");
+        other.putChar(cast(char)('a' + i % 26));
+        other.putChar(cast(char)('a' + i / 26));
+        assert(writeNote(db, other.slice(), "note", "not yours"));
+    }
+    assert(writeNote(db, "sess-addr", "note", "yours"));
+    enum projSql = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES "
+        ~ "('proj-mine', '[\"x\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"x\"]', '2026-05-09 16:00:00', 'x', '{\"detail\":\"this tree\",\"after\":0}'), "
+        ~ "('proj-other', '[\"x\"]', '[\"immediate:lifecycle\"]', '[\"project:QNTX/server\"]', '[\"x\"]', '2026-05-09 16:00:00', 'x', '{\"detail\":\"another tree\",\"after\":0}'), "
+        ~ "('proj-part', '[\"x\"]', '[\"immediate:lifecycle\"]', '[\"project:NTX\"]', '[\"x\"]', '2026-05-09 16:00:00', 'x', '{\"detail\":\"half a name\",\"after\":0}')\0";
+    assert(sqlite3_exec(db, projSql.ptr, null, null, null) == SQLITE_OK);
+
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, PENDING_SQL.ptr, -1, &stmt, null) == SQLITE_OK);
+    bindPending(stmt, "/Users/test/SBVH/teranos/QNTX", "sess-addr", "delivered:");
+    size_t rows;
+    while (sqlite3_step(stmt) == SQLITE_ROW) rows++;
+    sqlite3_finalize(stmt);
+    assert(rows == 2, "only this session's note and this tree's row are read");
+
+    // A project names a directory: NTX is not the end of teranos/QNTX.
+    foreach (i; 0 .. 2) {
+        auto got = readImmediateMessage(db, "/Users/test/SBVH/teranos/QNTX", "sess-addr");
+        assert(got.message == "yours" || got.message == "this tree", got.message);
+        assert(markImmediateDelivered(db, got.msgId, got.projectContext, "sess-addr"));
+    }
+    assert(readImmediateMessage(db, "/Users/test/SBVH/teranos/QNTX", "sess-addr").message is null);
+    sqlite3_close(db);
+}
+
+unittest {
     // Non-immediate message is NOT readable by readImmediateMessage
     import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
+    assert(applySchema(db));
 
     enum insertSql = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('test-2', '[\"qntx\"]', '[\"deferred:cluster-update\"]', '[\"project:teranos/QNTX\"]', '[\"qntx-server\"]', '2026-05-08 15:15:57', 'qntx-server', '{\"event\":\"cluster\",\"detail\":\"3 new clusters\",\"after\":0}')\0";
     sqlite3_exec(db, insertSql.ptr, null, null, null);
@@ -1391,8 +1452,7 @@ unittest {
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
+    assert(applySchema(db));
 
     enum insertSql = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('msg-1', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx-server\"]', '2026-05-08 15:15:57', 'qntx-server', '{\"event\":\"started\",\"detail\":\"QNTX started\",\"after\":0}')\0";
     sqlite3_exec(db, insertSql.ptr, null, null, null);
@@ -1420,8 +1480,7 @@ unittest {
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(db, createSql.ptr, null, null, null);
+    assert(applySchema(db));
 
     enum m1 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('lc-1', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx\"]', '2026-05-11 20:00:00', 'qntx', '{\"detail\":\"QNTX started\",\"after\":0}')\0";
     enum m2 = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('pl-1', '[\"qntx\"]', '[\"immediate:lifecycle\"]', '[\"project:teranos/QNTX\"]', '[\"qntx\"]', '2026-05-11 20:00:01', 'qntx', '{\"detail\":\"spindle started\",\"after\":0}')\0";
@@ -1461,8 +1520,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeClippyReminder(testDb, "sess-clippy");
     auto result = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-clippy");
@@ -1480,8 +1538,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeClippyReminder(testDb, "sess-dedup");
     writeClippyReminder(testDb, "sess-dedup");
@@ -1502,8 +1559,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeClippyReminder(testDb, "sess-del");
     auto r1 = readImmediateMessage(testDb, "/Users/test/SBVH/teranos/QNTX", "sess-del");
@@ -1522,8 +1578,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     // Write, deliver, delete, re-write
     writeClippyReminder(testDb, "sess-rw");
@@ -1552,8 +1607,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     // The row is the fact of a push and nothing more: repo, branch, sha. How
     // long this branch's runs take is nobody's business on this machine — the
@@ -1592,8 +1646,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeCIStatus(testDb, "sess-ci-dedup", "acme/widget", "main", "abc1234", 0);
     writeCIStatus(testDb, "sess-ci-dedup", "acme/widget", "main", "abc1234", 0);
@@ -1625,8 +1678,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeCIStatus(testDb, "sess-ci-gate", "acme/widget", "main", "abc1234", 9999);
     auto result = readImmediateMessage(testDb, "/tmp/anywhere", "sess-ci-gate");
@@ -1644,8 +1696,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeCIStatus(testDb, "sess-gate-count", "acme/widget", "main", "abc1234", 9999);
 
@@ -1667,8 +1718,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     assert(writeExecResult(testDb, "sess-fresh", "ctl", "exit 1", "", "boom"));
     assert(countStaleExecForSession(testDb, "sess-fresh") == 0,
@@ -1685,10 +1735,9 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
-    enum oldRow = "INSERT INTO attestations VALUES ('immediate:exec-result:sess-stale:ctl:1','[\"exec\"]','[\"immediate:exec-result\"]','[\"session:sess-stale\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"exec ctl: exit 1\",\"after\":0}')\0";
+    enum oldRow = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('immediate:exec-result:sess-stale:ctl:1','[\"exec\"]','[\"immediate:exec-result\"]','[\"session:sess-stale\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"exec ctl: exit 1\",\"after\":0}')\0";
     sqlite3_exec(testDb, oldRow.ptr, null, null, null);
 
     assert(countStaleExecForSession(testDb, "sess-stale") == 1,
@@ -1703,12 +1752,11 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
-    enum oldRow = "INSERT INTO attestations VALUES ('immediate:exec-result:sess-done:ctl:1','[\"exec\"]','[\"immediate:exec-result\"]','[\"session:sess-done\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"exec ctl: exit 1\",\"after\":0}')\0";
+    enum oldRow = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('immediate:exec-result:sess-done:ctl:1','[\"exec\"]','[\"immediate:exec-result\"]','[\"session:sess-done\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"exec ctl: exit 1\",\"after\":0}')\0";
     sqlite3_exec(testDb, oldRow.ptr, null, null, null);
-    enum receipt = "INSERT INTO attestations VALUES ('r1','[\"x\"]','[\"delivered:immediate:exec-result:sess-done:ctl:1\"]','[\"session:sess-done\"]','[\"ground\"]','2020-01-01T00:01:00Z','ground','{}')\0";
+    enum receipt = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('r1','[\"x\"]','[\"delivered:immediate:exec-result:sess-done:ctl:1\"]','[\"session:sess-done\"]','[\"ground\"]','2020-01-01T00:01:00Z','ground','{}')\0";
     sqlite3_exec(testDb, receipt.ptr, null, null, null);
 
     assert(countStaleExecForSession(testDb, "sess-done") == 0,
@@ -1725,10 +1773,9 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
-    enum ciRow = "INSERT INTO attestations VALUES ('immediate:ci-status:sess-ci','[\"x\"]','[\"immediate:ci-status\"]','[\"session:sess-ci\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"Checking CI...\",\"after\":0}')\0";
+    enum ciRow = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ('immediate:ci-status:sess-ci','[\"x\"]','[\"immediate:ci-status\"]','[\"session:sess-ci\"]','[\"ground\"]','2020-01-01T00:00:00Z','ground','{\"detail\":\"Checking CI...\",\"after\":0}')\0";
     sqlite3_exec(testDb, ciRow.ptr, null, null, null);
 
     assert(countStaleExecForSession(testDb, "sess-ci") == 0,
@@ -1746,8 +1793,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     enum said = "grep -qxF \"  - CHERRY\" WILLOW.md\nStill hanging: MANGO.";
     assert(writeNote(testDb, "sess-esc", "k", said));
@@ -1773,8 +1819,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     assert(writeNote(testDb, "sess-receipt", "k", "something happened"));
     auto one = readImmediateMessage(testDb, "/tmp/anywhere", "sess-receipt");
@@ -1795,8 +1840,7 @@ unittest {
     import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     char[2000] filler = 'x';
     char[2100] said = 0;
@@ -1819,8 +1863,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     enum cmd = `test -z "$(git status --porcelain)" || exit 1`;
     enum why = "goto taken 16 times, and max_goto for this project is 16";
@@ -1841,8 +1884,7 @@ unittest {
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);
 
-    enum createSql = "CREATE TABLE attestations (id TEXT PRIMARY KEY, subjects TEXT, predicates TEXT, contexts TEXT, actors TEXT, timestamp TEXT, source TEXT, attributes TEXT)\0";
-    sqlite3_exec(testDb, createSql.ptr, null, null, null);
+    assert(applySchema(testDb));
 
     writeCIStatus(testDb, "sess-gate-open", "acme/widget", "main", "abc1234", 0);
 
