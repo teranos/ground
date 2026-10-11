@@ -1,7 +1,6 @@
 module clock;
 
-// The first segment collet draws, byte for byte: a green clock in brackets.
-// From captures/grove/out.bytes, offset 0.
+// The first segment of the row, byte for byte: a green clock in brackets.
 
 enum GREEN = "\033[32m";
 enum RESET = "\033[0m";

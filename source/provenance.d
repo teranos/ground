@@ -334,7 +334,7 @@ unittest {
     assert(lineComment("run.sh") == "#");
     assert(lineComment("controls/x.pbt") == "#");
     assert(lineComment("script.pl") == "#");
-    assert(lineComment("src/collet.cr") == "#");
+    assert(lineComment("src/render.cr") == "#");
     assert(lineComment("am.toml") == "#");
     assert(lineComment("flake.nix") == "#");
     assert(lineComment("build.bash") == "#");

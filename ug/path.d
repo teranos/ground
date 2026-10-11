@@ -1,7 +1,6 @@
 module path;
 
 // What the row calls where you are.
-// Rules read from collet's format_path.
 
 // The project's own name when you are at its root, the project's name and the
 // rest when you are inside it, a tilde when you are outside it but home, and

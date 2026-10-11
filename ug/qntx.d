@@ -1,6 +1,6 @@
 module qntx;
 
-// The QNTX row. State model read from collet's QntxState and qntx_info.
+// The QNTX row, and the state model behind it.
 
 // Every state is a claim about what this process measured from this host, and
 // none of them is a claim that QNTX is down.

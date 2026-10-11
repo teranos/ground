@@ -9,7 +9,7 @@ unittest {
     assert(fenceTag("source/hooks.d") == "d");
     assert(fenceTag("src/execution.rs") == "rs");
     assert(fenceTag("engine.cpp") == "cpp");
-    assert(fenceTag("src/collet.cr") == "cr");
+    assert(fenceTag("src/render.cr") == "cr");
     assert(fenceTag("hooks/hook.py") == "py");
     assert(fenceTag("app.tsx") == "tsx");
     assert(fenceTag("am.toml") == "toml");

@@ -374,7 +374,7 @@ bool applySchema(sqlite3* db) {
         ~ "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)\0";
     sqlite3_exec(db, ritualPositionSchema.ptr, null, null, null);
 
-    // collet renders the line from the row alone. Without the names it has
+    // The line is rendered from the row alone. Without the names there are
     // glyphs and a cursor and nothing to put brackets around.
     ensureColumn(db, "ritual_position", "rites", "TEXT");
 

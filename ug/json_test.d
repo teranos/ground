@@ -20,10 +20,12 @@ static assert(jsonUnescapeInto(`no source: \"a b\"`, new char[64]) == 16);
 static assert(jsonUnescapeInto("plain", new char[64]) == 5);
 static assert(jsonUnescapeInto("toolong", new char[3]) == 3, "a full buffer stops, it does not overrun");
 
-enum capture = import("captures/grove/in.json");
-
-// Read out of the real payload, not a sample of one. The capture is a local
-// path, so what is asserted is the shape of the read rather than the value.
+// A whole payload of the shape Claude Code hands ug, so the reads are asserted
+// against a document rather than against a single pair at a time. The cwd is a
+// local path, so what is asserted is the shape of the read, not the value.
+enum capture = `{"session_id":"62dd6ff4-2dac-4c93-972c-3aaa2d488db5",`
+             ~ `"cwd":"/home/x/sbvh-nl/grove","project_dir":"/home/x/sbvh-nl/grove",`
+             ~ `"context_window":{"used_percentage":12.5}}`;
 static assert(baseName(jsonString(capture, "cwd")) == "grove");
 static assert(jsonString(capture, "session_id").length == 36);
 
@@ -40,7 +42,7 @@ static assert(jsonString(`{"cwder":"no"}`, "cwd") is null);
 // Escapes are left as written; nothing on the row needs them decoded yet.
 static assert(jsonString(`{"k":"a\/b"}`, "k") == `a\/b`);
 
-// The capture carries 12.5, and collet drew 12: the fraction is dropped, not
+// The payload carries 12.5 and the row draws 12: the fraction is dropped, not
 // rounded, so the number never claims a percent that has not been used.
 static assert(jsonNumber(capture, "used_percentage") == 12);
 static assert(jsonNumber(`{"n":0}`, "n") == 0);

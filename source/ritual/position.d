@@ -200,8 +200,8 @@ Position jump(Position p, size_t target) {
     return p;
 }
 
-// One character per rite. The row is legible without a decoder, and collet
-// renders the line straight from it.
+// One character per rite. The row is legible without a decoder, and the line
+// is rendered straight from it.
 package immutable char[5] GLYPH = ['.', '-', '>', '+', '!'];
 
 struct Encoded {

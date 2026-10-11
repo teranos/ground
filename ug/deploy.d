@@ -1,7 +1,6 @@
 module deploy;
 
 // Which build this host last saw, and when it first saw it.
-// Rules read from collet's Deploy.note.
 
 // The row is one process per frame, so whether a build changed is a question
 // only disk can answer, and a deploy outlives any session.
