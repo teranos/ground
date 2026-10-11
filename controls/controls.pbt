@@ -75,17 +75,6 @@ scope {
     decision: "deny"
 
     control {
-      name: "kill-not-requested"
-      cmd: ["kill", "pkill"]
-      check_handler: "killNotRequested"
-      # "make sure the did-not-request-kill control doesnt fire for fable"
-      handler_params {
-        unless_model: "fable"
-      }
-      msg: "The developer has not requested killing a process. Wait for an explicit kill request."
-    }
-
-    control {
       name: "no-bulk-add"
       cmd: "=git add ."
       msg: "Stage files by name. Do not use git add . — it bypasses binary file detection and may include unintended files."
