@@ -5,7 +5,7 @@ module tmux;
 // tmux keeps the first line of a #() and drops the rest, and it renders its own
 // #[fg=...] rather than ANSI. Both are why this is a separate surface.
 
-import json : jsonString;
+import json : jsonString, jsonNumber;
 import statusline : nextObject, itemsAt, lastAnswer, keepAnswer, QUIET;
 
 enum GREEN = "#[fg=colour34]";
@@ -354,8 +354,13 @@ int tmuxMain(const(char)[] home, long now) {
         n = isJson(answer.body_)
             ? itemsInto(answer.body_, line[])
             : oneLineInto(answer.body_, line[]);
-        // The node answered, so it can be asked what it left for this token.
-        newsPass(home);
+        // The node answered, so it can be asked what it left for this token,
+        // and a deploy underway leads the row.
+        auto json = newsPass(home);
+        __gshared char[8192] over = void;
+        auto on = deploysOverInto(line[0 .. n], json, now, over[]);
+        foreach (i; 0 .. on) line[i] = over[i];
+        n = on;
     } else if (answer.status > 0) {
         // The node answered and the answer was a refusal. That is not silence,
         // and it must not wait out the quiet window pretending it might pass.
@@ -469,7 +474,7 @@ int tmuxMain(const(char)[] home, long now) {
 // the spelled line, because an id does not survive being drawn. An item that
 // is already in the store costs one SELECT; a new one costs one more ask, for
 // the whole of it, which is where the session it is for is named.
-void newsPass(const(char)[] home) {
+const(char)[] newsPass(const(char)[] home) {
     import probe : fetch;
     import qntx : State;
     import sql : newsSeen, leaveNews;
@@ -478,7 +483,7 @@ void newsPass(const(char)[] home) {
     // a token speaks for, so what the ground token's push earned is found by
     // this one; the ground token itself cannot read the row.
     auto answer = fetch(home, "/am/statusline?format=json");
-    if (answer.state != State.ok || !isJson(answer.body_)) return;
+    if (answer.state != State.ok || !isJson(answer.body_)) return "";
 
     // fetch answers out of one static buffer, and the ask for an item's
     // detail below is a second fetch: it overwrote the items while they were
@@ -531,6 +536,144 @@ void newsPass(const(char)[] home) {
 
         leaveNews(home, id, session is null ? "" : session, repo, detail[0 .. d]);
     }
+    return body_;
+}
+
+// A plugin's deploy is drawn on the plugin's own name, from what the node holds
+// of it. Behind the letters: purple as far as the node's own build is, green as
+// far as GitHub's checks passed, yellow and blinking for the rest.
+enum BUILT   = "#[fg=colour231,bg=colour91]";
+enum CHECKED = "#[fg=colour16,bg=colour34]";
+enum TO_GO   = "#[fg=colour16,bg=colour178,blink]";
+enum FAILED  = "#[fg=colour231,bg=colour160]";
+
+// How far one bar is, in columns of a name `width` wide.
+struct Fill {
+    int done;
+    int of;
+    bool failed;
+    bool present;
+}
+
+size_t columns(Fill f, size_t width) {
+    if (!f.present) return width;
+    if (f.of <= 0 || f.done <= 0) return 0;
+    auto c = width * cast(size_t) f.done / cast(size_t) f.of;
+    return c > width ? width : c;
+}
+
+// The name with its background filled. A deploy no push began has no checks
+// bar, and is green behind all of it.
+size_t filledNameInto(const(char)[] name, Fill checks, Fill node, char[] dest) {
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+
+    if (checks.failed || node.failed) {
+        put(FAILED); put(name); put(PLAIN);
+        return o;
+    }
+    auto green = columns(checks, name.length);
+    auto purple = columns(node, name.length);
+    const(char)[] was = null;
+    foreach (i; 0 .. name.length) {
+        auto now = i < purple ? BUILT : i < green ? CHECKED : TO_GO;
+        if (now != was) { put(now); was = now; }
+        if (o < dest.length) dest[o++] = name[i];
+    }
+    put(PLAIN);
+    return o;
+}
+
+// How long the slot shows the name, and then the version coming in.
+enum ALTERNATE = 2;
+
+// One deploy as the node's JSON carries it, filled: the plugin's name, and in
+// its place every other turn the version coming in, the shorter padded to the
+// longer so the bar keeps its width. Nothing is written beside it.
+size_t deployInto(const(char)[] obj, long now, char[] dest) {
+    import statusline : indexOf;
+
+    auto name = jsonString(obj, "name");
+    auto bars = indexOf(obj, `"bars":`);
+    if (name is null || bars < 0) return 0;
+
+    auto incoming = jsonString(obj, "note");
+    if (incoming is null) incoming = name;
+    auto shown = (now / ALTERNATE) % 2 == 0 ? name : incoming;
+    auto width = name.length > incoming.length ? name.length : incoming.length;
+    char[64] slot;
+    size_t w = 0;
+    foreach (c; shown) if (w < slot.length) slot[w++] = c;
+    while (w < width && w < slot.length) slot[w++] = ' ';
+
+    Fill checks, node;
+    size_t barAt = cast(size_t) bars;
+    while (true) {
+        auto bar = nextObject(obj, barAt);
+        if (!bar.ok) break;
+        barAt = bar.end;
+        auto b = obj[bar.start .. bar.end];
+        auto f = Fill(jsonNumber(b, "done"), jsonNumber(b, "of"), indexOf(b, `"failed":true`) >= 0, true);
+        if (jsonString(b, "kind") == "node") node = f; else checks = f;
+    }
+    return filledNameInto(slot[0 .. w], checks, node, dest);
+}
+
+// The row with each deploy drawn in place of its plugin's item: tmux names the
+// item's span after the plugin, so the span is found by that. A plugin the row
+// has no span for is drawn first.
+size_t deploysOverInto(const(char)[] line, const(char)[] body_, long now, char[] dest) {
+    import statusline : indexOf;
+
+    char[8192] work;
+    size_t w = 0;
+    foreach (c; line) if (w < work.length) work[w++] = c;
+
+    size_t at = itemsAt(body_);
+    while (true) {
+        auto span = nextObject(body_, at);
+        if (!span.ok) break;
+        at = span.end;
+        auto obj = body_[span.start .. span.end];
+
+        char[2048] drawn;
+        auto dn = deployInto(obj, now, drawn[]);
+        if (dn == 0) continue;
+
+        char[64] marker;
+        size_t m = 0;
+        foreach (c; "#[range=user|") marker[m++] = c;
+        foreach (i, c; jsonString(obj, "name")) {
+            if (i >= 15) break;
+            marker[m++] = c == '/' ? '.' : c;
+        }
+        marker[m++] = ']';
+
+        char[8192] next;
+        size_t n = 0;
+        void put(const(char)[] t) { foreach (c; t) if (n < next.length) next[n++] = c; }
+
+        auto start = indexOf(work[0 .. w], marker[0 .. m]);
+        auto end = start < 0 ? -1 : indexOf(work[cast(size_t) start .. w], "#[norange]");
+        if (start < 0 || end < 0) {
+            put(drawn[0 .. dn]);
+            if (w > 0) put(SEP);
+            put(work[0 .. w]);
+        } else {
+            auto s = cast(size_t) start;
+            auto e = s + cast(size_t) end;
+            put(work[0 .. s]);
+            put(marker[0 .. m]);
+            put(drawn[0 .. dn]);
+            put(work[e .. w]);
+        }
+        foreach (i; 0 .. n) work[i] = next[i];
+        w = n;
+    }
+
+    size_t o = 0;
+    foreach (c; work[0 .. w]) if (o < dest.length) dest[o++] = c;
+    return o;
 }
 
 // A status the node chose is more use than a word chosen for it.

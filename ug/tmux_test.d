@@ -207,6 +207,104 @@ static assert(label!""()[0 .. 2] == "cc");
 // A dest too small truncates rather than writing past it.
 static assert(weekLabelInto("max", new char[3]) == 3);
 
+// A deploy is drawn on the plugin's own name: behind its letters, green from
+// the left a step for each check that passed, then purple as far as the node's
+// own build is, the letters not reached yellow and blinking.
+import tmux : filledNameInto, deployInto, deploysOverInto, Fill, CHECKED, BUILT, TO_GO, FAILED;
+
+char[512] named(const(char)[] name, Fill checks, Fill node)() {
+    char[512] buf = '.';
+    filledNameInto(name, checks, node, buf[]);
+    return buf;
+}
+
+enum notBuilt = Fill(0, 3, false, true);
+
+// One check of eight passed: green behind the c, the rest yellow.
+enum oneOfEight = CHECKED ~ "c" ~ TO_GO ~ "leanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(1, 8, false, true), notBuilt)()[0 .. oneOfEight.length] == oneOfEight);
+
+// Two of eight: the l is green as well.
+enum twoOfEight = CHECKED ~ "cl" ~ TO_GO ~ "eanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(2, 8, false, true), notBuilt)()[0 .. twoOfEight.length] == twoOfEight);
+
+// No check heard yet: none of it green.
+enum noneYet = TO_GO ~ "cleanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(0, 0, false, true), notBuilt)()[0 .. noneYet.length] == noneYet);
+
+// Every check passed: the whole name green.
+enum allPassed = CHECKED ~ "cleanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(3, 3, false, true), notBuilt)()[0 .. allPassed.length] == allPassed);
+
+// The node building, one stage of three: purple over the first third.
+enum building = BUILT ~ "cl" ~ CHECKED ~ "eanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(3, 3, false, true), Fill(1, 3, false, true))()[0 .. building.length] == building);
+
+// A deploy no push began has no checks, and is green behind all of it.
+enum unpushed = BUILT ~ "clean" ~ CHECKED ~ "API" ~ PLAIN;
+static assert(named!("cleanAPI", Fill.init, Fill(2, 3, false, true))()[0 .. unpushed.length] == unpushed);
+
+// A failure is red and still.
+enum failed = FAILED ~ "cleanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(1, 3, true, true), notBuilt)()[0 .. failed.length] == failed);
+
+// The slot is the whole of it: nothing is written beside it. It is the name,
+// and every other turn the version coming in in the name's place, padded to
+// the name's width, with the same fill behind it.
+enum deploying = `{"name":"cleanAPI","note":"abc1234","symbol":"+","bars":[` ~
+    `{"kind":"checks","done":2,"of":8},` ~
+    `{"kind":"node","done":0,"of":3}]}`;
+
+enum deployingDrawn = twoOfEight;
+enum incomingDrawn = CHECKED ~ "ab" ~ TO_GO ~ "c1234 " ~ PLAIN;
+
+char[1024] deployed(const(char)[] obj, long now)() {
+    char[1024] buf = '.';
+    deployInto(obj, now, buf[]);
+    return buf;
+}
+
+static assert(deployInto(deploying, 0, new char[1024]) == deployingDrawn.length);
+static assert(deployed!(deploying, 0)()[0 .. deployingDrawn.length] == deployingDrawn);
+static assert(deployed!(deploying, 1)()[0 .. deployingDrawn.length] == deployingDrawn);
+static assert(deployInto(deploying, 2, new char[1024]) == incomingDrawn.length);
+static assert(deployed!(deploying, 2)()[0 .. incomingDrawn.length] == incomingDrawn);
+
+// A failed deploy is the slot in red.
+enum failing = `{"name":"cleanAPI","note":"abc1234","symbol":"!","bars":[` ~
+    `{"kind":"checks","done":3,"of":3},` ~
+    `{"kind":"node","done":1,"of":3,"failed":true}]}`;
+static assert(deployed!(failing, 0)()[0 .. failed.length] == failed);
+enum failedIncoming = FAILED ~ "abc1234 " ~ PLAIN;
+static assert(deployed!(failing, 2)()[0 .. failedIncoming.length] == failedIncoming);
+
+// An item with no bars is not a deploy.
+static assert(deployInto(`{"name":"QNTX","symbol":"+"}`, 0, new char[256]) == 0);
+
+// The deploy takes the place of its plugin's item on the line the node spelled.
+enum spelled = `#[range=user|QNTX]#[fg=colour34]QNTX#[default]#[norange]  ` ~
+    `#[range=user|cleanAPI]#[fg=colour34]cleanAPI#[default] #[fg=colour244]0.6.12#[default]#[norange]`;
+enum servedRow = `{"items":[` ~ deploying ~ `,{"name":"QNTX","symbol":"+"}]}`;
+enum overDrawn = `#[range=user|QNTX]#[fg=colour34]QNTX#[default]#[norange]  ` ~
+    `#[range=user|cleanAPI]` ~ deployingDrawn ~ `#[norange]`;
+
+char[4096] overed(const(char)[] line, const(char)[] body_)() {
+    char[4096] buf = '.';
+    deploysOverInto(line, body_, 0, buf[]);
+    return buf;
+}
+
+static assert(deploysOverInto(spelled, servedRow, 0, new char[4096]) == overDrawn.length);
+static assert(overed!(spelled, servedRow)()[0 .. overDrawn.length] == overDrawn);
+
+// A plugin the line has no item for yet is drawn first.
+enum bare = `#[range=user|QNTX]#[fg=colour34]QNTX#[default]#[norange]`;
+enum ledDrawn = deployingDrawn ~ "  " ~ bare;
+static assert(overed!(bare, servedRow)()[0 .. ledDrawn.length] == ledDrawn);
+
+// A row with no deploy is the line as the node spelled it.
+static assert(overed!(spelled, `{"items":[{"name":"QNTX","symbol":"+"}]}`)()[0 .. spelled.length] == spelled);
+
 // "click with my mouse cursor on the specific plugin in the statusline, and see
 // a plugin version of the statusline, and then click again, and get back"
 import tmux : isPluginName, rowPathInto;
