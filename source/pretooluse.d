@@ -652,7 +652,25 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         }
                         givenBack = taperOf(c.taper.value, week);
                         weekRead = week;
-                        amended = applyRange(c.range.value, m.segment, givenBack);
+
+                        // How far the file's own head reaches, so the extra
+                        // lines are spent on its prose rather than on whatever
+                        // sits between that prose and the aim.
+                        long headLines = 0;
+                        {
+                            import substitute : headOf;
+                            import matcher : effectiveCwd, shellHome, headRun;
+                            auto cmdv = c.cmd.value;
+                            size_t w = 0;
+                            while (w < cmdv.length && cmdv[w] != ' ') w++;
+                            string[1] utils = [cast(string) cmdv[0 .. w]];
+                            __gshared ZBuf head;
+                            head.reset();
+                            auto eff = effectiveCwd(command, cwd, shellHome());
+                            if (headOf(head, m.segment, utils[], eff, 16384) > 0)
+                                headLines = headRun(head.slice(), 512);
+                        }
+                        amended = applyRange(c.range.value, m.segment, givenBack, headLines);
                     } else
                         amended = applyArg(c, m.segment);
 

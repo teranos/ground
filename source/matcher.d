@@ -855,16 +855,32 @@ long taperOf(string taper, long weekTenths) {
 // `<start>,<B+more>p`. No range in the segment, unchanged. `givenBack` is
 // taperOf's permille: the start walks that far from the top back to A, and
 // the reach past B shrinks by as much, so at 1000 the segment is as typed.
-Buf applyRange(string spec, const(char)[] segment, long givenBack = 0) {
+Buf applyRange(string spec, const(char)[] segment, long givenBack = 0, long headLines = 0) {
     Buf buf;
 
     auto sep = indexOf(spec, ",+");
     if (sep < 0) { buf.put(segment); return buf; }
     auto start = decimalOf(spec[0 .. cast(size_t) sep]);
-    auto more = decimalOf(spec[cast(size_t) sep + 2 .. $]);
+
+    // A third part caps what the head may cost. Without one the widening
+    // reaches the top however far that is, which is what it did before.
+    auto tail = spec[cast(size_t) sep + 2 .. $];
+    long cap = -1;
+    auto capAt = indexOf(tail, ",");
+    if (capAt >= 0) {
+        cap = decimalOf(tail[cast(size_t) capAt + 1 .. $]);
+        tail = tail[0 .. cast(size_t) capAt];
+    }
+    auto more = decimalOf(tail);
     if (start < 0 || more < 0) { buf.put(segment); return buf; }
     if (givenBack < 0) givenBack = 0;
     if (givenBack > 1000) givenBack = 1000;
+    if (headLines < 0) headLines = 0;
+
+    // What the head is worth here: the comment run the file opens with, never
+    // more than the cap, and giving way with the week like the reach does.
+    long head = cap < 0 ? -1 : (headLines < cap ? headLines : cap);
+    if (head > 0) head -= head * givenBack / 1000;
 
     static bool digit(char c) { return c >= '0' && c <= '9'; }
 
@@ -882,10 +898,30 @@ Buf applyRange(string spec, const(char)[] segment, long givenBack = 0) {
 
         auto aimed = decimalOf(segment[aStart .. i]);
         auto end = decimalOf(segment[bStart .. j]);
-        long from = start;
-        if (aimed > start) from = start + (aimed - start) * givenBack / 1000;
         auto reach = more - more * givenBack / 1000;
         buf.put(segment[0 .. aStart]);
+
+        // Capped: the head is its own range, so the top arrives whole and the
+        // lines between it and the aim are not paid for. An aim inside the head
+        // is one range, and nothing to prefer up top leaves only the aim.
+        if (cap >= 0) {
+            if (head > 0 && aimed > head + 1) {
+                putDecimal(buf, cast(int) start);
+                buf.put(",");
+                putDecimal(buf, cast(int) head);
+                buf.put("p;");
+                putDecimal(buf, cast(int) aimed);
+            } else {
+                putDecimal(buf, cast(int)(head > 0 ? start : aimed));
+            }
+            buf.put(",");
+            putDecimal(buf, cast(int)(end + reach));
+            buf.put(segment[j .. $]);
+            return buf;
+        }
+
+        long from = start;
+        if (aimed > start) from = start + (aimed - start) * givenBack / 1000;
         putDecimal(buf, cast(int) from);
         buf.put(",");
         putDecimal(buf, cast(int)(end + reach));
@@ -913,6 +949,41 @@ unittest {
 }
 
 unittest {
+    // "so widen, but dont widen beyond 100 extra lines"
+    // "becasue its cheap to add 100 in my mental picture, cpmpared to not reading the top of the file"
+
+    // The head is what the widening is for, and the head is the comment run the
+    // file opens with: 38 lines of it are 38 lines spent, not 100.
+    assert(applyRange("1,+10,100", "sed -n 740,748p f.d", 0, 38).slice()
+           == "sed -n 1,38p;740,758p f.d");
+    assert(applyRange("1,+10,100", "sed -n '740,748p' f.d", 0, 38).slice()
+           == "sed -n '1,38p;740,758p' f.d");
+
+    // A header longer than the cap is cut at the cap. Nothing beyond it is
+    // worth the rest of the session.
+    assert(applyRange("1,+10,100", "sed -n 740,748p f.d", 0, 400).slice()
+           == "sed -n 1,100p;740,758p f.d");
+
+    // Nothing but code up top is nothing to prefer, so only the aim is widened.
+    assert(applyRange("1,+10,100", "sed -n 740,748p f.d", 0, 0).slice()
+           == "sed -n 740,758p f.d");
+
+    // An aim inside the head is one range, as it was before a cap existed.
+    assert(applyRange("1,+10,100", "sed -n 20,30p f.d", 0, 38).slice()
+           == "sed -n 1,40p f.d");
+
+    // The head gives way with the week, the way the reach does, and at the end
+    // of the taper the segment is what was typed.
+    assert(applyRange("1,+10,100", "sed -n 740,748p f.d", 500, 38).slice()
+           == "sed -n 1,19p;740,753p f.d");
+    assert(applyRange("1,+10,100", "sed -n 740,748p f.d", 1000, 38).slice()
+           == "sed -n 740,748p f.d");
+
+    // No cap named is the widening as it was authored: all the way to the top.
+    assert(applyRange("1,+10", "sed -n 740,748p f.d").slice() == "sed -n 1,758p f.d");
+}
+
+unittest {
     // "the sed rewrite rule, i want it to behave differently based on our usage. if our weekly is over 40% it should start to taper down in how much it gives back with 70%+ weekly usage going back to what the model normally does. so at 70% the sed rewrite rule would not even be applied anymore. do you hear what im saying actually?"
     // How much of the widening is given up, in permille of the way from the
     // taper's start to its end. The week is read in tenths of a percent.
@@ -932,6 +1003,70 @@ unittest {
     assert(applyRange("1,+10", "sed -n 300,340p x", 500).slice() == "sed -n 150,345p x");
     assert(applyRange("1,+10", "sed -n 300,340p x", 1000).slice() == "sed -n 300,340p x");
     assert(applyRange("1,+10", "sed -n 1,10p x", 500).slice() == "sed -n 1,15p x");
+}
+
+// How far the head of a file reaches: the run it opens with of comment lines,
+// blank lines and a module declaration, ending at the first line that is none
+// of those. Bounded by `cap`, since nothing past it is worth the session.
+private bool opens(const(char)[] s, const(char)[] prefix) {
+    return s.length >= prefix.length && s[0 .. prefix.length] == prefix;
+}
+
+long headRun(const(char)[] content, long cap) {
+    if (cap <= 0 || content.length == 0) return 0;
+    long lines = 0;
+    bool anyComment = false;
+    size_t i = 0;
+    while (i <= content.length) {
+        size_t e = i;
+        while (e < content.length && content[e] != '\n') e++;
+        auto line = content[i .. e];
+
+        size_t s = 0;
+        while (s < line.length && (line[s] == ' ' || line[s] == '\t')) s++;
+        auto t = line[s .. $];
+
+        bool comment = opens(t, "//") || opens(t, "#")
+            || opens(t, "/*") || opens(t, "*");
+        bool isHead = comment || t.length == 0 || opens(t, "module ");
+        if (!isHead) break;
+        if (comment) anyComment = true;
+
+        lines++;
+        if (lines >= cap) return anyComment ? cap : 0;
+        if (e >= content.length) break;
+        i = e + 1;
+    }
+
+    // A module line and a blank are not a comment section, so they buy nothing:
+    // a range spent to hand over the word `module` is noise with syntax on it.
+    return anyComment ? lines : 0;
+}
+
+unittest {
+    // "i want top section to be preferred on adding extra context if its commnts, of the 100"
+    // The module line, its prose and the blank between them are the head; the
+    // first import is where it stops.
+    enum d = "module m;\n\n// why this exists\n// and what it holds\n\nimport std;\nvoid f() {}\n";
+    assert(headRun(d, 100) == 5);
+
+    // A file that opens with code has no head to prefer.
+    assert(headRun("import std;\n// later\n", 100) == 0);
+
+    // Measured on source/proto.d, which opens module, blank, import: a run
+    // carrying no comment is a declaration and not a section worth a range.
+    assert(headRun("module proto;\n\nimport hooks;\n", 100) == 0);
+    assert(headRun("module m;\n\n\n", 100) == 0);
+
+    // Prose past the cap is cut at it.
+    assert(headRun("// a\n// b\n// c\n// d\n", 2) == 2);
+
+    // Nothing to read, and nothing allowed, are both no head.
+    assert(headRun("", 100) == 0);
+    assert(headRun("// a\n", 0) == 0);
+
+    // A hash-commented file reads the same way.
+    assert(headRun("# the node\n# it runs here\nqntx {\n", 100) == 2);
 }
 
 // Strips the entire line containing the needle.
