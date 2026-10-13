@@ -2,55 +2,14 @@ module tmux_test;
 
 // CTFE tests — failure shows as a compile error.
 
-import tmux : glyphColour, isJson, itemsInto, sinceInto, oneLineInto;
+import tmux : isJson, sinceInto, oneLineInto;
 import tmux : GREEN, RED, DIM, PLAIN;
 
-// tmux renders its own markup and prints ANSI literally, so nothing here may
-// carry an escape.
-static assert(glyphColour("+") == GREEN);
-static assert(glyphColour("!") == RED);
-static assert(glyphColour("?") is null);
-static assert(glyphColour("") is null);
-
-// The node spells the row itself once the format parameter ships. Until then
-// it serves items, and both have to be read.
+// The JSON row is read for news and deploys; the tmux line is printed.
 static assert(isJson(`{"items":[]}`));
 static assert(isJson("  \n{\"items\":[]}"));
 static assert(!isJson("#[fg=colour34]capy#[default]"));
 static assert(!isJson(""));
-
-char[512] drawn(const(char)[] body_)() {
-    char[512] buf = '.';
-    itemsInto(body_, buf[]);
-    return buf;
-}
-
-size_t drawnLen(const(char)[] body_) {
-    char[512] buf = '.';
-    return itemsInto(body_, buf[]);
-}
-
-enum served = `{"items":[` ~
-    `{"name":"capy","note":"0.244.0","glyph":"+"},` ~
-    `{"name":"duif","glyph":"!"}]}`;
-
-enum want =
-    GREEN ~ "capy" ~ PLAIN ~ " " ~ DIM ~ "0.244.0" ~ PLAIN ~ "  " ~
-    RED ~ "duif" ~ PLAIN;
-
-static assert(drawnLen(served) == want.length);
-static assert(drawn!served()[0 .. want.length] == want);
-
-// An item with no note draws no trailing space and no empty span.
-static assert(drawnLen(`{"items":[{"name":"x","glyph":"+"}]}`)
-              == (GREEN ~ "x" ~ PLAIN).length);
-
-// A glyph this build has no colour for draws nothing rather than being
-// guessed at as well.
-static assert(drawnLen(`{"items":[{"name":"x","glyph":"?"}]}`) == 0);
-
-// Nothing to say is nothing drawn.
-static assert(drawnLen(`{"items":[]}`) == 0);
 
 char[256] since(long s)() {
     char[256] buf = '.';

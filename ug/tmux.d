@@ -134,62 +134,13 @@ size_t minutesInto(const(char)[] org, long used, long quota, char[] dest) {
     return o;
 }
 
-const(char)[] glyphColour(const(char)[] glyph) {
-    if (glyph == "+") return GREEN;
-    if (glyph == "!") return RED;
-    return null;
-}
-
-// A body the node already spelled for tmux, or one it has not. The deployed
-// node serves items until the format parameter ships, so both are read.
+// Whether a body is the node's JSON row.
 bool isJson(const(char)[] body_) {
     foreach (c; body_) {
         if (c == ' ' || c == '\n' || c == '\r' || c == '\t') continue;
         return c == '{';
     }
     return false;
-}
-
-// Items rendered here, for as long as the node still serves them.
-size_t itemsInto(const(char)[] body_, char[] dest) {
-    size_t o = 0;
-
-    void put(const(char)[] t) {
-        foreach (c; t) if (o < dest.length) dest[o++] = c;
-    }
-
-    bool first = true;
-    size_t at = itemsAt(body_);
-
-    while (true) {
-        auto span = nextObject(body_, at);
-        if (!span.ok) break;
-        at = span.end;
-
-        auto obj = body_[span.start .. span.end];
-        auto name = jsonString(obj, "name");
-        if (name is null) continue;
-
-        auto colour = glyphColour(jsonString(obj, "glyph"));
-        if (colour is null) continue;
-
-        if (!first) put(SEP);
-        first = false;
-
-        put(colour);
-        put(name);
-        put(PLAIN);
-
-        auto note = jsonString(obj, "note");
-        if (note !is null && note.length > 0) {
-            put(" ");
-            put(DIM);
-            put(note);
-            put(PLAIN);
-        }
-    }
-
-    return o;
 }
 
 // How long the node has been unreachable. Only this side can know it, so it is
@@ -351,11 +302,9 @@ int tmuxMain(const(char)[] home, long now) {
         // What is kept stands in for the node's row through a short silence,
         // so a plugin's row is not what gets kept.
         if (focus is null) keepAnswer(home, now, answer.body_);
-        n = isJson(answer.body_)
-            ? itemsInto(answer.body_, line[])
-            : oneLineInto(answer.body_, line[]);
+        n = oneLineInto(answer.body_, line[]);
         // The node answered, so it can be asked what it left for this token,
-        // and a deploy underway leads the row.
+        // and each deploy is drawn on its plugin's name.
         auto json = newsPass(home);
         __gshared char[8192] over = void;
         auto on = deploysOverInto(line[0 .. n], json, now, over[]);
@@ -370,9 +319,7 @@ int tmuxMain(const(char)[] home, long now) {
         if (seen.at > 0) {
             auto silence = now - seen.at;
             if (silence < QUIET)
-                n = isJson(seen.body_)
-                    ? itemsInto(seen.body_, line[])
-                    : oneLineInto(seen.body_, line[]);
+                n = oneLineInto(seen.body_, line[]);
             else
                 n = sinceInto(silence, line[]);
         }
