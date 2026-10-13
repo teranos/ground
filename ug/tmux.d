@@ -5,7 +5,7 @@ module tmux;
 // tmux keeps the first line of a #() and drops the rest, and it renders its own
 // #[fg=...] rather than ANSI. Both are why this is a separate surface.
 
-import json : jsonString;
+import json : jsonString, jsonNumber;
 import statusline : nextObject, itemsAt, lastAnswer, keepAnswer, QUIET;
 
 enum GREEN = "#[fg=colour34]";
@@ -354,8 +354,13 @@ int tmuxMain(const(char)[] home, long now) {
         n = isJson(answer.body_)
             ? itemsInto(answer.body_, line[])
             : oneLineInto(answer.body_, line[]);
-        // The node answered, so it can be asked what it left for this token.
-        newsPass(home);
+        // The node answered, so it can be asked what it left for this token,
+        // and a deploy underway leads the row.
+        auto json = newsPass(home);
+        __gshared char[8192] over = void;
+        auto on = deploysOverInto(line[0 .. n], json, now, over[]);
+        foreach (i; 0 .. on) line[i] = over[i];
+        n = on;
     } else if (answer.status > 0) {
         // The node answered and the answer was a refusal. That is not silence,
         // and it must not wait out the quiet window pretending it might pass.
@@ -469,7 +474,7 @@ int tmuxMain(const(char)[] home, long now) {
 // the spelled line, because an id does not survive being drawn. An item that
 // is already in the store costs one SELECT; a new one costs one more ask, for
 // the whole of it, which is where the session it is for is named.
-void newsPass(const(char)[] home) {
+const(char)[] newsPass(const(char)[] home) {
     import probe : fetch;
     import qntx : State;
     import sql : newsSeen, leaveNews;
@@ -478,7 +483,7 @@ void newsPass(const(char)[] home) {
     // a token speaks for, so what the ground token's push earned is found by
     // this one; the ground token itself cannot read the row.
     auto answer = fetch(home, "/am/statusline?format=json");
-    if (answer.state != State.ok || !isJson(answer.body_)) return;
+    if (answer.state != State.ok || !isJson(answer.body_)) return "";
 
     // fetch answers out of one static buffer, and the ask for an item's
     // detail below is a second fetch: it overwrote the items while they were
@@ -531,6 +536,258 @@ void newsPass(const(char)[] home) {
 
         leaveNews(home, id, session is null ? "" : session, repo, detail[0 .. d]);
     }
+    return body_;
+}
+
+// A plugin's deploy is drawn on the plugin's own name, from what the node holds
+// of it. Behind the letters: purple as far as the node's own build is, green as
+// far as GitHub's checks passed, yellow and blinking for the rest.
+enum BUILT    = "#[fg=colour231,bg=colour91]";
+enum CHECKED  = "#[fg=colour16,bg=colour34]";
+enum TO_GO    = "#[fg=colour16,bg=colour178]";
+enum FAILED   = "#[fg=colour231,bg=colour160]";
+// "i dont want blinking bg when its building, just slight blink on finish"
+enum FINISHED = "#[fg=colour231,bg=colour91,blink]";
+
+// How far one bar is, in columns of a name `width` wide.
+struct Fill {
+    int done;
+    int of;
+    bool failed;
+    bool present;
+}
+
+size_t columns(Fill f, size_t width) {
+    if (!f.present) return width;
+    if (f.of <= 0 || f.done <= 0) return 0;
+    auto c = width * cast(size_t) f.done / cast(size_t) f.of;
+    return c > width ? width : c;
+}
+
+// The name with its background filled. A deploy no push began has no checks
+// bar, and is green behind all of it.
+size_t filledNameInto(const(char)[] name, Fill checks, Fill node, char[] dest) {
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+
+    if (checks.failed || node.failed) {
+        put(FAILED); put(name); put(PLAIN);
+        return o;
+    }
+    auto green = columns(checks, name.length);
+    auto purple = columns(node, name.length);
+    const(char)[] was = null;
+    foreach (i; 0 .. name.length) {
+        auto now = i < purple ? BUILT : i < green ? CHECKED : TO_GO;
+        if (now != was) { put(now); was = now; }
+        if (o < dest.length) dest[o++] = name[i];
+    }
+    put(PLAIN);
+    return o;
+}
+
+// How long the slot shows the name, and then the version coming in.
+enum ALTERNATE = 2;
+// How long a deploy that went live blinks: tmux redraws every 5 seconds.
+enum FINISH = 10;
+// How long a failure stays when no other news comes after it.
+enum FAILURE = 120;
+
+// Seconds since the epoch of an RFC 3339 time as Go writes it, UTC:
+// 2026-10-13T07:31:10.060881525Z. Zero for one that is not that.
+long epochOf(const(char)[] t) {
+    if (t.length < 19 || t[4] != '-' || t[7] != '-' || t[10] != 'T') return 0;
+    long num(size_t from, size_t n) {
+        long v = 0;
+        foreach (i; from .. from + n) v = v * 10 + (t[i] - '0');
+        return v;
+    }
+    long y = num(0, 4), m = num(5, 2), d = num(8, 2);
+    // Days from the civil date, Howard Hinnant's algorithm.
+    y -= m <= 2 ? 1 : 0;
+    long era = (y >= 0 ? y : y - 399) / 400;
+    long yoe = y - era * 400;
+    long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    long days = era * 146097 + doe - 719468;
+    return days * 86400 + num(11, 2) * 3600 + num(14, 2) * 60 + num(17, 2);
+}
+
+// The value of a key inside the named object of obj: `"began":{"live":"…"}`.
+const(char)[] inObject(const(char)[] obj, const(char)[] object, const(char)[] key) {
+    import statusline : indexOf;
+    char[32] open;
+    size_t n = 0;
+    foreach (c; `"`) open[n++] = c;
+    foreach (c; object) if (n < open.length - 3) open[n++] = c;
+    foreach (c; `":{`) open[n++] = c;
+    auto at = indexOf(obj, open[0 .. n]);
+    if (at < 0) return null;
+    auto inner = nextObject(obj, cast(size_t) at + n - 1);
+    if (!inner.ok) return null;
+    return jsonString(obj[inner.start .. inner.end], key);
+}
+
+// How many of a deploy's checks said state.
+int checksSaid(const(char)[] obj, const(char)[] state) {
+    import statusline : indexOf;
+    auto at = indexOf(obj, `"checks":{`);
+    if (at < 0) return 0;
+    auto inner = nextObject(obj, cast(size_t) at + 9);
+    if (!inner.ok) return 0;
+    auto checks = obj[inner.start .. inner.end];
+    char[16] said;
+    size_t n = 0;
+    foreach (c; `:"`) said[n++] = c;
+    foreach (c; state) if (n < said.length - 1) said[n++] = c;
+    said[n++] = '"';
+    int count = 0;
+    size_t from = 0;
+    while (from < checks.length) {
+        auto hit = indexOf(checks[from .. $], said[0 .. n]);
+        if (hit < 0) break;
+        count++;
+        from += cast(size_t) hit + n;
+    }
+    return count;
+}
+
+// How far along the node's own build a stage is, of three.
+int builtOf(const(char)[] stage) {
+    if (stage == "building") return 1;
+    if (stage == "restarting") return 2;
+    if (stage == "live") return 3;
+    return 0;
+}
+
+// When a deploy last moved: the latest of the stages it began.
+long movedAt(const(char)[] obj) {
+    long latest = 0;
+    foreach (stage; ["checks", "queued", "building", "restarting", "live", "failed", "unchanged", "disabled", "interrupted"]) {
+        auto at = epochOf(inObject(obj, "began", stage));
+        if (at > latest) latest = at;
+    }
+    return latest;
+}
+
+// One deploy as the node's data says it, drawn on the plugin's own name, with
+// the version its build said in the name's place every other turn.
+// Nothing for a deploy that is over; newest is when another deploy last moved.
+size_t deployInto(const(char)[] obj, long now, long newest, char[] dest) {
+    import statusline : indexOf;
+
+    auto name = jsonString(obj, "plugin");
+    auto stage = jsonString(obj, "stage");
+    if (name is null || stage is null) return 0;
+
+    bool failed = stage == "failed";
+    bool live = stage == "live";
+    bool flying = stage == "checks" || stage == "queued" || stage == "building" || stage == "restarting";
+    if (live && now - epochOf(inObject(obj, "began", "live")) >= FINISH) return 0;
+    // Time clears a failure, and so does other news.
+    if (failed) {
+        auto at = epochOf(inObject(obj, "began", "failed"));
+        if (now - at >= FAILURE || newest > at) return 0;
+    }
+    if (!flying && !live && !failed) return 0;
+
+    auto incoming = jsonString(obj, "version");
+    if (incoming is null) incoming = name;
+    auto shown = (now / ALTERNATE) % 2 == 0 ? name : incoming;
+    auto width = name.length > incoming.length ? name.length : incoming.length;
+    char[64] slot;
+    size_t w = 0;
+    foreach (c; shown) if (w < slot.length) slot[w++] = c;
+    while (w < width && w < slot.length) slot[w++] = ' ';
+
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    if (live) {
+        put(FINISHED); put(slot[0 .. w]); put(PLAIN);
+        return o;
+    }
+
+    auto passed = checksSaid(obj, "done");
+    auto total = passed + checksSaid(obj, "failed") + checksSaid(obj, "running") + checksSaid(obj, "waiting");
+    auto checks = Fill(passed, total, checksSaid(obj, "failed") > 0, indexOf(obj, `"pushed":true`) >= 0);
+    auto node = Fill(builtOf(stage), 3, failed, true);
+    return filledNameInto(slot[0 .. w], checks, node, dest);
+}
+
+// The row with each deploy drawn in place of its plugin's item: tmux names the
+// item's span after the plugin, so the span is found by that. A plugin the row
+// has no span for is drawn first.
+size_t deploysOverInto(const(char)[] line, const(char)[] body_, long now, char[] dest) {
+    import statusline : indexOf;
+
+    char[8192] work;
+    size_t w = 0;
+    foreach (c; line) if (w < work.length) work[w++] = c;
+
+    auto deploysAt = indexOf(body_, `"deploys":`);
+    if (deploysAt < 0) {
+        foreach (i; 0 .. w) if (i < dest.length) dest[i] = work[i];
+        return w < dest.length ? w : dest.length;
+    }
+    auto deploys = body_[cast(size_t) deploysAt .. $];
+
+    size_t at = 0;
+    while (true) {
+        auto span = nextObject(deploys, at);
+        if (!span.ok) break;
+        at = span.end;
+        auto obj = deploys[span.start .. span.end];
+
+        // Other news, for a failure: when any other deploy last moved.
+        long newest = 0;
+        size_t other = 0;
+        while (true) {
+            auto o = nextObject(deploys, other);
+            if (!o.ok) break;
+            other = o.end;
+            if (o.start == span.start) continue;
+            auto moved = movedAt(deploys[o.start .. o.end]);
+            if (moved > newest) newest = moved;
+        }
+
+        char[2048] drawn;
+        auto dn = deployInto(obj, now, newest, drawn[]);
+        if (dn == 0) continue;
+
+        char[64] marker;
+        size_t m = 0;
+        foreach (c; "#[range=user|") marker[m++] = c;
+        foreach (i, c; jsonString(obj, "plugin")) {
+            if (i >= 15) break;
+            marker[m++] = c == '/' ? '.' : c;
+        }
+        marker[m++] = ']';
+
+        char[8192] next;
+        size_t n = 0;
+        void put(const(char)[] t) { foreach (c; t) if (n < next.length) next[n++] = c; }
+
+        auto start = indexOf(work[0 .. w], marker[0 .. m]);
+        auto end = start < 0 ? -1 : indexOf(work[cast(size_t) start .. w], "#[norange]");
+        if (start < 0 || end < 0) {
+            put(drawn[0 .. dn]);
+            if (w > 0) put(SEP);
+            put(work[0 .. w]);
+        } else {
+            auto s = cast(size_t) start;
+            auto e = s + cast(size_t) end;
+            put(work[0 .. s]);
+            put(marker[0 .. m]);
+            put(drawn[0 .. dn]);
+            put(work[e .. w]);
+        }
+        foreach (i; 0 .. n) work[i] = next[i];
+        w = n;
+    }
+
+    size_t o = 0;
+    foreach (c; work[0 .. w]) if (o < dest.length) dest[o++] = c;
+    return o;
 }
 
 // A status the node chose is more use than a word chosen for it.
