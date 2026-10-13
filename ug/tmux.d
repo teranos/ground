@@ -542,10 +542,12 @@ const(char)[] newsPass(const(char)[] home) {
 // A plugin's deploy is drawn on the plugin's own name, from what the node holds
 // of it. Behind the letters: purple as far as the node's own build is, green as
 // far as GitHub's checks passed, yellow and blinking for the rest.
-enum BUILT   = "#[fg=colour231,bg=colour91]";
-enum CHECKED = "#[fg=colour16,bg=colour34]";
-enum TO_GO   = "#[fg=colour16,bg=colour178,blink]";
-enum FAILED  = "#[fg=colour231,bg=colour160]";
+enum BUILT    = "#[fg=colour231,bg=colour91]";
+enum CHECKED  = "#[fg=colour16,bg=colour34]";
+enum TO_GO    = "#[fg=colour16,bg=colour178]";
+enum FAILED   = "#[fg=colour231,bg=colour160]";
+// "i dont want blinking bg when its building, just slight blink on finish"
+enum FINISHED = "#[fg=colour231,bg=colour91,blink]";
 
 // How far one bar is, in columns of a name `width` wide.
 struct Fill {
@@ -586,18 +588,110 @@ size_t filledNameInto(const(char)[] name, Fill checks, Fill node, char[] dest) {
 
 // How long the slot shows the name, and then the version coming in.
 enum ALTERNATE = 2;
+// How long a deploy that went live blinks: tmux redraws every 5 seconds.
+enum FINISH = 10;
+// How long a failure stays when no other news comes after it.
+enum FAILURE = 120;
 
-// One deploy as the node's JSON carries it, filled: the plugin's name, and in
-// its place every other turn the version coming in, the shorter padded to the
-// longer so the bar keeps its width. Nothing is written beside it.
-size_t deployInto(const(char)[] obj, long now, char[] dest) {
+// Seconds since the epoch of an RFC 3339 time as Go writes it, UTC:
+// 2026-10-13T07:31:10.060881525Z. Zero for one that is not that.
+long epochOf(const(char)[] t) {
+    if (t.length < 19 || t[4] != '-' || t[7] != '-' || t[10] != 'T') return 0;
+    long num(size_t from, size_t n) {
+        long v = 0;
+        foreach (i; from .. from + n) v = v * 10 + (t[i] - '0');
+        return v;
+    }
+    long y = num(0, 4), m = num(5, 2), d = num(8, 2);
+    // Days from the civil date, Howard Hinnant's algorithm.
+    y -= m <= 2 ? 1 : 0;
+    long era = (y >= 0 ? y : y - 399) / 400;
+    long yoe = y - era * 400;
+    long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    long days = era * 146097 + doe - 719468;
+    return days * 86400 + num(11, 2) * 3600 + num(14, 2) * 60 + num(17, 2);
+}
+
+// The value of a key inside the named object of obj: `"began":{"live":"…"}`.
+const(char)[] inObject(const(char)[] obj, const(char)[] object, const(char)[] key) {
+    import statusline : indexOf;
+    char[32] open;
+    size_t n = 0;
+    foreach (c; `"`) open[n++] = c;
+    foreach (c; object) if (n < open.length - 3) open[n++] = c;
+    foreach (c; `":{`) open[n++] = c;
+    auto at = indexOf(obj, open[0 .. n]);
+    if (at < 0) return null;
+    auto inner = nextObject(obj, cast(size_t) at + n - 1);
+    if (!inner.ok) return null;
+    return jsonString(obj[inner.start .. inner.end], key);
+}
+
+// How many of a deploy's checks said state.
+int checksSaid(const(char)[] obj, const(char)[] state) {
+    import statusline : indexOf;
+    auto at = indexOf(obj, `"checks":{`);
+    if (at < 0) return 0;
+    auto inner = nextObject(obj, cast(size_t) at + 9);
+    if (!inner.ok) return 0;
+    auto checks = obj[inner.start .. inner.end];
+    char[16] said;
+    size_t n = 0;
+    foreach (c; `:"`) said[n++] = c;
+    foreach (c; state) if (n < said.length - 1) said[n++] = c;
+    said[n++] = '"';
+    int count = 0;
+    size_t from = 0;
+    while (from < checks.length) {
+        auto hit = indexOf(checks[from .. $], said[0 .. n]);
+        if (hit < 0) break;
+        count++;
+        from += cast(size_t) hit + n;
+    }
+    return count;
+}
+
+// How far along the node's own build a stage is, of three.
+int builtOf(const(char)[] stage) {
+    if (stage == "building") return 1;
+    if (stage == "restarting") return 2;
+    if (stage == "live") return 3;
+    return 0;
+}
+
+// When a deploy last moved: the latest of the stages it began.
+long movedAt(const(char)[] obj) {
+    long latest = 0;
+    foreach (stage; ["checks", "queued", "building", "restarting", "live", "failed", "unchanged", "disabled", "interrupted"]) {
+        auto at = epochOf(inObject(obj, "began", stage));
+        if (at > latest) latest = at;
+    }
+    return latest;
+}
+
+// One deploy as the node's data says it, drawn on the plugin's own name, with
+// the version its build said in the name's place every other turn.
+// Nothing for a deploy that is over; newest is when another deploy last moved.
+size_t deployInto(const(char)[] obj, long now, long newest, char[] dest) {
     import statusline : indexOf;
 
-    auto name = jsonString(obj, "name");
-    auto bars = indexOf(obj, `"bars":`);
-    if (name is null || bars < 0) return 0;
+    auto name = jsonString(obj, "plugin");
+    auto stage = jsonString(obj, "stage");
+    if (name is null || stage is null) return 0;
 
-    auto incoming = jsonString(obj, "note");
+    bool failed = stage == "failed";
+    bool live = stage == "live";
+    bool flying = stage == "checks" || stage == "queued" || stage == "building" || stage == "restarting";
+    if (live && now - epochOf(inObject(obj, "began", "live")) >= FINISH) return 0;
+    // Time clears a failure, and so does other news.
+    if (failed) {
+        auto at = epochOf(inObject(obj, "began", "failed"));
+        if (now - at >= FAILURE || newest > at) return 0;
+    }
+    if (!flying && !live && !failed) return 0;
+
+    auto incoming = jsonString(obj, "version");
     if (incoming is null) incoming = name;
     auto shown = (now / ALTERNATE) % 2 == 0 ? name : incoming;
     auto width = name.length > incoming.length ? name.length : incoming.length;
@@ -606,16 +700,17 @@ size_t deployInto(const(char)[] obj, long now, char[] dest) {
     foreach (c; shown) if (w < slot.length) slot[w++] = c;
     while (w < width && w < slot.length) slot[w++] = ' ';
 
-    Fill checks, node;
-    size_t barAt = cast(size_t) bars;
-    while (true) {
-        auto bar = nextObject(obj, barAt);
-        if (!bar.ok) break;
-        barAt = bar.end;
-        auto b = obj[bar.start .. bar.end];
-        auto f = Fill(jsonNumber(b, "done"), jsonNumber(b, "of"), indexOf(b, `"failed":true`) >= 0, true);
-        if (jsonString(b, "kind") == "node") node = f; else checks = f;
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    if (live) {
+        put(FINISHED); put(slot[0 .. w]); put(PLAIN);
+        return o;
     }
+
+    auto passed = checksSaid(obj, "done");
+    auto total = passed + checksSaid(obj, "failed") + checksSaid(obj, "running") + checksSaid(obj, "waiting");
+    auto checks = Fill(passed, total, checksSaid(obj, "failed") > 0, indexOf(obj, `"pushed":true`) >= 0);
+    auto node = Fill(builtOf(stage), 3, failed, true);
     return filledNameInto(slot[0 .. w], checks, node, dest);
 }
 
@@ -629,21 +724,40 @@ size_t deploysOverInto(const(char)[] line, const(char)[] body_, long now, char[]
     size_t w = 0;
     foreach (c; line) if (w < work.length) work[w++] = c;
 
-    size_t at = itemsAt(body_);
+    auto deploysAt = indexOf(body_, `"deploys":`);
+    if (deploysAt < 0) {
+        foreach (i; 0 .. w) if (i < dest.length) dest[i] = work[i];
+        return w < dest.length ? w : dest.length;
+    }
+    auto deploys = body_[cast(size_t) deploysAt .. $];
+
+    size_t at = 0;
     while (true) {
-        auto span = nextObject(body_, at);
+        auto span = nextObject(deploys, at);
         if (!span.ok) break;
         at = span.end;
-        auto obj = body_[span.start .. span.end];
+        auto obj = deploys[span.start .. span.end];
+
+        // Other news, for a failure: when any other deploy last moved.
+        long newest = 0;
+        size_t other = 0;
+        while (true) {
+            auto o = nextObject(deploys, other);
+            if (!o.ok) break;
+            other = o.end;
+            if (o.start == span.start) continue;
+            auto moved = movedAt(deploys[o.start .. o.end]);
+            if (moved > newest) newest = moved;
+        }
 
         char[2048] drawn;
-        auto dn = deployInto(obj, now, drawn[]);
+        auto dn = deployInto(obj, now, newest, drawn[]);
         if (dn == 0) continue;
 
         char[64] marker;
         size_t m = 0;
         foreach (c; "#[range=user|") marker[m++] = c;
-        foreach (i, c; jsonString(obj, "name")) {
+        foreach (i, c; jsonString(obj, "plugin")) {
             if (i >= 15) break;
             marker[m++] = c == '/' ? '.' : c;
         }

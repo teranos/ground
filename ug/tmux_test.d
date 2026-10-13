@@ -209,7 +209,7 @@ static assert(weekLabelInto("max", new char[3]) == 3);
 
 // A deploy is drawn on the plugin's own name: behind its letters, green from
 // the left a step for each check that passed, then purple as far as the node's
-// own build is, the letters not reached yellow and blinking.
+// own build is, the letters not reached yellow.
 import tmux : filledNameInto, deployInto, deploysOverInto, Fill, CHECKED, BUILT, TO_GO, FAILED;
 
 char[512] named(const(char)[] name, Fill checks, Fill node)() {
@@ -237,8 +237,8 @@ enum allPassed = CHECKED ~ "cleanAPI" ~ PLAIN;
 static assert(named!("cleanAPI", Fill(3, 3, false, true), notBuilt)()[0 .. allPassed.length] == allPassed);
 
 // The node building, one stage of three: purple over the first third.
-enum building = BUILT ~ "cl" ~ CHECKED ~ "eanAPI" ~ PLAIN;
-static assert(named!("cleanAPI", Fill(3, 3, false, true), Fill(1, 3, false, true))()[0 .. building.length] == building);
+enum buildingName = BUILT ~ "cl" ~ CHECKED ~ "eanAPI" ~ PLAIN;
+static assert(named!("cleanAPI", Fill(3, 3, false, true), Fill(1, 3, false, true))()[0 .. buildingName.length] == buildingName);
 
 // A deploy no push began has no checks, and is green behind all of it.
 enum unpushed = BUILT ~ "clean" ~ CHECKED ~ "API" ~ PLAIN;
@@ -248,62 +248,86 @@ static assert(named!("cleanAPI", Fill.init, Fill(2, 3, false, true))()[0 .. unpu
 enum failed = FAILED ~ "cleanAPI" ~ PLAIN;
 static assert(named!("cleanAPI", Fill(1, 3, true, true), notBuilt)()[0 .. failed.length] == failed);
 
-// The slot is the whole of it: nothing is written beside it. It is the name,
-// and every other turn the version coming in in the name's place, padded to
-// the name's width, with the same fill behind it.
-enum deploying = `{"name":"cleanAPI","note":"abc1234","symbol":"+","bars":[` ~
-    `{"kind":"checks","done":2,"of":8},` ~
-    `{"kind":"node","done":0,"of":3}]}`;
+// The node's deploy data, as it said datapunt's 0.3.11 deploy on 2026-10-13,
+// drawn on the name alone. Nothing is written beside it.
+import tmux : epochOf, FINISHED;
 
-enum deployingDrawn = twoOfEight;
-enum incomingDrawn = CHECKED ~ "ab" ~ TO_GO ~ "c1234 " ~ PLAIN;
+enum t0 = epochOf("2026-10-13T07:30:00Z");
+static assert(epochOf("2026-10-13T07:30:03.232259168Z") == t0 + 3);
+static assert(epochOf("1970-01-01T00:00:00Z") == 0);
 
-char[1024] deployed(const(char)[] obj, long now)() {
+char[1024] deployed(const(char)[] obj, long now, long newest)() {
     char[1024] buf = '.';
-    deployInto(obj, now, buf[]);
+    deployInto(obj, now, newest, buf[]);
     return buf;
 }
 
-static assert(deployInto(deploying, 0, new char[1024]) == deployingDrawn.length);
-static assert(deployed!(deploying, 0)()[0 .. deployingDrawn.length] == deployingDrawn);
-static assert(deployed!(deploying, 1)()[0 .. deployingDrawn.length] == deployingDrawn);
-static assert(deployInto(deploying, 2, new char[1024]) == incomingDrawn.length);
-static assert(deployed!(deploying, 2)()[0 .. incomingDrawn.length] == incomingDrawn);
+// Waiting on its one check: all of it yellow.
+enum waiting = `{"plugin":"datapunt","stage":"checks","repo":"teranos/datapunt","pushed":true,"rev":"943796a",` ~
+    `"checks":{"test":"waiting"},"began":{"checks":"2026-10-13T07:30:03.232259168Z"}}`;
+enum waitingDrawn = TO_GO ~ "datapunt" ~ PLAIN;
+static assert(deployed!(waiting, t0 + 10, 0)()[0 .. waitingDrawn.length] == waitingDrawn);
 
-// A failed deploy is the slot in red.
-enum failing = `{"name":"cleanAPI","note":"abc1234","symbol":"!","bars":[` ~
-    `{"kind":"checks","done":3,"of":3},` ~
-    `{"kind":"node","done":1,"of":3,"failed":true}]}`;
-static assert(deployed!(failing, 0)()[0 .. failed.length] == failed);
-enum failedIncoming = FAILED ~ "abc1234 " ~ PLAIN;
-static assert(deployed!(failing, 2)()[0 .. failedIncoming.length] == failedIncoming);
+// Two of four checks passed: green behind half the name.
+enum halfway = `{"plugin":"datapunt","stage":"checks","repo":"teranos/datapunt","pushed":true,"rev":"943796a",` ~
+    `"checks":{"a":"done","b":"done","c":"running","d":"waiting"},"began":{"checks":"2026-10-13T07:30:03Z"}}`;
+enum halfwayDrawn = CHECKED ~ "data" ~ TO_GO ~ "punt" ~ PLAIN;
+static assert(deployed!(halfway, t0 + 10, 0)()[0 .. halfwayDrawn.length] == halfwayDrawn);
 
-// An item with no bars is not a deploy.
-static assert(deployInto(`{"name":"QNTX","symbol":"+"}`, 0, new char[256]) == 0);
+// Checks passed, the node building: purple over a third, green after.
+enum building = `{"plugin":"datapunt","stage":"building","repo":"teranos/datapunt","pushed":true,"rev":"943796a",` ~
+    `"checks":{"test":"done"},"began":{"building":"2026-10-13T07:30:49Z","checks":"2026-10-13T07:30:03Z"}}`;
+enum buildingDrawn = BUILT ~ "da" ~ CHECKED ~ "tapunt" ~ PLAIN;
+static assert(deployed!(building, t0 + 60, 0)()[0 .. buildingDrawn.length] == buildingDrawn);
+
+// The build said its version: every other turn it takes the name's place,
+// the name padded to its width.
+enum versioned = `{"plugin":"datapunt","stage":"restarting","repo":"teranos/datapunt","pushed":true,"rev":"943796a",` ~
+    `"checks":{"test":"done"},"version":"0.3.11-8ed95ff65b864797","began":{"restarting":"2026-10-13T07:31:09Z"}}`;
+enum nameTurn = BUILT ~ "datapunt       " ~ CHECKED ~ "        " ~ PLAIN;
+// t0 is a multiple of 4 seconds, so t0 + 72 is the name's turn and t0 + 74 the version's.
+static assert(t0 % 4 == 0);
+static assert(deployed!(versioned, t0 + 72, 0)()[0 .. nameTurn.length] == nameTurn);
+enum versionTurn = BUILT ~ "0.3.11-8ed95ff6" ~ CHECKED ~ "5b864797" ~ PLAIN;
+static assert(deployed!(versioned, t0 + 74, 0)()[0 .. versionTurn.length] == versionTurn);
+
+// Live: the slight blink, for a moment, then nothing.
+enum live = `{"plugin":"datapunt","stage":"live","repo":"teranos/datapunt","pushed":true,"rev":"943796a",` ~
+    `"checks":{"test":"done"},"began":{"live":"2026-10-13T07:31:10Z"}}`;
+enum liveDrawn = FINISHED ~ "datapunt" ~ PLAIN;
+static assert(deployed!(live, t0 + 72, 0)()[0 .. liveDrawn.length] == liveDrawn);
+static assert(deployInto(live, t0 + 80, 0, new char[1024]) == 0);
+
+// Failed: red, until time or other news.
+enum failing = `{"plugin":"datapunt","stage":"failed","repo":"teranos/datapunt","pushed":true,"rev":"943796a",` ~
+    `"checks":{"test":"failed"},"began":{"failed":"2026-10-13T07:31:00Z"},"failed_at":"checks"}`;
+enum failingDrawn = FAILED ~ "datapunt" ~ PLAIN;
+static assert(deployed!(failing, t0 + 90, 0)()[0 .. failingDrawn.length] == failingDrawn);
+static assert(deployInto(failing, t0 + 60 + 120, 0, new char[1024]) == 0, "time did not clear it");
+static assert(deployInto(failing, t0 + 90, t0 + 70, new char[1024]) == 0, "other news did not clear it");
+
+// An unchanged build is over, and draws nothing.
+static assert(deployInto(`{"plugin":"datapunt","stage":"unchanged","began":{}}`, t0, 0, new char[256]) == 0);
 
 // The deploy takes the place of its plugin's item on the line the node spelled.
 enum spelled = `#[range=user|QNTX]#[fg=colour34]QNTX#[default]#[norange]  ` ~
-    `#[range=user|cleanAPI]#[fg=colour34]cleanAPI#[default] #[fg=colour244]0.6.12#[default]#[norange]`;
-enum servedRow = `{"items":[` ~ deploying ~ `,{"name":"QNTX","symbol":"+"}]}`;
+    `#[range=user|datapunt]#[fg=colour34]datapunt#[default] #[fg=colour244]0.3.10-8ed95ff65b864797#[default]#[norange]`;
+enum servedRow = `{"items":[{"name":"QNTX","symbol":"+"}],"deploys":[` ~ building ~ `]}`;
 enum overDrawn = `#[range=user|QNTX]#[fg=colour34]QNTX#[default]#[norange]  ` ~
-    `#[range=user|cleanAPI]` ~ deployingDrawn ~ `#[norange]`;
+    `#[range=user|datapunt]` ~ buildingDrawn ~ `#[norange]`;
 
-char[4096] overed(const(char)[] line, const(char)[] body_)() {
+char[4096] overed(const(char)[] line, const(char)[] body_, long now)() {
     char[4096] buf = '.';
-    deploysOverInto(line, body_, 0, buf[]);
+    deploysOverInto(line, body_, now, buf[]);
     return buf;
 }
 
-static assert(deploysOverInto(spelled, servedRow, 0, new char[4096]) == overDrawn.length);
-static assert(overed!(spelled, servedRow)()[0 .. overDrawn.length] == overDrawn);
+static assert(deploysOverInto(spelled, servedRow, t0 + 60, new char[4096]) == overDrawn.length);
+static assert(overed!(spelled, servedRow, t0 + 60)()[0 .. overDrawn.length] == overDrawn);
 
-// A plugin the line has no item for yet is drawn first.
-enum bare = `#[range=user|QNTX]#[fg=colour34]QNTX#[default]#[norange]`;
-enum ledDrawn = deployingDrawn ~ "  " ~ bare;
-static assert(overed!(bare, servedRow)()[0 .. ledDrawn.length] == ledDrawn);
-
-// A row with no deploy is the line as the node spelled it.
-static assert(overed!(spelled, `{"items":[{"name":"QNTX","symbol":"+"}]}`)()[0 .. spelled.length] == spelled);
+// A row with no deploy in flight is the line as the node spelled it.
+static assert(overed!(spelled, `{"items":[],"deploys":[]}`, t0)()[0 .. spelled.length] == spelled);
+static assert(overed!(spelled, `{"items":[]}`, t0)()[0 .. spelled.length] == spelled);
 
 // "click with my mouse cursor on the specific plugin in the statusline, and see
 // a plugin version of the statusline, and then click again, and get back"
