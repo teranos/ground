@@ -186,6 +186,26 @@ extern (C) {
     private int fork();
     private int setsid();
     private void _exit(int status);
+    private int gethostname(char* name, size_t len);
+}
+
+// The machine an item came from, asked once. At compile time there is no
+// machine, so it is empty there. A name the system would not give is said as
+// that, so an item never goes without one.
+const(char)[] hostName() {
+    if (__ctfe) return "";
+    __gshared char[256] buf = 0;
+    __gshared size_t len;
+    if (len > 0) return buf[0 .. len];
+    if (gethostname(buf.ptr, buf.length) == 0) {
+        while (len < buf.length && buf[len] != 0) len++;
+    }
+    if (len == 0) {
+        enum refused = "gethostname gave no name";
+        buf[0 .. refused.length] = refused;
+        len = refused.length;
+    }
+    return buf[0 .. len];
 }
 
 // Posted from a child that has let go of the hook's pipes. A hook is read by
@@ -317,6 +337,8 @@ Item openItem(long unixSeconds, const(char)[] traceFor, const(char)[] level,
     it.put(`","attributes":{`);
     it.open = true;
     it.first = true;
+    auto host = hostName();
+    if (host.length > 0) it.str("host", host);
     return it;
 }
 
@@ -391,6 +413,8 @@ Item metricItem(long unixSeconds, const(char)[] traceFor, const(char)[] name,
     it.put(`","attributes":{`);
     it.open = true;
     it.first = true;
+    auto host = hostName();
+    if (host.length > 0) it.str("host", host);
     return it;
 }
 
@@ -548,6 +572,7 @@ Envelope riteEnvelope(const(char)[] dsn, long unixSeconds, const RiteReport r) {
         e.putEscaped(r.jumpedTo);
     }
     e.put(`","attributes":{`);
+    if (hostName().length > 0) e.putAttr("host", hostName());
     e.putAttr("performance", r.performance);
     e.putAttr("ritual", r.ritual);
     e.putAttr("rite", r.rite);
@@ -651,6 +676,7 @@ Envelope performanceEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] 
         e.putEscaped(why);
     }
     e.put(`","attributes":{`);
+    if (hostName().length > 0) e.putAttr("host", hostName());
     e.putAttr("performance", performance);
     e.putAttr("ritual", ritual);
     if (agent.length > 0) e.putAttr("agent", agent);
@@ -659,3 +685,39 @@ Envelope performanceEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] 
     e.put(`}}]}` ~ "\n");
     return e;
 }
+
+unittest {
+    // "yes add host"
+    // k's ground and the Mac's report into one project, and nothing they sent
+    // said which machine it came from. Every log and metric does now.
+    import matcher : contains;
+    enum dsn = "https://key123@o1.ingest.example/42";
+    auto host = hostName();
+    assert(host.length > 0, "a machine has a name");
+
+    auto it = openItem(1000, "s", "info", "x");
+    it.close();
+    assert(contains(it.text(), `"attributes":{"host":{"value":"`));
+    assert(contains(it.text(), host));
+
+    auto m = metricItem(1000, "s", "ground.hook.duration", 1, "microsecond");
+    m.close();
+    assert(contains(m.text(), `"attributes":{"host":{"value":"`));
+    assert(contains(m.text(), host));
+
+    RiteReport r;
+    r.performance = "p-1";
+    r.ritual = "p";
+    r.rite = "R";
+    auto rite = riteEnvelope(dsn, 1000, r);
+    assert(contains(rite.text(), `"attributes":{"host":{"value":"`));
+    assert(contains(rite.text(), host));
+
+    auto perf = performanceEnvelope(dsn, 1000, "p-1", "p", "done");
+    assert(contains(perf.text(), `"attributes":{"host":{"value":"`));
+    assert(contains(perf.text(), host));
+}
+
+// At compile time there is no machine, so the items spelled out in
+// sentry_test.d carry no host.
+static assert(hostName() == "");
