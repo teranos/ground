@@ -290,7 +290,7 @@ struct ParsedRitual {
 struct ParseResult {
     ParsedRites[32] rites;
     size_t ritesCount;
-    ParsedRitual[16] rituals;
+    ParsedRitual[32] rituals;
     size_t ritualCount;
     ParsedScope[pbtCounts.totalScopes + 1] scopes;
     size_t scopeCount;
