@@ -303,6 +303,10 @@ bool onProseLine(const(char)[] s, Span sp, const(char)[] path) {
     if (isDocument(path)) return true;
     if (!sp.ok) return false;
 
+    // A string in code that was commented out is the code's, not a quote.
+    import matcher : inCommentedCode;
+    if (inCommentedCode(s, sp.start)) return false;
+
     auto marker = lineComment(path);
     if (marker.length > 0) {
         size_t lineStart = sp.start;
@@ -313,6 +317,15 @@ bool onProseLine(const(char)[] s, Span sp, const(char)[] path) {
 
     auto open = blockOpen(path);
     return open.length > 0 && insideBlock(s, sp.start, open, blockClose(path), marker);
+}
+
+unittest {
+    // "i dont want code comments to be subject to consecutive run"
+    // A string inside code that was commented out is code's, not a quote.
+    enum jev = "  # JEV_CHOICE {\n  #   choice: \"Is this push consequential?\"\n  # }\n";
+    assert(!onProseLine(jev, nextQuotedSpan(jev, 0), "controls/deploy.pbt"));
+    enum prose = "  # the push \"is consequential\" here\n";
+    assert(onProseLine(prose, nextQuotedSpan(prose, 0), "controls/deploy.pbt"));
 }
 
 unittest {

@@ -4,7 +4,7 @@ import matcher : stripQuoted, checkCommand, checkAllCommands, commandMatch,
                  hasSegment, applyArg, applyOmit, applyOmitLine, applyClamp,
                  applySubstituteForCmd,
                  wildcardContains, containsExact, extractLeadingCd,
-                 maxCommentRun, effectiveCwd, tildeExpanded;
+                 maxCommentRun, inCommentedCode, indexOf, effectiveCwd, tildeExpanded;
 
 // --- where a command actually ran ---
 // PostToolUse matched scopes against the session cwd alone, so a control
@@ -735,6 +735,27 @@ unittest {
     assert(maxCommentRun("// \"one\"\n// a\n// b\n// c") == 3);
     assert(maxCommentRun("# \"one\"\n# \"two\"\n# \"three\"\n# \"four\"") == 0);
     assert(maxCommentRun("// a\n// \"q\"\n// b") == 2);
+}
+
+unittest {
+    // "i dont want code comments to be subject to consecutive run"
+    // A commented line that opens a brace block, all inside it and the line
+    // that closes it are code, not prose: they neither count nor carry a run.
+    enum jev = "  # JEV_CHOICE {\n"
+        ~ "  #   choice: \"Is this push consequential?\"\n"
+        ~ "  #   criteria {\n"
+        ~ "  #     TARGET:  \"deployed\"\n"
+        ~ "  #   }\n"
+        ~ "  #   to: parent\n"
+        ~ "  # }\n"
+        ~ "\n"
+        ~ "  # NOTHING { }";
+    assert(maxCommentRun(jev) == 0);
+    assert(inCommentedCode(jev, indexOf(jev, "choice")));
+    assert(inCommentedCode(jev, indexOf(jev, "NOTHING {")));
+    assert(maxCommentRun("// a\n// b\n// f() {\n//   g();\n// }\n// c\n// d") == 2);
+    assert(maxCommentRun("# a\n# b\n# c\n# d") == 4, "prose is still counted");
+    assert(!inCommentedCode("# a\n# b", 3));
 }
 
 unittest {

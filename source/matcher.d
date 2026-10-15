@@ -114,11 +114,59 @@ const(char)[] strip(const(char)[] s) {
 // literal backslash-n as one too would read `"a\nb"` in a test fixture as
 // two lines. A comment line begins, after leading blanks, with `#` or `//`.
 // Blank lines and code end a run.
+// The text after a line's `#` or `//`, and whether the line is one. `///` is
+// the reference, not a comment.
+private bool commentText(const(char)[] line, out const(char)[] text) {
+    size_t p = 0;
+    while (p < line.length && (line[p] == ' ' || line[p] == '\t')) p++;
+    auto rest = line[p .. $];
+    if (rest.length >= 3 && rest[0 .. 3] == "///") return false;
+    if (rest.length >= 2 && rest[0 .. 2] == "//") { text = rest[2 .. $]; return true; }
+    if (rest.length >= 1 && rest[0] == '#') { text = rest[1 .. $]; return true; }
+    return false;
+}
+
+// "i dont want code comments to be subject to consecutive run"
+// A comment's text is code when it ends in `{` or `}`, or sits inside braces
+// such a line opened. Braces in quotes are text; depth never goes below zero.
+private bool codeText(const(char)[] text, ref int depth) {
+    size_t e = text.length;
+    while (e > 0 && (text[e - 1] == ' ' || text[e - 1] == '\t' || text[e - 1] == '\r')) e--;
+    bool code = depth > 0 || (e > 0 && (text[e - 1] == '{' || text[e - 1] == '}'));
+    char quote = 0;
+    foreach (c; text) {
+        if (quote != 0) { if (c == quote) quote = 0; continue; }
+        if (c == '"' || c == '`') quote = c;
+        else if (c == '{') depth++;
+        else if (c == '}' && depth > 0) depth--;
+    }
+    return code;
+}
+
+// Whether the line holding `pos` is code that was commented out. A line that
+// is not a comment ends any block a commented line opened.
+bool inCommentedCode(const(char)[] text, size_t pos) {
+    int depth = 0;
+    size_t i = 0;
+    while (i <= text.length) {
+        size_t end = i;
+        while (end < text.length && text[end] != '\n') end++;
+        const(char)[] body_;
+        bool code = false;
+        if (commentText(text[i .. end], body_)) code = codeText(body_, depth);
+        else depth = 0;
+        if (pos >= i && pos <= end) return code;
+        i = end + 1;
+    }
+    return false;
+}
+
 int maxCommentRun(const(char)[] text) {
     int best = 0;
     int run = 0;
     size_t i = 0;
     bool inBlock = false;
+    int depth = 0;
 
     while (i <= text.length) {
         size_t lineStart = i;
@@ -160,6 +208,18 @@ int maxCommentRun(const(char)[] text) {
         }
 
         if (closes) inBlock = false;
+
+        // Commented-out code ends a run and is not counted in one.
+        const(char)[] body_;
+        if (commentText(line, body_)) {
+            if (codeText(body_, depth)) {
+                run = 0;
+                i = next;
+                continue;
+            }
+        } else if (!scaffold) {
+            depth = 0;
+        }
 
         // "human user quotes should never count towards the consecutive comment run control"
         // A line whose text opens with a double quote neither counts nor ends a
