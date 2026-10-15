@@ -265,6 +265,55 @@ unittest {
     sqlite3_close(db);
 }
 
+// What the watcher says when there is no sentry dsn: the items left here
+// have nowhere to go, and how many of them wait.
+struct NoDsn {
+    char[160] buf = 0;
+    size_t len;
+    void put(const(char)[] s) { foreach (c; s) if (len < buf.length) buf[len++] = c; }
+    const(char)[] text() return { return buf[0 .. len]; }
+}
+
+NoDsn noDsnSaid(sqlite3* db) {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_int64,
+                sqlite3_stmt, SQLITE_OK, SQLITE_ROW;
+
+    long pending = 0;
+    enum sql = "SELECT COUNT(*) FROM outbox WHERE shipped_at = 0\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) pending = sqlite3_column_int64(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+
+    NoDsn said;
+    said.put("no sentry dsn is set, so ");
+    char[20] digits = 0;
+    size_t n = 0;
+    if (pending == 0) digits[n++] = '0';
+    while (pending > 0 && n < digits.length) { digits[n++] = cast(char)('0' + pending % 10); pending /= 10; }
+    foreach_reverse (i; 0 .. n) said.put(digits[i .. i + 1]);
+    said.put(" items in the outbox will not ship");
+    return said;
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import sentry : openItem;
+    import matcher : contains;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    auto a = openItem(1000, "s", "info", "x"); a.close();
+    auto b = openItem(1001, "s", "info", "y"); b.close();
+    assert(leave(db, "s", "info", a, 1000));
+    assert(leave(db, "s", "info", b, 1001));
+    auto said = noDsnSaid(db);
+    assert(contains(said.text(), "no sentry dsn"));
+    assert(contains(said.text(), "2 items"));
+    sqlite3_close(db);
+}
+
 unittest {
     // On 2026-10-03, 999 errors filed under sessions with no watcher had never
     // reached sentry, the oldest from 2026-09-18.
