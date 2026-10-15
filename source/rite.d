@@ -103,6 +103,12 @@ enum RITE_UNREACHED = 125;
 // and exited, but the condition never did.
 bool unreached(int code) { return code == RITE_UNREACHED; }
 
+// A rite whose held nix shell would not source never evaluated its condition
+// either, and a shellHook that failed is not a tree that was missing.
+enum RITE_UNSHELLED = 123;
+
+bool unshelled(int code) { return code == RITE_UNSHELLED; }
+
 // What one run of a rite produced. `ran` is the gate: a code is only the
 // verdict's input when a process actually produced it.
 struct RiteRun {
@@ -124,7 +130,8 @@ Waited fromPclose(int status) {
 }
 
 RiteScript buildRiteScript(const(char)[] cwd, const(char)[] cmd,
-                           const(char[])[] keys, const(char[])[] values) {
+                           const(char[])[] keys, const(char[])[] values,
+                           const(char)[] shell = "") {
     RiteScript s;
     // pipefail is not POSIX. /bin/sh is dash on Debian, which rejects the
     // whole `set` line, so the rite fails before its command runs.
@@ -137,6 +144,15 @@ RiteScript buildRiteScript(const(char)[] cwd, const(char)[] cmd,
         s.putQuoted(cwd);
         s.put(" || exit ");
         s.putNum(RITE_UNREACHED);
+        s.put("\n");
+    }
+    // The performance's held nix shell, sourced after the cd because a
+    // shellHook reads the tree it stands in.
+    if (shell.length > 0) {
+        s.put("source ");
+        s.putQuoted(shell);
+        s.put(" || exit ");
+        s.putNum(RITE_UNSHELLED);
         s.put("\n");
     }
     foreach (i; 0 .. keys.length) {
@@ -161,12 +177,13 @@ struct PreparedRite {
 // Both halves of a rite are prepared the same way — `run` and `eval` differ in
 // when they fire and how their code is read, not in how they are built.
 PreparedRite prepareCmd(const(char)[] cmd, const(char)[] cwd,
-                        const(char[])[] keys = [], const(char[])[] values = []) {
+                        const(char[])[] keys = [], const(char[])[] values = [],
+                        const(char)[] shell = "") {
     import matcher : envSubst;
     PreparedRite p;
     p.cmd = envSubst(cmd, cwd);
     p.ready = !hasUnresolved(p.cmd);
-    if (p.ready) p.script = buildRiteScript(cwd, p.cmd, keys, values);
+    if (p.ready) p.script = buildRiteScript(cwd, p.cmd, keys, values, shell);
     return p;
 }
 
@@ -175,7 +192,7 @@ PreparedRite prepareCmd(const(char)[] cmd, const(char)[] cwd,
 // was given, and a local would be gone before the caller read them.
 PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
                             const(char[])[] keys = [], const(char[])[] values = [],
-                            const(char)[] token = "") {
+                            const(char)[] token = "", const(char)[] shell = "") {
     static if (__traits(hasMember, R, "dispatch")) {
         if (r.dispatch.length > 0) {
             import dispatch : dispatchScript, DispatchScript;
@@ -186,10 +203,10 @@ PreparedRite prepareRite(R)(const R r, const(char)[] cwd,
                 bad.cmd = r.dispatch;
                 return bad;
             }
-            return prepareCmd(d.text(), cwd, keys, values);
+            return prepareCmd(d.text(), cwd, keys, values, shell);
         }
     }
-    return prepareCmd(r.eval, cwd, keys, values);
+    return prepareCmd(r.eval, cwd, keys, values, shell);
 }
 
 extern (C) {

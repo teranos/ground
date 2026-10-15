@@ -70,7 +70,7 @@ struct Advanced {
 // The sequence nothing performed until now: read where we are, run that rite,
 // read its code as one of three answers, write it down, move.
 Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
-                     const Flattened f, long unixSeconds) {
+                     const Flattened f, long unixSeconds, const(char)[] shell = "") {
     import rite : prepareRite, runRite, classify;
     import exec : emitError;
 
@@ -99,7 +99,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     token.put(r.name);
     auto prepared = prepareRite(r, p.worktree,
                                 r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount],
-                                token.slice());
+                                token.slice(), shell);
     // A placeholder no project env resolves will not resolve by being asked
     // again. "Did not run" left the driver retrying every two seconds — 93,866
     // identical rows overnight, because nothing in that path gave up.
@@ -153,7 +153,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     if (r.run.length > 0) {
         import rite : prepareCmd;
         auto act = prepareCmd(r.run, p.worktree,
-                              r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount]);
+                              r.keys[0 .. r.valueCount], r.values[0 .. r.valueCount], shell);
         if (!act.ready) {
             riteError(p, sessionId, "ritual.run.unresolved",
                       "the rite's run still holds a placeholder no project env resolves",
@@ -331,9 +331,11 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
     // A halt is the outcome that needs a person, and the block message only
     // reaches the agent. This is the one path that reaches the operator.
     if (a.verdict == Verdict.Halt) {
-        import rite : unreached;
+        import rite : unreached, unshelled;
         auto why = unreached(a.code)
             ? "the rite never reached its tree, so its condition did not run"
+            : unshelled(a.code)
+            ? "the rite's held nix shell would not source, so its condition did not run"
             : "the rite answered with a code it does not declare";
         riteError(p, sessionId, "ritual.rite.halt", why, a.code, r.name,
                   prepared.cmd, a.output);

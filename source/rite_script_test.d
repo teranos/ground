@@ -46,6 +46,13 @@ enum located = buildRiteScript("/home/u/src/proj-probe", "make test", [], []);
 static assert(located.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-probe' || exit 125\nmake test\n");
 
+// "One nix shell held across a ritual's rites, re-entered only when flake.nix or flake.lock changed."
+// Sourced after the cd, because a shellHook reads the tree it stands in.
+enum held = buildRiteScript("/t/QNTX", "make ats", [], [], "/s/shell/q-deploy-1.sh");
+static assert(held.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/t/QNTX' || exit 125\n"
+    ~ "source '/s/shell/q-deploy-1.sh' || exit 123\nmake ats\n");
+
 // Reaching the tree is not the condition. Silence about catch means 1, set in
 // `parseRites`, so a cd that failed with 1 read as "not yet" — measured:
 // a performance recorded "the fruit is still hanging" when the tree was gone.
@@ -173,6 +180,31 @@ unittest {
     auto r = runRite(buildRiteScript("", `echo "$row"`, k[], v[]).text());
     assert(r.code == 0);
     assert(r.output() == "watchers\n");
+}
+
+unittest {
+    // What the held shell exports is what the rite's command sees.
+    import db : storeDir, ZBuf;
+    import core.stdc.stdio : fopen, fputs, fclose;
+    import rite : RITE_UNSHELLED;
+    __gshared ZBuf p;
+    p.reset();
+    p.put(storeDir());
+    p.put("/held.sh");
+    auto f = fopen(p.ptr(), "w");
+    assert(f !is null);
+    fputs("export HELD=nix\n", f);
+    fclose(f);
+    auto r = runRite(buildRiteScript("", `echo "$HELD"`, [], [], p.slice()).text());
+    assert(r.code == 0);
+    assert(r.output() == "nix\n");
+
+    // A shell that would not source never ran the condition.
+    f = fopen(p.ptr(), "w");
+    fputs("false\n", f);
+    fclose(f);
+    auto bad = runRite(buildRiteScript("", "true", [], [], p.slice()).text());
+    assert(bad.code == RITE_UNSHELLED);
 }
 
 unittest {

@@ -311,6 +311,11 @@ int handleDrive(int argc, const(char)** argv) {
             import ritual.run : reapNow, REAPED_WORD;
             auto reaped = reapNow(found.p, "the performance ended and its agent did not");
 
+            {
+                import ritual.shell : forget;
+                forget(found.p.id);
+            }
+
             // The ending and what became of the agent, said together. The tree
             // going can still fail, and the ending happened whether it does.
             {
@@ -394,11 +399,38 @@ int handleDrive(int argc, const(char)** argv) {
         // waiting on them, rather than by a watcher that may not be there.
         cast(void) resolveOwed(db, found.p.id, cast(long) time(null));
 
+        // "One nix shell held across a ritual's rites, re-entered only when flake.nix or flake.lock changed."
+        import ritual.shell : hold;
+        auto shell = hold(found.p.worktree, found.p.id);
+        if (!shell.ok) {
+            import ritual.store : writePositionIf;
+            import ritual.position : step;
+            import ritual.delivery : deliver, PARENT;
+            import exec : emitError;
+            if (writePositionIf(db, step(found.p, Verdict.Halt), found.p.rev)) {
+                endWhy = "its nix shell could not be entered, so no rite could run in it";
+                __gshared ZBuf unheld;
+                unheld.reset();
+                unheld.put(found.p.id);
+                unheld.put(" halted: ");
+                unheld.put(endWhy);
+                unheld.put("\n");
+                unheld.put(shell.output);
+                emitError("ritual.drive.shell", cast(string) unheld.slice(), 0, shell.code,
+                          cast(string) found.p.parent, cast(string) found.p.ritual, "",
+                          cast(string) found.p.id, cast(string) shell.output);
+                cast(void) deliver(db, found.p, PARENT, "ritual-no-shell", unheld.slice(), "");
+            }
+            sqlite3_close(db);
+            continue;
+        }
+
         bool moved = false;
         foreach (i; 0 .. parsed.ritualCount) {
             if (parsed.rituals[i].name != found.p.ritual) continue;
             auto flat = flatten(parsed, i);
-            auto res = advance(db, found.p.agentSession, found.p, flat, cast(long) time(null));
+            auto res = advance(db, found.p.agentSession, found.p, flat, cast(long) time(null),
+                               shell.script);
             if (!res.ran) break;
 
             // Only a verdict that landed. One another driver walked past is

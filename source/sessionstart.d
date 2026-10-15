@@ -342,6 +342,9 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
             sqlite3_close(rdb);
             if (found.valid) {
+                import ritual.shell : sessionSources;
+                if (found.p.state == RitualState.Live)
+                    sessionSources(found.p.id, found.p.worktree);
                 static immutable parsed = allParsed;
                 foreach (i; 0 .. parsed.ritualCount) {
                     if (parsed.rituals[i].name != found.p.ritual) continue;
