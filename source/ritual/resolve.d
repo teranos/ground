@@ -179,6 +179,57 @@ struct Flattened {
     size_t maxGoto;
 }
 
+// Where a rites block stands in the flat walk: the index its first rite has,
+// and the edge, one past its last. A block the walk does not hold is the
+// empty span at the end, which walks nothing.
+struct Entry {
+    size_t from;
+    size_t edge;
+}
+
+Entry entryOf(const Flattened f, const(char)[] block) {
+    Entry e = Entry(f.count, f.count);
+    bool seen = false;
+    foreach (i; 0 .. f.count) {
+        if (f.rites[i].group != block) continue;
+        if (!seen) { e.from = i; seen = true; }
+        e.edge = i + 1;
+    }
+    return e;
+}
+
+// "part of what seems to trigger the ritual needs to trigger the rites block instead"
+// A door is a rites block with an event and a cmd. A command on that event
+// fires every ritual that lists the block, and the ritual enters at the block.
+struct Door {
+    string ritual;
+    string block;
+}
+
+struct Doors {
+    Door[8] doors;
+    size_t count;
+}
+
+Doors doorsFiredBy(PR)(auto ref const PR r, const(char)[] event, const(char)[] command) {
+    import matcher : hasSegment;
+    Doors d;
+    foreach (gi; 0 .. r.ritesCount) {
+        auto block = r.rites[gi];
+        if (block.cmd.length == 0 || block.event != event) continue;
+        if (!hasSegment(command, block.cmd)) continue;
+        foreach (ri; 0 .. r.ritualCount) {
+            auto rit = r.rituals[ri];
+            foreach (fi; 0 .. rit.refCount) {
+                if (rit.refs[fi].name != block.name) continue;
+                if (d.count >= d.doors.length) return d;
+                d.doors[d.count++] = Door(rit.name, block.name);
+            }
+        }
+    }
+    return d;
+}
+
 // The nearest dsn is the one used. A layer that sets none does not blank the
 // layer outside it, and nothing set anywhere is nowhere to report.
 const(char)[] resolveSentry(const ParsedSentry[3] layers) {

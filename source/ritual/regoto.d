@@ -20,7 +20,7 @@ const(char)[] secondFire(DB, PR)(DB db, auto ref const PR r, const(char)[] ritua
     auto chosen = chooseRitual(r, ritualName, project);
     if (!chosen.ok || db is null) return null;
     auto rit = r.rituals[chosen.ritualIdx];
-    if (rit.regoto.length == 0) return null;
+    if (!landsFires(r, rit)) return null;
 
     auto live = liveOf(db, rit.name, rit.projectPath);
     if (live is null) return null;
@@ -33,13 +33,31 @@ const(char)[] secondFire(DB, PR)(DB db, auto ref const PR r, const(char)[] ritua
     return why.text();
 }
 
+// "unless a push makes it a longer ritual"
+// A ritual lands a second fire on its live performance when it has a regoto,
+// or when a block it lists has a door.
+bool landsFires(PR, R)(auto ref const PR r, auto ref const R rit) {
+    if (rit.regoto.length > 0) return true;
+    foreach (fi; 0 .. rit.refCount)
+        foreach (gi; 0 .. r.ritesCount)
+            if (r.rites[gi].name == rit.refs[fi].name && r.rites[gi].cmd.length > 0) return true;
+    return false;
+}
+
 // The walk back, as a goto takes it, with what it counted started over so
 // every eval is asked again. The rites before the target keep what they were;
 // from the target on, each is to be walked again. Left as they were, the rite
 // that was running still drew as running beside the one the walk went to.
 import ritual.position : Position;
 Position rewind(Position p, size_t target) {
+    return rewind(p, target, p.edge);
+}
+
+// Sent into a block: the walk now ends at that block's edge, whether the
+// landing took it back or on.
+Position rewind(Position p, size_t target, size_t edge) {
     import ritual.position : jump, RiteState;
+    p.edge = edge;
     p = jump(p, target);
     p.gotos = 0;
     p.evals = 0;
@@ -52,7 +70,7 @@ Position rewind(Position p, size_t target) {
 // The performance as it stands now, sent to `target`. Anything may write the
 // row while its tree is moved, so it is read again for every try. Null is sent.
 const(char)[] sendBack(DB)(DB db, const(char)[] id, size_t target, ref Position landed,
-                           bool revive = false) {
+                           bool revive, size_t edge) {
     import ritual.store : byPerformanceId, writePositionIf;
     import ritual.position : RitualState;
     long tried = -1;
@@ -67,7 +85,7 @@ const(char)[] sendBack(DB)(DB db, const(char)[] id, size_t target, ref Position 
         // The same revision refused twice is a store that will not write.
         if (now.p.rev == tried) return "the store would not write it";
         tried = now.p.rev;
-        auto moved = rewind(now.p, target);
+        auto moved = rewind(now.p, target, edge);
         moved.state = RitualState.Live;
         if (writePositionIf(db, moved, now.p.rev)) {
             landed = moved;
@@ -232,13 +250,43 @@ const(char)[] resolveLanding(DB, PR)(DB db, auto ref const PR r, const(char)[] p
     }
 
     auto flat = flatten(r, chosen.ritualIdx);
-    auto target = indexOfRite(flat, rit.regoto);
+    size_t target = 0;
+    size_t edge = p.edge;
+    const(char)[] sentTo = rit.regoto;
+    if (rit.regoto.length > 0) {
+        auto at = indexOfRite(flat, rit.regoto);
+        target = at < 0 ? 0 : cast(size_t) at;
+    } else {
+        // Landed through a door: the walk goes to the block the command
+        // fired, and ends at that block's edge.
+        import ritual.resolve : entryOf, doorsFiredBy;
+        import parse : extractCommand;
+        auto fired = doorsFiredBy(r, "PostToolUse", extractCommand(push.input()));
+        bool doored = false;
+        foreach (i; 0 .. fired.count) {
+            if (fired.doors[i].ritual != rit.name) continue;
+            auto e = entryOf(flat, fired.doors[i].block);
+            target = e.from;
+            edge = e.edge;
+            sentTo = fired.doors[i].block;
+            doored = true;
+            break;
+        }
+        if (!doored) {
+            cast(void) clearLanding(db, perfId, commit);
+            said.put(" was not sent on: the command that landed fires no door of its ritual");
+            emitError("ritual.regoto.door", cast(string) said.text(), 0, 1, cast(string) p.parent,
+                      cast(string) rit.name, "", cast(string) p.id, "");
+            cast(void) deliver(db, p, PARENT, "ritual-regoto", said.text(), "");
+            return said.text();
+        }
+    }
     Position moved;
-    auto refused = sendBack(db, p.id, target < 0 ? 0 : cast(size_t) target, moved, true);
+    auto refused = sendBack(db, p.id, target, moved, true, edge);
     cast(void) clearLanding(db, perfId, commit);
     if (refused !is null) {
         said.put(" was not sent to ");
-        said.put(rit.regoto);
+        said.put(sentTo);
         said.put(": ");
         said.put(refused);
         emitError("ritual.regoto.write", cast(string) said.text(),
@@ -248,7 +296,7 @@ const(char)[] resolveLanding(DB, PR)(DB db, auto ref const PR r, const(char)[] p
         return said.text();
     }
     said.put(" went to ");
-    said.put(rit.regoto);
+    said.put(sentTo);
     said.put(" at ");
     said.put(commit[0 .. commit.length < 7 ? commit.length : 7]);
     if (m.thrown) {

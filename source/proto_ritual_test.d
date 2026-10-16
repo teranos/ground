@@ -644,3 +644,75 @@ project {
 enum plainParsed = parsePbt(plainControlInput);
 static assert(plainParsed.ctrlPool[0].origin == "");
 static assert(plainParsed.scopes[0].paths[0] == "/");
+
+// "its the same ritual. it's just that it has two ways it can unfold, either commit or push"
+// "the ritual should end after the l part is over, unless a push makes it a longer ritual"
+// "part of what seems to trigger the ritual needs to trigger the rites block instead"
+enum twoDoorsInput = `
+rites pairing {
+  event: "PostToolUse"
+  cmd:   "git commit"
+
+  STAND { eval: "true" }
+  MOVE  { eval: "true" }
+}
+
+rites deployment {
+  event: "PostToolUse"
+  cmd:   "git push"
+
+  TARGET   { eval: "true" }
+  VERSIONS { eval: "true" }
+}
+
+project {
+  path: "/Users/x/teranos/QNTX"
+
+  ritual deploy {
+    pairing
+    deployment
+  }
+}
+`;
+enum twoDoors = parsePbt(twoDoorsInput);
+static assert(twoDoors.ritualCount == 1, "one ritual, two doors");
+static assert(twoDoors.rites[0].event == "PostToolUse" && twoDoors.rites[0].cmd == "git commit");
+static assert(twoDoors.rites[1].event == "PostToolUse" && twoDoors.rites[1].cmd == "git push");
+
+// The flat walk knows where each block begins and where it ends.
+import ritual : entryOf;
+enum twoDoorsFlat = flatten(twoDoors, 0);
+static assert(twoDoorsFlat.count == 4);
+static assert(entryOf(twoDoorsFlat, "pairing").from == 0 && entryOf(twoDoorsFlat, "pairing").edge == 2);
+static assert(entryOf(twoDoorsFlat, "deployment").from == 2 && entryOf(twoDoorsFlat, "deployment").edge == 4);
+
+// A walk that entered at pairing is done at pairing's edge, with deployment never walked.
+import ritual.position : start, step, RitualState, RiteState;
+import rite : Verdict;
+enum walkedL = step(step(start("deploy", 4, 0, 2), Verdict.Advance), Verdict.Advance);
+static assert(walkedL.state == RitualState.Done, "the l part ends at its block's edge");
+static assert(walkedL.current == 2);
+static assert(walkedL.states[2] == RiteState.Never && walkedL.states[3] == RiteState.Never);
+
+// A push landing while pairing walks sends it on to deployment, and the walk now ends at deployment's edge.
+import ritual.regoto : rewind;
+enum extended = rewind(step(start("deploy", 4, 0, 2), Verdict.Advance), 2, 4);
+static assert(extended.state == RitualState.Live && extended.current == 2 && extended.edge == 4);
+enum walkedQ = step(step(extended, Verdict.Advance), Verdict.Advance);
+static assert(walkedQ.state == RitualState.Done, "made longer by the push, it ends at deployment's edge");
+
+// A commit landing while deployment walks sends it back to pairing, and the walk ends at pairing's edge again.
+enum backToL = rewind(extended, 0, 2);
+static assert(backToL.current == 0 && backToL.edge == 2);
+
+// A command fires the block whose cmd it matches, on the block's event, and
+// with it every ritual that lists the block. The door is the block's, not a
+// control's.
+import ritual : doorsFiredBy;
+enum commitDoors = doorsFiredBy(twoDoors, "PostToolUse", "git commit -m x");
+static assert(commitDoors.count == 1);
+static assert(commitDoors.doors[0].ritual == "deploy" && commitDoors.doors[0].block == "pairing");
+enum pushDoors = doorsFiredBy(twoDoors, "PostToolUse", "git push origin main");
+static assert(pushDoors.count == 1 && pushDoors.doors[0].block == "deployment");
+static assert(doorsFiredBy(twoDoors, "PostToolUse", "git status").count == 0);
+static assert(doorsFiredBy(twoDoors, "PreToolUse", "git commit").count == 0, "a door names its event");

@@ -403,6 +403,16 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "ritual_position", "push_output", "TEXT NOT NULL DEFAULT ''");
     // The commit a fire left waiting for the rite in flight to end; empty when none.
     ensureColumn(db, "ritual_position", "push_landing", "TEXT NOT NULL DEFAULT ''");
+    // "the ritual should end after the l part is over, unless a push makes it a longer ritual"
+    // One past the last rite the walk takes. Every row written before the
+    // column walked the whole ritual, so each is given that edge once, as the
+    // column is added.
+    bool hadEdge = hasColumn(db, "ritual_position", "edge");
+    ensureColumn(db, "ritual_position", "edge", "INTEGER NOT NULL DEFAULT 0");
+    if (!hadEdge) {
+        enum edgeOfOldRows = "UPDATE ritual_position SET edge = length(states) WHERE edge = 0\0";
+        sqlite3_exec(db, edgeOfOldRows.ptr, null, null, null);
+    }
 
     enum idxRitualRepo = "CREATE INDEX IF NOT EXISTS idx_ritual_position_repo ON ritual_position(repo, state)\0";
     enum idxRitualTree = "CREATE INDEX IF NOT EXISTS idx_ritual_position_worktree ON ritual_position(worktree)\0";

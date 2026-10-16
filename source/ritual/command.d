@@ -1,7 +1,7 @@
 module ritual.command;
 
 import ritual.position : Position, RitualState, start, performanceId;
-import ritual.resolve : Flattened, RiteNames, chooseRitual, flatten, repoRoot, riteNames;
+import ritual.resolve : Flattened, RiteNames, chooseRitual, flatten, repoRoot, riteNames, entryOf;
 import ritual.run : briefing, spawnScript;
 import ritual.store : writePosition;
 
@@ -22,11 +22,19 @@ struct Staged {
 // share.
 Position preparePerformance(PR)(auto ref const PR parsed, size_t ritualIdx,
                                 const(char)[] root, long unixSeconds,
-                                ref Staged st) {
+                                ref Staged st, const(char)[] enter = "") {
     import worktree : worktreePath, branchOf;
 
     auto flat = flatten(parsed, ritualIdx);
-    auto p = start(parsed.rituals[ritualIdx].name, flat.count);
+    // Entered at a door, the walk is that block: from its first rite to its
+    // edge. Entered any other way, it is the whole ritual.
+    Position p;
+    if (enter.length > 0) {
+        auto e = entryOf(flat, enter);
+        p = start(parsed.rituals[ritualIdx].name, flat.count, e.from, e.edge);
+    } else {
+        p = start(parsed.rituals[ritualIdx].name, flat.count);
+    }
     if (flat.count == 0) return p;
 
     st.pid = performanceId(p.ritual, unixSeconds);
@@ -168,7 +176,8 @@ void spawnDriver(const Position p, const(char)[] root,
 // Null is started. Anything else is why it did not.
 const(char)[] performFromControl(const(char)[] ritualName, const(char)[] sessionId,
                                  const(char)[] where = "",
-                                 const(char)[] toolInput = "", const(char)[] toolOutput = "") {
+                                 const(char)[] toolInput = "", const(char)[] toolOutput = "",
+                                 const(char)[] enter = "") {
     import controls : allParsed;
     import db : openDb, sqlite3_close;
     import core.stdc.time : time;
@@ -199,8 +208,9 @@ const(char)[] performFromControl(const(char)[] ritualName, const(char)[] session
 
     auto flat = flatten(parsed, chosen.ritualIdx);
     Staged st;
-    auto p = preparePerformance(parsed, chosen.ritualIdx, root, cast(long) time(null), st);
+    auto p = preparePerformance(parsed, chosen.ritualIdx, root, cast(long) time(null), st, enter);
     if (p.riteCount == 0) return "the ritual has no rites";
+    if (p.current >= p.edge) return "the door names a block the ritual does not walk";
 
     // The session whose tool call fired the control is the one owed the news.
     p.parent = sessionId;

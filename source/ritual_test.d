@@ -76,12 +76,12 @@ static assert(encodeStates(halted)    == "+!.");
 
 // A character the writer never emits is not silently a Never — a row this
 // process cannot read is a row it must not render.
-enum bad = restore("r", 0, "+?.", RitualState.Live);
+enum bad = restore("r", 0, "+?.", RitualState.Live, 3);
 static assert(!bad.valid);
 
 // Round trip. The states survive; so does everything the row carries.
 enum heldRow = encodeStates(held);
-enum back = restore("probe", held.current, heldRow.text(), RitualState.Live);
+enum back = restore("probe", held.current, heldRow.text(), RitualState.Live, 3);
 static assert(back.valid);
 static assert(back.p.ritual == "probe");
 static assert(back.p.current == 1);
@@ -92,10 +92,16 @@ static assert(back.p.states[2] == RiteState.Never);
 static assert(back.p.state == RitualState.Live);
 
 // A current past the end of the states is the row disagreeing with itself.
-static assert(!restore("r", 5, "+-.", RitualState.Live).valid);
+static assert(!restore("r", 5, "+-.", RitualState.Live, 3).valid);
 
 // Except at exactly the end, which is where a Done ritual sits.
-static assert(restore("r", 3, "+++", RitualState.Done).valid);
+static assert(restore("r", 3, "+++", RitualState.Done, 3).valid);
+
+// The edge read back is the edge the row keeps, not the end of the rites. An
+// edge of nothing, or past the rites, is a row this process cannot read.
+static assert(restore("probe", 1, "+-.", RitualState.Live, 2).p.edge == 2);
+static assert(!restore("r", 0, "+..", RitualState.Live, 0).valid);
+static assert(!restore("r", 0, "+..", RitualState.Live, 4).valid);
 
 // --- Abort ---
 // "it ends when it ends, not because i ran ritual stop" — so this is the

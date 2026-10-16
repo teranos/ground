@@ -43,6 +43,7 @@ unittest {
     p.repo = "/sbvh-nl/grove";
     p.rites = "START,APPLE";
     p.riteCount = 2;
+    p.edge = 2;
     assert(writePosition(db, p));
 
     auto got = readPosition(db, "/sbvh-nl/grove");

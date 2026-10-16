@@ -367,6 +367,62 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 edb = openDb();
             }
         }
+        // "part of what seems to trigger the ritual needs to trigger the rites block instead"
+
+        // A rites block with a door fires every ritual listing it, entering
+        // there. The gates are a control's: the repo the work was in is the
+        // ritual's project, and a push origin refused fires nothing.
+        {
+            import controls : allParsed;
+            import ritual : doorsFiredBy, chooseRitual, ritualOff, secondFire, landOn, performFromControl;
+            import git : originOf, placeRepo = repoRoot;
+            static immutable doorParsed = allParsed;
+            auto fired = doorsFiredBy(doorParsed, "PostToolUse", detail);
+            foreach (di; 0 .. fired.count) {
+                auto door = fired.doors[di];
+                auto chosen = chooseRitual(doorParsed, door.ritual, "");
+                if (!chosen.ok) continue;
+                auto rit = doorParsed.rituals[chosen.ritualIdx];
+                const(char)[] projectOrigin = "";
+                foreach (pi; 0 .. doorParsed.projectCount) {
+                    if (doorParsed.projects[pi].path != rit.projectPath) continue;
+                    if (doorParsed.projects[pi].name != rit.projectName) continue;
+                    projectOrigin = doorParsed.projects[pi].origin;
+                    break;
+                }
+                auto inProject = placeRepo(where) == rit.projectPath
+                    || (projectOrigin.length > 0 && originOf(where) == projectOrigin);
+                if (!inProject) continue;
+                if (isGitPushCommand(detail)) {
+                    import git : pushLanded, getBranch;
+                    if (!pushLanded(where, getBranch(where))) continue;
+                }
+                if (edb is null) edb = openDb();
+                if (edb is null) break;
+                if (ritualOff(edb, doorParsed, door.ritual) !is null) continue;
+                if (secondFire(edb, doorParsed, door.ritual) !is null) {
+                    cast(void) landOn(edb, doorParsed, door.ritual, "", where, sessionId, input, toolOutput);
+                    continue;
+                }
+                // Once per tool call, under the door's own name: ritual/block.
+                __gshared char[160] doorName = 0;
+                size_t dn = 0;
+                foreach (ch; door.ritual) if (dn < doorName.length) doorName[dn++] = ch;
+                if (dn < doorName.length) doorName[dn++] = '/';
+                foreach (ch; door.block) if (dn < doorName.length) doorName[dn++] = ch;
+                if (toolUseId.length > 0 && execFireExists(edb, doorName[0 .. dn], sessionId, toolUseId)) continue;
+                if (toolUseId.length > 0) attestExecFire(edb, doorName[0 .. dn], where, sessionId, toolUseId);
+                sqlite3_close(edb);
+                edb = null;
+                auto why = performFromControl(door.ritual, sessionId, where, input, toolOutput, door.block);
+                edb = openDb();
+                if (why !is null) {
+                    import exec : emitError;
+                    emitError("ritual.door", cast(string) why, 0, 1, cast(string) sessionId,
+                              cast(string) door.ritual, "", "", cast(string) door.block);
+                }
+            }
+        }
         if (edb !is null) sqlite3_close(edb);
     }
 

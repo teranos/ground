@@ -145,7 +145,7 @@ unittest {
     assert(writePosition(db, other), "somebody else writes the row");
 
     Position landed;
-    assert(sendBack(db, "stepcounter-1000", 1, landed).length == 0);
+    assert(sendBack(db, "stepcounter-1000", 1, landed, false, seen.p.edge).length == 0);
     auto got = byPerformanceId(db, "stepcounter-1000");
     assert(got.p.current == 1 && got.p.state == RitualState.Live);
     assert(landed.current == 1);
@@ -172,11 +172,12 @@ unittest {
 
 // A performance that ended while the tree was being moved is not sent back.
 unittest {
-    import ritual : sendBack, Position;
+    import ritual : sendBack, byPerformanceId, Position;
     auto db = memDb();
     performing(db, "stepcounter", "stepcounter-1000", RitualState.Halted);
+    auto seen = byPerformanceId(db, "stepcounter-1000");
     Position landed;
-    assert(sendBack(db, "stepcounter-1000", 1, landed) == "it ended before it could be sent back");
+    assert(sendBack(db, "stepcounter-1000", 1, landed, false, seen.p.edge) == "it ended before it could be sent back");
     sqlite3_close(db);
 }
 

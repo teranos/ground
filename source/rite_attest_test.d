@@ -99,6 +99,7 @@ private Position pos() {
     p.id = "probe-1";
     p.ritual = "probe";
     p.riteCount = 3;
+    p.edge = 3;
     return p;
 }
 

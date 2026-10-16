@@ -213,6 +213,11 @@ struct ParsedRite {
 // A rites group is material — it is never invoked, only referenced.
 struct ParsedRites {
     string name;
+    // "part of what seems to trigger the ritual needs to trigger the rites block instead"
+    // The hook event and the command that fire this block: a ritual listing it
+    // starts here, or a live performance lands here, on that fire.
+    string event;
+    string cmd;
     string[8] params;
     size_t paramCount;
     ParsedRite[32] rites;
@@ -1954,6 +1959,8 @@ ParsedRites parseRites(ref string input, ref size_t pos, string groupName) {
         if (pos < input.length && input[pos] == ':') {
             pos++;
             skipWS(input, pos);
+            if (name == "event") { g.event = readValue(input, pos); continue; }
+            if (name == "cmd")   { g.cmd = readValue(input, pos); continue; }
             assert(name == "params", "Unknown rites field");
             expect(input, pos, '[');
             while (pos < input.length) {

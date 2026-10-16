@@ -39,6 +39,7 @@ unittest {
     p.ritual = "willow";
     p.rites = "START,APPLE";
     p.riteCount = 2;
+    p.edge = 2;
     p.agentSession = "agent-sess";
     p.parent = "operator-sess";
     p.state = RitualState.Live;

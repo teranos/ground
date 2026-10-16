@@ -49,6 +49,10 @@ struct Position {
     long thrownAt;         // when the rite last threw the mic back at the agent
     size_t current;
     size_t riteCount;
+    // "the ritual should end after the l part is over, unless a push makes it a longer ritual"
+    // One past the last rite this walk takes: the edge of the block it entered
+    // at, moved by a landing that sends it into another block.
+    size_t edge;
     size_t gotos;          // jumps taken, against MAX_GOTOS
     size_t throws;         // times this rite threw the mic back
     // The walk's own count, cleared by nothing. `throws` is the rite's and the
@@ -116,10 +120,18 @@ ShortId shortId(const(char)[] performanceId) {
     return s;
 }
 
+// The whole walk: it begins at the first rite and ends past the last.
 Position start(const(char)[] name, size_t riteCount) {
+    return start(name, riteCount, 0, riteCount);
+}
+
+// A walk that enters at `from` and ends at `edge`: one block of the ritual.
+Position start(const(char)[] name, size_t riteCount, size_t from, size_t edge) {
     Position p;
     p.ritual = name;
     p.riteCount = riteCount;
+    p.current = from;
+    p.edge = edge;
     p.state = RitualState.Live;
     return p;
 }
@@ -127,7 +139,7 @@ Position start(const(char)[] name, size_t riteCount) {
 // The verdict of the rite at `current`, applied.
 Position step(Position p, Verdict v) {
     if (p.state != RitualState.Live) return p;
-    if (p.current >= p.riteCount) return p;
+    if (p.current >= p.edge) return p;
 
     final switch (v) {
     case Verdict.Advance:
@@ -135,7 +147,7 @@ Position step(Position p, Verdict v) {
         p.current++;
         p.throws = 0;
         p.evals = 0;
-        if (p.current >= p.riteCount) p.state = RitualState.Done;
+        if (p.current >= p.edge) p.state = RitualState.Done;
         break;
     case Verdict.Hold:
         p.states[p.current] = RiteState.Ran;
@@ -224,15 +236,20 @@ Encoded encodeStates(const Position p) {
 // therefore a verdict, not a Position.
 struct Restored { bool valid; Position p; }
 
+// The edge is the row's. A read-back that put it past the last rite ran a
+// commit's walk on into the push's block.
 Restored restore(const(char)[] name, size_t current,
-                 const(char)[] states, RitualState st) {
+                 const(char)[] states, RitualState st, size_t edge) {
     if (states.length == 0 || states.length > MAX_RITES) return Restored(false);
     if (current > states.length) return Restored(false);
+    // An edge of nothing, or past the rites, is a row this process cannot read.
+    if (edge == 0 || edge > states.length) return Restored(false);
 
     Position p;
     p.ritual = name;
     p.current = current;
     p.riteCount = states.length;
+    p.edge = edge;
     p.state = st;
 
     foreach (i, c; states) {

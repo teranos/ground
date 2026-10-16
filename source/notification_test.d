@@ -101,6 +101,7 @@ private Position perf(RitualState st) {
     p.worktree = "/u/grove-willow-1";
     p.rites = "START,APPLE,ORANGE";
     p.riteCount = 3;
+    p.edge = 3;
     p.current = 1;
     p.state = st;
     return p;
