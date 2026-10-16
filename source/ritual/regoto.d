@@ -172,6 +172,18 @@ const(char)[] landOn(DB, PR)(DB db, auto ref const PR r, const(char)[] ritualNam
     auto branch = getBranch(where);
 
     said.put(p.id);
+    // The live walk is one branch's. A fire from another lands on nothing, or
+    // the walk's tree is moved onto a commit it never asked for.
+    if (branch is null || branch != p.branch) {
+        said.put(" is live on ");
+        said.put(p.branch);
+        said.put(", so the fire on ");
+        said.put(branch is null ? "no branch" : branch);
+        said.put(" lands on nothing");
+        emitError("ritual.regoto.branch", cast(string) said.text(), 0, 1, cast(string) speaker,
+                  cast(string) rit.name, "", cast(string) p.id, cast(string) where);
+        return said.text();
+    }
     if (commit.length == 0) {
         said.put(" was not sent to ");
         said.put(rit.regoto);

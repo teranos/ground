@@ -338,6 +338,7 @@ private Position walking(const(char)[] tree) {
     p.repo = "/alice/smartwatchapp";
     p.rites = "STEP1,STEP2,STEP3,END";
     p.worktree = tree;
+    p.branch = "main";
     p.agentSession = "agent-1";
     p.parent = "parent-1";
     p.current = 3;
@@ -345,6 +346,24 @@ private Position walking(const(char)[] tree) {
     return p;
 }
 import ritual : Position;
+
+unittest {
+    // A fire from a tree on another branch lands on nothing: the live walk is
+    // another branch's, and its tree is not moved onto a commit it never asked for.
+    import ritual : landOn, landingOf, byPerformanceId;
+    auto s = stage();
+    auto db = memDb();
+    assert(writePosition(db, walking(s.tree.text())));
+    sh("git -C '", s.pusher.text(), "' checkout -q -b other");
+    sh("printf 'other\\n' >> '", s.pusher.text(), "/steps.txt'");
+    sh("git -C '", s.pusher.text(), "' commit -q -am other");
+    auto said = landOn(db, regotoParsed, "stepcounter", "", s.pusher.text(), "pusher-1", "git commit", "");
+    assert(said == "stepcounter-1000 is live on main, so the fire on other lands on nothing", said);
+    assert(landingOf(db, "stepcounter-1000").length == 0);
+    assert(byPerformanceId(db, "stepcounter-1000").p.current == 3);
+    sqlite3_close(db);
+    sh("rm -rf '", s.root.text(), "'");
+}
 
 unittest {
     // "because the new one should be the one that is the change"
