@@ -21,12 +21,27 @@ in
       tags = [ "*" ];
     };
     pull_request = null;
+    # "i want a coment per project essentially"
+    # A comet: ground's own controls and one project's, built for a Mac.
+    workflow_dispatch.inputs = {
+      project = {
+        description = "the repository whose controls the comet folds in, owner/repo";
+        required = true;
+        type = "string";
+      };
+      rev = {
+        description = "the project's rev the comet is built from";
+        required = true;
+        type = "string";
+      };
+    };
   };
 
   jobs = {
     # Both systems ground is released for, so a link that only one of them
     # refuses is seen before a tag is cut.
     test = {
+      "if" = "github.event_name != 'workflow_dispatch'";
       strategy.matrix.os = [ "ubuntu-latest" "macos-latest" ];
       runs-on = "\${{ matrix.os }}";
       steps = [
@@ -66,6 +81,54 @@ in
           "with" = {
             name = "ground-\${{ matrix.target }}";
             path = "ground-\${{ matrix.target }}";
+          };
+        }
+      ];
+    };
+
+    # wind folds what is on the disk it runs on, so the comet is built in the
+    # dev shell with the project checked out beside ground, not by nix build,
+    # whose sandbox holds ground's tree alone.
+    comet = {
+      "if" = "github.event_name == 'workflow_dispatch'";
+      runs-on = "macos-latest";
+      steps = [
+        (checkout // { "with" = checkout."with" // { path = "ground"; }; })
+        {
+          uses = "actions/checkout@v6";
+          "with" = {
+            repository = "\${{ inputs.project }}";
+            ref = "\${{ inputs.rev }}";
+            path = "project";
+          };
+        }
+        installNix
+        {
+          name = "The comet's one project";
+          run = ''
+            mkdir -p ground/controls/local
+            printf 'project {\n  path: "%s"\n}\n' "$GITHUB_WORKSPACE/project" > ground/controls/local/comet.pbt
+          '';
+        }
+        {
+          name = "Built with that project's sand";
+          working-directory = "ground";
+          run = "nix develop .#default --command make build";
+        }
+        {
+          name = "What it links";
+          working-directory = "ground";
+          run = "otool -L ground";
+        }
+        {
+          id = "name";
+          run = "echo \"artifact=ground-aarch64-darwin-$(echo '\${{ inputs.project }}' | tr / -)\" >> \"$GITHUB_OUTPUT\"";
+        }
+        {
+          uses = "actions/upload-artifact@v7";
+          "with" = {
+            name = "\${{ steps.name.outputs.artifact }}";
+            path = "ground/ground";
           };
         }
       ];
