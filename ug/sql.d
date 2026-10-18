@@ -48,7 +48,7 @@ enum PERFORMANCE_SQL =
     "SELECT ritual, rites, states, current, state, id, " ~
     "COALESCE(thrown_at, 0), COALESCE(acted_at, 0), COALESCE(throws, 0), " ~
     "COALESCE(session, ''), COALESCE(agent_pid, 0), " ~
-    "CAST(strftime('%s', updated_at) AS INTEGER) " ~
+    "CAST(strftime('%s', updated_at) AS INTEGER), COALESCE(costgates, '') " ~
     "FROM ritual_position " ~
     "WHERE rites IS NOT NULL AND rites != '' " ~
     "AND (parent = ?1 OR session = ?1) " ~
@@ -68,6 +68,7 @@ struct Row {
     char[16]  stateBuf;   size_t stateLen;
     char[64]  idBuf;      size_t idLen;
     char[64]  sessionBuf; size_t sessionLen;
+    char[512] gatesBuf;   size_t gatesLen;
 
     long current;
     long thrownAt;
@@ -82,6 +83,7 @@ struct Row {
     const(char)[] state()   const { return stateBuf[0 .. stateLen]; }
     const(char)[] id()      const { return idBuf[0 .. idLen]; }
     const(char)[] session() const { return sessionBuf[0 .. sessionLen]; }
+    const(char)[] gates()   const { return gatesBuf[0 .. gatesLen]; }
 }
 
 // How the read went. Nothing found and a query that never ran are different
@@ -150,6 +152,7 @@ Reading readPerformances(const(char)[] home, const(char)[] sessionId, Row[] rows
         copyInto(sqlite3_column_text(stmt, 9), r.sessionBuf[], r.sessionLen);
         r.agentPid = sqlite3_column_int64(stmt, 10);
         r.updatedAt = sqlite3_column_int64(stmt, 11);
+        copyInto(sqlite3_column_text(stmt, 12), r.gatesBuf[], r.gatesLen);
 
         count++;
         step = sqlite3_step(stmt);

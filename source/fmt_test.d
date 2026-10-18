@@ -114,3 +114,10 @@ static assert(formatPbt(planRule).text() == planRule);
 
 // include names a file and carries no colon.
 static assert(formatPbt("include   \"other.pbt\"\n").text() == "include \"other.pbt\"\n");
+
+// "costgated: w<70;f<30; {"
+// A costgated block's clauses stand as written, and its rites inside it a level in.
+enum gated = "rites orchard {\n  costgated: w<70;f<30; {\n    CHERRY {\n      run: \"test -f WILLOW.md\"\n    }\n  }\n}\n";
+static assert(formatPbt(gated).text() == gated);
+static assert(formatPbt("rites orchard {\n  costgated:   w<70;f<30;   {\n    CHERRY {\n      run: \"x\"\n    }\n  }\n}\n").text()
+    == "rites orchard {\n  costgated: w<70;f<30; {\n    CHERRY {\n      run: \"x\"\n    }\n  }\n}\n");

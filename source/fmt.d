@@ -274,6 +274,21 @@ ptrdiff_t formatInto(const(char)[] s, char[] out_) {
             w.indent(depth);
             w.put(head);
             w.put(": ");
+            // A costgated block: its clauses as written, then the rites it holds a level in.
+            if (head == "costgated") {
+                auto clauses = scalar(s, pos);
+                skipBlank(s, pos);
+                if (clauses is null || pos >= s.length || s[pos] != '{' || depth >= DEPTH) return -1;
+                pos++;
+                w.put(clauses);
+                w.put(" {");
+                trailing(s, pos, w);
+                w.put("\n");
+                ritualBody[depth] = false;
+                depth++;
+                opened = true;
+                continue;
+            }
             if (s[pos] == '[') {
                 if (!putList(s, pos, depth, head.length, w)) return -1;
             } else if (s[pos] == '{') {

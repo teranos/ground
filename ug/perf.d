@@ -11,8 +11,19 @@ enum DIM        = "\033[2m";
 enum DARK_GRAY  = "\033[90m";
 enum LIGHT_GRAY = "\033[37m";
 enum RESET      = "\033[0m";
+enum ORANGE     = "\033[38;5;208m";
 
 enum JOIN = " > ";
+
+// "i want the group"
+// A costgated block's rites, from the first to one past the last, and its budget as it stands.
+enum Budget { under, over, exhausted }
+
+struct Gated {
+    long from;
+    long edge;
+    Budget budget;
+}
 
 struct Perf {
     const(char)[] rites;
@@ -25,6 +36,17 @@ struct Perf {
     long thrownAt;
     long actedAt;
     long endedAt;
+    Gated[4] gated;
+    size_t gatedCount;
+}
+
+// The marks of a group: plain under budget, orange over it, red with every budget spent.
+const(char)[] budgetColour(Budget b) {
+    final switch (b) {
+        case Budget.under: return null;
+        case Budget.over: return ORANGE;
+        case Budget.exhausted: return RED;
+    }
 }
 
 // Seconds a finished line sits still before it goes.
@@ -146,7 +168,23 @@ size_t chainInto(Perf p, char[] dest) {
         while (end < p.rites.length && p.rites[end] != ',') end++;
         auto name = p.rites[at .. end];
 
-        if (i > 0) put(JOIN);
+        // The group this rite stands in, if any: ${ opens it, one space parts its rites, } closes it.
+        const(Gated)* group = null;
+        foreach (gi; 0 .. p.gatedCount)
+            if (i >= p.gated[gi].from && i < p.gated[gi].edge) group = &p.gated[gi];
+        auto marks = group is null ? null : budgetColour(group.budget);
+
+        void mark(const(char)[] s) {
+            if (marks !is null) put(marks);
+            put(s);
+            if (marks !is null) put(RESET);
+        }
+
+        bool afterGroup = false;
+        foreach (gi; 0 .. p.gatedCount)
+            if (i == p.gated[gi].edge) afterGroup = true;
+        if (i > 0) put(group !is null || afterGroup ? " " : JOIN);
+        if (group !is null && i == group.from) mark("${");
 
         // A state string shorter than the rite list leaves the rest as rites
         // that have never run, rather than dropping them off the line.
@@ -175,6 +213,7 @@ size_t chainInto(Perf p, char[] dest) {
                 put(RESET);
             }
         }
+        if (group !is null && i + 1 == group.edge) mark("}");
 
         i++;
         if (end >= p.rites.length) break;

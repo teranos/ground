@@ -163,6 +163,8 @@ struct FlatRite {
     string[8] keys;
     string[8] values;
     size_t valueCount;
+    // The clauses of the costgated block the rite stands in. Empty for one in none.
+    string costgate;
 }
 
 struct Flattened {
@@ -329,6 +331,7 @@ Flattened flatten(PR)(auto ref const PR r, size_t ritualIdx) {
                 fr.goto_ = src.goto_;
                 fr.to = src.to;
                 fr.wait = src.wait;
+                fr.costgate = src.costgate;
                 fr.keys = refr.keys;
                 fr.values = refr.values;
                 fr.valueCount = refr.valueCount;
@@ -351,6 +354,18 @@ RiteNames riteNames(const Flattened f) {
     foreach (i; 0 .. f.count) {
         if (i > 0 && n.len < n.buf.length) n.buf[n.len++] = ',';
         foreach (c; f.rites[i].name) {
+            if (n.len < n.buf.length) n.buf[n.len++] = c;
+        }
+    }
+    return n;
+}
+
+// Each rite's costgated clauses, in step with the names, so the line can draw the group from the row.
+RiteNames riteGates(const Flattened f) {
+    RiteNames n;
+    foreach (i; 0 .. f.count) {
+        if (i > 0 && n.len < n.buf.length) n.buf[n.len++] = ',';
+        foreach (c; f.rites[i].costgate) {
             if (n.len < n.buf.length) n.buf[n.len++] = c;
         }
     }

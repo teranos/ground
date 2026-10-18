@@ -72,3 +72,41 @@ static assert(len!short_() > 0);
 
 // Nothing to walk is no line at all.
 static assert(len!(Perf("", "", "live", 0, 0, true))() == 0);
+
+// "and the ${ and } become orange"
+
+// "when over budget"
+
+// "and red when all budgets are exhausted"
+
+// "${[RITE1] RITE2}"
+
+// "i want the group"
+import perf : ORANGE, Gated, Budget;
+
+// The group passed over, the walk on the rite after it.
+private Perf withGroup(Budget b)() {
+    auto p = Perf("CHERRY,MANGO,LIME", "++>", "live", 2, 0, true);
+    p.gated[0] = Gated(0, 2, b);
+    p.gatedCount = 1;
+    return p;
+}
+
+enum under = withGroup!(Budget.under)();
+enum underWant =
+    "${" ~ GREEN ~ "CHERRY" ~ RESET ~ " " ~ GREEN ~ "MANGO" ~ RESET ~ "}" ~ " " ~
+    BLUE ~ "[" ~ RESET ~ BLUE ~ "LIME" ~ RESET ~ BLUE ~ "]" ~ RESET;
+static assert(len!under() == underWant.length);
+static assert(drawn!under()[0 .. underWant.length] == underWant);
+
+enum over = withGroup!(Budget.over)();
+enum overWant =
+    ORANGE ~ "${" ~ RESET ~ GREEN ~ "CHERRY" ~ RESET ~ " " ~ GREEN ~ "MANGO" ~ RESET ~ ORANGE ~ "}" ~ RESET ~ " " ~
+    BLUE ~ "[" ~ RESET ~ BLUE ~ "LIME" ~ RESET ~ BLUE ~ "]" ~ RESET;
+static assert(drawn!over()[0 .. overWant.length] == overWant);
+
+enum exhausted = withGroup!(Budget.exhausted)();
+enum exhaustedWant =
+    RED ~ "${" ~ RESET ~ GREEN ~ "CHERRY" ~ RESET ~ " " ~ GREEN ~ "MANGO" ~ RESET ~ RED ~ "}" ~ RESET ~ " " ~
+    BLUE ~ "[" ~ RESET ~ BLUE ~ "LIME" ~ RESET ~ BLUE ~ "]" ~ RESET;
+static assert(drawn!exhausted()[0 .. exhaustedWant.length] == exhaustedWant);

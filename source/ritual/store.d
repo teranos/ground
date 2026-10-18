@@ -12,10 +12,11 @@ bool writePosition(DB)(DB db, const Position p) {
                 sqlite3_bind_int64, sqlite3_stmt, SQLITE_OK, SQLITE_DONE, SQLITE_TRANSIENT;
     import exec : emitError;
 
-    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, mic, mic_at, said, holds, evals, edge) "
-        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22) ON CONFLICT(id) DO UPDATE SET "
+    enum sql = "INSERT INTO ritual_position (id, repo, ritual, branch, worktree, current, states, state, rites, session, agent, gotos, parent, agent_pid, thrown_at, throws, mic, mic_at, said, holds, evals, edge, costgates) "
+        ~ "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23) ON CONFLICT(id) DO UPDATE SET "
         // session, agent and agent_pid are absent on purpose: the binds own
         // them, and a whole-row update from a stale copy erased them.
+        // costgates too: the row is born with them, and a copy read back carries none.
         ~ "branch=?4, worktree=?5, current=?6, states=?7, state=?8, rites=?9, "
         ~ "gotos=?12, parent=?13, thrown_at=?15, throws=?16, "
         ~ "mic=?17, mic_at=?18, said=?19, holds=?20, evals=?21, edge=?22, rev=rev+1, updated_at=CURRENT_TIMESTAMP\0";
@@ -52,6 +53,9 @@ bool writePosition(DB)(DB db, const Position p) {
     sqlite3_bind_int64(stmt, 20, cast(long) p.holds);
     sqlite3_bind_int64(stmt, 21, cast(long) p.evals);
     sqlite3_bind_int64(stmt, 22, cast(long) p.edge);
+    // A null pointer binds SQL NULL, which the column refuses: a performance with no gates holds the empty text.
+    auto gates = p.costgates.length > 0 ? p.costgates : "";
+    sqlite3_bind_text(stmt, 23, gates.ptr, cast(int) gates.length, SQLITE_TRANSIENT);
 
     auto rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);

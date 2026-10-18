@@ -377,6 +377,8 @@ bool applySchema(sqlite3* db) {
     // The line is rendered from the row alone. Without the names there are
     // glyphs and a cursor and nothing to put brackets around.
     ensureColumn(db, "ritual_position", "rites", "TEXT");
+    // Each rite's costgated clauses, comma-joined in step with rites, so the line draws the group.
+    ensureColumn(db, "ritual_position", "costgates", "TEXT NOT NULL DEFAULT ''");
 
     // Who carries the performance. SessionStart writes it, from inside the
     // background session that is doing the walk.

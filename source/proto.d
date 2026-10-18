@@ -208,6 +208,9 @@ struct ParsedRite {
     // no receiver reports to nobody, which is the only honest default when
     // the alternative is guessing that somebody wanted to hear it.
     Receiver to = Receiver.None;
+    // "costgated: w<70;f<30; {"
+    // The clauses of the costgated block it stands in, as written. Empty for a rite in none.
+    string costgate;
 }
 
 // A rites group is material — it is never invoked, only referenced.
@@ -1953,6 +1956,39 @@ ParsedRites parseRites(ref string input, ref size_t pos, string groupName) {
 
         auto name = readWord(input, pos);
         skipWS(input, pos);
+
+        // A costgated block's rites stand in this group, in order, each carrying the clauses.
+        if (name == "costgated" && pos < input.length && input[pos] == ':') {
+            pos++;
+            skipWS(input, pos);
+            auto start = pos;
+            while (pos < input.length && input[pos] != '{' && input[pos] != ' '
+                    && input[pos] != '\t' && input[pos] != '\n' && input[pos] != '\r')
+                pos++;
+            auto gate = input[start .. pos];
+            import costgate : refusal;
+            assert(refusal(gate) is null, "A costgated block's clauses are a letter, < and a percent, each ended by ;");
+            skipWS(input, pos);
+            expect(input, pos, '{');
+            while (pos < input.length) {
+                skipWS(input, pos);
+                if (pos < input.length && input[pos] == '#') { skipLine(input, pos); continue; }
+                if (pos < input.length && input[pos] == '}') { pos++; break; }
+                auto gated = readWord(input, pos);
+                skipWS(input, pos);
+                expect(input, pos, '{');
+                assert(g.riteCount < g.rites.length, "Rite overflow in group");
+                auto rite = parseRite(input, pos, gated);
+                if (rite.catchCount == 0 && rite.dispatch.length == 0) {
+                    rite.catches[0] = 1;
+                    rite.catchCount = 1;
+                }
+                rite.costgate = gate;
+                g.rites[g.riteCount] = rite;
+                g.riteCount++;
+            }
+            continue;
+        }
 
         // `params:` is the one word here that is not a rite. A colon
         // after it is what says so — a rite is always followed by `{`.

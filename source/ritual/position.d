@@ -42,6 +42,7 @@ struct Position {
     const(char)[] branch;
     const(char)[] worktree;
     const(char)[] rites;   // comma-joined names, so the row renders alone
+    const(char)[] costgates; // each rite's costgated clauses, comma-joined in step with rites
     const(char)[] agentSession; // the session of the agent carrying it
     const(char)[] parent;  // the session that started it, and is owed the news
     const(char)[] agent;   // the agent carrying it, if one was started with it

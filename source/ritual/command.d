@@ -1,7 +1,7 @@
 module ritual.command;
 
 import ritual.position : Position, RitualState, start, performanceId;
-import ritual.resolve : Flattened, RiteNames, chooseRitual, flatten, repoRoot, riteNames, entryOf;
+import ritual.resolve : Flattened, RiteNames, chooseRitual, flatten, repoRoot, riteNames, riteGates, entryOf;
 import ritual.run : briefing, spawnScript;
 import ritual.store : writePosition;
 
@@ -14,6 +14,7 @@ struct Staged {
     import worktree : Path;
     PerfId pid;
     RiteNames names;
+    RiteNames gates;
     Path tree;
 }
 
@@ -45,6 +46,8 @@ Position preparePerformance(PR)(auto ref const PR parsed, size_t ritualIdx,
     // without the pbt.
     st.names = riteNames(flat);
     p.rites = st.names.text();
+    st.gates = riteGates(flat);
+    p.costgates = st.gates.text();
 
     // A tree is asked for, not assumed. One cut per performance carried none of
     // what .gitignore holds, so a rite that compiled anything failed in it, and

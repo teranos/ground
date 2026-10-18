@@ -91,6 +91,51 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             return a;
     }
 
+    // "costgated: w<70;f<30; {"
+    // A spent week is said and walked past: the rite is not applied, so nothing of it runs.
+    // A week nothing current is recorded for is an error, and the walk halts on it.
+    if (r.costgate.length > 0) {
+        import costgate : holds, spentOf, Gate;
+        auto g = holds(r.costgate, (string window) => spentOf(db, window));
+        if (g.gate == Gate.Unknown) {
+            import ritual.store : writePositionIf;
+            a.ran = true;
+            a.verdict = Verdict.Halt;
+            riteError(p, sessionId, "ritual.costgate.unknown",
+                      "the rite's costgate could not be asked: nothing current is recorded for its window",
+                      0, r.name, r.costgate, g.missing);
+            auto stopped = step(p, Verdict.Halt);
+            attestRite(db, sessionId, p, r.name, a.verdict, 0, g.missing, unixSeconds);
+            cast(void) writePositionIf(db, stopped, p.rev);
+            a.applied = true;
+            a.after = stopped;
+            return a;
+        }
+        if (g.gate == Gate.Spent) {
+            import ritual.store : writePositionIf;
+            __gshared ZBuf why;
+            why.reset();
+            why.put(r.name);
+            why.put(" is not applied: ");
+            why.put((&g.letter)[0 .. 1]);
+            why.put(" is at ");
+            putRev(why, g.tenths / 10);
+            why.put(".");
+            putRev(why, g.tenths % 10);
+            why.put("%, not under ");
+            putRev(why, g.limit);
+            why.put("%");
+            a.verdict = Verdict.Advance;
+            a.output = why.slice();
+            auto moved = step(p, Verdict.Advance);
+            attestRite(db, sessionId, p, r.name, a.verdict, 0, a.output, unixSeconds);
+            cast(void) writePositionIf(db, moved, p.rev);
+            a.applied = true;
+            a.after = moved;
+            return a;
+        }
+    }
+
     // The name the run carries back, so it is found rather than guessed at.
     __gshared ZBuf token;
     token.reset();
