@@ -301,6 +301,27 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     import db : cwdTail;
     outProject = cwdTail(cwd);
 
+    // "or like, a generalised project, like universal ground"
+    // A repository with a comet landed for it is answered by that comet, which
+    // attests and times the event itself. A comet never hands off again.
+    {
+        import core.stdc.stdlib : getenv;
+        import core.sys.posix.unistd : access, X_OK;
+        import git : originOf;
+        import comet : cometPathInto, handOff;
+        auto home = getenv("HOME");
+        if (getenv("GROUND_COMET") is null && home !is null) {
+            size_t hl = 0;
+            while (home[hl] != 0) hl++;
+            __gshared char[1024] cometBuf = 0;
+            auto path = cometPathInto(home[0 .. hl], originOf(cwd), cometBuf[]);
+            if (path.length > 0 && access(cometBuf.ptr, X_OK) == 0) {
+                outSkipTiming = true;
+                return handOff(path, input);
+            }
+        }
+    }
+
     auto eventName = extractHookEventName(input);
     if (eventName is null) return 0;
     outEventName = eventName;

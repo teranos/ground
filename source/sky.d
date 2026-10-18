@@ -495,6 +495,17 @@ int handleSky(int argc, const(char)** argv) {
     }
     long streamBackoffUntil = 0;
     long streamed = 0;
+
+    // "Yes, custoner uses ground, but they dont think about it because it just lands via comet"
+
+    // This tree's repository, read once, and when the node's comet of it was last refused.
+    __gshared char[256] originBuf = 0;
+    size_t originLen = 0;
+    {
+        import git : originOf;
+        foreach (c; originOf(cwd)) if (originLen < originBuf.length) originBuf[originLen++] = c;
+    }
+    long cometBackoffUntil = 0;
     import stream : Pace;
     Pace pace;
 
@@ -657,6 +668,23 @@ int handleSky(int argc, const(char)** argv) {
             }
             sqlite3_close(db);
             askDue(due, sessionId, now);
+
+            // A comet is pulled: the node's comet of this repository, when it moved.
+            if (streamToken.length > 0 && originLen > 0 && now >= cometBackoffUntil) {
+                import comet : land, Landed;
+                auto landing = land(qntxNode.url, streamToken, getHome(), originBuf[0 .. originLen]);
+                if (landing.what == Landed.failed) {
+                    cometBackoffUntil = now + SHIP_BACKOFF_SEC;
+                    toSentry("sky.comet", cast(string) landing.why(), -1, sessionId, "");
+                }
+                if (landing.what == Landed.landed) {
+                    auto ldb = openDb();
+                    if (ldb !is null) {
+                        lifecycleNote(ldb, sessionId, "info", landing.why(), tree, myPid, 0, polls, now);
+                        sqlite3_close(ldb);
+                    }
+                }
+            }
         }
 
         // The session that spawned this watcher is gone, and only that

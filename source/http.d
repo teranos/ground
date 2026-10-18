@@ -205,6 +205,68 @@ Http httpFetch(const(char)[] url, const(char)[] token, char[] dest, int timeoutS
     return perform(url, null, false, token, null, dest, timeoutSec, protocols);
 }
 
+// libcurl's pieces, written to a file as they come: a comet is tens of megabytes,
+// more than any buffer ground holds.
+private extern (C) size_t intoFile(char* ptr, size_t size, size_t nmemb, void* user) {
+    import core.stdc.stdio : FILE, fwrite;
+    return fwrite(ptr, 1, size * nmemb, cast(FILE*) user);
+}
+
+// GET a url, the body written to the file at path. A status that is not 200
+// leaves whatever the far end said in the file; the caller reads the status first.
+Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, int timeoutSec,
+                   const(char)[] protocols = WEB) {
+    import core.stdc.stdio : fopen, fclose;
+    Http r;
+    auto f = fopen(path, "wb");
+    if (f is null) {
+        r.code = -1;
+        foreach (c; "the file to write the answer into would not open")
+            if (r.whyLen < r.whyBuf.length) r.whyBuf[r.whyLen++] = c;
+        return r;
+    }
+    scope (exit) fclose(f);
+    __gshared ZBuf urlZ, authZ, protoZ;
+    urlZ.reset();
+    urlZ.put(url);
+    protoZ.reset();
+    protoZ.put(protocols);
+    auto h = curl_easy_init();
+    if (h is null) {
+        r.code = -1;
+        foreach (c; "libcurl could not start a handle")
+            if (r.whyLen < r.whyBuf.length) r.whyBuf[r.whyLen++] = c;
+        return r;
+    }
+    scope (exit) curl_easy_cleanup(h);
+    void* headers = null;
+    scope (exit) if (headers !is null) curl_slist_free_all(headers);
+    bearerLine(authZ, token);
+    if (authZ.len > 0) headers = curl_slist_append(headers, authZ.ptr());
+
+    char[CURL_ERROR_SIZE] errBuf = 0;
+    curl_easy_setopt(h, CURLOPT_URL, urlZ.ptr());
+    curl_easy_setopt(h, CURLOPT_PROTOCOLS_STR, protoZ.ptr());
+    curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(h, CURLOPT_TIMEOUT, cast(long) timeoutSec);
+    curl_easy_setopt(h, CURLOPT_ERRORBUFFER, &errBuf[0]);
+    curl_easy_setopt(h, CURLOPT_USERAGENT, "ground\0".ptr);
+    curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, &intoFile);
+    curl_easy_setopt(h, CURLOPT_WRITEDATA, f);
+    if (headers !is null) curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers);
+
+    r.code = curl_easy_perform(h);
+    long status = 0;
+    curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &status);
+    r.status = cast(int) status;
+    if (r.code != 0) {
+        size_t n = 0;
+        while (n < errBuf.length && errBuf[n] != 0) n++;
+        foreach (c; errBuf[0 .. n]) if (r.whyLen < r.whyBuf.length) r.whyBuf[r.whyLen++] = c;
+    }
+    return r;
+}
+
 // POST a body to a url. The reply's body is not kept.
 Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
               int timeoutSec = 10, const(char)[] contentType = "application/json") {
