@@ -20,12 +20,15 @@ import libgit2 : Repo;
 void stampVersion() {
     Repo g;
     char[256] buf;
-    string stamp = "";
-    if (g.open(".")) {
-        auto d = g.describeHead(buf[]);
-        if (d !is null) stamp = d.idup ~ "\n";
-        g.close();
+    // A tree that is no repository keeps the .version its builder wrote: a comet's, by the node.
+    if (!g.open(".")) {
+        if (!exists(".version")) write(".version", "");
+        return;
     }
+    string stamp = "";
+    auto d = g.describeHead(buf[]);
+    if (d !is null) stamp = d.idup ~ "\n";
+    g.close();
     write(".version", stamp);
 }
 
