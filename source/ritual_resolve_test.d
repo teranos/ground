@@ -123,3 +123,10 @@ static assert(indexOfRiteFrom(twin, "second", "END") == 5, "block two lands in b
 // A name its own block does not carry is still found where it is.
 static assert(indexOfRiteFrom(twin, "second", "HEDGE1") == 1);
 static assert(indexOfRiteFrom(twin, "first", "nowhere") == -1);
+
+// A comet performs where its project landed: the place, up to the end of the project's path in it.
+import ritual.resolve : rootIn;
+static assert(rootIn("/root/.qntx/agents/root/work/abcd-nl/grove", "/abcd-nl/grove") == "/root/.qntx/agents/root/work/abcd-nl/grove");
+static assert(rootIn("/root/work/abcd-nl/grove/sub/dir", "/abcd-nl/grove") == "/root/work/abcd-nl/grove");
+static assert(rootIn("/root/work/abcd-nl/grove-two", "/abcd-nl/grove") == "");
+static assert(rootIn("/root/work/other", "/abcd-nl/grove") == "");

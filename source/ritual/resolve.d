@@ -129,6 +129,28 @@ const(char)[] repoRoot(PR)(auto ref const PR r, const(char)[] projectPath) {
     return best;
 }
 
+// Where a project stands under the place a person is: a comet's project block names the node
+// it was built on, and its checkout is wherever it landed. The place, up to the end of the
+// project's path in it, or empty when the place is not the project's.
+const(char)[] rootIn(const(char)[] cwd, const(char)[] projectPath) {
+    if (projectPath.length == 0 || projectPath.length > cwd.length) return cwd[0 .. 0];
+    foreach (i; 0 .. cwd.length - projectPath.length + 1) {
+        if (cwd[i .. i + projectPath.length] != projectPath) continue;
+        auto end = i + projectPath.length;
+        if (end == cwd.length || cwd[end] == '/') return cwd[0 .. end];
+    }
+    return cwd[0 .. 0];
+}
+
+// Whether anything stands at path on disk.
+bool standsOnDisk(const(char)[] path) {
+    import core.sys.posix.unistd : access, F_OK;
+    char[1024] z = 0;
+    if (path.length >= z.length) return false;
+    foreach (i, c; path) z[i] = c;
+    return access(z.ptr, F_OK) == 0;
+}
+
 // A ritual names groups; the position walks rites. The flat list is the order
 // they run in and the index `goto` needs.
 struct FlatRite {

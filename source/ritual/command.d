@@ -461,6 +461,12 @@ int handleRitual(int argc, const(char)** argv) {
 
     auto projectPath = parsed.rituals[found.ritualIdx].projectPath;
     auto root = repoRoot(parsed, projectPath);
+    // A comet performs where its project landed, not where the node built it (QNTX ADR-050).
+    {
+        import ritual.resolve : rootIn, standsOnDisk;
+        auto here = rootIn(cwd, projectPath);
+        if (root.length > 0 && !standsOnDisk(root) && here.length > 0) root = here;
+    }
     if (root.length == 0) {
         fputs("ground ritual: nothing declares where ", stderr);
         fwrite(projectPath.ptr, 1, projectPath.length, stderr);
