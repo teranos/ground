@@ -669,8 +669,9 @@ int handleSky(int argc, const(char)** argv) {
             sqlite3_close(db);
             askDue(due, sessionId, now);
 
-            // A comet is pulled: the node's comet of this repository, when it moved.
-            if (streamToken.length > 0 && originLen > 0 && now >= cometBackoffUntil) {
+            // A comet is pulled: the node's comet of this repository, when it moved. A node that
+            // answers its own machine without a token is asked without one (bearerLine).
+            if (qntxNode.url.length > 0 && originLen > 0 && now >= cometBackoffUntil) {
                 import comet : land, Landed;
                 auto landing = land(qntxNode.url, streamToken, getHome(), originBuf[0 .. originLen]);
                 if (landing.what == Landed.failed) {
