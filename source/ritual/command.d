@@ -159,16 +159,52 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
 // call that fired the control is handed to it here or reaches no rite at all.
 void spawnDriver(const Position p, const(char)[] root,
                  const(char)[] toolInput = "", const(char)[] toolOutput = "") {
-    import exec : dispatchExec;
-    import ritual.run : SpawnScript, put, putQuoted;
+    import exec : dispatchExec, emitError;
 
-    SpawnScript s;
-    s.put("#!/usr/bin/env bash\nexec ground drive ");
-    s.putQuoted(p.id);
-    s.put("\n");
+    // The driver walks the rituals compiled into the ground that started the
+    // performance. `ground` from PATH is whichever comes first: under q's Node
+    // Agent that was the agent's own, which has no willow, and willow sat at START.
+    auto self = ownBinary();
+    if (self.length == 0) {
+        emitError("ritual.drive.self", "the driver was not started: this ground could not read its own path",
+                  0, 1, cast(string) p.parent, cast(string) p.ritual, "", cast(string) p.id, "");
+        return;
+    }
+    auto s = driverScript(self, p.id);
     if (s.text().length == 0) return;
     dispatchExec(cast(string) s.text(), "ritual-drive", "", 86_400,
                  [], [], "", root, toolInput, toolOutput);
+}
+
+// The script that starts a performance's driver as the binary at self.
+auto driverScript(const(char)[] self, const(char)[] perfId) {
+    import ritual.run : SpawnScript, put, putQuoted;
+    SpawnScript s;
+    s.put("#!/usr/bin/env bash\nexec ");
+    s.putQuoted(self);
+    s.put(" drive ");
+    s.putQuoted(perfId);
+    s.put("\n");
+    return s;
+}
+
+version (OSX) extern (C) private int _NSGetExecutablePath(char* buf, uint* bufsize);
+version (linux) extern (C) private ptrdiff_t readlink(const(char)* path, char* buf, size_t len);
+
+// The path of the binary running now, or empty when the system did not say it.
+private const(char)[] ownBinary() {
+    __gshared char[4096] buf = 0;
+    version (linux) {
+        auto n = readlink("/proc/self/exe", buf.ptr, buf.length - 1);
+        if (n <= 0) return buf[0 .. 0];
+        return buf[0 .. cast(size_t) n];
+    } else version (OSX) {
+        uint size = cast(uint) (buf.length - 1);
+        if (_NSGetExecutablePath(buf.ptr, &size) != 0) return buf[0 .. 0];
+        size_t n = 0;
+        while (n < buf.length && buf[n] != 0) n++;
+        return buf[0 .. n];
+    }
 }
 
 // A control performing one. There is no argv and no terminal, so why it did
