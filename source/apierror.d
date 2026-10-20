@@ -6,7 +6,7 @@ module apierror;
 
 import mic : Mic;
 
-// https://code.claude.com/docs/en/hooks — StopFailure, matcher values
+// StopFailure's error values, as the pinned claude binary's schema names them.
 enum ApiError {
     RateLimit,
     Overloaded,
