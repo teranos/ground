@@ -29,6 +29,10 @@ module parse;
 import matcher : indexOf;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
+// The top-level hook input field an extractor reads. `ground parity` counts a
+// handler's calls through these against each agent's pinned contract.
+struct Reads { string key; }
+
 // Extracts a JSON string value by key into the provided buffer.
 // Handles JSON escape sequences: \" becomes ", \\ becomes \, \n becomes newline.
 const(char)[] extractJsonString(const(char)[] json, string key, char* buf, size_t bufLen) {
@@ -74,42 +78,42 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
     return buf[0 .. len];
 }
 
-const(char)[] extractCommand(const(char)[] json) {
+@Reads("tool_input") const(char)[] extractCommand(const(char)[] json) {
     __gshared char[8192] buf = 0;
     return extractJsonString(json, `"command"`, &buf[0], buf.length);
 }
 
-const(char)[] extractCwd(const(char)[] json) {
+@Reads("cwd") const(char)[] extractCwd(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"cwd"`, &buf[0], buf.length);
 }
 
-const(char)[] extractTranscriptPath(const(char)[] json) {
+@Reads("transcript_path") const(char)[] extractTranscriptPath(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"transcript_path"`, &buf[0], buf.length);
 }
 
-const(char)[] extractSessionId(const(char)[] json) {
+@Reads("session_id") const(char)[] extractSessionId(const(char)[] json) {
     __gshared char[128] buf = 0;
     return extractJsonString(json, `"session_id"`, &buf[0], buf.length);
 }
 
-const(char)[] extractToolUseId(const(char)[] json) {
+@Reads("tool_use_id") const(char)[] extractToolUseId(const(char)[] json) {
     __gshared char[128] buf = 0;
     return extractJsonString(json, `"tool_use_id"`, &buf[0], buf.length);
 }
 
-const(char)[] extractSource(const(char)[] json) {
+@Reads("source") const(char)[] extractSource(const(char)[] json) {
     __gshared char[32] buf = 0;
     return extractJsonString(json, `"source"`, &buf[0], buf.length);
 }
 
-const(char)[] extractHookEventName(const(char)[] json) {
+@Reads("hook_event_name") const(char)[] extractHookEventName(const(char)[] json) {
     __gshared char[64] buf = 0;
     return extractJsonString(json, `"hook_event_name"`, &buf[0], buf.length);
 }
 
-const(char)[] extractToolName(const(char)[] json) {
+@Reads("tool_name") const(char)[] extractToolName(const(char)[] json) {
     __gshared char[64] buf = 0;
     return extractJsonString(json, `"tool_name"`, &buf[0], buf.length);
 }
@@ -117,13 +121,13 @@ const(char)[] extractToolName(const(char)[] json) {
 // Which permission mode the session is in. The mode the UI labels Manual
 // arrives here as "default" and never as "manual", so anything comparing
 // against it compares against "default".
-const(char)[] extractPermissionMode(const(char)[] json) {
+@Reads("permission_mode") const(char)[] extractPermissionMode(const(char)[] json) {
     __gshared char[32] buf = 0;
     return extractJsonString(json, `"permission_mode"`, &buf[0], buf.length);
 }
 
 // Returns the raw JSON region for "tool_input": { ... } — no parsing, just the brace-delimited slice.
-const(char)[] extractToolInputRegion(const(char)[] json) {
+@Reads("tool_input") const(char)[] extractToolInputRegion(const(char)[] json) {
     auto idx = indexOf(json, `"tool_input"`);
     if (idx < 0) return null;
     size_t pos = cast(size_t) idx + 12; // skip "tool_input"
@@ -142,7 +146,7 @@ const(char)[] extractToolInputRegion(const(char)[] json) {
 
 // The JSON from "tool_response" onward, or null before the tool has answered.
 // A key looked up from here cannot be one the command happened to quote.
-const(char)[] toolResponseRegion(const(char)[] json) {
+@Reads("tool_response") const(char)[] toolResponseRegion(const(char)[] json) {
     auto idx = indexOf(json, `"tool_response"`);
     if (idx < 0) return null;
     size_t pos = cast(size_t) idx + `"tool_response"`.length;
@@ -153,19 +157,19 @@ const(char)[] toolResponseRegion(const(char)[] json) {
 
 // What the tool printed. Unescaped, so a rite reads the lines git wrote and
 // not the two-character \n the hook carries them as.
-const(char)[] extractToolOutput(const(char)[] json) {
+@Reads("tool_response") const(char)[] extractToolOutput(const(char)[] json) {
     __gshared char[65536] buf = 0;
     auto region = toolResponseRegion(json);
     if (region is null) return null;
     return extractJsonString(region, `"stdout"`, &buf[0], buf.length);
 }
 
-const(char)[] extractFilePath(const(char)[] json) {
+@Reads("tool_input") const(char)[] extractFilePath(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"file_path"`, &buf[0], buf.length);
 }
 
-const(char)[] extractNewString(const(char)[] json) {
+@Reads("tool_input") const(char)[] extractNewString(const(char)[] json) {
     __gshared char[16384] buf = 0;
     return extractJsonString(json, `"new_string"`, &buf[0], buf.length);
 }
@@ -173,34 +177,34 @@ const(char)[] extractNewString(const(char)[] json) {
 // The text an edit would add — Edit's new_string, or Write's content.
 // Unescaped, so a caller counting lines sees newlines rather than the
 // two-character \n the raw tool_input carries.
-const(char)[] extractWrittenText(const(char)[] json) {
+@Reads("tool_input") const(char)[] extractWrittenText(const(char)[] json) {
     __gshared char[32768] buf = 0;
     auto s = extractJsonString(json, `"new_string"`, &buf[0], buf.length);
     if (s !is null) return s;
     return extractJsonString(json, `"content"`, &buf[0], buf.length);
 }
 
-const(char)[] extractUrl(const(char)[] json) {
+@Reads("tool_input") const(char)[] extractUrl(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"url"`, &buf[0], buf.length);
 }
 
-const(char)[] extractStdout(const(char)[] json) {
+@Reads("tool_response") const(char)[] extractStdout(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"stdout"`, &buf[0], buf.length);
 }
 
-const(char)[] extractStderr(const(char)[] json) {
+@Reads("tool_response") const(char)[] extractStderr(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"stderr"`, &buf[0], buf.length);
 }
 
-const(char)[] extractError(const(char)[] json) {
+@Reads("error") const(char)[] extractError(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"error"`, &buf[0], buf.length);
 }
 
-const(char)[] extractLastAssistantMessage(const(char)[] json) {
+@Reads("last_assistant_message") const(char)[] extractLastAssistantMessage(const(char)[] json) {
     __gshared char[8192] buf = 0;
     // last_assistant_message is near the end of the JSON — search backwards
     import matcher : lastIndexOf;
@@ -210,7 +214,7 @@ const(char)[] extractLastAssistantMessage(const(char)[] json) {
 }
 
 // tool_response.filePath (camelCase, distinct from tool_input.file_path)
-const(char)[] extractResponseFilePath(const(char)[] json) {
+@Reads("tool_response") const(char)[] extractResponseFilePath(const(char)[] json) {
     __gshared char[4096] buf = 0;
     return extractJsonString(json, `"filePath"`, &buf[0], buf.length);
 }

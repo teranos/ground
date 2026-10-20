@@ -73,16 +73,18 @@
             x86_64-linux = "x86_64-unknown-linux-musl";
           }.${system};
 
-          # The release's asset digests, github.com/openai/codex rust-v<version>
+          # tarball: the release's asset digest, github.com/openai/codex rust-v<version>.
+          # binary: what it unpacks to, the hash ground parity checks a binary against.
           codex = version: sha256: pkgs.runCommand "codex-${version}" {
             src = pkgs.fetchurl {
               url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-${codexTarget}.tar.gz";
-              sha256 = sha256.${codexTarget};
+              sha256 = sha256.${codexTarget}.tarball;
             };
           } ''
             mkdir -p $out/bin
             tar -xzf $src -C $out/bin
             mv $out/bin/codex-${codexTarget} $out/bin/codex
+            echo "${sha256.${codexTarget}.binary}  $out/bin/codex" | sha256sum -c -
           '';
         in {
           default = ground;
@@ -103,10 +105,22 @@
           };
 
           codex-0_163_0 = codex "0.163.0" {
-            aarch64-apple-darwin = "61c4d9a92521bdb42b0c1d9f87c673f6da628a06de5945cbdd9a0010632f6d10";
-            x86_64-apple-darwin = "562a1aea0e5686283a467687d268ae33705f02fd4d40f1bc4110a415c5c1c7b1";
-            aarch64-unknown-linux-musl = "a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4";
-            x86_64-unknown-linux-musl = "beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4";
+            aarch64-apple-darwin = {
+              tarball = "61c4d9a92521bdb42b0c1d9f87c673f6da628a06de5945cbdd9a0010632f6d10";
+              binary = "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31";
+            };
+            x86_64-apple-darwin = {
+              tarball = "562a1aea0e5686283a467687d268ae33705f02fd4d40f1bc4110a415c5c1c7b1";
+              binary = "73697f229103f463acaafd8659976caaa4892ec11e2c246c7fa97f93d523f90e";
+            };
+            aarch64-unknown-linux-musl = {
+              tarball = "a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4";
+              binary = "8a96f66d059d653e68bfd5f3c79337e6f1d7d170d80bf705eb7d0249b34c0ece";
+            };
+            x86_64-unknown-linux-musl = {
+              tarball = "beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4";
+              binary = "399ff69c431c066e40de318fba45c2b07f45a76b19939d247ee4828fc70c4215";
+            };
           };
         }
       );

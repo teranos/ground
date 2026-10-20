@@ -240,6 +240,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import usagecmd : handleUsage;
             return handleUsage();
         }
+        if (cmd == "parity") {
+            import parity : handleParity;
+            return handleParity(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
