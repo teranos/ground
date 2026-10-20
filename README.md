@@ -1,6 +1,6 @@
 # ground
 
-Ground Control for Claude Code. CLAUDE.md is advisory — ground is the control.
+Ground Control for Agentic AI. CLAUDE.md is advisory — ground is the control.
 
 ## Problem
 

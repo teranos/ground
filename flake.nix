@@ -1,5 +1,5 @@
 {
-  description = "Ground Control for Claude Code";
+  description = "Ground Control for Agentic AI";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

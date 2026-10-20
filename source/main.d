@@ -253,7 +253,7 @@ extern (C) int main(int argc, const(char)** argv) {
 
     if (isatty(0)) {
         printVersion();
-        fputs(" — Ground Control for Claude Code\n", stderr);
+        fputs(" — Ground Control for Agentic AI\n", stderr);
         return 0;
     }
 
