@@ -21,6 +21,21 @@ version (OSX) version (AArch64) {
     static assert(pins[2].sha256 == "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31");
 }
 
+// A pin's block closes where its braces do. Ended at the first `};`, the codex
+// pin stopped after its first platform, and every other platform lost it.
+private enum laterTarget = `codex "9.9.9" {
+            some-other-target = {
+              tarball = "1111111111111111111111111111111111111111111111111111111111111111";
+              binary = "2222222222222222222222222222222222222222222222222222222222222222";
+            };
+            ` ~ codexTarget ~ ` = {
+              tarball = "3333333333333333333333333333333333333333333333333333333333333333";
+              binary = "4444444444444444444444444444444444444444444444444444444444444444";
+            };
+          };`;
+static assert(readPins(laterTarget).count == 1);
+static assert(readPins(laterTarget).items[0].sha256 == "4444444444444444444444444444444444444444444444444444444444444444");
+
 // codex names its schemas in kebab case; ground's events are the agents' names.
 static assert(pascalOf("post-tool-use").slice() == "PostToolUse");
 static assert(pascalOf("stop").slice() == "Stop");

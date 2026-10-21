@@ -127,10 +127,18 @@ PinSet readPins()(string flake) {
         else continue;
         auto from = i + agent.length + 2;
         auto close = indexIn(flake[from .. $], `"`);
-        auto end = indexIn(flake[from .. $], "};");
-        if (close < 0 || end < 0) continue;
+        if (close < 0) continue;
         auto release = flake[from .. from + close];
-        auto block = flake[from .. from + end];
+        // The block closes where its braces balance: a platform's own block is nested in it.
+        auto open = indexIn(flake, "{", from + cast(size_t) close);
+        if (open < 0) continue;
+        size_t end = flake.length;
+        int depth = 0;
+        foreach (p; cast(size_t) open .. flake.length) {
+            if (flake[p] == '{') depth++;
+            else if (flake[p] == '}' && --depth == 0) { end = p + 1; break; }
+        }
+        auto block = flake[from .. end];
         string sha;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
         else {
