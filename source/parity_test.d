@@ -11,14 +11,22 @@ static assert(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnop
 static assert(sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
 // The pins are read out of flake.nix, the one place they are written.
-static assert(pins.length == 3);
+static assert(pins.length == 4);
 static assert(pins[0].agent == "claude" && pins[0].release == "2.1.303");
 static assert(pins[1].agent == "claude" && pins[1].release == "2.1.304");
 static assert(pins[2].agent == "codex" && pins[2].release == "0.163.0");
-version (OSX) version (AArch64) {
-    static assert(pins[1].sha256 == "b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a");
-    // codex's pin is the binary the tarball unpacks to, not the tarball.
-    static assert(pins[2].sha256 == "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31");
+static assert(pins[3].agent == "agy" && pins[3].release == "1.4.4");
+version (OSX) {
+    version (AArch64) {
+        static assert(pins[1].sha256 == "b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a");
+        // codex's pin is the binary the tarball unpacks to, not the tarball.
+        static assert(pins[2].sha256 == "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31");
+        static assert(pins[3].sha256 == "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253");
+    } else {
+        static assert(pins[1].sha256 == "f2ae409b46b1bdc1dec7afa12c6a094ff64e7d4ca272ca09f69dd0080c846703");
+        static assert(pins[2].sha256 == "73697f229103f463acaafd8659976caaa4892ec11e2c246c7fa97f93d523f90e");
+        static assert(pins[3].sha256 == "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253");
+    }
 }
 
 // codex names its schemas in kebab case; ground's events are the agents' names.

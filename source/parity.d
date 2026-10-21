@@ -86,11 +86,11 @@ char[64] sha256Hex()(const(char)[] s) {
 struct Pin { string agent; string release; string sha256; }
 
 version (OSX) {
-    version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; }
-    else { enum claudePlatform = "darwin-x64"; enum codexTarget = "x86_64-apple-darwin"; }
+    version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; enum agyPlatform = "darwin-arm64"; }
+    else { enum claudePlatform = "darwin-x64"; enum codexTarget = "x86_64-apple-darwin"; enum agyPlatform = "darwin-x64"; }
 } else {
-    version (AArch64) { enum claudePlatform = "linux-arm64"; enum codexTarget = "aarch64-unknown-linux-musl"; }
-    else { enum claudePlatform = "linux-x64"; enum codexTarget = "x86_64-unknown-linux-musl"; }
+    version (AArch64) { enum claudePlatform = "linux-arm64"; enum codexTarget = "aarch64-unknown-linux-musl"; enum agyPlatform = "linux-arm64"; }
+    else { enum claudePlatform = "linux-x64"; enum codexTarget = "x86_64-unknown-linux-musl"; enum agyPlatform = "linux-x64"; }
 }
 
 private bool startsAt(const(char)[] text, size_t at, const(char)[] s) {
@@ -124,15 +124,28 @@ PinSet readPins()(string flake) {
         string agent;
         if (startsAt(flake, i, `claude "`)) agent = "claude";
         else if (startsAt(flake, i, `codex "`)) agent = "codex";
+        else if (startsAt(flake, i, `agy "`)) agent = "agy";
         else continue;
         auto from = i + agent.length + 2;
         auto close = indexIn(flake[from .. $], `"`);
-        auto end = indexIn(flake[from .. $], "};");
-        if (close < 0 || end < 0) continue;
+        if (close < 0) continue;
+        auto brace = indexIn(flake[from .. $], "{", cast(size_t) close);
+        if (brace < 0) continue;
+        size_t bpos = cast(size_t) from + cast(size_t) brace;
+        int depth = 0;
+        size_t end = flake.length;
+        for (size_t p = bpos; p < flake.length; p++) {
+            if (flake[p] == '{') depth++;
+            else if (flake[p] == '}') {
+                depth--;
+                if (depth == 0) { end = p + 1; break; }
+            }
+        }
         auto release = flake[from .. from + close];
-        auto block = flake[from .. from + end];
+        auto block = flake[from .. end];
         string sha;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
+        else if (agent == "agy") sha = hexAfter(block, agyPlatform);
         else {
             auto t = assigned(block, codexTarget, " = {");
             if (t >= 0) sha = hexAfter(block[cast(size_t) t .. $], "binary");
@@ -607,7 +620,10 @@ private void pathOf(ref const Pin pin, ref Measured m) {
     auto home = getenv("HOME\0".ptr);
     size_t hl = 0;
     if (home !is null) while (home[hl] != 0) hl++;
-    auto suffix = pin.agent == "claude" ? "/.local/share/claude/versions/" : "/.codex/packages/standalone/current/bin/codex";
+    string suffix;
+    if (pin.agent == "claude") suffix = "/.local/share/claude/versions/";
+    else if (pin.agent == "codex") suffix = "/.codex/packages/standalone/current/bin/codex";
+    else if (pin.agent == "agy") suffix = "/.local/bin/agy";
     size_t n = 0;
     void add(const(char)[] s) { foreach (c; s) if (n + 1 < m.path.length) m.path[n++] = c; }
     if (home !is null) add(home[0 .. hl]);
@@ -672,6 +688,64 @@ private void readCodex(const(char)[] text) {
     }
 }
 
+// --- agy: protobuf descriptors in Go binary ---
+
+void agyMessageKeys(const(char)[] text, size_t anchor, const(char)[] msgName, ref Keys keys) {
+    char[64] needle;
+    if (msgName.length + 2 > needle.length) return;
+    needle[0] = 0x0a;
+    needle[1] = cast(char) msgName.length;
+    foreach (i, c; msgName) needle[2 + i] = c;
+    auto at = indexIn(text, needle[0 .. 2 + msgName.length], anchor);
+    if (at < 0) return;
+
+    size_t i = cast(size_t) at + 2 + msgName.length;
+    size_t limit = i + 1024 < text.length ? i + 1024 : text.length;
+    while (i < limit) {
+        if (text[i] == 0x0a && i + 2 < limit && text[i + 1] >= 2 && text[i + 1] <= 40 && text[i + 2] >= 'A' && text[i + 2] <= 'Z') {
+            break;
+        }
+        if (cast(ubyte) text[i] == 0x52 && i + 1 < limit) {
+            size_t slen = cast(ubyte) text[i + 1];
+            if (slen > 0 && slen <= 50 && i + 2 + slen <= limit) {
+                auto s = text[i + 2 .. i + 2 + slen];
+                bool valid = true;
+                foreach (c; s) if (!isIdent(c)) { valid = false; break; }
+                if (valid) {
+                    keys.add(s);
+                    i += 2 + slen;
+                    continue;
+                }
+            }
+        }
+        i++;
+    }
+}
+
+private void readAgy(const(char)[] text) {
+    enum anchorNeedle = "\x0a\x0eHookArgsCommon";
+    auto anchor = indexIn(text, anchorNeedle);
+    if (anchor < 0) return;
+
+    Keys common;
+    agyMessageKeys(text, cast(size_t) anchor, "HookArgsCommon", common);
+
+    void addAgyEvent(string event, string inMsg, string outMsg) {
+        Keys inKeys = common;
+        if (inMsg.length > 0) agyMessageKeys(text, cast(size_t) anchor, inMsg, inKeys);
+        Keys outKeys;
+        if (outMsg.length > 0) agyMessageKeys(text, cast(size_t) anchor, outMsg, outKeys);
+        addSpec(event, inKeys, outKeys);
+    }
+
+    addAgyEvent("SessionStart", "SessionStartHookArgs", "SessionStartHookResult");
+    addAgyEvent("PreToolUse", "PreToolHookArgs", "PreToolHookResult");
+    addAgyEvent("PostToolUse", "PostToolHookArgs", "PostToolHookResult");
+    addAgyEvent("PreInvocation", "PreInvocationHookArgs", "PreInvocationHookResult");
+    addAgyEvent("PostInvocation", "PostInvocationHookArgs", "PostInvocationHookResult");
+    addAgyEvent("Stop", "StopHookArgs", "StopHookResult");
+}
+
 private Measured measure(ref const Pin pin) {
     Measured m;
     specCount = 0;
@@ -691,7 +765,8 @@ private Measured measure(ref const Pin pin) {
     sha256(text, m.sha);
     if (m.sha[] != pin.sha256) { m.access = Access.mismatch; return m; }
     if (pin.agent == "claude") readClaude(text);
-    else readCodex(text);
+    else if (pin.agent == "codex") readCodex(text);
+    else if (pin.agent == "agy") readAgy(text);
     m.access = specCount > 0 ? Access.live : Access.empty;
     return m;
 }

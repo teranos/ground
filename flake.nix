@@ -86,6 +86,18 @@
             mv $out/bin/codex-${codexTarget} $out/bin/codex
             echo "${sha256.${codexTarget}.binary}  $out/bin/codex" | sha256sum -c -
           '';
+
+          agyPlatform = {
+            aarch64-darwin = "darwin-arm64";
+            x86_64-darwin = "darwin-x64";
+            aarch64-linux = "linux-arm64";
+            x86_64-linux = "linux-x64";
+          }.${system};
+
+          agy = version: sha256: pkgs.runCommand "agy-${version}" {} ''
+            mkdir -p $out/bin
+            echo "${version}" > $out/bin/agy
+          '';
         in {
           default = ground;
           inherit ground;
@@ -121,6 +133,13 @@
               tarball = "beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4";
               binary = "399ff69c431c066e40de318fba45c2b07f45a76b19939d247ee4828fc70c4215";
             };
+          };
+
+          agy-1_4_4 = agy "1.4.4" {
+            darwin-arm64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+            darwin-x64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+            linux-arm64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+            linux-x64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
           };
         }
       );
