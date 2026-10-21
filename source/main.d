@@ -240,6 +240,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import usagecmd : handleUsage;
             return handleUsage();
         }
+        if (cmd == "parity") {
+            import parity : handleParity;
+            return handleParity(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
@@ -253,7 +257,7 @@ extern (C) int main(int argc, const(char)** argv) {
 
     if (isatty(0)) {
         printVersion();
-        fputs(" — Ground Control for Claude Code\n", stderr);
+        fputs(" — Ground Control for Agentic AI\n", stderr);
         return 0;
     }
 

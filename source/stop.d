@@ -42,7 +42,7 @@ void writeStopContinue(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
-// https://code.claude.com/docs/en/hooks — `continue`, `stopReason`
+// `continue`, `stopReason`: Stop's output schema in the pinned binaries, `ground parity Stop`.
 void writeStopEnded(V)(const(char)[] ritual, V state) {
     import ritual : RitualState;
     fputs(`{"continue":false,"stopReason":"Ritual `, stdout);

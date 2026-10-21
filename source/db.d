@@ -530,6 +530,13 @@ bool applySchema(sqlite3* db) {
         ~ "seen_at INTEGER NOT NULL DEFAULT 0, asked_at INTEGER NOT NULL DEFAULT 0)\0";
     sqlite3_exec(db, orgMinutesSchema.ptr, null, null, null);
 
+    // "the versions it has no access to stay in the sqlite until ran again with a correct binary"
+    // The hook keys each pinned agent binary names, one row an event. Ground's side is not stored.
+    enum paritySpecSchema = "CREATE TABLE IF NOT EXISTS parity_spec (agent TEXT NOT NULL, "
+        ~ "release TEXT NOT NULL, sha256 TEXT NOT NULL, event TEXT NOT NULL, input TEXT NOT NULL, "
+        ~ "output TEXT NOT NULL, measured_at INTEGER NOT NULL, PRIMARY KEY (agent, release, event))\0";
+    sqlite3_exec(db, paritySpecSchema.ptr, null, null, null);
+
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";

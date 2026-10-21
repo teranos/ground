@@ -1,7 +1,7 @@
 module stopfailure;
 
-// https://code.claude.com/docs/en/hooks — StopFailure fires "When the turn
-// ends due to an API error", and its "Output and exit code are ignored".
+// StopFailure fires when the turn ends on an API error, as the pinned claude
+// binary words it. It cannot block, so nothing here answers it.
 
 import errors : O_WRONLY, O_CREAT, O_APPEND, open;
 
