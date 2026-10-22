@@ -10,7 +10,9 @@ import hooks : scopeMatches;
 import db : ZBuf, openDb, attestationExists, attestEvent, sqlite3_close;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
-// A path can hold a quote, and the context is a JSON string.
+// additionalContext is a JSON string, and everything said in it is JSON text:
+// the switch, every control's message and the playbill alike. A message holds
+// quotes and newlines, and one put raw ended the string where the quote stood.
 private void putJsonText(ref ZBuf b, const(char)[] s) {
     foreach (c; s) {
         if (c == '"') b.put(`\"`);
