@@ -293,6 +293,8 @@ project {
 enum stuckFlat = flatten(parsePbt(stuckSrc), 0);
 
 unittest {
+    // "i say bound eval to 16 as well if its the same eval"
+    // "if we do eval 16 times there is something wrong with how the ritual or rite is designed probably"
     auto db = memDb();
     auto p = start("asking", stuckFlat.count);
     p.id = "stuck-1";
