@@ -182,7 +182,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 14 | Params into the command's environment | `rite.d` | — | |
 | ✓ | 19 | A rite that is not met throws the mic back | `stop.d` | "so catch means hold, until true" / "the rite is like a bucket we are currently intending to throw a Stop in, if the condition is not met we throw it back allowing the agent to continue, because the rite is blocking the Stop" | |
 | x | 74 | The agent carries on when the Stop goes back | — | — | |
-| ✓ | 20 | Halt with code + output on screen | `stop.d`, collet | "leave on the screen the non 0 non 1 was and its message" | |
 | ✓ | 21 | The current rite runs and the position moves | `ritual.d` | "it takes a super long time before an agent will reach Stop" | |
 | ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | |
 | ✓ | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" / "ground should take responsibility" | "claude -w <id>" |
