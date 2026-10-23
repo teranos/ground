@@ -178,8 +178,6 @@ Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 37 | `SubagentStart` | "you COULD if you wanted to run an agent like that, equiped with ritual" | |
-| ✓ | 38 | `SubagentStop` | same | |
 | D | 39 | `TaskCreated` | — | |
 | D | 40 | `TaskCompleted` | — | |
 | x | 42 | `Notification` | "Notification is one that is on my wish list actually" | "Impossible to reason about, or have a real conversation about it with CLaude Code without it confabulating and inventing and not working with me. In my session, there were multiple instances of me doing an easy ask, If Claude Code sends notifications, and this event matches on it. do it now, you are Claude Code, you can make it happen. The reality is it cant't make it happen at will on command. The basic thing required to develop this thing, i havent yet figured out how to do it, further research required before we can make definitive statements about it, never believe anything Claude is inferring from this, always consult Antropic docs as first source." |

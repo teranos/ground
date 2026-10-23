@@ -131,6 +131,7 @@ static assert(huge.text().length == 0);
 enum snug = spawnScript("/r", "p-1", "p-1", rep!(k1000, 7));
 static assert(snug.text().length > 0);
 
+// "you COULD if you wanted to run an agent like that, equiped with ritual"
 // "i think a ritual cant run longer than one compaction window"
 // "it a high upper bound"
 // "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
