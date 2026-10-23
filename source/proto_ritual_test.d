@@ -537,6 +537,8 @@ static assert(validateRituals(sandParsed).text() == "ritual probeRitual: probe n
 enum sandCounted = countPbt(sandShapeInput);
 static assert(sandCounted.totalProjects == 1);
 
+// "make commit be done by run:"
+// "the ritual could make itself complete itself by asking the agent to commit while its in ask"
 // `branch:` was a project field that named the base of the pull request ground
 // opened on Done. Ground opens none — "i want NO pr to be created if i did not
 // set it" — so a ritual that wants one says --base in the rite that runs gh.
