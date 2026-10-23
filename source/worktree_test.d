@@ -24,6 +24,7 @@ static assert(slash.text() == "/home/u/src/proj-probe");
 enum root = worktreePath("/proj", "probe");
 static assert(root.text() == "/proj-probe");
 
+// "I dont like that its siltent"
 // An empty string on stdout is the same to Claude Code as printing nothing,
 // which fails creation with no reason attached. Refuse instead, and let the
 // handler say why.

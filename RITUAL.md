@@ -138,7 +138,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 47 | A CI check is a rite like any other | — | |
 | x | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | |
 | ✓ | 55 | A performance survives losing its worktree | "item 55 approved now" | |
-| ✓ | 60 | Ground says it made one | "I dont like that its siltent" | |
 | x | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | |
 | x | 63 | Ground commits, not the agent | "n, i dont trust the agent with it" then "we want to get rid of the auto commit" / "make commit be done by run:" / "the ritual could make itself complete itself by asking the agent to commit while its in ask" | |
 
