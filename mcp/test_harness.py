@@ -1,9 +1,10 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
-server = str(Path(__file__).with_name("server.py").resolve())
+server = os.environ["LIBMCP_SERVER"]  # the library's test server, from its source
 config = {"params": {"mcpServers": [{"name": "test", "command": sys.executable, "args": [server, "modern"], "env": []}]}}
 p = subprocess.run([sys.argv[1], json.dumps(config)], capture_output=True, timeout=5)
 assert p.returncode == 0, p.stderr

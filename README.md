@@ -105,10 +105,6 @@ Ground stops rather than degrades. Its attestation store is a hard dependency: a
 
 ## Why D
 
-Ground's own harness also links [libMCP](libmcp/README.md), its C stdio MCP
-client library with D `-betterC` bindings. `ground code` owns the servers named
-by ACP sessions; `ground mcp` exercises the same client directly.
-
 D with `-betterC`, compiled with LDC. The binary's size is its controls. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage, libcurl for HTTP and libgit2 for git: ground itself starts no git process; a rite or control command an author writes runs as written.
 
 Latency is per event, not a single figure. Run `ground profile` to see it for your own install; the numbers below are one machine over 30 days.
@@ -125,3 +121,4 @@ PreToolUse             1584     5ms     4ms    11ms    36ms   288ms
 The breach is reported only where a control asks for it. Performance work is ground's own, not something to interrupt a stranger's session with, so the notice is opt-in: a `Stop` scope carrying `timing: "true"` turns it on for the paths that scope names, and an install that declares none never sees it. A scope with no `path:` names every project, so the default is expressible — it is simply not the shipped one.
 
 ## [Countdown](COUNTDOWN.md)
+   

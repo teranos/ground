@@ -33,8 +33,8 @@ in
         checkout
         installNix
         { run = "nix build .#ground"; }
-        { run = "nix build .#libmcp --no-link"; }
-        { run = "nix develop .#default --command python3 libmcp/tests/test_ground.py result/bin/ground"; }
+        # ground's side of libmcp, against the input's library and test server.
+        { run = "nix develop .#default --command make test-mcp"; }
         # The Makefile's wind rule is the one list of wind's files. A copy of
         # it here fell behind and CI linked wind without openapi.d.
         { run = "nix develop .#default --command sh -c 'make wind && dub test'"; }

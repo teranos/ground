@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 GROUND = str(Path(sys.argv[1]).resolve())
-SERVER = str(Path(__file__).with_name("server.py").resolve())
+SERVER = os.environ["LIBMCP_SERVER"]  # the library's test server, from its source
 
 
 def request(proc, ident, method, params):
@@ -40,7 +40,7 @@ def dead(pid):
 
 
 with tempfile.TemporaryDirectory() as tmp:
-    tmp = Path(tmp)
+    tmp = Path(tmp).resolve()  # the server reports getcwd, and macOS's temp dir is a link
     proc = subprocess.Popen([GROUND, "code"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         assert "result" in request(proc, 1, "initialize", {"protocolVersion": 1})
@@ -58,7 +58,8 @@ with tempfile.TemporaryDirectory() as tmp:
             assert sum(r.get("method") == "tools/list" for r in rows) == 2, rows
         assert "result" in request(proc, 4, "session/close", {"sessionId": sid1})
         assert dead(a[0]["pid"]) and not dead(b[0]["pid"])
-        sessions = request(proc, 5, "session/list", {})["result"]["sessions"]
+        # The store lists every unclosed session this machine has, so this test asks for its own cwd.
+        sessions = request(proc, 5, "session/list", {"cwd": str(tmp)})["result"]["sessions"]
         assert [s["sessionId"] for s in sessions] == [sid2]
         # Partial setup must roll back both ownership and process state.
         rollback = tmp / "rollback.jsonl"
@@ -68,7 +69,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert result["error"]["data"]["failure"]["server"] == "missing", result
         assert result["error"]["data"]["failure"]["systemErrno"] == 2
         assert dead(records(rollback)[0]["pid"])
-        assert len(request(proc, 7, "session/list", {})["result"]["sessions"]) == 1
+        assert len(request(proc, 7, "session/list", {"cwd": str(tmp)})["result"]["sessions"]) == 1
         # Validate all configurations before spawning even the first one.
         never = tmp / "never.jsonl"
         for malformed in (

@@ -8,10 +8,9 @@
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC", "--lowmem"],
-    "libs": ["sqlite3", "curl", "git2", "json-c"],
-    "sourceFiles": ["libmcp/build/libmcp.a"],
+    "libs": ["sqlite3", "curl", "git2", "mcp", "json-c"],
     "extraDependencyFiles": [".ctfe/sand"],
-    "preBuildCommands": ["make -C libmcp all", "date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
+    "preBuildCommands": ["date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
 
     "configurations": [
         {

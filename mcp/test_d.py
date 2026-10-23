@@ -1,10 +1,11 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 client = str(Path(sys.argv[1]).resolve())
-server = str(Path(__file__).with_name("server.py").resolve())
+server = os.environ["LIBMCP_SERVER"]  # the library's test server, from its source
 for mode in ("modern", "legacy", "fragment"):
     for method, params, expected in [
         ("tools/list", {}, 0),
