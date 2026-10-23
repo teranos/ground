@@ -1,0 +1,265 @@
+module code.mcp;
+
+// Ground owns these connections. ACP configures them; the harness's tool
+// dispatcher calls callMcpTool. No provider or LLM SDK owns their lifetime.
+import libmcp;
+import libjsonc;
+import code.reply : Reply, putEscaped, putNumber;
+import core.stdc.stdlib : calloc, malloc, free;
+import core.stdc.string : strlen, strcmp, strncmp, memcpy;
+import core.stdc.stdio : stderr, fputs, fwrite;
+
+extern(C) extern __gshared const(char*)* environ;
+
+struct McpPage { mcp_response response; McpPage* next; }
+struct McpServer {
+    char* name;
+    mcp_client* client;
+    McpPage* tools; // all tools/list pages, kept whole for the harness
+}
+struct McpGroup { McpServer* servers; size_t count; }
+
+private const(char)* stringAt(json_object* value) {
+    if (json_object_get_type(value) != json_type.string_) return null;
+    auto s = json_object_get_string(value);
+    if (s is null || strlen(s) != cast(size_t) json_object_get_string_len(value)) return null;
+    return s; // embedded NUL is rejected rather than truncating an argument
+}
+
+private char* copy(const(char)* s) {
+    auto n = strlen(s) + 1;
+    auto out_ = cast(char*) malloc(n);
+    if (out_ !is null) memcpy(out_, s, n);
+    return out_;
+}
+
+private void quoted(ref Reply r, const(char)* s) {
+    r.add(`"`);
+    if (s !is null) putEscaped(r, s[0 .. strlen(s)]);
+    r.add(`"`);
+}
+
+private void failure(ref Reply r, const(char)* server, ref const mcp_error e,
+                     ref const mcp_response response) {
+    r.add(`{"server":`); quoted(r, server);
+    r.add(`,"status":`); quoted(r, mcp_status_string(e.code));
+    r.add(`,"systemErrno":`); putNumber(r, cast(uint) e.system_errno);
+    r.add(`,"childStatus":`); putNumber(r, cast(uint) e.child_status);
+    r.add(`,"message":`); quoted(r, e.message);
+    // A string preserves malformed frames as well as valid remote error data.
+    r.add(`,"response":`);
+    r.add(`"`);
+    if (response.json !is null) putEscaped(r, response.json[0 .. response.length]);
+    r.add(`","cleanupStatus":`); quoted(r, mcp_status_string(e.cleanup_code));
+    r.add(`,"cleanupErrno":`); putNumber(r, cast(uint) e.cleanup_errno);
+    r.add(`,"cleanupChildStatus":`); putNumber(r, cast(uint) e.cleanup_child_status);
+    r.add(`,"cleanupMessage":`); quoted(r, e.cleanup_message);
+    r.add(`}`);
+}
+
+private extern(C) void ground_mcp_log(void* context, const(char)* json, size_t length) nothrow @nogc {
+    fputs("ground MCP [", stderr);
+    if (context !is null) fputs(cast(const(char)*) context, stderr);
+    fputs("]: ", stderr); fwrite(json, 1, length, stderr); fputs("\n", stderr);
+}
+
+// Always attempts every close. Each failure reaches stderr and the ACP reply;
+// EOF on ground code uses the same path for orderly host shutdown.
+bool closeMcp(ref McpGroup group, ref Reply detail) {
+    bool ok = true;
+    detail.add("[");
+    foreach (i; 0 .. group.count) {
+        auto server = &group.servers[i];
+        auto page = server.tools;
+        while (page !is null) {
+            auto next = page.next;
+            mcp_response_free(&page.response); free(page); page = next;
+        }
+        mcp_error error;
+        if (mcp_client_close(server.client, &error) != mcp_status.MCP_OK) {
+            Reply row;
+            mcp_response empty;
+            failure(row, server.name, error, empty);
+            ground_mcp_log(server.name, row.slice().ptr, row.len);
+            if (!ok) detail.add(",");
+            detail.add(row.slice()); row.dispose();
+            ok = false;
+        }
+        free(server.name);
+    }
+    free(group.servers); group = McpGroup.init;
+    detail.add("]");
+    return ok;
+}
+
+private mcp_status localError(ref mcp_error e, mcp_status status, const(char)* message) {
+    e = mcp_error.init; e.code = status; e.message = message;
+    return status;
+}
+
+// argv/env use the parsed JSON's strings only until spawn returns. ACP's env
+// entries override inherited keys; the library receives a complete environment.
+private mcp_status startServer(json_object* config, const(char)* cwd,
+                               ref McpServer server, ref mcp_response response, ref mcp_error error) {
+    auto args = jsonField(config, "args"), env = jsonField(config, "env");
+    auto argc = json_object_array_length(args), envc = json_object_array_length(env);
+    auto argv = cast(const(char)**) calloc(argc + 2, (char*).sizeof);
+    if (argv is null) return localError(error, mcp_status.MCP_NO_MEMORY, "allocate MCP argv");
+    scope(exit) free(argv);
+    argv[0] = stringAt(jsonField(config, "command"));
+    foreach (i; 0 .. argc) argv[i + 1] = stringAt(json_object_array_get_idx(args, i));
+    size_t inherited;
+    while (environ[inherited] !is null) inherited++;
+    auto envp = cast(const(char)**) calloc(inherited + envc + 1, (char*).sizeof);
+    auto values = cast(char**) calloc(envc + 1, (char*).sizeof);
+    if (envp is null || values is null) {
+        free(envp); free(values);
+        return localError(error, mcp_status.MCP_NO_MEMORY, "allocate MCP environment");
+    }
+    scope(exit) { foreach (i; 0 .. envc) free(values[i]); free(values); free(envp); }
+    foreach (i; 0 .. envc) {
+        auto entry = json_object_array_get_idx(env, i);
+        auto name = stringAt(jsonField(entry, "name")), value = stringAt(jsonField(entry, "value"));
+        auto n = strlen(name), v = strlen(value);
+        values[i] = cast(char*) malloc(n + v + 2);
+        if (values[i] is null) return localError(error, mcp_status.MCP_NO_MEMORY, "allocate MCP environment value");
+        memcpy(values[i], name, n); values[i][n] = '=';
+        memcpy(values[i] + n + 1, value, v + 1);
+    }
+    size_t used;
+    foreach (i; 0 .. inherited) {
+        bool replaced;
+        foreach (j; 0 .. envc) {
+            auto key = stringAt(jsonField(json_object_array_get_idx(env, j), "name"));
+            auto n = strlen(key);
+            if (strncmp(environ[i], key, n) == 0 && environ[i][n] == '=') { replaced = true; break; }
+        }
+        if (!replaced) envp[used++] = environ[i];
+    }
+    foreach (i; 0 .. envc) envp[used++] = values[i];
+    mcp_options options;
+    mcp_options_init(&options);
+    options.command = argv[0]; options.argv = cast(const(char*)*) argv;
+    options.envp = cast(const(char*)*) envp; options.cwd = cwd;
+    options.client_name = "ground";
+    options.on_message = &ground_mcp_log; options.context = server.name;
+    return mcp_client_open(&options, &server.client, &response, &error);
+}
+
+private mcp_status discoverTools(ref McpServer server, ref mcp_response response, ref mcp_error error) {
+    const(char)* cursor;
+    // Pages keep their storage, so cursor remains valid until the next call.
+    json_object* parsed;
+    scope(exit) json_object_put(parsed);
+    McpPage** tail = &server.tools;
+    foreach (_; 0 .. 128) {
+        auto status = mcp_tools_list(server.client, cursor, &response, &error);
+        // Servers with no tools capability can still supply resources/prompts.
+        if (status == mcp_status.MCP_UNSUPPORTED) return mcp_status.MCP_OK;
+        if (status != mcp_status.MCP_OK) return status;
+        auto nextParsed = parseJson(response.json[0 .. response.length]);
+        auto result = jsonField(nextParsed, "result");
+        if (json_object_get_type(jsonField(result, "tools")) != json_type.array) {
+            json_object_put(nextParsed);
+            return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "tools/list result has no tools array");
+        }
+        auto next = jsonField(result, "nextCursor");
+        auto nextCursor = next is null ? null : stringAt(next);
+        if (next !is null && nextCursor is null) {
+            json_object_put(nextParsed);
+            return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "tools/list nextCursor is not a string");
+        }
+        if (cursor !is null && nextCursor !is null && strcmp(cursor, nextCursor) == 0) {
+            json_object_put(nextParsed);
+            return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "tools/list repeated its cursor");
+        }
+        auto page = cast(McpPage*) calloc(1, McpPage.sizeof);
+        if (page is null) { json_object_put(nextParsed); return localError(error, mcp_status.MCP_NO_MEMORY, "allocate tool catalog page"); }
+        page.response = response; response = mcp_response.init;
+        *tail = page; tail = &page.next;
+        json_object_put(parsed); parsed = nextParsed;
+        cursor = nextCursor;
+        if (cursor is null) return mcp_status.MCP_OK;
+    }
+    return localError(error, mcp_status.MCP_MESSAGE_TOO_LARGE, "tools/list exceeded 128 pages");
+}
+
+// Validate the entire configuration before launching any process. A failure
+// after launching rolls every connection back before session/new answers.
+bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Reply detail) {
+    auto root = parseJson(line);
+    scope(exit) json_object_put(root);
+    auto configs = jsonField(jsonField(root, "params"), "mcpServers");
+    mcp_error error;
+    mcp_response response;
+    const(char)* failedName;
+    auto count = json_object_get_type(configs) == json_type.array ? json_object_array_length(configs) : 0;
+    bool valid = json_object_get_type(configs) == json_type.array && count <= 32;
+    foreach (i; 0 .. (valid ? count : 0)) {
+        auto config = json_object_array_get_idx(configs, i);
+        auto name = stringAt(jsonField(config, "name")), command = stringAt(jsonField(config, "command"));
+        auto args = jsonField(config, "args"), env = jsonField(config, "env");
+        if (name is null || !*name || command is null || !*command || jsonField(config, "type") !is null ||
+            json_object_get_type(args) != json_type.array || json_object_get_type(env) != json_type.array ||
+            json_object_array_length(args) > 128 || json_object_array_length(env) > 128) { valid = false; break; }
+        foreach (j; 0 .. i) if (strcmp(name, stringAt(jsonField(json_object_array_get_idx(configs, j), "name"))) == 0) valid = false;
+        foreach (j; 0 .. json_object_array_length(args)) if (stringAt(json_object_array_get_idx(args, j)) is null) valid = false;
+        foreach (j; 0 .. json_object_array_length(env)) {
+            auto entry = json_object_array_get_idx(env, j);
+            auto key = stringAt(jsonField(entry, "name")), value = stringAt(jsonField(entry, "value"));
+            if (key is null || !*key || value is null) { valid = false; break; }
+            foreach (k; 0 .. strlen(key)) if (key[k] == '=') valid = false;
+            foreach (k; 0 .. j) {
+                auto previous = stringAt(jsonField(json_object_array_get_idx(env, k), "name"));
+                if (previous !is null && strcmp(key, previous) == 0) valid = false;
+            }
+        }
+        if (!valid) break;
+    }
+    if (!valid) {
+        localError(error, mcp_status.MCP_INVALID_ARGUMENT, "MCP needs unique named stdio servers with command, args and env (limits: 32 servers, 128 args/env entries); HTTP/SSE are unsupported");
+    } else if (count == 0) return true;
+    else {
+        group.servers = cast(McpServer*) calloc(count, McpServer.sizeof);
+        auto dir = cast(char*) malloc(cwd.length + 1);
+        scope(exit) free(dir);
+        if (group.servers is null || dir is null) {
+            localError(error, mcp_status.MCP_NO_MEMORY, "allocate session MCP servers");
+        } else {
+            memcpy(dir, cwd.ptr, cwd.length); dir[cwd.length] = 0;
+            group.count = count;
+            foreach (i; 0 .. count) {
+                auto config = json_object_array_get_idx(configs, i);
+                auto server = &group.servers[i];
+                server.name = copy(stringAt(jsonField(config, "name"))); failedName = server.name;
+                if (server.name is null) { localError(error, mcp_status.MCP_NO_MEMORY, "copy MCP server name"); break; }
+                auto status = startServer(config, dir, *server, response, error);
+                if (status == mcp_status.MCP_OK) {
+                    mcp_response_free(&response);
+                    status = discoverTools(*server, response, error);
+                }
+                if (status != mcp_status.MCP_OK) break;
+                if (i + 1 == count) return true;
+            }
+        }
+    }
+    detail.add(`{"failure":`); failure(detail, failedName, error, response);
+    detail.add(`,"cleanup":`);
+    closeMcp(group, detail);
+    detail.add("}");
+    mcp_response_free(&response);
+    return false;
+}
+
+// This is the harness dispatch boundary. Names stay a (server, tool) pair,
+// so two servers exposing "search" never overwrite or masquerade as each other.
+mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
+                       const(char)* arguments, ref mcp_response response, ref mcp_error error) {
+    if (serverName is null || toolName is null) return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool dispatch needs server and tool names");
+    foreach (i; 0 .. group.count) {
+        auto server = &group.servers[i];
+        if (strcmp(server.name, serverName) == 0)
+            return mcp_tools_call(server.client, toolName, arguments, &response, &error);
+    }
+    return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "session has no MCP server with that name");
+}

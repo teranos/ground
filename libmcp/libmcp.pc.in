@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: libmcp
+Description: MCP stdio client with a C ABI
+Version: 0.1.0
+Requires.private: json-c
+Libs: -L${libdir} -lmcp
+Cflags: -I${includedir}

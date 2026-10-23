@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug install install-ug prune-dub-cache wind ug book annot press binder editor
+.PHONY: build test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor
 
 PREFIX ?= $(HOME)/.local
 
@@ -70,8 +70,11 @@ UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
 ug: $(UG_SOURCES)
 	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2
 
-test: test-tools test-ug
+test: test-tools test-ug test-mcp
 	dub test
+
+test-mcp:
+	$(MAKE) -C libmcp test test-d
 
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:

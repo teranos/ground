@@ -59,10 +59,8 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/new","params":
 static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/tmp"}}`)
     == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`);
 
-// Stdio MCP is one every agent "MUST support". Ground code cannot yet, and it
-// says so rather than taking the servers and never connecting them.
-static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"x","command":"/bin/x","args":[],"env":[]}]}}`)
-    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/new named some"}}`);
+// Nonempty mcpServers launch real processes. libmcp/tests/test_ground.py
+// verifies the runtime path, rollback, per-session ownership and EOF cleanup.
 
 // session/close: "Supplying `{}` means the agent supports closing sessions",
 // so initialize says so. A session closed is gone, and closing it again, or

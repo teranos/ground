@@ -15,23 +15,13 @@ import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
 import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete;
-import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, FILE;
+import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, ferror, FILE;
+import code.mcp : McpGroup, openMcp, closeMcp;
+public import code.reply : Reply, putEscaped, putNumber;
 
 extern (C) ptrdiff_t getline(char** lineptr, size_t* n, FILE* stream);
 extern (C) void free(void* p);
 extern (C) int getpid();
-
-struct Reply {
-    char[4096] data = 0;
-    size_t len;
-    bool full; // an answer that did not fit; said, never sent cut short
-
-    void add(const(char)[] s) {
-        if (len + s.length > data.length) { full = true; return; }
-        foreach (c; s) data[len++] = c;
-    }
-    const(char)[] slice() const return { return data[0 .. len]; }
-}
 
 // The value at a key as it stands in the line: a number, a quoted string with
 // its quotes, or null. An id is echoed, never interpreted.
@@ -88,6 +78,7 @@ struct Open {
     size_t idLen;
     char[1024] cwd;
     size_t cwdLen;
+    McpGroup mcp;
 }
 
 private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
@@ -105,26 +96,6 @@ private long now() {
     import core.stdc.time : time;
     if (__ctfe) return 0;
     return cast(long) time(null);
-}
-
-// A string's JSON form, control characters included, without its quotes.
-private void putEscaped(ref Reply r, const(char)[] s) {
-    enum hex = "0123456789abcdef";
-    foreach (i, c; s) {
-        if (c == '"' || c == '\\') { r.add("\\"); r.add(s[i .. i + 1]); }
-        else if (c == '\n') r.add("\\n");
-        else if (c == '\t') r.add("\\t");
-        else if (c == '\r') r.add("\\r");
-        else if (c < 0x20) { char[6] u = ['\\', 'u', '0', '0', hex[c >> 4], hex[c & 15]]; r.add(u[]); }
-        else r.add(s[i .. i + 1]);
-    }
-}
-
-private void putNumber(ref Reply r, ulong u) {
-    char[24] d;
-    size_t k = d.length;
-    do { d[--k] = cast(char)('0' + u % 10); u /= 10; } while (u > 0);
-    r.add(d[k .. $]);
 }
 
 // Where an id stands among the sessions live here, or -1: one this process
@@ -159,15 +130,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
-    // Stdio MCP is a transport every agent "MUST support". Ground code cannot
-    // yet, and says so rather than taking the servers and never connecting them.
+    // Ground owns each session's MCP clients, including discovery and close.
     if (method == "session/new") {
         char[4096] cb;
         auto cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
         auto mcp = emptyArray(line, `"mcpServers"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (cwd is null) { put(`,"error":{"code":-32602,"message":"session/new needs cwd"}}`); return true; }
-        if (cwd[0] != '/') {
+        if (cwd.length == 0 || cwd[0] != '/') {
             char[8192] eb;
             auto n = jsonEscapeInto(cwd, eb[]);
             put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
@@ -176,10 +146,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         if (mcp < 0) { put(`,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`); return true; }
-        if (mcp == 0) {
-            put(`,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/new named some"}}`);
-            return true;
-        }
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
@@ -188,21 +154,36 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
             return true;
         }
+        // The servers come up before the row is written: a session the store
+        // keeps is one whose tools are there.
+        auto o = &sessions.open[sessions.openLen];
+        if (!__ctfe) {
+            Reply detail;
+            scope(exit) detail.dispose();
+            if (!openMcp(line, cwd, o.mcp, detail)) {
+                put(`,"error":{"code":-32603,"message":"session MCP setup failed","data":`);
+                put(detail.slice()); put(`}}`);
+                return true;
+            }
+        } else if (mcp == 0) assert(0, "MCP processes are tested at runtime");
         sessions.count++;
         Reply sid;
         putSessionId(sid, sessions, sessions.count);
         if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, now())) {
+            Reply detail;
+            scope(exit) detail.dispose();
+            if (!__ctfe) closeMcp(o.mcp, detail);
             put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
             return true;
         }
-        keep(sessions.open[sessions.openLen], sid.slice(), cwd);
+        keep(*o, sid.slice(), cwd);
         sessions.openLen++;
         put(`,"result":{"sessionId":"`); put(sid.slice()); put(`"}}`);
         return true;
     }
 
-    // The agent "must cancel any ongoing work related to the session". Nothing
-    // runs in a session yet, so closing one frees its id and cancels nothing.
+    // Close owns every MCP child. The session is removed even if a child needs
+    // forced termination, and that failure is returned to the ACP client.
     if (method == "session/close") {
         char[256] sb;
         auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
@@ -222,9 +203,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
+        bool closed = true;
+        Reply detail;
+        if (!__ctfe) closed = closeMcp(sessions.open[cast(size_t) at].mcp, detail);
+        scope(exit) detail.dispose();
         sessions.openLen--;
         sessions.open[cast(size_t) at] = sessions.open[sessions.openLen];
-        put(`,"result":{}}`);
+        sessions.open[sessions.openLen] = Open.init;
+        if (closed) put(`,"result":{}}`);
+        else { put(`,"error":{"code":-32603,"message":"session MCP shutdown failed","data":`); put(detail.slice()); put(`}}`); }
         return true;
     }
 
@@ -235,7 +222,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto cwd = extractJsonString(line, `"cwd"`, &fb[0], fb.length);
         auto cursor = rawValue(line, `"cursor"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (cwd !is null && cwd[0] != '/') {
+        if (cwd !is null && (cwd.length == 0 || cwd[0] != '/')) {
             put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
             putEscaped(r, cwd); put(`"}}`);
             return true;
@@ -341,11 +328,18 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
+        // A session live here owns its servers, and deleting it ends them.
+        bool ended = true;
+        Reply detail;
+        scope(exit) detail.dispose();
         if (at >= 0) {
+            if (!__ctfe) ended = closeMcp(sessions.open[cast(size_t) at].mcp, detail);
             sessions.openLen--;
             sessions.open[cast(size_t) at] = sessions.open[sessions.openLen];
+            sessions.open[sessions.openLen] = Open.init;
         }
-        put(`,"result":{}}`);
+        if (ended) put(`,"result":{}}`);
+        else { put(`,"error":{"code":-32603,"message":"session MCP shutdown failed","data":`); put(detail.slice()); put(`}}`); }
         return true;
     }
 
@@ -373,13 +367,19 @@ int handleCode() {
         return 1;
     }
     scope (exit) sqlite3_close(sessions.db);
+    int result;
+    scope(exit) free(buf);
     while (true) {
         auto n = getline(&buf, &cap, stdin);
-        if (n < 0) break;
+        if (n < 0) {
+            if (ferror(stdin)) { fputs("ground code: failed reading ACP input\n", stderr); result = 1; }
+            break;
+        }
         auto line = buf[0 .. cast(size_t) n];
         while (line.length > 0 && (line[$ - 1] == '\n' || line[$ - 1] == '\r')) line = line[0 .. $ - 1];
         if (line.length == 0) continue;
         Reply r;
+        scope(exit) r.dispose();
         if (!answer(line, r, sessions)) {
             fputs("ground code: a notification it does not handle: ", stderr);
             fwrite(line.ptr, 1, line.length, stderr);
@@ -390,12 +390,29 @@ int handleCode() {
             fputs("ground code: the answer to this outgrew its buffer and was not sent: ", stderr);
             fwrite(line.ptr, 1, line.length, stderr);
             fputs("\n", stderr);
+            // Allocation failure must still answer the request. Stream a
+            // small error without allocating another response buffer.
+            auto id = rawValue(line, `"id"`);
+            if (id is null) id = "null";
+            fputs(`{"jsonrpc":"2.0","id":`, stdout);
+            fwrite(id.ptr, 1, id.length, stdout);
+            fputs(`,"error":{"code":-32603,"message":"could not allocate ACP response"}}` ~ "\n", stdout);
+            if (fflush(stdout) != 0) { result = 1; break; }
             continue;
         }
-        fwrite(r.data.ptr, 1, r.len, stdout);
-        fputs("\n", stdout);
-        fflush(stdout);
+        auto reply = r.slice();
+        if (fwrite(reply.ptr, 1, reply.length, stdout) != reply.length ||
+            fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+            fputs("ground code: failed writing ACP response\n", stderr);
+            result = 1; break;
+        }
     }
-    free(buf);
-    return 0;
+    // Cleanup runs before returning, so its failure is part of the exit status.
+    foreach (i; 0 .. sessions.openLen) {
+        Reply detail;
+        if (!closeMcp(sessions.open[i].mcp, detail)) result = 1;
+        detail.dispose();
+    }
+    sessions.openLen = 0;
+    return result;
 }

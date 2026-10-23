@@ -13,6 +13,11 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
+      # The locked nixpkgs supplies json-c 0.18. Its strict parser rejects valid
+      # UTF-8 (upstream #875); retain strict validation and backport the fix.
+      jsonC = pkgs: pkgs.json_c.overrideAttrs (old: {
+        patches = (old.patches or []) ++ [ ./libmcp/json-c-strict-utf8.patch ];
+      });
     in {
       packages = forAllSystems (system:
         let
@@ -25,8 +30,8 @@
             inherit version;
             src = ./.;
 
-            nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git ];
-            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ];
+            nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git pkgs.pkg-config ];
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 (jsonC pkgs) ];
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -122,6 +127,20 @@
           default = ground;
           inherit ground;
 
+          libmcp = pkgs.stdenv.mkDerivation {
+            pname = "libmcp";
+            version = "0.1.0";
+            src = ./.;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.python3 pkgs.ldc ];
+            buildInputs = [ (jsonC pkgs) ];
+            buildPhase = "make -C libmcp";
+            doCheck = true;
+            checkPhase = "make -C libmcp test test-d";
+            installPhase = ''
+              make -C libmcp install PREFIX=$out
+            '';
+          };
+
           claude-2_1_303 = claude "2.1.303" {
             darwin-arm64 = "d2da3b003dc08b88b7230469014fe3e1dc6fe94bc8f648e89b34175d30269370";
             darwin-x64 = "6c5d63b43568c5d60963d40f05b0087cb03ba44a90740d27adc505f4157806db";
@@ -195,7 +214,7 @@
           default = pkgs.mkShell {
             # dub asks pkg-config for each lib. Without the pinned one in the
             # shell it asked Homebrew's, which named an x86_64 libgit2.
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config ];
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 (jsonC pkgs) pkgs.dub pkgs.pkg-config pkgs.python3 ];
           };
         }
       );
