@@ -155,7 +155,6 @@ Not in the example above, and therefore not implementable from it:
 | x | 49 | — | — | |
 | x | 69 | — | — | |
 | x | 32 | Carrying a value between rites | — | |
-| ✓ | 45 | The ritual keeps moving while the agent works | "it takes a super long time before an agent will reach Stop" | |
 | ✓ | 71 | A rite holds the mic for at most 2 seconds | "a rite can only take hostage for at most 2 sec" / "the white state color should be occupied for at most 2 sec" / "ground, or the rite should have no reason to keep holding the mic for longer than 2s" | |
 | ✓ | 73 | The mic going back is counted, and the count is on both surfaces | "let's show a counter" / "[NEVERx3]" / "if there is back and forward, it would mean the counter increments no?" | |
 | x | 80 | A performance is a row in agent view | — | |
