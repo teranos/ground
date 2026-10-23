@@ -18,7 +18,11 @@ extern(C) nothrow @nogc {
     int json_tokener_get_error(json_tokener*);
     size_t json_tokener_get_parse_end(json_tokener*);
     void json_tokener_free(json_tokener*);
+    // A value's own JSON, kept by the value until it is put.
+    const(char)* json_object_to_json_string_ext(json_object*, int);
 }
+
+enum JSON_C_TO_STRING_PLAIN = 0;
 
 json_object* jsonField(json_object* object, const(char)* name) nothrow @nogc {
     json_object* value;
