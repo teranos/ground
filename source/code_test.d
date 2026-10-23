@@ -17,13 +17,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{}}},"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{}}},"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // A method ground code does not handle is said to the client, by name.
@@ -115,4 +115,58 @@ private string replicate()(string s, size_t n) {
     string r;
     foreach (_; 0 .. n) r ~= s;
     return r;
+}
+
+// session/resume: "Resumes an existing session without returning previous
+// messages (unlike `session/load`)." A session is kept in the store, so one a
+// process opened and never closed is there for the next process to resume.
+private bool says()(ref Sessions s, string line, string want) {
+    Reply r;
+    answer(line, r, s);
+    return r.slice() == want;
+}
+
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    // One process opens a session and ends without closing it.
+    Sessions a = Sessions(100, 7);
+    a.db = db;
+    assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1"}}`));
+
+    // The next one lists it, and resumes it in the cwd it names now.
+    Sessions b = Sessions(200, 8);
+    b.db = db;
+    assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work"}]}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work2"}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work2"}]}}`));
+
+    // Resumed, it is this process's to close; closed, it is gone for every one.
+    assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
+        `{"jsonrpc":"2.0","id":5,"result":{}}`));
+    Sessions c = Sessions(300, 9);
+    c.db = db;
+    assert(says(c, `{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
+    assert(says(c, `{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":7,"result":{"sessions":[]}}`));
+
+    assert(says(c, `{"jsonrpc":"2.0","id":8,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":8,"error":{"code":-32002,"message":"no session to resume: code-1-1-1"}}`));
+    assert(says(c, `{"jsonrpc":"2.0","id":9,"method":"session/resume","params":{"cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`));
+    assert(says(c, `{"jsonrpc":"2.0","id":10,"method":"session/resume","params":{"sessionId":"code-1-1-1"}}`,
+        `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/resume needs cwd"}}`));
+    assert(says(c, `{"jsonrpc":"2.0","id":11,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"work"}}`,
+        `{"jsonrpc":"2.0","id":11,"error":{"code":-32602,"message":"cwd must be an absolute path: work"}}`));
+    assert(says(c, `{"jsonrpc":"2.0","id":12,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work","mcpServers":[{"name":"x","command":"/bin/x","args":[],"env":[]}]}}`,
+        `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/resume named some"}}`));
 }

@@ -36,6 +36,7 @@ unittest {
     assert(hasColumn(db, "timing", "hook_event"));
     assert(hasColumn(db, "ritual_position", "id"));
     assert(hasColumn(db, "ritual_position", "worktree"));
+    assert(hasColumn(db, "code_session", "closed_at"));
     sqlite3_close(db);
 }
 
