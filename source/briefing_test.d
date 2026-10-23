@@ -88,6 +88,16 @@ enum halted = step(fresh, Verdict.Halt);
 static assert(briefing(halted, flat).text() ==
     "Ritual probe halted on rite 1 of 3: START.");
 
+// "I want gh invocations to be more explicit, and not assumed to be ran by the agent"
+// "everything gh exposes should be easily accesible from a rite, from any rite"
+// "i am not actually saying, use eval for it. i say use a different rite that runs a tool unconditionally, like gh, its subcommands and parameters"
+// "run: makes sense, i pairs well with eval:"
+// "let's say `run:` is unconditional, and always happens at the beginning of the rite, before eval would happen, and before the agent get's a chance to get the mic"
+// "a `run:` happens regardless, an `eval:` returning false, would make you redo the rite yes, but a false `eval:` doesnt mean the `run:` would occur again"
+// "`goto:` does trigger `run:`"
+// "well, it would be the rite holding it no? so that's Ground in this case"
+// "making a PR at the end of each DONE was a mistake"
+// "i want NO pr to be created if i did not set it"
 // Read 186 times on q-deploy-1789717456, 2026-09-18: "rite 12 of 12:
 // VERSIONS. It is met when this exits 0: " and nothing after the colon. A rite
 // with a run and no eval is ground's to run, and the briefing says so instead
