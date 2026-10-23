@@ -179,7 +179,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | |
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | |
 | ✓ | 12 | Referenced group exists | CTFE assert | — | |
-| ✓ | 13 | Run under `set -euo pipefail` | `rite.d` | "wouldnt the pipefail need to be present essentially everywhere?" | |
 | ✓ | 14 | Params into the command's environment | `rite.d` | — | |
 | ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent" | |
 | ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | |
