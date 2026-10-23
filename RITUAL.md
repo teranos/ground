@@ -126,8 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| x | 75 | A ritual is carried by an Agent, not a detached process | — | |
-| x | 76 | — | — | |
 | ✓ | 47 | A CI check is a rite like any other | — | |
 | ✓ | 55 | A performance survives losing its worktree | "item 55 approved now" | |
 
