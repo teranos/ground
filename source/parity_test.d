@@ -11,10 +11,13 @@ static assert(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnop
 static assert(sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
 // The pins are read out of flake.nix, the one place they are written.
-static assert(pins.length == 3);
+static assert(pins.length == 4);
 static assert(pins[0].agent == "claude" && pins[0].release == "2.1.303");
 static assert(pins[1].agent == "claude" && pins[1].release == "2.1.304");
 static assert(pins[2].agent == "codex" && pins[2].release == "0.163.0");
+// ACP's pin is its release's schema.json, the same file on every platform.
+static assert(pins[3].agent == "acp" && pins[3].release == "1.26.0");
+static assert(pins[3].sha256 == "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6");
 version (OSX) version (AArch64) {
     static assert(pins[1].sha256 == "b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a");
     // codex's pin is the binary the tarball unpacks to, not the tarball.
@@ -116,6 +119,127 @@ static assert(claudeInputKeys(claudeSample, "PostToolUse").slice()
     == "session_id,transcript_path,cwd,agent_id,effort,hook_event_name,tool_name,tool_input,duration_ms");
 static assert(claudeOutputKeys(claudeSample, "PostToolUse").slice()
     == "continue,suppressOutput,reason,hookSpecificOutput,hookEventName,additionalContext");
+
+// The ACP schema, as its release publishes it: every request, response and
+// notification names its method and the side that handles it. A key nested in
+// one of them is not the method's.
+private enum acpSample = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ReadTextFileRequest": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["sessionId", "path"],
+      "x-side": "client",
+      "x-method": "fs/read_text_file"
+    },
+    "PromptResponse": {
+      "type": "object",
+      "properties": {
+        "stopReason": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            }
+          ]
+        },
+        "_meta": {
+          "type": ["object", "null"]
+        }
+      },
+      "required": ["stopReason"],
+      "x-side": "agent",
+      "x-method": "session/prompt"
+    },
+    "ReadTextFileResponse": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        }
+      },
+      "x-side": "client",
+      "x-method": "fs/read_text_file"
+    },
+    "SessionNotification": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "update": {
+          "type": "object",
+          "properties": {
+            "sessionUpdate": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "x-side": "client",
+      "x-method": "session/update"
+    },
+    "PromptRequest": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "array"
+        },
+        "_meta": {
+          "type": ["object", "null"]
+        }
+      },
+      "x-side": "agent",
+      "x-method": "session/prompt"
+    },
+    "CancelRequestNotification": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "x-side": "protocol",
+      "x-method": "$/cancel_request"
+    }
+  }
+}`;
+
+// In and out are ground code's side, as they are ground's for a hook: in is
+// what it reads, out is what it writes. A method the agent handles reads the
+// request and writes the response; one the client handles is the other way
+// round, and a notification has only the side that sends it.
+static assert(acpKeys(acpSample, "session/prompt").input.slice() == "sessionId,prompt,_meta");
+static assert(acpKeys(acpSample, "session/prompt").output.slice() == "stopReason,_meta");
+static assert(acpKeys(acpSample, "fs/read_text_file").input.slice() == "content");
+static assert(acpKeys(acpSample, "fs/read_text_file").output.slice() == "sessionId,path");
+static assert(acpKeys(acpSample, "session/update").input.slice() == "");
+static assert(acpKeys(acpSample, "session/update").output.slice() == "sessionId,update");
+// Either peer may cancel a request, so ground code both reads and writes it.
+static assert(acpKeys(acpSample, "$/cancel_request").input.slice() == "requestId");
+static assert(acpKeys(acpSample, "$/cancel_request").output.slice() == "requestId");
+static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
+
+// Ground code has no source yet, so it covers none of what ACP names. The hook
+// side would have claimed session/new's cwd: main.d reads a cwd from every
+// hook payload, and that is not ground code handling session/new.
+static assert(has(sideFor("claude", "session/new").reads, "cwd"));
+static assert(sideFor("acp", "session/new").reads.slice() == "");
+static assert(sideFor("acp", "session/new").writes.slice() == "");
 
 // Ground's side is read out of its own source: main.d's reads for every event,
 // the handler main.d dispatches to, and the extractors that handler calls.
