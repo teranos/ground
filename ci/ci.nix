@@ -39,6 +39,9 @@ in
         # ug is built by ldc2 rather than dub, so `dub test` compiles no line of
         # it. `make ug` is here too because test-ug never links.
         { run = "nix develop .#default --command sh -c 'make ug && make test-ug'"; }
+        # press, concept and cases are built by ldc2 too, so `dub test` runs
+        # none of the book's tests.
+        { run = "nix develop .#default --command sh -c 'make test-tools'"; }
       ];
     };
 
