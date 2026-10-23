@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 98 | A command reaching for a file gets the file | "you can use curl instead of gh+jq" is elsewhere; this is "substitute_for_read" | "sed" / "awk" / "perl" / "sed …" |
 | ✓ | 90f | A dispatch lands on the target's own default branch, asked of the repo rather than guessed | — | ref=master sent QNTX-App, whose branch is main, a 422; GROUND_REF still overrides |
 | x | 93 | A ritual carries the agent's system prompt | — | |
 | | 79 | One thing advances a position | — mine, from reading the callers | "the position only advances when a turn ends, which for a working agent can be never" |
