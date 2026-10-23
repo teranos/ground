@@ -80,9 +80,9 @@ struct Owner {
 }
 
 immutable Owner[] owners = [
-    Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git"]),
+    Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git", "fmt"]),
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
-                          "playbill"]),
+                          "playbill", "parity"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
@@ -98,9 +98,11 @@ immutable Owner[] owners = [
                           "dispatch", "ritual", "ritual_resolve", "proto_ritual",
                           "rite_script", "advance", "briefing", "choose", "contend",
                           "consent", "delivery", "notification", "reap", "apierror",
-                          "onoff", "noul", "regoto"]),
+                          "onoff", "noul", "regoto", "spawn", "wiring", "rite_attest",
+                          "ritual/shell"]),
     // What a row is, where it goes, and how one comes back to the session.
-    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream"]),
+    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream",
+                          "sessiontrail"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world
