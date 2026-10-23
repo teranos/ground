@@ -180,7 +180,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 6 | Ritual body: bare name = reference | `proto.d` | — | |
 | ✓ | 7 | Ritual body: `name { k: v }` = reference with values | `proto.d` | "how do i set the row param from the ritual" | |
 | ✓ | 8 | CTFE structs + arrays | `proto.d`, `controls.d` | — | |
-| ✓ | 9 | Rite names must be unique inside of the same rites{} block | CTFE assert | "within a rites block, rite should be unique, yes. but in my mental image, you can have a same name rite in multiple RITES" / "so you could have a rite called SLEEP1 in two rites blocks" / "Both blocks name FLIP1, SLEEP1, FLIP2, SLEEP2 / i dont see the problem here." / "i expect to be able / using vim / press y12[DOWN_ARROW][UP_ARROW]p / change the name of only the rites block / yyp on line 18, a 2 to toss" / "jumping to other rites blocks is NOT inscope for this branch" | "ok" |
 | ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | |
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | |
 | ✓ | 12 | Referenced group exists | CTFE assert | — | |

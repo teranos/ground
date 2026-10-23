@@ -419,6 +419,9 @@ rites a {
 static assert(validateRituals(parsePbt(dupInput)).text() == "duplicate rite name: shared");
 
 // "but in my mental image, you can have a same name rite in multiple RITES"
+// "so you could have a rite called SLEEP1 in two rites blocks"
+// "Both blocks name FLIP1, SLEEP1, FLIP2, SLEEP2 / i dont see the problem here."
+// "i expect to be able / using vim / press y12[DOWN_ARROW][UP_ARROW]p / change the name of only the rites block / yyp on line 18, a 2 to toss"
 // — a block copied with yyp, only the block renamed, is the authoring this
 // grammar is for.
 enum sameNameTwoBlocks = `
