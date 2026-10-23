@@ -45,6 +45,7 @@ controls/local/*
 # The book is generated from source, so only its inputs are tracked. A tracked
 # PDF would be a second copy of the reference, free to disagree with the code.
 doc/tex/
+doc/measured/
 doc/provenance.tex
 doc/edition.tex
 doc/book.pdf
