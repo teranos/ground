@@ -13,7 +13,8 @@ EOS";
 import parse : extractJsonString;
 import matcher : indexOf;
 import provenance : jsonEscapeInto;
-import db : versionString;
+import db : versionString, sqlite3;
+import code.store : storeOpen, storeClose, storeResume, storeList;
 import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, FILE;
 
 extern (C) ptrdiff_t getline(char** lineptr, size_t* n, FILE* stream);
@@ -68,25 +69,42 @@ int emptyArray(const(char)[] json, const(char)[] key) {
     return p < json.length && json[p] == ']' ? 1 : 0;
 }
 
-// The sessions one ground code has opened. An id is its start, its pid and a
-// count, so two sessions of one process differ and so do two processes.
+// The sessions one ground code has live. An id is the start, pid and count of
+// the process that opened it, so two sessions of one process differ and so do
+// two processes. With a store, a session outlives that process: the next one
+// resumes it by its id.
 struct Sessions {
     ulong started;
     uint pid;
     uint count;
-    Open[64] open; // the sessions not yet closed
+    Open[64] open; // the sessions live in this process
     size_t openLen;
+    sqlite3* db;   // where sessions are kept; none, and they live in this process only
 }
 
-// An open session: its count, and the cwd it was opened in, kept whole.
+// A live session: its id, and the cwd it is in, each kept whole.
 struct Open {
-    uint n;
+    char[64] id;
+    size_t idLen;
     char[1024] cwd;
     size_t cwdLen;
 }
 
 private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
     r.add("code-"); putNumber(r, s.started); r.add("-"); putNumber(r, s.pid); r.add("-"); putNumber(r, n);
+}
+
+private void keep(ref Open o, const(char)[] id, const(char)[] cwd) {
+    foreach (i, c; id) o.id[i] = c; // a slice copy calls druntime
+    o.idLen = id.length;
+    foreach (i, c; cwd) o.cwd[i] = c;
+    o.cwdLen = cwd.length;
+}
+
+private long now() {
+    import core.stdc.time : time;
+    if (__ctfe) return 0;
+    return cast(long) time(null);
 }
 
 // A string's JSON form, control characters included, without its quotes.
@@ -109,22 +127,11 @@ private void putNumber(ref Reply r, ulong u) {
     r.add(d[k .. $]);
 }
 
-// Where an id stands among the open sessions, or -1: one this process never
-// opened, one it closed, and one of another process's are all not open here.
+// Where an id stands among the sessions live here, or -1: one this process
+// never opened or resumed, and one it closed, are not live here.
 private ptrdiff_t openAt(ref const Sessions s, const(char)[] id) {
-    Reply p;
-    p.add("code-"); putNumber(p, s.started); p.add("-"); putNumber(p, s.pid); p.add("-");
-    auto prefix = p.slice();
-    if (id.length <= prefix.length || id[0 .. prefix.length] != prefix) return -1;
-    auto digits = id[prefix.length .. $];
-    if (digits.length > 1 && digits[0] == '0') return -1;
-    ulong n = 0;
-    foreach (c; digits) {
-        if (c < '0' || c > '9') return -1;
-        n = n * 10 + (c - '0');
-        if (n > uint.max) return -1;
-    }
-    foreach (i; 0 .. s.openLen) if (s.open[i].n == n) return cast(ptrdiff_t) i;
+    foreach (i; 0 .. s.openLen)
+        if (s.open[i].id[0 .. s.open[i].idLen] == id) return cast(ptrdiff_t) i;
     return -1;
 }
 
@@ -147,7 +154,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // client's is answered with it whatever it asked for.
     if (method == "initialize") {
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{}}},"agentInfo":{"name":"ground","version":"`);
+        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
         return true;
     }
@@ -182,13 +189,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         sessions.count++;
-        auto o = &sessions.open[sessions.openLen];
-        o.n = sessions.count;
-        o.cwd[0 .. cwd.length] = cwd[];
-        o.cwdLen = cwd.length;
+        Reply sid;
+        putSessionId(sid, sessions, sessions.count);
+        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, now())) {
+            put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
+            return true;
+        }
+        keep(sessions.open[sessions.openLen], sid.slice(), cwd);
         sessions.openLen++;
-        put(`,"result":{"sessionId":"`);
-        putSessionId(r, sessions, sessions.count); put(`"}}`);
+        put(`,"result":{"sessionId":"`); put(sid.slice()); put(`"}}`);
         return true;
     }
 
@@ -206,6 +215,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32002,"message":"no open session `);
             put(n < 0 ? "one too long to name" : eb[0 .. cast(size_t) n]);
             put(`"}}`);
+            return true;
+        }
+        if (sessions.db !is null && !storeClose(sessions.db, sid, now())) {
+            put(`,"error":{"code":-32603,"message":"the store refused to close `);
+            putEscaped(r, sid); put(`"}}`);
             return true;
         }
         sessions.openLen--;
@@ -232,16 +246,78 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         put(`,"result":{"sessions":[`);
         bool first = true;
-        foreach (i; 0 .. sessions.openLen) {
-            auto o = &sessions.open[i];
-            auto at = o.cwd[0 .. o.cwdLen];
-            if (cwd !is null && at != cwd) continue;
+        void entry(const(char)[] sid, const(char)[] at) {
             if (!first) put(",");
             first = false;
-            put(`{"sessionId":"`); putSessionId(r, sessions, o.n);
+            put(`{"sessionId":"`); putEscaped(r, sid);
             put(`","cwd":"`); putEscaped(r, at); put(`"}`);
         }
+        if (sessions.db !is null) {
+            if (!storeList(sessions.db, cwd, &entry)) {
+                r.len = 0;
+                put(`{"jsonrpc":"2.0","id":`); put(id);
+                put(`,"error":{"code":-32603,"message":"the store refused to list sessions"}}`);
+                return true;
+            }
+        } else {
+            foreach (i; 0 .. sessions.openLen) {
+                auto o = &sessions.open[i];
+                auto at = o.cwd[0 .. o.cwdLen];
+                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at);
+            }
+        }
         put(`]}}`);
+        return true;
+    }
+
+    // "Resumes an existing session without returning previous messages", so
+    // there is nothing to replay: a session the store has open becomes live
+    // here, in the cwd the resume names. One the store does not have open was
+    // closed or never opened, and is not there to resume.
+    if (method == "session/resume") {
+        char[256] sb;
+        char[4096] cb;
+        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        auto cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
+        auto mcp = emptyArray(line, `"mcpServers"`);
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`); return true; }
+        if (cwd is null) { put(`,"error":{"code":-32602,"message":"session/resume needs cwd"}}`); return true; }
+        if (cwd[0] != '/') {
+            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
+            putEscaped(r, cwd); put(`"}}`);
+            return true;
+        }
+        if (mcp == 0) {
+            put(`,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/resume named some"}}`);
+            return true;
+        }
+        if (cwd.length > sessions.open[0].cwd.length) {
+            put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
+            return true;
+        }
+        auto at = openAt(sessions, sid);
+        int stored = sessions.db is null ? (at < 0 ? 0 : 1) : storeResume(sessions.db, sid, cwd);
+        if (stored < 0) {
+            put(`,"error":{"code":-32603,"message":"the store refused to resume `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        if (stored == 0 || sid.length > sessions.open[0].id.length) {
+            put(`,"error":{"code":-32002,"message":"no session to resume: `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        if (at < 0) {
+            if (sessions.openLen == sessions.open.length) {
+                put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
+                return true;
+            }
+            at = cast(ptrdiff_t) sessions.openLen;
+            sessions.openLen++;
+        }
+        keep(sessions.open[cast(size_t) at], sid, cwd);
+        put(`,"result":{}}`);
         return true;
     }
 
@@ -259,7 +335,16 @@ int handleCode() {
     import core.stdc.time : time;
     char* buf = null;
     size_t cap = 0;
+    import db : openDb, sqlite3_close;
     auto sessions = Sessions(cast(ulong) time(null), cast(uint) getpid());
+    // Ground stops rather than degrades: a session no store keeps could not
+    // be resumed, and a client told it could would find out too late.
+    sessions.db = openDb();
+    if (sessions.db is null) {
+        fputs("ground code: the store would not open, so no session could outlive this process\n", stderr);
+        return 1;
+    }
+    scope (exit) sqlite3_close(sessions.db);
     while (true) {
         auto n = getline(&buf, &cap, stdin);
         if (n < 0) break;

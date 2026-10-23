@@ -537,6 +537,12 @@ bool applySchema(sqlite3* db) {
         ~ "output TEXT NOT NULL, measured_at INTEGER NOT NULL, PRIMARY KEY (agent, release, event))\0";
     sqlite3_exec(db, paritySpecSchema.ptr, null, null, null);
 
+    // Ground code's sessions: one a process opened and never closed is there
+    // for the next process to resume. closed_at is 0 while it is open.
+    enum codeSessionSchema = "CREATE TABLE IF NOT EXISTS code_session (id TEXT PRIMARY KEY, "
+        ~ "cwd TEXT NOT NULL, opened_at INTEGER NOT NULL, closed_at INTEGER NOT NULL DEFAULT 0)\0";
+    sqlite3_exec(db, codeSessionSchema.ptr, null, null, null);
+
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
     enum idxSubject = "CREATE INDEX IF NOT EXISTS idx_attestations_subject ON attestations(json_extract(subjects, '$[0]'))\0";
