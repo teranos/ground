@@ -76,7 +76,7 @@ test: test-tools test-ug test-mcp
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
 # owning a session's servers. LIBMCP_SRC is the input's source; the devShell sets it.
-MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c),-L$(f))
+MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c libcurl),-L$(f))
 MCP_SERVER = LIBMCP_SERVER=$(LIBMCP_SRC)/tests/server.py
 test-mcp: build
 	test -n "$(LIBMCP_SRC)" || { echo "test-mcp: LIBMCP_SRC names no libmcp source; run under nix develop" >&2; exit 1; }

@@ -7,11 +7,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1792776353,
-        "narHash": "sha256-QHELVthXwOzcS+j5cS8dIfRWPkPdI9uxDdmcU5AssJs=",
+        "lastModified": 1792781448,
+        "narHash": "sha256-dSMY15hMEN0meqtF/gKOkaiy29qrSlHeKryW25eF7/o=",
         "owner": "teranos",
         "repo": "libmcp",
-        "rev": "0cde4414d98b430bfd76ead62818e5df04d66eb4",
+        "rev": "2f9b713323d73961336757ab0085a0df2ad0eb62",
         "type": "github"
       },
       "original": {
