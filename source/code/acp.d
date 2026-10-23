@@ -14,7 +14,7 @@ import parse : extractJsonString;
 import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
-import code.store : storeOpen, storeClose, storeResume, storeList;
+import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete;
 import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, FILE;
 
 extern (C) ptrdiff_t getline(char** lineptr, size_t* n, FILE* stream);
@@ -154,7 +154,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // client's is answered with it whatever it asked for.
     if (method == "initialize") {
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"agentInfo":{"name":"ground","version":"`);
+        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{}}},"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
         return true;
     }
@@ -317,6 +317,34 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             sessions.openLen++;
         }
         keep(sessions.open[cast(size_t) at], sid, cwd);
+        put(`,"result":{}}`);
+        return true;
+    }
+
+    // "deleting an existing session from `session/list`": what list would show
+    // is what delete takes. Gone from the store, it is gone for every process,
+    // and one live here is no longer live.
+    if (method == "session/delete") {
+        char[256] sb;
+        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`); return true; }
+        auto at = openAt(sessions, sid);
+        int gone = sessions.db is null ? (at < 0 ? 0 : 1) : storeDelete(sessions.db, sid);
+        if (gone < 0) {
+            put(`,"error":{"code":-32603,"message":"the store refused to delete `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        if (gone == 0) {
+            put(`,"error":{"code":-32002,"message":"no session to delete: `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        if (at >= 0) {
+            sessions.openLen--;
+            sessions.open[cast(size_t) at] = sessions.open[sessions.openLen];
+        }
         put(`,"result":{}}`);
         return true;
     }

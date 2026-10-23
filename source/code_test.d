@@ -17,13 +17,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // A method ground code does not handle is said to the client, by name.
@@ -169,4 +169,48 @@ unittest {
         `{"jsonrpc":"2.0","id":11,"error":{"code":-32602,"message":"cwd must be an absolute path: work"}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":12,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work","mcpServers":[{"name":"x","command":"/bin/x","args":[],"env":[]}]}}`,
         `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/resume named some"}}`));
+}
+
+// session/delete: "deleting an existing session from `session/list`". What
+// list would show is what delete takes; deleted, it is gone for every process,
+// and one live here is no longer live.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    Sessions a = Sessions(100, 7);
+    a.db = db;
+    enum open = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`;
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1"}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2"}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3"}}`));
+
+    // Another process deletes one; no process lists it or resumes it after.
+    Sessions b = Sessions(200, 8);
+    b.db = db;
+    assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/work"},{"sessionId":"code-100-7-3","cwd":"/work"}]}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32002,"message":"no session to delete: code-100-7-1"}}`));
+
+    // A closed session is not on the list, so it is not there to delete.
+    assert(says(a, `{"jsonrpc":"2.0","id":6,"method":"session/close","params":{"sessionId":"code-100-7-2"}}`,
+        `{"jsonrpc":"2.0","id":6,"result":{}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/delete","params":{"sessionId":"code-100-7-2"}}`,
+        `{"jsonrpc":"2.0","id":7,"error":{"code":-32002,"message":"no session to delete: code-100-7-2"}}`));
+
+    // Deleted where it is live, it is not live there any more.
+    assert(says(a, `{"jsonrpc":"2.0","id":8,"method":"session/delete","params":{"sessionId":"code-100-7-3"}}`,
+        `{"jsonrpc":"2.0","id":8,"result":{}}`));
+    assert(says(a, `{"jsonrpc":"2.0","id":9,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32002,"message":"no open session code-100-7-3"}}`));
+    assert(says(a, `{"jsonrpc":"2.0","id":10,"method":"session/delete","params":{}}`,
+        `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
 }
