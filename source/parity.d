@@ -717,6 +717,127 @@ private int meanOf(const(int)[] cells) {
     return cast(int)((sum * 2 + n) / (2 * n));
 }
 
+// --- the series: a row a spec a run, a point a harness a run ---
+
+// "is to record how we are doing on parity over time against different specs and also have that plot as a line."
+// A harness's total is the mean of its cells. A spec with neither side is no cell.
+int total(const(int)[] cells) { return meanOf(cells); }
+
+struct Point { const(char)[] agent; const(char)[] when; int total; }
+
+struct Tex {
+    char[16384] buf = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < buf.length) buf[n++] = c; }
+    void putInt(int v) {
+        char[12] d;
+        int k = 0;
+        do { d[k++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+        while (k > 0) put(d[--k .. k + 1]);
+    }
+    const(char)[] text() const return { return buf[0 .. n]; }
+}
+
+// "so we give each harness a line for total coverage"
+// "and ACP as well separately"
+// One line a harness, in the order the harnesses were first measured; x is
+// the run, y its total. No run, no plot.
+Tex seriesTex(const(Point)[] pts) {
+    Tex t;
+    if (pts.length == 0) return t;
+    t.put("\\begin{tikzpicture}\n"
+        ~ "\\begin{axis}[date coordinates in=x, xticklabel={\\day.\\month.}, ymin=0, ymax=100, "
+        ~ "ylabel={\\%}, legend pos=north west, width=\\textwidth, height=60mm]\n");
+    foreach (i, p; pts) {
+        bool seen = false;
+        foreach (q; pts[0 .. i]) if (q.agent == p.agent) { seen = true; break; }
+        if (seen) continue;
+        t.put("\\addplot coordinates {");
+        bool first = true;
+        foreach (q; pts) {
+            if (q.agent != p.agent) continue;
+            if (!first) t.put(" ");
+            first = false;
+            t.put("("); t.put(q.when); t.put(","); t.putInt(percentOf(q.total)); t.put(")");
+        }
+        t.put("};\n\\addlegendentry{"); t.put(p.agent); t.put("}\n");
+    }
+    t.put("\\end{axis}\n\\end{tikzpicture}\n");
+    return t;
+}
+
+// A run's score for one spec is an attestation: ground at this version said,
+// of this agent at this release, this total. Appended, never replaced, so the
+// series is every run and sky carries each row like any other.
+bool attestParity(sqlite3* db, const(char)[] agent, const(char)[] release, const(char)[] sha,
+                  int total, const(char)[] ts) {
+    import db : versionString, jsonArray1;
+    __gshared ZBuf id, subjects, contexts, attrs;
+    id.reset();
+    id.put("ground:parity:"); id.put(agent); id.put(":"); id.put(release); id.put(":"); id.put(ts);
+    id.put(":"); id.put(versionString());
+    __gshared ZBuf subject;
+    subject.reset(); subject.put("ground:"); subject.put(versionString());
+    jsonArray1(subjects, subject.slice());
+    __gshared ZBuf context;
+    context.reset(); context.put(agent); context.put(":"); context.put(release);
+    jsonArray1(contexts, context.slice());
+    Tex num;
+    num.putInt(total);
+    attrs.reset();
+    attrs.put(`{"agent":"`); attrs.put(agent); attrs.put(`","release":"`); attrs.put(release);
+    attrs.put(`","sha256":"`); attrs.put(sha); attrs.put(`","total":`); attrs.put(num.text()); attrs.put("}");
+
+    enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES (?1, ?2, '[\"parity\"]', ?3, '[\"ground\"]', ?4, 'ground', ?5)\0";
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return false;
+    bind(st, 1, id.slice());
+    bind(st, 2, subjects.slice());
+    bind(st, 3, contexts.slice());
+    bind(st, 4, ts);
+    bind(st, 5, attrs.slice());
+    auto ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+struct Series {
+    char[32][64] agents;
+    ubyte[64] agentLen;
+    char[16][64] whens;
+    int[64] totals;
+    size_t count;
+    Point at(size_t i) const return {
+        return Point(agents[i][0 .. agentLen[i]], whens[i][0 .. 16], totals[i]);
+    }
+}
+
+// Every run, oldest first: a harness's point is the mean of its specs' totals
+// in that run, and the minute it was measured.
+Series readSeries(sqlite3* db) {
+    Series s;
+    enum sql = "SELECT json_extract(attributes, '$.agent'), "
+        ~ "substr(timestamp, 1, 10) || ' ' || substr(timestamp, 12, 5), "
+        ~ "CAST(round(avg(json_extract(attributes, '$.total'))) AS INTEGER) "
+        ~ "FROM attestations WHERE json_extract(predicates, '$[0]') = 'parity' "
+        ~ "GROUP BY 1, timestamp ORDER BY timestamp, min(rowid)\0";
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return s;
+    while (sqlite3_step(st) == SQLITE_ROW && s.count < s.totals.length) {
+        auto agent = cstr(sqlite3_column_text(st, 0));
+        auto when = cstr(sqlite3_column_text(st, 1));
+        if (agent.length > s.agents[0].length || when.length != 16) continue;
+        foreach (i, c; agent) s.agents[s.count][i] = c;
+        s.agentLen[s.count] = cast(ubyte) agent.length;
+        foreach (i, c; when) s.whens[s.count][i] = c;
+        s.totals[s.count] = cast(int) sqlite3_column_int64(st, 2);
+        s.count++;
+    }
+    sqlite3_finalize(st);
+    return s;
+}
+
 // --- reading a pinned binary ---
 
 import core.sys.posix.sys.mman : mmap, munmap, PROT_READ, MAP_PRIVATE, MAP_FAILED;
@@ -953,6 +1074,21 @@ private Row* rowFor(const(char)[] event) {
 
 private void put(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); }
 
+// `ground parity tex` sets the same table for the book: cells parted by &,
+// rows ended by \\, and the characters TeX reads as instructions escaped.
+private __gshared bool texOut;
+
+private void cell() { put(texOut ? " & " : "| "); }
+private void eol() { put(texOut ? " \\\\\n" : "\n"); }
+
+private void putName(const(char)[] s, size_t width) {
+    if (!texOut) { putPad(s, width); return; }
+    foreach (c; s) {
+        if (c == '_' || c == '#' || c == '%' || c == '&' || c == '$' || c == '{' || c == '}') put("\\");
+        put((&c)[0 .. 1]);
+    }
+}
+
 private void putPad(const(char)[] s, size_t width) {
     put(s);
     foreach (_; s.length .. width) put(" ");
@@ -965,6 +1101,7 @@ private const(char)[] percentText(int perMille, ref char[8] buf) {
     if (p >= 100) buf[n++] = cast(char)('0' + p / 100);
     if (p >= 10) buf[n++] = cast(char)('0' + (p / 10) % 10);
     buf[n++] = cast(char)('0' + p % 10);
+    if (texOut) buf[n++] = '\\';
     buf[n++] = '%';
     return buf[0 .. n];
 }
@@ -1071,14 +1208,24 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         foreach (i; 0 .. rowCount)
             if (anyCell(rows[i]) && rows[i].len + 1 > eventWidth) eventWidth = rows[i].len + 1;
 
+        if (texOut) {
+            put("\\begin{center}\\small\\begin{tabular}{l|r");
+            for (size_t pi = 0; pi < pins.length;) {
+                auto agent = pins[pi].agent;
+                put("|r");
+                while (pi < pins.length && pins[pi].agent == agent) { put("|r"); pi++; }
+            }
+            put("}\n");
+        }
         putPad("Event:", eventWidth);
-        put("| overall ");
+        cell(); put("overall ");
         for (size_t pi = 0; pi < pins.length;) {
             auto agent = pins[pi].agent;
-            put("| ## "); put(agent); put(" ");
-            while (pi < pins.length && pins[pi].agent == agent) { put("| "); put(pins[pi].release); put(" "); pi++; }
+            cell(); put(texOut ? "" : "## "); put(agent); put(" ");
+            while (pi < pins.length && pins[pi].agent == agent) { cell(); put(pins[pi].release); put(" "); pi++; }
         }
-        put("\n");
+        eol();
+        if (texOut) put("\\hline\n");
 
         foreach (i; 0 .. rowCount) {
             if (!anyCell(rows[i])) continue;
@@ -1091,19 +1238,29 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
                 agentMeans[agents++] = meanOf(rows[i].cells[from .. pi]);
             }
             char[8] pb;
-            putPad(rows[i].event[0 .. rows[i].len], eventWidth);
-            put("| "); putPad(percentText(meanOf(agentMeans[0 .. agents]), pb), 8);
+            putName(rows[i].event[0 .. rows[i].len], eventWidth);
+            cell(); putPad(percentText(meanOf(agentMeans[0 .. agents]), pb), 8);
             size_t a = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
-                put("| "); putPad(percentText(agentMeans[a++], pb), agent.length + 4);
+                cell(); putPad(percentText(agentMeans[a++], pb), agent.length + 4);
                 while (pi < pins.length && pins[pi].agent == agent) {
-                    put("| "); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1);
+                    cell(); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1);
                     pi++;
                 }
             }
-            put("\n");
+            eol();
         }
+        if (texOut) put("\\end{tabular}\\end{center}\n\n");
+    }
+
+    // The book carries no path from this machine, and the series is its own.
+    if (texOut) {
+        auto s = readSeries(db);
+        Point[64] pts;
+        foreach (i; 0 .. s.count) pts[i] = s.at(i);
+        put(seriesTex(pts[0 .. s.count]).text());
+        return;
     }
 
     put("\n");
@@ -1140,6 +1297,8 @@ int handleParity(int argc, const(char)** argv) {
 
     const(char)[] only;
     if (argc >= 3) only = cstr(argv[2]);
+    texOut = only == "tex";
+    if (texOut) only = "";
 
     auto db = openDb();
     if (db is null) {
@@ -1149,7 +1308,9 @@ int handleParity(int argc, const(char)** argv) {
 
     Measured[8] status;
     int rc = 0;
+    // The book reads the store and measures nothing: a build is not a run.
     foreach (pi, ref pin; pins) {
+        if (texOut) break;
         status[pi] = measure(pin);
         if (status[pi].access != Access.live) continue;
         bool overflow = specsFull;
@@ -1170,6 +1331,22 @@ int handleParity(int argc, const(char)** argv) {
     }
 
     render(db, only, status);
+
+    // A whole run is attested, one row a spec, at the minute it was rendered.
+    if (!texOut && only.length == 0) {
+        import db : formatTimestamp;
+        auto ts = formatTimestamp();
+        foreach (pi, ref pin; pins) {
+            int[96] cells;
+            foreach (i; 0 .. rowCount) cells[i] = rows[i].cells[pi];
+            auto t = total(cells[0 .. rowCount]);
+            if (t < 0) continue;
+            if (!attestParity(db, pin.agent, pin.release, pin.sha256, t, ts)) {
+                say("ground parity: the store refused the run's row for "); say(pin.agent); say(" "); say(pin.release); say("\n");
+                rc = 1;
+            }
+        }
+    }
     sqlite3_close(db);
     return rc;
 }
