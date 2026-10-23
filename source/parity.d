@@ -9,10 +9,13 @@ import db : ZBuf;
 static import parse;
 
 enum BOOK_COMMAND = q"EOS
-# what ground covers of each pinned agent's hook contract, per event and version:
+# what ground covers of each pinned agent's hook contract, per event and version,
+# and what ground code covers of the pinned ACP schema, per method:
 ground parity
 # one event's keys per version, covered and missing:
 ground parity PostToolUse
+# one ACP method's, read and written by ground code:
+ground parity session/prompt
 EOS";
 
 // --- sha256: a binary is the pinned one or it is not measured ---
@@ -124,6 +127,7 @@ PinSet readPins()(string flake) {
         string agent;
         if (startsAt(flake, i, `claude "`)) agent = "claude";
         else if (startsAt(flake, i, `codex "`)) agent = "codex";
+        else if (startsAt(flake, i, `acp "`)) agent = "acp";
         else continue;
         auto from = i + agent.length + 2;
         auto close = indexIn(flake[from .. $], `"`);
@@ -141,6 +145,7 @@ PinSet readPins()(string flake) {
         auto block = flake[from .. end];
         string sha;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
+        else if (agent == "acp") sha = hexAfter(block, "schema");
         else {
             auto t = assigned(block, codexTarget, " = {");
             if (t >= 0) sha = hexAfter(block[cast(size_t) t .. $], "binary");
@@ -315,6 +320,65 @@ bool codexSchema(const(char)[] text, const(char)[] title, ref Keys keys) {
 Keys codexKeys()(string text, string title) {
     Keys k;
     codexSchema(text, title, k);
+    return k;
+}
+
+// --- acp: one JSON Schema document, its definitions four spaces deep ---
+
+enum acpMethodKey = "\n      \"x-method\": \"";
+
+private bool endsWith(const(char)[] s, const(char)[] tail) {
+    return s.length >= tail.length && s[$ - tail.length .. $] == tail;
+}
+
+// One method's keys from ground code's side, as a hook's are from ground's: in
+// is what it reads, out is what it writes. Every definition naming the method
+// gives its top-level properties to a side. A request or notification the
+// agent handles is read and its response written; one the client handles is
+// the other way round. Either peer may send a protocol method, so it is both.
+bool acpSpec(const(char)[] text, const(char)[] method, ref Keys input, ref Keys output) {
+    char[160] nb;
+    auto needle = joined(nb, acpMethodKey, method, `"`);
+    bool found = false;
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(text, needle, from);
+        if (at < 0) return found;
+        from = cast(size_t) at + needle.length;
+        auto start = lastIndexIn(text[0 .. cast(size_t) at], "\n    \"");
+        auto end = indexIn(text, "\n    }", cast(size_t) at);
+        if (start < 0 || end < 0) continue;
+        auto nameFrom = cast(size_t) start + 6;
+        auto nameEnd = indexIn(text, `"`, nameFrom);
+        if (nameEnd < 0) continue;
+        auto name = text[nameFrom .. cast(size_t) nameEnd];
+        auto def = text[cast(size_t) start .. cast(size_t) end];
+
+        enum sideKey = "\n      \"x-side\": \"";
+        auto s = indexIn(def, sideKey);
+        if (s < 0) continue;
+        auto sideFrom = cast(size_t) s + sideKey.length;
+        auto sideEnd = indexIn(def, `"`, sideFrom);
+        if (sideEnd < 0) continue;
+        auto side = def[sideFrom .. cast(size_t) sideEnd];
+        found = true;
+
+        bool sent = !endsWith(name, "Response");
+        bool reads = side == "protocol" || (side == "agent") == sent;
+        bool writes = side == "protocol" || !reads;
+        enum props = "\n      \"properties\": {";
+        auto p = indexIn(def, props);
+        if (p < 0) continue;
+        if (reads) keysAtIndent(def, cast(size_t) p + props.length, 8, input);
+        if (writes) keysAtIndent(def, cast(size_t) p + props.length, 8, output);
+    }
+}
+
+struct SpecKeys { Keys input; Keys output; }
+
+SpecKeys acpKeys()(string text, string method) {
+    SpecKeys k;
+    acpSpec(text, method, k.input, k.output);
     return k;
 }
 
@@ -570,6 +634,15 @@ ref immutable(GroundSide) sideOf(const(char)[] event) {
     return unknownSide;
 }
 
+// Ground code is the agent an ACP client talks to. It has no source yet, so it
+// reads and writes none of what the protocol names.
+private static immutable GroundSide codeSide = GroundSide(null, GroundKeys.init, GroundKeys.init);
+
+ref immutable(GroundSide) sideFor(const(char)[] agent, const(char)[] event) {
+    if (agent == "acp") return codeSide;
+    return sideOf(event);
+}
+
 // --- the score ---
 
 // "in is 50% and out is 50%"
@@ -615,12 +688,13 @@ private void pathOf(ref const Pin pin, ref Measured m) {
     auto home = getenv("HOME\0".ptr);
     size_t hl = 0;
     if (home !is null) while (home[hl] != 0) hl++;
-    auto suffix = pin.agent == "claude" ? "/.local/share/claude/versions/" : "/.codex/packages/standalone/current/bin/codex";
     size_t n = 0;
     void add(const(char)[] s) { foreach (c; s) if (n + 1 < m.path.length) m.path[n++] = c; }
     if (home !is null) add(home[0 .. hl]);
-    add(suffix);
-    if (pin.agent == "claude") add(pin.release);
+    if (pin.agent == "claude") { add("/.local/share/claude/versions/"); add(pin.release); }
+    // make install links the pinned schemas here from the store.
+    else if (pin.agent == "acp") { add("/.local/lib/ground/acp/"); add(pin.release); add("/schema.json"); }
+    else add("/.codex/packages/standalone/current/bin/codex");
     m.path[n] = 0;
     m.pathLen = n;
 }
@@ -680,6 +754,29 @@ private void readCodex(const(char)[] text) {
     }
 }
 
+private bool haveSpec(const(char)[] event) {
+    foreach (i; 0 .. specCount)
+        if (specs[i].event[0 .. specs[i].eventLen] == event) return true;
+    return false;
+}
+
+private void readAcp(const(char)[] text) {
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(text, acpMethodKey, from);
+        if (at < 0) break;
+        auto nameFrom = cast(size_t) at + acpMethodKey.length;
+        auto nameEnd = indexIn(text, `"`, nameFrom);
+        if (nameEnd < 0) break;
+        from = cast(size_t) nameEnd;
+        auto method = text[nameFrom .. cast(size_t) nameEnd];
+        if (haveSpec(method)) continue;
+        Keys input, output;
+        acpSpec(text, method, input, output);
+        addSpec(method, input, output);
+    }
+}
+
 private Measured measure(ref const Pin pin) {
     Measured m;
     specCount = 0;
@@ -699,6 +796,7 @@ private Measured measure(ref const Pin pin) {
     sha256(text, m.sha);
     if (m.sha[] != pin.sha256) { m.access = Access.mismatch; return m; }
     if (pin.agent == "claude") readClaude(text);
+    else if (pin.agent == "acp") readAcp(text);
     else readCodex(text);
     m.access = specCount > 0 ? Access.live : Access.empty;
     return m;
@@ -896,8 +994,8 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
             auto input = cstr(sqlite3_column_text(st, 1));
             auto output = cstr(sqlite3_column_text(st, 2));
             measuredAt[pi] = sqlite3_column_int64(st, 3);
-            auto reads = sideOf(event).reads.slice();
-            auto writes = sideOf(event).writes.slice();
+            auto reads = sideFor(pin.agent, event).reads.slice();
+            auto writes = sideFor(pin.agent, event).writes.slice();
             int ic = covered(input, reads), it = countOf(input);
             int oc = covered(output, writes), ot = countOf(output);
             auto cell = score(ic, it, oc, ot);
@@ -970,8 +1068,14 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
                 put(m.path[0 .. m.pathLen]); put(" is "); put(m.sha[0 .. 12]);
                 put(", pinned "); put(pin.sha256[0 .. 12]);
                 break;
-            case Access.empty: put("no hook schemas read from "); put(m.path[0 .. m.pathLen]); break;
-            case Access.absent: put("no binary at "); put(m.path[0 .. m.pathLen]); break;
+            case Access.empty:
+                put(pin.agent == "acp" ? "no methods read from " : "no hook schemas read from ");
+                put(m.path[0 .. m.pathLen]);
+                break;
+            case Access.absent:
+                put(pin.agent == "acp" ? "no schema at " : "no binary at ");
+                put(m.path[0 .. m.pathLen]);
+                break;
         }
         if (m.access != Access.live && measuredAt[pi] > 0) { put(", measured "); putTime(measuredAt[pi]); }
         put("\n");
