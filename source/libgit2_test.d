@@ -374,7 +374,6 @@ unittest {
 
 // `git worktree remove --force`: the tree and its record are gone.
 unittest {
-    // "the reason you need to remove them by hand is because?"
     import libgit2 : Repo;
     import core.sys.posix.unistd : access, F_OK;
     auto root = fixture();
