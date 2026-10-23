@@ -19,6 +19,8 @@ static assert(micFromWord("ci").who == Mic.Ci);
 static assert(!micFromWord("").valid);
 static assert(!micFromWord("qntx").valid);
 
+// "a rite can only take hostage for at most 2 sec"
+// "the white state color should be occupied for at most 2 sec"
 // "ground, or the rite should have no reason to keep holding the mic for
 // longer than 2s" — it evaluates and speaks, so there is nothing to wait for.
 static assert(!blocking(Mic.Ground, 2, 0, 0));

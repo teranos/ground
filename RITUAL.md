@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 71 | A rite holds the mic for at most 2 seconds | "a rite can only take hostage for at most 2 sec" / "the white state color should be occupied for at most 2 sec" / "ground, or the rite should have no reason to keep holding the mic for longer than 2s" | |
 | ✓ | 73 | The mic going back is counted, and the count is on both surfaces | "let's show a counter" / "[NEVERx3]" / "if there is back and forward, it would mean the counter increments no?" | |
 | x | 80 | A performance is a row in agent view | — | |
 | ✓ | 82a | Every delivery names its receiver instead of grabbing a session | "THERE ARE FOR RECEIVERS" / "PARENT: HUMAN / HOSTLLM" / "CHILD : RITE  / AGENTLLM" then corrected to "WE NEED TO SAY THAT RITUAL IS THE RECEIVER, NOT RITE, RITE IS JUST A PIECE OF THE RITUAL, RITUAL DRIVES THE CHAT VIA RITES" | |
