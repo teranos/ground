@@ -174,7 +174,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 |---|---|---|---|---|---|
 | ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists out of rites" | |
 | ✓ | 3 | Rite block: `<name> { eval: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci" | |
-| ✓ | 5 | `ritual <name> { }` nested in `project` | `proto.d` | "why cant the ritual block be literally inside project" | |
 | ✓ | 6 | Ritual body: bare name = reference | `proto.d` | — | |
 | ✓ | 7 | Ritual body: `name { k: v }` = reference with values | `proto.d` | "how do i set the row param from the ritual" | |
 | ✓ | 8 | CTFE structs + arrays | `proto.d`, `controls.d` | — | |
