@@ -60,7 +60,9 @@ static assert(!blocking(Mic.Human, 86_400, 20, 20));
 static assert(!blocking(Mic.Agent, 605, 0, 0));
 static assert(blocking(Mic.Agent, 605, 0, 60));
 
+// "there needs to be a way for the ball to land in the court of ci"
 // "and ci keeps holding the mic in this case"
+// "it keeps holding the mic until ci has an outcome"
 static assert(holder(20) == Mic.Ci);
 
 // "ground, or the rite should have no reason to keep holding the mic for
