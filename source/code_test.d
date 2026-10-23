@@ -24,7 +24,7 @@ private string modes()(string current) {
 }
 
 private string answerOf()(string line) {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     return answerWith(line, s);
 }
 
@@ -63,7 +63,7 @@ static assert(answerOf(`not json`)
 // answer needs. An id is ground code's start, its pid and a count, so two
 // sessions of one process are told apart and so are two processes.
 private string twoSessions()() {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     enum req = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
     return answerWith(req, s) ~ "\n" ~ answerWith(req, s);
 }
@@ -86,7 +86,7 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":
 // so initialize says so. A session closed is gone, and closing it again, or
 // one ground code never opened, is "Resource not found".
 private string openThenClose()(string close) {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(close, s) ~ "\n" ~ answerWith(close, s);
@@ -106,7 +106,7 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params
 // session/list: the sessions this process has open, each with the cwd it was
 // opened in. Nothing is kept past the process yet, so that is all there is.
 private string listAfter()(string list) {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/srv","mcpServers":[]}}`, s);
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
@@ -114,10 +114,10 @@ private string listAfter()(string list) {
     return answerWith(list, s);
 }
 static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp"},{"sessionId":"code-100-7-2","cwd":"/srv"}]}}`);
+    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`);
 // "Filter sessions by working directory. Must be an absolute path."
 static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"/srv"}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv"}]}}`);
+    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`);
 static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`)
     == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
@@ -152,28 +152,28 @@ unittest {
     scope (exit) sqlite3_close(db);
 
     // One process opens a session and ends without closing it.
-    Sessions a = Sessions(100, 7);
+    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
 
     // The next one lists it, and resumes it. A session's cwd is its own for
     // its life: a resume names the same one, or is refused.
-    Sessions b = Sessions(200, 8);
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`,
-        `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work"}]}}`));
+        `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work2"}}`,
         `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"code-100-7-1 is in /work, not /work2"}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/list","params":{}}`,
-        `{"jsonrpc":"2.0","id":4,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work"}]}}`));
+        `{"jsonrpc":"2.0","id":4,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
 
     // Resumed, it is this process's to close; closed, it is gone for every one.
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
         `{"jsonrpc":"2.0","id":5,"result":{}}`));
-    Sessions c = Sessions(300, 9);
+    Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
     c.db = db;
     assert(says(c, `{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
@@ -202,7 +202,7 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7);
+    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     enum open = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`;
     assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
@@ -210,12 +210,12 @@ unittest {
     assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
 
     // Another process deletes one; no process lists it or resumes it after.
-    Sessions b = Sessions(200, 8);
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
-        `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/work"},{"sessionId":"code-100-7-3","cwd":"/work"}]}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-3","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
@@ -239,7 +239,7 @@ unittest {
 // session/set_mode: a mode is one of the six a session offers, set on a session
 // live here, and kept with the session, so a resume comes back in it.
 private string setThen()(string set) {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(set, s) ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, s);
 }
@@ -264,13 +264,13 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7);
+    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"acceptEdits"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`));
-    Sessions b = Sessions(200, 8);
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"acceptEdits" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
@@ -287,35 +287,35 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7);
+    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","additionalDirectories":["/lib/b","/lib/a"],"mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`,
-        `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/lib/b","/lib/a"]}]}}`));
+        `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/lib/b","/lib/a"],"updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"cwd":"/work","additionalDirectories":["/lib","rel"],"mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"additionalDirectories must be absolute paths: rel"}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/work","additionalDirectories":"/lib","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"additionalDirectories must be a list of paths"}}`));
 
     // Another process resumes it with a list of its own, then with none.
-    Sessions b = Sessions(200, 8);
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/srv"]}}`,
         `{"jsonrpc":"2.0","id":5,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":6,"method":"session/list","params":{}}`,
-        `{"jsonrpc":"2.0","id":6,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/srv"]}]}}`));
+        `{"jsonrpc":"2.0","id":6,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/srv"],"updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":7,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":8,"method":"session/list","params":{}}`,
-        `{"jsonrpc":"2.0","id":8,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work"}]}}`));
+        `{"jsonrpc":"2.0","id":8,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
 }
 
 // session/set_config_option: effort is the option a session offers, one of the
 // five levels; set, it is kept with the session and answered with the whole
 // set, as "The full set of configuration options and their current values".
 private string effortThen()(string set) {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(set, s) ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, s);
 }
@@ -353,13 +353,13 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7);
+    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"xhigh"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ effortOf!"xhigh" ~ `}}`));
-    Sessions b = Sessions(200, 8);
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"xhigh" ~ `}}`));
@@ -372,9 +372,49 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":11,"method":"session/prompt","para
 static assert(answerOf(`{"jsonrpc":"2.0","id":12,"method":"session/prompt","params":{"prompt":[]}}`)
     == `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`);
 private string promptWithoutModel()() {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, s);
 }
 static assert(promptWithoutModel()
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+
+// updatedAt: "ISO 8601 timestamp of last activity". A session's activity is
+// its opening, a resume, and a change to its mode or effort; each one is the
+// time the list then reports.
+static assert(isoUtc(0) == "1970-01-01T00:00:00Z");
+static assert(isoUtc(1_700_000_000) == "2023-11-14T22:13:20Z");
+static assert(isoUtc(951_782_400) == "2000-02-29T00:00:00Z");
+static assert(isoUtc(1_792_782_328) == "2026-10-23T19:05:28Z");
+
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    Sessions a = Sessions(100, 7);
+    a.db = db;
+    a.clock = 1_700_000_000;
+    assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+    a.clock = 1_700_000_060;
+    assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{}}`));
+    assert(says(a, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:14:20Z"}]}}`));
+    a.clock = 1_700_000_120;
+    assert(says(a, `{"jsonrpc":"2.0","id":4,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"low"}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{"configOptions":` ~ effortOf!"low" ~ `}}`));
+    Sessions b = Sessions(200, 8);
+    b.db = db;
+    b.clock = 1_700_000_180;
+    assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":5,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:15:20Z"}]}}`));
+    b.clock = 1_700_000_240;
+    assert(says(b, `{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":6,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ effortOf!"low" ~ `}}`));
+    assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":7,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:17:20Z"}]}}`));
+}

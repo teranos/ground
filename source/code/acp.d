@@ -15,7 +15,7 @@ import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
 import proto : ParsedQntx;
-import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort;
+import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, ferror, FILE;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
@@ -75,6 +75,32 @@ struct Sessions {
     sqlite3* db;   // where sessions are kept; none, and they live in this process only
     bool settingsEffort; // a new session starts at the effort Claude Code's settings name
     ParsedQntx node; // the node a prompt goes through: its gateway, its token file, its model
+    long clock;      // the time, when one is given; otherwise the system's
+}
+
+// A unix time as ISO 8601 in UTC, to the second: 2026-10-23T18:55:33Z. Days
+// to a civil date by arithmetic alone, so it runs where gmtime cannot.
+void putIso(ref Reply r, long t) {
+    long days = t / 86400, secs = t % 86400;
+    if (secs < 0) { secs += 86400; days--; }
+    long z = days + 719468;
+    long era = (z >= 0 ? z : z - 146096) / 146097;
+    long doe = z - era * 146097;
+    long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    long mp = (5 * doy + 2) / 153;
+    long d = doy - (153 * mp + 2) / 5 + 1;
+    long m = mp < 10 ? mp + 3 : mp - 9;
+    long y = yoe + era * 400 + (m <= 2 ? 1 : 0);
+    void two(long v) { char[2] b = [cast(char)('0' + v / 10 % 10), cast(char)('0' + v % 10)]; r.add(b[]); }
+    two(y / 100); two(y % 100); r.add("-"); two(m); r.add("-"); two(d);
+    r.add("T"); two(secs / 3600); r.add(":"); two(secs / 60 % 60); r.add(":"); two(secs % 60); r.add("Z");
+}
+
+string isoUtc()(long t) {
+    Reply r;
+    putIso(r, t);
+    return r.slice().idup;
 }
 
 // The effort levels effort.d names, lowest first: the one config option a
@@ -120,6 +146,7 @@ struct Open {
     McpGroup mcp;
     SessionMode mode;
     size_t effort; // where it stands among efforts
+    long updatedAt; // its last activity, unix seconds
     char[2048] dirs; // the JSON array a client is answered with
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
@@ -304,9 +331,9 @@ private void keep(ref Open o, const(char)[] id, const(char)[] cwd, SessionMode m
     o.dirsLen = dirs.length;
 }
 
-private long now() {
+private long now(ref const Sessions s) {
     import core.stdc.time : time;
-    if (__ctfe) return 0;
+    if (s.clock != 0 || __ctfe) return s.clock;
     return cast(long) time(null);
 }
 
@@ -390,7 +417,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             __gshared char[65536] settings;
             effort = effortAt(effortDefault(settings[0 .. settingsInto(settings[])]));
         }
-        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), efforts[effort], now())) {
+        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), efforts[effort], now(sessions))) {
             Reply detail;
             scope(exit) detail.dispose();
             if (!__ctfe) closeMcp(o.mcp, detail);
@@ -398,6 +425,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice(), effort);
+        o.updatedAt = now(sessions);
         sessions.openLen++;
         put(`,"result":{"sessionId":"`); put(sid.slice());
         put(`","modes":`); putModes(r, SessionMode.manual);
@@ -421,7 +449,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`"}}`);
             return true;
         }
-        if (sessions.db !is null && !storeClose(sessions.db, sid, now())) {
+        if (sessions.db !is null && !storeClose(sessions.db, sid, now(sessions))) {
             put(`,"error":{"code":-32603,"message":"the store refused to close `);
             putEscaped(r, sid); put(`"}}`);
             return true;
@@ -459,13 +487,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         bool first = true;
         // "Omitted and empty values are equivalent", so a session with no
         // additional roots lists none.
-        void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs) {
+        // updatedAt is "ISO 8601 timestamp of last activity".
+        void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs, long updatedAt) {
             if (!first) put(",");
             first = false;
             put(`{"sessionId":"`); putEscaped(r, sid);
             put(`","cwd":"`); putEscaped(r, at); put(`"`);
             if (dirs != "[]") { put(`,"additionalDirectories":`); put(dirs); }
-            put(`}`);
+            put(`,"updatedAt":"`); putIso(r, updatedAt); put(`"}`);
         }
         if (sessions.db !is null) {
             if (!storeList(sessions.db, cwd, &entry)) {
@@ -478,7 +507,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             foreach (i; 0 .. sessions.openLen) {
                 auto o = &sessions.open[i];
                 auto at = o.cwd[0 .. o.cwdLen];
-                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen]);
+                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen], o.updatedAt);
             }
         }
         put(`]}}`);
@@ -525,7 +554,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         size_t wasLen = 0;
         int stored;
         if (sessions.db !is null) {
-            stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen, level[], levelLen);
+            stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen, level[], levelLen, now(sessions));
             effort = effortAt(level[0 .. levelLen]);
             if (stored == 1 && effort == efforts.length) stored = -1;
         }
@@ -560,6 +589,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             sessions.openLen++;
         }
         keep(sessions.open[cast(size_t) at], sid, cwd, mode, dirs.slice(), effort);
+        sessions.open[cast(size_t) at].updatedAt = now(sessions);
         put(`,"result":{"modes":`); putModes(r, mode);
         put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
         return true;
@@ -589,7 +619,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         if (sessions.db !is null) {
-            auto kept = storeSetMode(sessions.db, sid, mode);
+            auto kept = storeSetMode(sessions.db, sid, mode, now(sessions));
             if (kept != 1) {
                 put(`,"error":{"code":-32603,"message":"the store refused the mode of `);
                 putEscaped(r, sid); put(`"}}`);
@@ -597,6 +627,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
         }
         sessions.open[cast(size_t) at].mode = mode;
+        sessions.open[cast(size_t) at].updatedAt = now(sessions);
         put(`,"result":{}}`);
         return true;
     }
@@ -635,12 +666,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`; effort is low, medium, high, xhigh or max"}}`);
             return true;
         }
-        if (sessions.db !is null && storeSetEffort(sessions.db, sid, efforts[effort]) != 1) {
+        if (sessions.db !is null && storeSetEffort(sessions.db, sid, efforts[effort], now(sessions)) != 1) {
             put(`,"error":{"code":-32603,"message":"the store refused the effort of `);
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
         sessions.open[cast(size_t) at].effort = effort;
+        sessions.open[cast(size_t) at].updatedAt = now(sessions);
         put(`,"result":{"configOptions":`); putConfig(r, effort); put(`}}`);
         return true;
     }
@@ -710,6 +742,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             import http : httpPostInto;
             import core.stdc.stdlib : malloc;
             auto o = &sessions.open[cast(size_t) at];
+            // A prompt is the session's activity, as it starts.
+            if (sessions.db !is null && storeTouch(sessions.db, sid, now(sessions)) != 1) {
+                put(`,"error":{"code":-32603,"message":"the store refused the activity of `);
+                putEscaped(r, sid); put(`"}}`);
+                return true;
+            }
+            o.updatedAt = now(sessions);
             if (o.history is null) {
                 o.history = cast(Reply*) malloc(Reply.sizeof);
                 if (o.history is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }

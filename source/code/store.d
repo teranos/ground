@@ -5,7 +5,7 @@ module code.store;
 // a refusal is said to the client, never taken for "no such session".
 
 import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
-    sqlite3_step, sqlite3_finalize, sqlite3_column_text, sqlite3_changes,
+    sqlite3_step, sqlite3_finalize, sqlite3_column_text, sqlite3_column_int64, sqlite3_changes,
     SQLITE_OK, SQLITE_ROW, SQLITE_DONE, SQLITE_TRANSIENT;
 import sessionmode : SessionMode, parseSessionMode, nameOf;
 
@@ -24,7 +24,7 @@ private const(char)[] text(sqlite3_stmt* st, int col) {
 bool storeOpen(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] dirs,
         const(char)[] effort, long now) {
     sqlite3_stmt* st;
-    enum sql = "INSERT INTO code_session (id, cwd, opened_at, dirs, effort) VALUES (?1, ?2, ?3, ?4, ?5)\0";
+    enum sql = "INSERT INTO code_session (id, cwd, opened_at, dirs, effort, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?3)\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return false;
     bind(st, 1, id);
     bind(st, 2, cwd);
@@ -54,7 +54,7 @@ bool storeClose(sqlite3* db, const(char)[] id, long now) {
 // 2 the session is in another cwd (written into storedCwd), -1 the store
 // refused.
 int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] dirs,
-        ref SessionMode mode, char[] storedCwd, ref size_t storedLen, char[] effort, ref size_t effortLen) {
+        ref SessionMode mode, char[] storedCwd, ref size_t storedLen, char[] effort, ref size_t effortLen, long now) {
     sqlite3_stmt* st;
     enum find = "SELECT cwd, mode, effort FROM code_session WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, find.ptr, -1, &st, null) != SQLITE_OK) return -1;
@@ -73,10 +73,11 @@ int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] 
     if (mode == SessionMode.unknown) return -1;
     if (!same) return 2;
 
-    enum keep = "UPDATE code_session SET dirs = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    enum keep = "UPDATE code_session SET dirs = ?2, updated_at = ?3 WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, keep.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, dirs);
+    sqlite3_bind_int64(st, 3, now);
     rc = sqlite3_step(st);
     sqlite3_finalize(st);
     return rc == SQLITE_DONE ? 1 : -1;
@@ -84,12 +85,13 @@ int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] 
 
 // Keeps the mode a session was set to. 1 kept, 0 no open session by that id,
 // -1 the store refused.
-int storeSetMode(sqlite3* db, const(char)[] id, SessionMode mode) {
+int storeSetMode(sqlite3* db, const(char)[] id, SessionMode mode, long now) {
     sqlite3_stmt* st;
-    enum sql = "UPDATE code_session SET mode = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "UPDATE code_session SET mode = ?2, updated_at = ?3 WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, nameOf(mode));
+    sqlite3_bind_int64(st, 3, now);
     auto rc = sqlite3_step(st);
     sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
@@ -98,12 +100,27 @@ int storeSetMode(sqlite3* db, const(char)[] id, SessionMode mode) {
 
 // Keeps the effort a session was set to. 1 kept, 0 no open session by that
 // id, -1 the store refused.
-int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort) {
+int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort, long now) {
     sqlite3_stmt* st;
-    enum sql = "UPDATE code_session SET effort = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "UPDATE code_session SET effort = ?2, updated_at = ?3 WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, effort);
+    sqlite3_bind_int64(st, 3, now);
+    auto rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+    return sqlite3_changes(db) > 0 ? 1 : 0;
+}
+
+// Marks a session active now, as a prompt does. 1 marked, 0 no open session
+// by that id, -1 the store refused.
+int storeTouch(sqlite3* db, const(char)[] id, long now) {
+    sqlite3_stmt* st;
+    enum sql = "UPDATE code_session SET updated_at = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    sqlite3_bind_int64(st, 2, now);
     auto rc = sqlite3_step(st);
     sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
@@ -113,14 +130,14 @@ int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort) {
 // Every open session, oldest first, or those in one cwd. False when the store
 // refused, whatever was handed over before it did.
 bool storeList(sqlite3* db, const(char)[] cwd,
-        scope void delegate(const(char)[] id, const(char)[] cwd, const(char)[] dirs) each) {
+        scope void delegate(const(char)[] id, const(char)[] cwd, const(char)[] dirs, long updatedAt) each) {
     sqlite3_stmt* st;
-    enum all = "SELECT id, cwd, dirs FROM code_session WHERE closed_at = 0 ORDER BY opened_at, rowid\0";
-    enum one = "SELECT id, cwd, dirs FROM code_session WHERE closed_at = 0 AND cwd = ?1 ORDER BY opened_at, rowid\0";
+    enum all = "SELECT id, cwd, dirs, updated_at FROM code_session WHERE closed_at = 0 ORDER BY opened_at, rowid\0";
+    enum one = "SELECT id, cwd, dirs, updated_at FROM code_session WHERE closed_at = 0 AND cwd = ?1 ORDER BY opened_at, rowid\0";
     if (sqlite3_prepare_v2(db, (cwd is null ? all : one).ptr, -1, &st, null) != SQLITE_OK) return false;
     if (cwd !is null) bind(st, 1, cwd);
     int rc;
-    while ((rc = sqlite3_step(st)) == SQLITE_ROW) each(text(st, 0), text(st, 1), text(st, 2));
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) each(text(st, 0), text(st, 1), text(st, 2), sqlite3_column_int64(st, 3));
     sqlite3_finalize(st);
     return rc == SQLITE_DONE;
 }

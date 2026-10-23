@@ -549,6 +549,11 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "code_session", "dirs", "TEXT NOT NULL DEFAULT '[]'");
     // The effort a session is at: low, medium, high, xhigh or max.
     ensureColumn(db, "code_session", "effort", "TEXT NOT NULL DEFAULT 'medium'");
+    // When a session was last active, in unix seconds. One from before the
+    // column was last active when it was opened.
+    if (!hasColumn(db, "code_session", "updated_at")
+            && ensureColumn(db, "code_session", "updated_at", "INTEGER NOT NULL DEFAULT 0"))
+        sqlite3_exec(db, "UPDATE code_session SET updated_at = opened_at\0".ptr, null, null, null);
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";
