@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 90f | A dispatch lands on the target's own default branch, asked of the repo rather than guessed | — | ref=master sent QNTX-App, whose branch is main, a 422; GROUND_REF still overrides |
 | x | 93 | A ritual carries the agent's system prompt | — | |
 | | 79 | One thing advances a position | — mine, from reading the callers | "the position only advances when a turn ends, which for a working agent can be never" |
 | x | 75 | A ritual is carried by an Agent, not a detached process | — | |
