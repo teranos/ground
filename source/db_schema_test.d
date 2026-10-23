@@ -38,6 +38,7 @@ unittest {
     assert(hasColumn(db, "ritual_position", "worktree"));
     assert(hasColumn(db, "code_session", "closed_at"));
     assert(hasColumn(db, "code_session", "mode"));
+    assert(hasColumn(db, "code_session", "dirs"));
     sqlite3_close(db);
 }
 
@@ -67,5 +68,6 @@ unittest {
     auto db = openWith(old);
     assert(applySchema(db));
     assert(hasColumn(db, "code_session", "mode"));
+    assert(hasColumn(db, "code_session", "dirs"));
     sqlite3_close(db);
 }
