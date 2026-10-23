@@ -129,7 +129,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 98 | A command reaching for a file gets the file | "you can use curl instead of gh+jq" is elsewhere; this is "substitute_for_read" | "sed" / "awk" / "perl" / "sed …" |
 | ✓ | 90f | A dispatch lands on the target's own default branch, asked of the repo rather than guessed | — | ref=master sent QNTX-App, whose branch is main, a 422; GROUND_REF still overrides |
 | x | 93 | A ritual carries the agent's system prompt | — | |
-| | 92 | A rite and a control compose in the same block | "you forgot that i wasnt happy about rite's cmd being essentially a completely different thing from the control's cmd" / "Imagine i wan't to mix Rite and Control in the same Rites block" / "i want the machinery to be interchangable and composable" / "to me its eval" / "because its evaluated, and its up to the writer of the rite to change default eval behaviour through to: goto: pass: etc" | |
 | | 79 | One thing advances a position | — mine, from reading the callers | "the position only advances when a turn ends, which for a working agent can be never" |
 | x | 75 | A ritual is carried by an Agent, not a detached process | — | |
 | x | 76 | — | — | |

@@ -36,6 +36,7 @@ static assert(ritesParsed.rites[0].riteCount == 1);
 static assert(ritesParsed.rites[0].rites[0].name == "parity");
 static assert(ritesParsed.rites[0].rites[0].eval == "make parity");
 
+// "i want the machinery to be interchangable and composable"
 // "to me its eval"
 // "because its evaluated, and its up to the writer of the rite to change default eval behaviour through to: goto: pass: etc"
 enum evalInput = `
