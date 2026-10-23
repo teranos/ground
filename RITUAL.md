@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 83 | The operator reads a rite's verdict without pressing anything | "i need to see it in the transcript without me having to press ctrl-o" / "i want MessageDisplay and displayContent" | |
 | ✓ | 84 | A line ground injects cannot pass for the assistant's own words | "it looks the same as your text, its as if you said it, but its coming from a rite of a ritual no?" / "is it possible to change the color" / "  ░░▒▓▏ritual" / "    ░░▏rite" | |
 | x | 85 | An agent that cannot act says so in its own form | — | |
 | ✓ | 87 | CI holds the mic while a run is in flight | "there needs to be a way for the ball to land in the court of ci" / "and ci keeps holding the mic in this case" / "it keeps holding the mic until ci has an outcome" / "and the outcome is what is spoken back into the mic to both the agent and parent" | |
