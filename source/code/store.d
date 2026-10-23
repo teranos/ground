@@ -70,3 +70,16 @@ bool storeList(sqlite3* db, const(char)[] cwd, scope void delegate(const(char)[]
     sqlite3_finalize(st);
     return rc == SQLITE_DONE;
 }
+
+// Removes a session list would show. 1 removed, 0 no open session by that id,
+// -1 the store refused.
+int storeDelete(sqlite3* db, const(char)[] id) {
+    sqlite3_stmt* st;
+    enum sql = "DELETE FROM code_session WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    auto rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+    return sqlite3_changes(db) > 0 ? 1 : 0;
+}
