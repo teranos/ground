@@ -1,7 +1,6 @@
 module rite_test;
 
 // What a rite's exit code means.
-// "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message"
 
 import proto : parsePbt;
 import rite : classify, Verdict;
@@ -21,6 +20,7 @@ static assert(classify(0, plain) == Verdict.Advance);
 // "the rite is like a bucket we are currently intending to throw a Stop in, if the condition is not met we throw it back allowing the agent to continue, because the rite is blocking the Stop"
 static assert(classify(1, plain) == Verdict.Hold);
 
+// "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message"
 // Anything neither declared is the third outcome. 2 is not a worse 1 —
 // it is a different kind of answer, and the rite cannot read it.
 static assert(classify(2, plain) == Verdict.Halt);
@@ -92,12 +92,12 @@ rites toss {
 
   FLIP {
     dispatch: "teranos/ground long-coin.yml"
-    inputs:   ` ~ "`" ~ `echo "rig=$rig"` ~ "`" ~ `
-    to:       parent
+    inputs: "echo rig=$rig"
+    to: parent
   }
   REST {
     run: "sleep 30"
-    to:  parent
+    to: parent
   }
 }
 `;
@@ -117,15 +117,15 @@ rites toss {
 
   FLIP {
     dispatch: "teranos/ground long-coin.yml"
-    inputs:   ` ~ "`" ~ `echo "rig=$rig"` ~ "`" ~ `
-    catch:    1
-    goto:     REST
-    msg:      "a coin has no edge to rig, going to: REST"
-    to:       parent
+    inputs: "echo rig=$rig"
+    catch: 1
+    goto: REST
+    msg: "a coin has no edge to rig, going to: REST"
+    to: parent
   }
   REST {
     run: "sleep 30"
-    to:  parent
+    to: parent
   }
 }
 `;
