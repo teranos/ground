@@ -17,13 +17,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // A method ground code does not handle is said to the client, by name.
@@ -84,3 +84,35 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/close","params
     == `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params":{}}`)
     == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/close needs sessionId"}}`);
+
+// session/list: the sessions this process has open, each with the cwd it was
+// opened in. Nothing is kept past the process yet, so that is all there is.
+private string listAfter()(string list) {
+    Sessions s = Sessions(100, 7);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/srv","mcpServers":[]}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`, s);
+    return answerWith(list, s);
+}
+static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
+    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp"},{"sessionId":"code-100-7-2","cwd":"/srv"}]}}`);
+// "Filter sessions by working directory. Must be an absolute path."
+static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"/srv"}}`)
+    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv"}]}}`);
+static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`)
+    == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
+    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`);
+// Ground code never gives a nextCursor, so a cursor is not one it gave.
+static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":"x"}}`)
+    == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`);
+// A cwd is kept whole or not at all.
+static assert(answerOf(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`)
+    == `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
+
+private string replicate()(string s, size_t n) {
+    string r;
+    foreach (_; 0 .. n) r ~= s;
+    return r;
+}
