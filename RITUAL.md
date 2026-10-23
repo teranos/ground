@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| | 79 | One thing advances a position | — mine, from reading the callers | "the position only advances when a turn ends, which for a working agent can be never" |
 | x | 75 | A ritual is carried by an Agent, not a detached process | — | |
 | x | 76 | — | — | |
 | ✓ | 47 | A CI check is a rite like any other | — | |
