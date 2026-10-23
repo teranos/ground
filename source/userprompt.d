@@ -13,11 +13,24 @@ import core.stdc.stdio : stdout, fputs, fwrite;
 // additionalContext is a JSON string, and everything said in it is JSON text:
 // the switch, every control's message and the playbill alike. A message holds
 // quotes and newlines, and one put raw ended the string where the quote stood.
-private void putJsonText(ref ZBuf b, const(char)[] s) {
+void putJsonText(ref ZBuf b, const(char)[] s) {
+    enum hex = "0123456789abcdef";
     foreach (c; s) {
-        if (c == '"') b.put(`\"`);
-        else if (c == '\\') b.put(`\\`);
-        else if (c >= 0x20) b.putChar(c);
+        switch (c) {
+            case '"': b.put(`\"`); break;
+            case '\\': b.put(`\\`); break;
+            case '\n': b.put(`\n`); break;
+            case '\r': b.put(`\r`); break;
+            case '\t': b.put(`\t`); break;
+            default:
+                if (cast(ubyte) c < 0x20) {
+                    b.put(`\u00`);
+                    b.putChar(hex[(c >> 4) & 0xf]);
+                    b.putChar(hex[c & 0xf]);
+                } else {
+                    b.putChar(c);
+                }
+        }
     }
 }
 
@@ -92,7 +105,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
                 continue;
 
             if (any) ctx.put(" | ");
-            ctx.put(envSubst(c.msg.value, cwd));
+            putJsonText(ctx, envSubst(c.msg.value, cwd));
             any = true;
 
             if (db !is null) {
@@ -112,7 +125,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         auto n = unsaidBillInto(db, sessionId, cwd, bill[]);
         if (n > 0) {
             if (any) ctx.put(" | ");
-            ctx.put(bill[0 .. n]);
+            putJsonText(ctx, bill[0 .. n]);
             any = true;
         }
     }
