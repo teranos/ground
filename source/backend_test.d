@@ -47,6 +47,7 @@ static assert(fan.items[1].url == "https://qntx.alice.example" && fan.items[1].s
 static assert(fan.items[1].token == "~/.qntx/ground-token");
 static assert(unbacked(fanParsed) == "");
 
+// "i really just have one qntx token"
 // A node named without a token file is spoken to with the one ground attest
 // always read: QNTX_TOKEN, then ~/.qntx/token.
 enum untokenedInput = `
