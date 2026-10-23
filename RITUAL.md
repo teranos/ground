@@ -265,7 +265,6 @@ Not in the example above, and therefore not implementable from it:
 | ✓ | 59 | Ground removes the tree it made | "the reason you need to remove them by hand is because?" | |
 | ✓ | 60 | Ground says it made one | "I dont like that its siltent" | |
 | x | 61 | The performance ends in a pull request | "did it submit a pr at the end as well?" | |
-| ✓ | 62 | A `goto` cycle is bounded | "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual" | |
 | x | 63 | Ground commits, not the agent | "n, i dont trust the agent with it" then "we want to get rid of the auto commit" / "make commit be done by run:" / "the ritual could make itself complete itself by asking the agent to commit while its in ask" | |
 
 Row 99 — a performance whose driver is gone is halted where it stands at the
