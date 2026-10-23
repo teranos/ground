@@ -1,11 +1,3 @@
-A performance:
-
-"AS A USER"
-"I OPEN CAUDE CODE FROM ANYWHERE"
-"I TELL CLAUDE"
-"ground ritual tree"
-"THE AGENT STARTS AND THE WORKTREE IS THERE AND THE AGENT DOES ITS THING THERE"
-
 Rituals are performed in the grove.
 
 ```
