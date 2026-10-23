@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| x | 31 | `$AUTH` | — | |
 | x | 49 | — | — | |
 | x | 69 | — | — | |
 | x | 32 | Carrying a value between rites | — | |
