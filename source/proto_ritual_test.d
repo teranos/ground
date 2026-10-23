@@ -22,6 +22,10 @@ module proto_ritual_test;
 // "never believe anything Claude is inferring from this, always consult Antropic docs as first source."
 // TODO TaskCreated
 // TODO TaskCompleted
+// TODO goto: parity in the boxsurvival example
+// TODO built in the boxsurvival example
+// TODO catch: 22 on survived in the boxsurvival example
+// TODO survived measures the API in the boxsurvival example
 
 import proto : parsePbt, validateRituals;
 import count : countPbt;
