@@ -180,7 +180,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | |
 | ✓ | 12 | Referenced group exists | CTFE assert | — | |
 | ✓ | 14 | Params into the command's environment | `rite.d` | — | |
-| ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent" | |
 | ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | |
 | ✓ | 18 | `goto` moves position | `ritual.d` | "i think i want goto, not else, goto seems more honest for what it is" | |
 | ✓ | 19 | A rite that is not met throws the mic back | `stop.d` | "so catch means hold, until true" / "the rite is like a bucket we are currently intending to throw a Stop in, if the condition is not met we throw it back allowing the agent to continue, because the rite is blocking the Stop" | |
