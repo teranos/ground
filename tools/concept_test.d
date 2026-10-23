@@ -10,17 +10,19 @@ import concept : conceptOf, isConcept, chapters, rank, opener, chapterOf, module
 // "and Parity should also be its own Chapter"
 static assert(chapters.length == 11);
 
+// "and make parity the first chapter"
+static assert(chapters[0] == "parity");
+
 // "i still think it should come first, if its not its own chapter it would
 // otherwise still be something you introduce before talking about controls"
-static assert(chapters[0] == "scope");
-static assert(chapters[1] == "control");
-static assert(chapters[2] == "project");
-static assert(chapters[3] == "permission");
-static assert(chapters[4] == "models");
-static assert(chapters[5] == "ritual");
-static assert(chapters[6] == "attestation");
-static assert(chapters[7] == "sentry");
-static assert(chapters[8] == "parity");
+static assert(chapters[1] == "scope");
+static assert(chapters[2] == "control");
+static assert(chapters[3] == "project");
+static assert(chapters[4] == "permission");
+static assert(chapters[5] == "models");
+static assert(chapters[6] == "ritual");
+static assert(chapters[7] == "attestation");
+static assert(chapters[8] == "sentry");
 static assert(chapters[9] == "code");
 static assert(opener("parity") == "parity");
 static assert(opener("code") == "code");
