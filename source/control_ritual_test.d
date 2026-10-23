@@ -227,6 +227,13 @@ unittest {
     sqlite3_close(db);
 }
 
+// "so this would not be a ritual in the sense we are doing it right now where we invoke it by ground cmd"
+// "it performs ritual"
+// "this is actually the thing that would make it a total killer feature to me, because it literally is a mechanical ritual in all honesty"
+// "i want an agent to see it through and monitor it"
+// "it runs in empty space"
+// "dont make it investigate, its sole duty is to report back as honestly and factually as possible with zero temperature"
+// "i want anything else than success to report back no matter what"
 // "What does this demonstrate?"
 // A control that names one instead of carrying one resolves the same way
 // `ground ritual <name>` does.
