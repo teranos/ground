@@ -131,6 +131,8 @@ static assert(huge.text().length == 0);
 enum snug = spawnScript("/r", "p-1", "p-1", rep!(k1000, 7));
 static assert(snug.text().length > 0);
 
+// "i think a ritual cant run longer than one compaction window"
+// "it a high upper bound"
 // "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
 // "ITS THE SAME -BG SESSION THAT IS THE SAME ENTITY"
 enum again = spawnScript("/r", "", "p-4", "go", "", "", "2f7c2b1f-0762-47b4-8e87-13b41c67be5e");
