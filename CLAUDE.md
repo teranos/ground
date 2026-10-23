@@ -15,7 +15,6 @@ Read the following files:
 - source/pretooluse.d and source/stop.d for the two hook handlers everything above is wired into.
 - source/git.d for git discovery — repo root and branch are file reads, check-ignore is libgit2; its one subprocess is `gh auth token`, asked when the env holds no token and the store has no visibility for a GitHub origin.
 - grove/controls/*.pbt for the rituals — each carries its agent's `system:`, so nothing else has to describe them.
-- RITUAL.md for what a ritual is and what each numbered item of it means.
 
 Read UNDERGROUND.md for ug, the statusline, ug/*.d
 
