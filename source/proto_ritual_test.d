@@ -11,6 +11,17 @@ module proto_ritual_test;
 // "ask about rituals for where we are now"
 // TODO Show one ritual's rites
 // "ask about what rites are inside of one specific ritual"
+// TODO A rite's verdict reaches the agent, unasked
+// "i am a user, not an agent"
+// TODO Ground's trace is on your screen as it happens
+// "the first two sentences of what happened in last_assistent_message pre-Stop inside of any rite as a Notification in the parent session"
+// TODO Commit, push and CI auto-approved inside a performance
+// "commits and pushes and ci check, are all auto-approved"
+// TODO Notification
+// "Notification is one that is on my wish list actually"
+// "never believe anything Claude is inferring from this, always consult Antropic docs as first source."
+// TODO TaskCreated
+// TODO TaskCompleted
 
 import proto : parsePbt, validateRituals;
 import count : countPbt;
