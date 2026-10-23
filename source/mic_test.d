@@ -35,6 +35,7 @@ static assert(blocking(Mic.Ci, 400, 20, 0));
 // cannot be said to be late.
 static assert(!blocking(Mic.Ci, 4000, 0, 0));
 
+// "make the message a property of the mic"
 // "and that is before the faulty commit from yours" — one complaint gets
 // stapled to six rites when the words attached are the agent's most recent
 // rather than what it said while holding.
