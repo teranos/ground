@@ -229,7 +229,7 @@ int main(string[] argv) {
         if (op.length > 0 && op in leads) lead = "\n" ~ escape(flow(leads[op])) ~ "\n";
         else if (op.length > 0) stderr.writefln("press: %s opens %s and says nothing", op, o);
 
-        write("doc/tex/" ~ o ~ ".tex", "\\chapter{" ~ o ~ "}\n" ~ lead ~ renderBody(placed));
+        write("doc/tex/" ~ o ~ ".tex", chapterHead(o, lead) ~ renderBody(placed));
         list ~= "\\input{tex/" ~ o ~ "}\n";
     }
 
@@ -247,6 +247,14 @@ int main(string[] argv) {
     stderr.writefln("press: %d chapters, %d cases, %d terms",
         order.length, totalCases, terms);
     return 0;
+}
+
+// A chapter opens on its lead, then on what was measured for it when the book
+// was made: doc/measured/<chapter>.tex, written by the Makefile from a run of
+// ground, and nothing when there is none. press names the slot, it computes nothing.
+string chapterHead(string chapter, string lead) {
+    return "\\chapter{" ~ chapter ~ "}\n" ~ lead
+        ~ "\\InputIfFileExists{measured/" ~ chapter ~ "}{}{}\n";
 }
 
 // Where a case is set. A pbt example is placed by its block word. A case with
