@@ -3,6 +3,10 @@ module proto_ritual_test;
 // Rituals and rites. A ritual is one or more sequences of rites blocks, and a
 // rite is a command whose exit code says whether the walk advances, holds or
 // halts. A performance is one full run of a ritual, in a checkout of its own.
+// TODO List rituals for this path
+// "ask about rituals for where we are now"
+// TODO Show one ritual's rites
+// "ask about what rites are inside of one specific ritual"
 
 import proto : parsePbt, validateRituals;
 import count : countPbt;
@@ -131,7 +135,7 @@ rites parity {
   params: [row]
 
   parity {
-    eval: ` ~ "`" ~ `make parity | grep "$row *YES *YES"` ~ "`" ~ `
+    eval: "make parity | grep '$row *YES *YES'"
   }
 }
 `;
@@ -656,18 +660,26 @@ static assert(plainParsed.scopes[0].paths[0] == "/");
 enum twoDoorsInput = `
 rites pairing {
   event: "PostToolUse"
-  cmd:   "git commit"
+  cmd: "git commit"
 
-  STAND { eval: "true" }
-  MOVE  { eval: "true" }
+  STAND {
+    eval: "true"
+  }
+  MOVE {
+    eval: "true"
+  }
 }
 
 rites deployment {
   event: "PostToolUse"
-  cmd:   "git push"
+  cmd: "git push"
 
-  TARGET   { eval: "true" }
-  VERSIONS { eval: "true" }
+  TARGET {
+    eval: "true"
+  }
+  VERSIONS {
+    eval: "true"
+  }
 }
 
 project {
