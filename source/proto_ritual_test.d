@@ -353,6 +353,7 @@ rites bad {
 `;
 static assert(validateRituals(parsePbt(overlapInput)).text() == "rite both: 1 is both pass and catch");
 
+// "env block right?"
 // "why cant the ritual block be literally inside project for this purpose?"
 // "a ritual is LIVE its active RIGHT NOW, a rite isnt."
 // "how do i set the row param from the ritual"

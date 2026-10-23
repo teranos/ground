@@ -186,7 +186,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 12 | Referenced group exists | CTFE assert | — | |
 | ✓ | 13 | Run under `set -euo pipefail` | `rite.d` | "wouldnt the pipefail need to be present essentially everywhere?" | |
 | ✓ | 14 | Params into the command's environment | `rite.d` | — | |
-| ✓ | 15 | `${var}` from project env | `envSubst` | "env block right?" | |
 | ✓ | 16 | Classify exit: pass / caught / halt | `rite.d` | "if its non 0/1 we should just stop and halt the agent" | |
 | ✓ | 17 | Position — which ritual, which rite | `ritual.d` | "see where we are INSIDE of the ritual" | |
 | ✓ | 18 | `goto` moves position | `ritual.d` | "i think i want goto, not else, goto seems more honest for what it is" | |
