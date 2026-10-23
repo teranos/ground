@@ -64,6 +64,8 @@ static assert(briefing(thrown1, flat).text() ==
     "Performing ritual probe, rite 2 of 3: PICKx1. "
     ~ "It is met when this exits 0: grep -q x T.md. Take one and commit.");
 
+// "let's show a counter"
+// "[NEVERx3]"
 // "if there is back and forward, it would mean the counter increments no?"
 // A frozen count is the stall; a climbing one is the ping-pong. It reads the
 // same here as it does on the status line.
