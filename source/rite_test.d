@@ -18,6 +18,7 @@ enum plain = parsePbt(defaultsInput).rites[0].rites[0];
 static assert(classify(0, plain) == Verdict.Advance);
 
 // "so catch means hold, until true"
+// "the rite is like a bucket we are currently intending to throw a Stop in, if the condition is not met we throw it back allowing the agent to continue, because the rite is blocking the Stop"
 static assert(classify(1, plain) == Verdict.Hold);
 
 // Anything neither declared is the third outcome. 2 is not a worse 1 —
