@@ -51,6 +51,11 @@ ground author
 # how much of each rate limit is used, and how the week got there:
 ground usage
 
+# what ground covers of each pinned agent's hook contract, per event and version:
+ground parity
+# one event's keys per version, covered and missing:
+ground parity PostToolUse
+
 # strip the bulk out of the db (make install does):
 ground decay
 ```
