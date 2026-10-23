@@ -544,6 +544,9 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, codeSessionSchema.ptr, null, null, null);
     // A session's mode, by its wire value, so a resume comes back in it.
     ensureColumn(db, "code_session", "mode", "TEXT NOT NULL DEFAULT 'default'");
+    // Its additional workspace roots, as the JSON array a client is answered
+    // with: ordered, each path absolute, [] for none.
+    ensureColumn(db, "code_session", "dirs", "TEXT NOT NULL DEFAULT '[]'");
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

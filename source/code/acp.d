@@ -73,8 +73,8 @@ struct Sessions {
     sqlite3* db;   // where sessions are kept; none, and they live in this process only
 }
 
-// A live session: its id, and the cwd it is in, each kept whole, and the
-// mode it is in.
+// A live session: its id, the cwd it is in and its additional roots, each kept
+// whole, and the mode it is in.
 struct Open {
     char[64] id;
     size_t idLen;
@@ -82,6 +82,117 @@ struct Open {
     size_t cwdLen;
     McpGroup mcp;
     SessionMode mode;
+    char[2048] dirs; // the JSON array a client is answered with
+    size_t dirsLen;
+}
+
+// The additionalDirectories a request names, into list as the JSON array a
+// client is answered with: in order, each path re-escaped, [] when it names
+// none or null. 1 read; -1 not a list of strings; -2 a path not absolute,
+// written into bad; -3 a path longer than ground code reads.
+private int dirsOf(const(char)[] json, const(char)[] key, ref Reply list, ref Reply bad) {
+    auto at = indexOf(json, key);
+    if (at < 0) { list.add("[]"); return 1; }
+    size_t p = cast(size_t) at + key.length;
+    void ws() { while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++; }
+    ws();
+    if (p >= json.length || json[p] != ':') return -1;
+    p++;
+    ws();
+    if (p + 4 <= json.length && json[p .. p + 4] == "null") { list.add("[]"); return 1; }
+    if (p >= json.length || json[p] != '[') return -1;
+    p++;
+    ws();
+    list.add("[");
+    if (p < json.length && json[p] == ']') { list.add("]"); return 1; }
+    for (bool first = true;; first = false) {
+        if (p >= json.length || json[p] != '"') return -1;
+        p++;
+        char[4096] buf;
+        size_t n = 0;
+        bool put1(char c) { if (n >= buf.length) return false; buf[n++] = c; return true; }
+        while (true) {
+            if (p >= json.length) return -1;
+            char c = json[p++];
+            if (c == '"') break;
+            if (c != '\\') { if (!put1(c)) return -3; continue; }
+            if (p >= json.length) return -1;
+            char e = json[p++];
+            char o;
+            switch (e) {
+                case '"': o = '"'; break;
+                case '\\': o = '\\'; break;
+                case '/': o = '/'; break;
+                case 'n': o = '\n'; break;
+                case 't': o = '\t'; break;
+                case 'r': o = '\r'; break;
+                case 'b': o = '\b'; break;
+                case 'f': o = '\f'; break;
+                case 'u': {
+                    uint cp;
+                    if (!hex4(json, p, cp)) return -1;
+                    if (cp >= 0xD800 && cp < 0xDC00) {
+                        uint lo;
+                        if (p + 2 > json.length || json[p] != '\\' || json[p + 1] != 'u') return -1;
+                        p += 2;
+                        if (!hex4(json, p, lo) || lo < 0xDC00 || lo >= 0xE000) return -1;
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                    } else if (cp >= 0xDC00 && cp < 0xE000) return -1;
+                    if (cp < 0x80) { if (!put1(cast(char) cp)) return -3; }
+                    else if (cp < 0x800) {
+                        if (!put1(cast(char)(0xC0 | (cp >> 6))) || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
+                    } else if (cp < 0x10000) {
+                        if (!put1(cast(char)(0xE0 | (cp >> 12))) || !put1(cast(char)(0x80 | ((cp >> 6) & 0x3F)))
+                            || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
+                    } else {
+                        if (!put1(cast(char)(0xF0 | (cp >> 18))) || !put1(cast(char)(0x80 | ((cp >> 12) & 0x3F)))
+                            || !put1(cast(char)(0x80 | ((cp >> 6) & 0x3F))) || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
+                    }
+                    continue;
+                }
+                default: return -1;
+            }
+            if (!put1(o)) return -3;
+        }
+        auto path = buf[0 .. n];
+        if (n == 0 || path[0] != '/') { bad.add(path); return -2; }
+        if (!first) list.add(",");
+        list.add(`"`); putEscaped(list, path); list.add(`"`);
+        ws();
+        if (p < json.length && json[p] == ',') { p++; ws(); continue; }
+        if (p < json.length && json[p] == ']') { list.add("]"); return 1; }
+        return -1;
+    }
+}
+
+private bool hex4(const(char)[] json, ref size_t p, ref uint cp) {
+    if (p + 4 > json.length) return false;
+    cp = 0;
+    foreach (c; json[p .. p + 4]) {
+        cp <<= 4;
+        if (c >= '0' && c <= '9') cp |= c - '0';
+        else if (c >= 'a' && c <= 'f') cp |= c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') cp |= c - 'A' + 10;
+        else return false;
+    }
+    p += 4;
+    return true;
+}
+
+// The error a dirsOf refusal is said to the client as, or false when it read.
+private bool refuseDirs(int got, ref Reply bad, ref Reply r, const(char)[] kept) {
+    if (got == -1) { r.add(`,"error":{"code":-32602,"message":"additionalDirectories must be a list of paths"}}`); return true; }
+    if (got == -2) {
+        r.add(`,"error":{"code":-32602,"message":"additionalDirectories must be absolute paths: `);
+        putEscaped(r, bad.slice()); r.add(`"}}`);
+        return true;
+    }
+    if (got == -3) { r.add(`,"error":{"code":-32602,"message":"a path in additionalDirectories is longer than the 4096 bytes ground code reads"}}`); return true; }
+    if (kept.length > Open.init.dirs.length) {
+        r.add(`,"error":{"code":-32602,"message":"additionalDirectories are longer than the 2048 bytes ground code keeps"}}`);
+        return true;
+    }
+    return false;
 }
 
 // The modes a session offers: the six ground already names, by their wire
@@ -118,12 +229,14 @@ private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
     r.add("code-"); putNumber(r, s.started); r.add("-"); putNumber(r, s.pid); r.add("-"); putNumber(r, n);
 }
 
-private void keep(ref Open o, const(char)[] id, const(char)[] cwd, SessionMode mode) {
+private void keep(ref Open o, const(char)[] id, const(char)[] cwd, SessionMode mode, const(char)[] dirs) {
     foreach (i, c; id) o.id[i] = c; // a slice copy calls druntime
     o.idLen = id.length;
     foreach (i, c; cwd) o.cwd[i] = c;
     o.cwdLen = cwd.length;
     o.mode = mode;
+    foreach (i, c; dirs) o.dirs[i] = c;
+    o.dirsLen = dirs.length;
 }
 
 private long now() {
@@ -159,7 +272,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // client's is answered with it whatever it asked for.
     if (method == "initialize") {
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{}}},"agentInfo":{"name":"ground","version":"`);
+        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}}},"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
         return true;
     }
@@ -184,6 +297,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
+        Reply dirs, bad;
+        scope(exit) { dirs.dispose(); bad.dispose(); }
+        if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
         if (sessions.openLen == sessions.open.length) {
             put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
             return true;
@@ -203,14 +319,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         sessions.count++;
         Reply sid;
         putSessionId(sid, sessions, sessions.count);
-        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, now())) {
+        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), now())) {
             Reply detail;
             scope(exit) detail.dispose();
             if (!__ctfe) closeMcp(o.mcp, detail);
             put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
             return true;
         }
-        keep(*o, sid.slice(), cwd, SessionMode.manual);
+        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice());
         sessions.openLen++;
         put(`,"result":{"sessionId":"`); put(sid.slice());
         put(`","modes":`); putModes(r, SessionMode.manual); put(`}}`);
@@ -268,11 +384,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         put(`,"result":{"sessions":[`);
         bool first = true;
-        void entry(const(char)[] sid, const(char)[] at) {
+        // "Omitted and empty values are equivalent", so a session with no
+        // additional roots lists none.
+        void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs) {
             if (!first) put(",");
             first = false;
             put(`{"sessionId":"`); putEscaped(r, sid);
-            put(`","cwd":"`); putEscaped(r, at); put(`"}`);
+            put(`","cwd":"`); putEscaped(r, at); put(`"`);
+            if (dirs != "[]") { put(`,"additionalDirectories":`); put(dirs); }
+            put(`}`);
         }
         if (sessions.db !is null) {
             if (!storeList(sessions.db, cwd, &entry)) {
@@ -285,7 +405,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             foreach (i; 0 .. sessions.openLen) {
                 auto o = &sessions.open[i];
                 auto at = o.cwd[0 .. o.cwdLen];
-                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at);
+                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen]);
             }
         }
         put(`]}}`);
@@ -294,7 +414,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // "Resumes an existing session without returning previous messages", so
     // there is nothing to replay: a session the store has open becomes live
-    // here, in the cwd the resume names. One the store does not have open was
+    // here. Its cwd is its own for its life: the additional roots "may differ
+    // from any previously used or reported list as long as the request `cwd`
+    // matches the session's `cwd`". One the store does not have open was
     // closed or never opened, and is not there to resume.
     if (method == "session/resume") {
         char[256] sb;
@@ -318,9 +440,27 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
+        Reply dirs, bad;
+        scope(exit) { dirs.dispose(); bad.dispose(); }
+        if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
         auto at = openAt(sessions, sid);
         auto mode = at < 0 ? SessionMode.manual : sessions.open[cast(size_t) at].mode;
-        int stored = sessions.db is null ? (at < 0 ? 0 : 1) : storeResume(sessions.db, sid, cwd, mode);
+        char[1024] was;
+        size_t wasLen = 0;
+        int stored;
+        if (sessions.db !is null) stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen);
+        else if (at < 0) stored = 0;
+        else {
+            auto o = &sessions.open[cast(size_t) at];
+            stored = o.cwd[0 .. o.cwdLen] == cwd ? 1 : 2;
+            foreach (c; o.cwd[0 .. o.cwdLen]) was[wasLen++] = c;
+        }
+        if (stored == 2) {
+            put(`,"error":{"code":-32602,"message":"`); putEscaped(r, sid);
+            put(` is in `); putEscaped(r, was[0 .. wasLen]);
+            put(`, not `); putEscaped(r, cwd); put(`"}}`);
+            return true;
+        }
         if (stored < 0) {
             put(`,"error":{"code":-32603,"message":"the store refused to resume `);
             putEscaped(r, sid); put(`"}}`);
@@ -339,7 +479,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             at = cast(ptrdiff_t) sessions.openLen;
             sessions.openLen++;
         }
-        keep(sessions.open[cast(size_t) at], sid, cwd, mode);
+        keep(sessions.open[cast(size_t) at], sid, cwd, mode, dirs.slice());
         put(`,"result":{"modes":`); putModes(r, mode); put(`}}`);
         return true;
     }

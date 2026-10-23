@@ -295,6 +295,8 @@ static assert(has(sideFor("acp", "session/delete").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/new").writes, "modes"));
 static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
+static assert(has(sideFor("acp", "session/new").reads, "additionalDirectories"));
+static assert(has(sideFor("acp", "session/resume").reads, "additionalDirectories"));
 // initialize writes protocolVersion and agentInfo, and reads nothing: there is
 // one version to answer whatever the client asked for.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
