@@ -48,27 +48,6 @@ project {
 }
 ```
 
-The unnamed block wins by default. A named one is the explicit edge case, asked
-for by name. Ground refuses anything it cannot resolve to a single candidate —
-two equal candidates means ground cannot know which one you mean.
-
-```
-# Can also be just the ritual:
-# in case it resolves to only a single ritual.
-ground ritual [ritual_name]
-
-# Just the project name,
-# in case it has only a single ritual.
-ground ritual [project_name]
-
-# Ritual set explicitly,
-# in case two or more rituals exist in project
-ground ritual [project_name] [ritual_name_in_project]
-```
-
-One argument is looked up as both a ritual name and a project name. A word that
-is both is two candidates, so it is refused, and typing both words resolves it.
-
 Parked until it is ready. It kills a live box, and nothing yet runs a rite:
 
 ```
