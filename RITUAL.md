@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
-| ✓ | 28 | The renderer knows where a performance is | collet, `ug/sql.d` | — | two renderers now, from one row, sharing no code |
 
 Three rows above carry a quote, so they cannot be edited without restating it,
 and what changed about them is here instead.
