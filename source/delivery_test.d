@@ -85,6 +85,9 @@ private long count(sqlite3* db, const(char)* q) {
 }
 
 unittest {
+    // "mic makes sure it also gets to us"
+    // "if it goes through the mic, it means both the parent and the child agent would be receivers"
+    // "nothing / msg / mic / msg+mic are all possible"
     // "the outcome is what is spoken back into the mic to both the agent and
     // parent" — one call, two sessions.
     auto db = memDb();
