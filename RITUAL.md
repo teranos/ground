@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 90b | A rites block does not finish while a dispatch it made is outstanding, and the next block does not start | "a rites block will not complete until each of its rite dispatch has been completed" / "in my mental model rites toss is over when both dispatches are over" / "dispatch getting a result gates the RITES block" / "RITE_B does not start until RITE_A has completely finished" / "a RITUAL is not finished until each of its rites blocks finished" / "a dispatch gates a rites block from finishing until it results something, a result" | "ci passing would still gate the end of a ritual (read ritual not rite)" |
 | | 90c | A run's result reaches the parent when that run concludes | "failure needs to prop to parent immediately when i happens" / "if FLIP1 ci is red, parent should know about it on T15 and the FLIP2 ci red would surface on T2 + T15" | "90c is only halfish done, because we cant do better on a --bg agent" |
 | x | 90d | The mic is taken from the agent and CI speaks, now, whether or not it is looking | — | "CI takes the mic for one announcement and hands it straight back" |
 | ✓ | 97 | A rite may not write its own exit code | "ground uses those exit codes, becaue not all failures are the same failure" / "\|\| TRUE \|\| EXIT 1 \|\| EXIT 22 \|\| EXIT WHATEVER SHOUDL NOT BE A THING IN GROUND" / "i dont want \|\| true ANYWHERE" / "NOT IN GROVE NOT IN SUN NOT IN MOON NOT ANYWHERE" | |
