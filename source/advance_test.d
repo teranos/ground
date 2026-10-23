@@ -224,6 +224,7 @@ project {
 }
 `;
 enum loopFlat = flatten(parsePbt(loopSrc), 0);
+static assert(loopFlat.maxGoto == MAX_GOTOS, "a project that says nothing gets the default");
 
 // "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual"
 // "let's make it settable on a project { }"
@@ -248,8 +249,6 @@ project {
 }
 `;
 enum boundFlat = flatten(parsePbt(boundSrc), 0);
-
-static assert(loopFlat.maxGoto == MAX_GOTOS, "a project that says nothing gets the default");
 
 // "set global goto to 5"
 static assert(MAX_GOTOS == 5);
