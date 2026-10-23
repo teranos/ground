@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
-| ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | |
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | |
 | ✓ | 12 | Referenced group exists | CTFE assert | — | |
 | ✓ | 14 | Params into the command's environment | `rite.d` | — | |
