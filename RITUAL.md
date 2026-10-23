@@ -126,8 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 47 | A CI check is a rite like any other | — | |
-| ✓ | 55 | A performance survives losing its worktree | "item 55 approved now" | |
 
 Row 99 — a performance whose driver is gone is halted where it stands at the
 next Stop or prompt, and its agent, its parent and sentry are told. Before this
