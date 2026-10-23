@@ -46,6 +46,8 @@ static assert(holderFor(ApiError.ModelNotFound) == Mic.Human);
 static assert(holderFor(ApiError.InvalidRequest) == Mic.Human);
 static assert(holderFor(ApiError.MaxOutputTokens) == Mic.Human);
 
+// "this kind of shit, the quota error, it should not even try to continue the entire thing should just halt"
+// "+70% GLOBALQUOTA USE MEANS ADDING 10s BEFORE EVERY gh TOOL CALL"
 // "Halt is the refusal to guess"
 static assert(holderFor(ApiError.Unknown) == Mic.Human);
 

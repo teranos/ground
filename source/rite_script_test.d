@@ -1,10 +1,10 @@
 module rite_script_test;
 
 // The text a rite actually runs.
-// "wouldnt the pipefail need to be present essentially everywhere?"
 
 import rite : buildRiteScript, RiteScript, RITE_UNREACHED, runRite;
 
+// "wouldnt the pipefail need to be present essentially everywhere?"
 // Every rite runs under the same three flags. They are not hygiene — each
 // one closes a way a rite can report a pass it did not earn.
 enum bare = buildRiteScript("", "make parity", [], []);

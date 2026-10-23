@@ -1,0 +1,65 @@
+module code_test;
+
+import code;
+import db : versionString;
+
+private string answerOf()(string line) {
+    Sessions s = Sessions(100, 7);
+    return answerWith(line, s);
+}
+
+private string answerWith()(string line, ref Sessions s) {
+    Reply r;
+    if (!answer(line, r, s)) return null;
+    return r.slice().idup;
+}
+
+// initialize: the only required field either way is protocolVersion. ACP's is
+// 1, bumped only for breaking changes; ground's own version is agentInfo's.
+static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentInfo":{"name":"ground","version":"`
+       ~ versionString() ~ `"}}}`);
+
+// "The protocol version the client specified if supported by the agent, or the
+// latest protocol version supported by the agent."
+static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentInfo":{"name":"ground","version":"`
+       ~ versionString() ~ `"}}}`);
+
+// A method ground code does not handle is said to the client, by name.
+static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/load","params":{}}`)
+    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle session/load"}}`);
+
+// A notification has no answer to give; the caller says it on stderr instead.
+static assert(answerOf(`{"jsonrpc":"2.0","method":"session/cancel","params":{}}`) is null);
+
+// A line naming no method is not a request.
+static assert(answerOf(`{"jsonrpc":"2.0","id":4}`)
+    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32600,"message":"no method"}}`);
+static assert(answerOf(`not json`)
+    == `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"no method"}}`);
+
+// session/new: cwd and mcpServers are required, and sessionId is all the
+// answer needs. An id is ground code's start, its pid and a count, so two
+// sessions of one process are told apart and so are two processes.
+private string twoSessions()() {
+    Sessions s = Sessions(100, 7);
+    enum req = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
+    return answerWith(req, s) ~ "\n" ~ answerWith(req, s);
+}
+static assert(twoSessions()
+    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1"}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2"}}`);
+
+// "The working directory for this session. Must be an absolute path."
+static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`)
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"cwd must be an absolute path: tmp"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"mcpServers":[]}}`)
+    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"session/new needs cwd"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/tmp"}}`)
+    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`);
+
+// Stdio MCP is one every agent "MUST support". Ground code cannot yet, and it
+// says so rather than taking the servers and never connecting them.
+static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"x","command":"/bin/x","args":[],"env":[]}]}}`)
+    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/new named some"}}`);

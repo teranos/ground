@@ -15,7 +15,6 @@ rites orchard {
   }
 
   costgated: w<70;f<30; {
-
     CHERRY {
       run: "exit 4"
     }

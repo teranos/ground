@@ -21,12 +21,13 @@ static assert(sessionOf(p, Receiver.Human) == "parent-session");
 static assert(sessionOf(p, Receiver.HostLlm) == "parent-session");
 static assert(sessionOf(p, Receiver.AgentLlm) == "agent-session");
 
-// The ritual is the receiver, not a rite — a rite is a piece of it, and the
-// ritual is what drives the chat through them. It has no session of its own,
-// so naming it as an address is a mistake with an answer.
+// "THERE ARE FOR RECEIVERS"
+// "PARENT: HUMAN / HOSTLLM"
+// "CHILD : RITE  / AGENTLLM"
+// "WE NEED TO SAY THAT RITUAL IS THE RECEIVER, NOT RITE, RITE IS JUST A PIECE OF THE RITUAL, RITUAL DRIVES THE CHAT VIA RITES"
 static assert(sessionOf(p, Receiver.Ritual) is null);
 
-// "NEEDS TO BE SEEN BY BOTH HUMAN AND HOSTLLM"
+// "AGENTLLM STOP OUTPUT FIRST TWO SENTENCES OF LAST MESSAGE NEEDS TO BE SEEN BY BOTH HUMAN AND HOSTLLM"
 static assert(wants(PARENT, Receiver.Human));
 static assert(wants(PARENT, Receiver.HostLlm));
 static assert(!wants(PARENT, Receiver.AgentLlm));
@@ -84,6 +85,9 @@ private long count(sqlite3* db, const(char)* q) {
 }
 
 unittest {
+    // "mic makes sure it also gets to us"
+    // "if it goes through the mic, it means both the parent and the child agent would be receivers"
+    // "nothing / msg / mic / msg+mic are all possible"
     // "the outcome is what is spoken back into the mic to both the agent and
     // parent" — one call, two sessions.
     auto db = memDb();

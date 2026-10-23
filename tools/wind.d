@@ -32,6 +32,17 @@ void stampVersion() {
     write(".version", stamp);
 }
 
+// A directory as the filesystem names it, through every symlink: one reached
+// through a link and again by its own path is one directory, read once.
+string realDir(string dir) {
+    import core.sys.posix.stdlib : realpath, free;
+    import std.string : toStringz, fromStringz;
+    auto resolved = realpath(dir.toStringz, null);
+    if (resolved is null) return buildNormalizedPath(absolutePath(dir));
+    scope (exit) free(resolved);
+    return fromStringz(resolved).idup;
+}
+
 // What `cd <path> && git ls-files` printed: the files beneath `path`,
 // relative to it, in the index's byte order. Null when no repository opens.
 string[] trackedUnder(string path, out string why) {
@@ -61,14 +72,14 @@ void main() {
     // --- Phase 1: concatenate pbt → sand ---
     string sand;
 
-    // Every controls dir already folded into sand, normalised+absolute. Ground
+    // Every controls dir already folded into sand, by its real path. Ground
     // is itself a declared project, so without this phase 1b re-reads the two
     // dirs phase 1 just consumed and every control lands in sand twice.
     bool[string] seenDirs;
 
     foreach (dir; ["controls", "controls/local"]) {
         if (!exists(dir)) continue;
-        seenDirs[buildNormalizedPath(absolutePath(dir))] = true;
+        seenDirs[realDir(dir)] = true;
         sand ~= readPbtDir(dir);
     }
 
@@ -86,9 +97,9 @@ void main() {
     foreach (ref proj; extractProjectPaths(sand)) {
         foreach (sub; ["/controls", "/controls/local"]) {
             auto dir = buildNormalizedPath(absolutePath(proj.path ~ sub));
-            if (dir in seenDirs) continue;
             if (!exists(dir) || !isDir(dir)) continue;
-            seenDirs[dir] = true;
+            if (realDir(dir) in seenDirs) continue;
+            seenDirs[realDir(dir)] = true;
             auto pulled = readPbtDir(dir);
             if (pulled.length == 0) continue;
             sand ~= pulled;
@@ -101,12 +112,12 @@ void main() {
     // as a project to get it read is what broke the git-tracked rule.
     foreach (dir; extractIncludes(sand)) {
         auto norm = buildNormalizedPath(absolutePath(dir));
-        if (norm in seenDirs) continue;
         if (!exists(norm) || !isDir(norm)) {
             stderr.writefln("wind: include not found %s", norm);
             continue;
         }
-        seenDirs[norm] = true;
+        if (realDir(norm) in seenDirs) continue;
+        seenDirs[realDir(norm)] = true;
         auto pulled = readPbtDir(norm);
         if (pulled.length == 0) continue;
         sand ~= pulled;

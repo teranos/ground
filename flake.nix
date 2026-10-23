@@ -107,6 +107,17 @@
             mv $out/bin/antigravity $out/bin/agy
             echo "${sha256.${agyTarget}.binary}  $out/bin/agy" | sha256sum -c -
           '';
+
+          # The protocol ground code answers an ACP client in, at the schema it is
+          # held to: github.com/agentclientprotocol/agent-client-protocol
+          # schema-v<version>, the release's schema.json. It is the tag's
+          # schema/v1/schema.json byte for byte, and it names every method and the
+          # side that handles it. One file, the same on every platform.
+          acp = version: sha256: pkgs.fetchurl {
+            name = "acp-${version}-schema.json";
+            url = "https://github.com/agentclientprotocol/agent-client-protocol/releases/download/schema-v${version}/schema.json";
+            sha256 = sha256.schema;
+          };
         in {
           default = ground;
           inherit ground;
@@ -162,6 +173,19 @@
               binary = "9caa302d10c42c698fb72ebda71910a2032b01a2ec99c391e8cd6fdc03ed31fd";
             };
           };
+
+          acp-1_26_0 = acp "1.26.0" {
+            schema = "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6";
+          };
+
+          # Every acp pin above, a directory per release, for make install to link
+          # where ground parity reads them. A new pin joins without being named here.
+          acp-schemas = pkgs.linkFarm "acp-schemas" (pkgs.lib.mapAttrsToList
+            (name: schema: {
+              name = "${pkgs.lib.replaceStrings [ "acp-" "_" ] [ "" "." ] name}/schema.json";
+              path = schema;
+            })
+            (pkgs.lib.filterAttrs (name: _: builtins.match "acp-[0-9_]+" name != null) self.packages.${system}));
         }
       );
 

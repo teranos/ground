@@ -125,6 +125,11 @@ install: build install-ug
 	mkdir -p $(PREFIX)/bin
 	cp ground $(PREFIX)/bin/ground.new
 	mv -f $(PREFIX)/bin/ground.new $(PREFIX)/bin/ground
+# The ACP schemas flake.nix pins, linked from the store; the link roots them
+# against a garbage collection. ground parity reads them under ~/.local, so a
+# PREFIX elsewhere shows the schema as absent rather than measuring another.
+	mkdir -p $(PREFIX)/lib/ground
+	nix build .#acp-schemas --out-link $(PREFIX)/lib/ground/acp
 	$(MAKE) prune-dub-cache
 	./ground attest
 	./ground decay

@@ -70,7 +70,10 @@ enum PartKind {
 enum MAX_ONEOF_WORDS = 8;
 enum MAX_PARTS = 64;   // markers and their bodies share this budget
 enum MAX_SEQUENCES = 32;
-enum MAX_STROP_POOL = 16; // Max strop-using controls across the whole config.
+// Strop is disabled: no control in the sand declares one; the pool holds one
+// for the tests that parse one. At 16 it was 1,594,880 of ParseResult's
+// 3,416,928 bytes, in each of 208 CTFE fixtures. The fix is a ParseResult sized per parse.
+enum MAX_STROP_POOL = 1;
 
 struct WordList {
     string[MAX_ONEOF_WORDS] words;

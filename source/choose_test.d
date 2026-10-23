@@ -29,7 +29,9 @@ rites four {
   }
 }
 `;
+static assert(parsePbt(groups).ritesCount == 4);
 
+// "i want to specify a ritual"
 // Four project blocks and no more: `ParseResult.projects` is sized from the
 // pbt files wind finds plus four headroom, so four is the floor on a machine
 // that has none. A fifth passed here and failed in CI.
