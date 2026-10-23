@@ -48,31 +48,6 @@ project {
 }
 ```
 
-A project block can carry a name. Several can share a path, and the name is
-what tells them apart, so a setting belongs to a block rather than to a path.
-Keep a low `max_goto` on the one you run all day, and a named block for the run
-where many jumps are fine.
-
-```
-project {
-  path: "/sbvh-nl/grove"
-
-  ritual sun {
-    daylight
-  }
-}
-
-project 64gotogrove {
-  path: "/sbvh-nl/grove"
-
-  max_goto: 64
-
-  ritual sun {
-    daylight
-  }
-}
-```
-
 The unnamed block wins by default. A named one is the explicit edge case, asked
 for by name. Ground refuses anything it cannot resolve to a single candidate —
 two equal candidates means ground cannot know which one you mean.
