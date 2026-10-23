@@ -108,7 +108,7 @@ immutable Owner[] owners = [
                           "rite_script", "advance", "briefing", "choose", "contend",
                           "consent", "delivery", "notification", "reap", "apierror",
                           "onoff", "noul", "regoto", "spawn", "wiring", "rite_attest",
-                          "ritual/shell"]),
+                          "ritual/shell", "worktree"]),
     // What a row is, where it goes, and how one comes back to the session.
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream",
                           "sessiontrail"]),

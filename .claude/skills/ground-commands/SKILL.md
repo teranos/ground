@@ -51,10 +51,16 @@ ground author
 # how much of each rate limit is used, and how the week got there:
 ground usage
 
-# what ground covers of each pinned agent's hook contract, per event and version:
+# what ground covers of each pinned agent's hook contract, per event and version,
+# and what ground code covers of the pinned ACP schema, per method:
 ground parity
 # one event's keys per version, covered and missing:
 ground parity PostToolUse
+# one ACP method's, read and written by ground code:
+ground parity session/prompt
+
+# an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
+ground code
 
 # strip the bulk out of the db (make install does):
 ground decay
