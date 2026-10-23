@@ -17,13 +17,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // A method ground code does not handle is said to the client, by name.
@@ -63,3 +63,24 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":
 // says so rather than taking the servers and never connecting them.
 static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"x","command":"/bin/x","args":[],"env":[]}]}}`)
     == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/new named some"}}`);
+
+// session/close: "Supplying `{}` means the agent supports closing sessions",
+// so initialize says so. A session closed is gone, and closing it again, or
+// one ground code never opened, is "Resource not found".
+private string openThenClose()(string close) {
+    Sessions s = Sessions(100, 7);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(close, s) ~ "\n" ~ answerWith(close, s);
+}
+static assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`)
+    == `{"jsonrpc":"2.0","id":2,"result":{}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`);
+static assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`)
+    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
+// Another process's session is not this one's to close.
+static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/close","params":{"sessionId":"code-1-1-1"}}`)
+    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params":{}}`)
+    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/close needs sessionId"}}`);
