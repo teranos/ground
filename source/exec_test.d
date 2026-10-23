@@ -63,8 +63,9 @@ static assert(floorOnly.keys[1] == "GROUND_BRANCH");
 static assert(floorOnly.values[1] == "feat/x");
 static assert(floorOnly.keys[2] == "GROUND_TOOL_INPUT");
 static assert(floorOnly.values[2] == "{}");
-// What the tool printed, in the tool's own words. A push says [new tag] and
-// the rite reads that rather than the command that was typed.
+// "if we have TOOL_INPUT, it makes sense to have TOOL_OUTPUT, seems predictable"
+// "i dont want GROUND_CWD to matter, i dont want ritual writers to have to think about it"
+// "rite writers should nevr have to think about it, or have to speciify it"
 static assert(floorOnly.keys[3] == "GROUND_TOOL_OUTPUT");
 static assert(floorOnly.values[3] == " * [new tag]           v0.31.0 -> v0.31.0\n");
 
