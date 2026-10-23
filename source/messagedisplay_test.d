@@ -24,7 +24,10 @@ static assert(contains(skySource, "spoken(imm.name)"), "sky asks the same");
 static assert(CI_GUTTER == "  ░▓▓▏");
 static assert(CHECK_GUTTER == "   ░░▏");
 
-// The existing two are unchanged.
+// "it looks the same as your text, its as if you said it, but its coming from a rite of a ritual no?"
+// "is it possible to change the color"
+// "  ░░▒▓▏ritual"
+// "    ░░▏rite"
 static assert(RITE_GUTTER == "  ░░▏");
 static assert(RITUAL_GUTTER == "░░▒▓▏");
 
