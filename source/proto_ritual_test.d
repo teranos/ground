@@ -61,6 +61,9 @@ rites parity {
 static assert(validateRituals(parsePbt(oldWordInput)).text()
     == "rite parity: `cmd` is a control's word. A rite evaluates: use `eval`");
 
+// "|| TRUE || EXIT 1 || EXIT 22 || EXIT WHATEVER SHOUDL NOT BE A THING IN GROUND"
+// "i dont want || true ANYWHERE"
+// "NOT IN GROVE NOT IN SUN NOT IN MOON NOT ANYWHERE"
 // "ground uses those exit codes, becaue not all failures are the same failure"
 // — so a rite that writes its own code is refused where a bad `cmd` is.
 enum launderInput = `

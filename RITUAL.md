@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 97 | A rite may not write its own exit code | "ground uses those exit codes, becaue not all failures are the same failure" / "\|\| TRUE \|\| EXIT 1 \|\| EXIT 22 \|\| EXIT WHATEVER SHOUDL NOT BE A THING IN GROUND" / "i dont want \|\| true ANYWHERE" / "NOT IN GROVE NOT IN SUN NOT IN MOON NOT ANYWHERE" | |
 | ✓ | 98 | A command reaching for a file gets the file | "you can use curl instead of gh+jq" is elsewhere; this is "substitute_for_read" | "sed" / "awk" / "perl" / "sed …" |
 | ✓ | 90f | A dispatch lands on the target's own default branch, asked of the repo rather than guessed | — | ref=master sent QNTX-App, whose branch is main, a 422; GROUND_REF still overrides |
 | ✓ | 90e | A tool that could not run has not answered anything | "this kind of shit, the quota error, it should not even try to continue the entire thing should just halt" / "+70% GLOBALQUOTA USE MEANS ADDING 10s BEFORE EVERY gh TOOL CALL" | "not yet" |
