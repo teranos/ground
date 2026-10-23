@@ -3,6 +3,20 @@ module code_test;
 import code;
 import db : versionString;
 
+// The six modes ground already names, by their wire values, in the order
+// sessionmode.d gives them; current is the one the session is in.
+enum modesOf(string current) = modes(current); // folded at compile time: betterC has no GC
+
+private string modes()(string current) {
+    return `{"currentModeId":"` ~ current ~ `","availableModes":[`
+        ~ `{"id":"default","name":"Manual","description":"m in a permission block"},`
+        ~ `{"id":"plan","name":"Plan","description":"p in a permission block"},`
+        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block"},`
+        ~ `{"id":"auto","name":"Auto","description":"a in a permission block"},`
+        ~ `{"id":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
+        ~ `{"id":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]}`;
+}
+
 private string answerOf()(string line) {
     Sessions s = Sessions(100, 7);
     return answerWith(line, s);
@@ -48,8 +62,8 @@ private string twoSessions()() {
     return answerWith(req, s) ~ "\n" ~ answerWith(req, s);
 }
 static assert(twoSessions()
-    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2"}}`);
+    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `}}`);
 
 // "The working directory for this session. Must be an absolute path."
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`)
@@ -135,7 +149,7 @@ unittest {
     Sessions a = Sessions(100, 7);
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `}}`));
 
     // The next one lists it, and resumes it in the cwd it names now.
     Sessions b = Sessions(200, 8);
@@ -143,7 +157,7 @@ unittest {
     assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work2"}}`,
-        `{"jsonrpc":"2.0","id":3,"result":{}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":4,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work2"}]}}`));
 
@@ -182,9 +196,9 @@ unittest {
     Sessions a = Sessions(100, 7);
     a.db = db;
     enum open = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`;
-    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1"}}`));
-    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2"}}`));
-    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3"}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3","modes":` ~ modesOf!"default" ~ `}}`));
 
     // Another process deletes one; no process lists it or resumes it after.
     Sessions b = Sessions(200, 8);
@@ -211,4 +225,44 @@ unittest {
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32002,"message":"no open session code-100-7-3"}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":10,"method":"session/delete","params":{}}`,
         `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
+}
+
+// session/set_mode: a mode is one of the six a session offers, set on a session
+// live here, and kept with the session, so a resume comes back in it.
+private string setThen()(string set) {
+    Sessions s = Sessions(100, 7);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(set, s) ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, s);
+}
+static assert(setThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"plan"}}`)
+    == `{"jsonrpc":"2.0","id":2,"result":{}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"plan" ~ `}}`);
+static assert(setThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"yolo"}}`)
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no mode yolo; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`)
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`)
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`)
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`);
+
+// A mode set in one process is the mode the next one resumes in.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    Sessions a = Sessions(100, 7);
+    a.db = db;
+    assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `}}`));
+    assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"acceptEdits"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{}}`));
+    Sessions b = Sessions(200, 8);
+    b.db = db;
+    assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"acceptEdits" ~ `}}`));
 }

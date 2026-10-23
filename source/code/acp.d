@@ -14,7 +14,8 @@ import parse : extractJsonString;
 import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
-import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete;
+import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode;
+import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, ferror, FILE;
 import code.mcp : McpGroup, openMcp, closeMcp;
 public import code.reply : Reply, putEscaped, putNumber;
@@ -72,24 +73,57 @@ struct Sessions {
     sqlite3* db;   // where sessions are kept; none, and they live in this process only
 }
 
-// A live session: its id, and the cwd it is in, each kept whole.
+// A live session: its id, and the cwd it is in, each kept whole, and the
+// mode it is in.
 struct Open {
     char[64] id;
     size_t idLen;
     char[1024] cwd;
     size_t cwdLen;
     McpGroup mcp;
+    SessionMode mode;
+}
+
+// The modes a session offers: the six ground already names, by their wire
+// values, in sessionmode.d's order. A permission block's letter is how a rule
+// says which of them it applies in.
+private immutable SessionMode[6] offered = [SessionMode.manual, SessionMode.plan,
+    SessionMode.acceptEdits, SessionMode.auto_, SessionMode.dontAsk, SessionMode.bypassPermissions];
+
+private string shownAs(SessionMode m) {
+    final switch (m) {
+        case SessionMode.manual: return "Manual";
+        case SessionMode.plan: return "Plan";
+        case SessionMode.acceptEdits: return "Accept edits";
+        case SessionMode.auto_: return "Auto";
+        case SessionMode.dontAsk: return "Don't ask";
+        case SessionMode.bypassPermissions: return "Bypass permissions";
+        case SessionMode.unknown: return "";
+    }
+}
+
+// A SessionModeState: the mode the session is in, and the six it offers.
+private void putModes(ref Reply r, SessionMode current) {
+    r.add(`{"currentModeId":"`); r.add(nameOf(current)); r.add(`","availableModes":[`);
+    foreach (i, m; offered) {
+        if (i > 0) r.add(",");
+        char[1] letter = [letterOf(m)];
+        r.add(`{"id":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
+        r.add(`","description":"`); r.add(letter[]); r.add(` in a permission block"}`);
+    }
+    r.add("]}");
 }
 
 private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
     r.add("code-"); putNumber(r, s.started); r.add("-"); putNumber(r, s.pid); r.add("-"); putNumber(r, n);
 }
 
-private void keep(ref Open o, const(char)[] id, const(char)[] cwd) {
+private void keep(ref Open o, const(char)[] id, const(char)[] cwd, SessionMode mode) {
     foreach (i, c; id) o.id[i] = c; // a slice copy calls druntime
     o.idLen = id.length;
     foreach (i, c; cwd) o.cwd[i] = c;
     o.cwdLen = cwd.length;
+    o.mode = mode;
 }
 
 private long now() {
@@ -176,9 +210,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
             return true;
         }
-        keep(*o, sid.slice(), cwd);
+        keep(*o, sid.slice(), cwd, SessionMode.manual);
         sessions.openLen++;
-        put(`,"result":{"sessionId":"`); put(sid.slice()); put(`"}}`);
+        put(`,"result":{"sessionId":"`); put(sid.slice());
+        put(`","modes":`); putModes(r, SessionMode.manual); put(`}}`);
         return true;
     }
 
@@ -284,7 +319,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         auto at = openAt(sessions, sid);
-        int stored = sessions.db is null ? (at < 0 ? 0 : 1) : storeResume(sessions.db, sid, cwd);
+        auto mode = at < 0 ? SessionMode.manual : sessions.open[cast(size_t) at].mode;
+        int stored = sessions.db is null ? (at < 0 ? 0 : 1) : storeResume(sessions.db, sid, cwd, mode);
         if (stored < 0) {
             put(`,"error":{"code":-32603,"message":"the store refused to resume `);
             putEscaped(r, sid); put(`"}}`);
@@ -303,7 +339,43 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             at = cast(ptrdiff_t) sessions.openLen;
             sessions.openLen++;
         }
-        keep(sessions.open[cast(size_t) at], sid, cwd);
+        keep(sessions.open[cast(size_t) at], sid, cwd, mode);
+        put(`,"result":{"modes":`); putModes(r, mode); put(`}}`);
+        return true;
+    }
+
+    // A mode is one a session offers, set on a session live here. It is kept
+    // with the session, so a resume comes back in it. The client chose it, so
+    // there is no current_mode_update to tell it what it already knows.
+    if (method == "session/set_mode") {
+        char[256] sb;
+        char[64] mb2;
+        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        auto want = extractJsonString(line, `"modeId"`, &mb2[0], mb2.length);
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`); return true; }
+        if (want is null) { put(`,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`); return true; }
+        auto at = openAt(sessions, sid);
+        if (at < 0) {
+            put(`,"error":{"code":-32002,"message":"no open session `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        auto mode = parseSessionMode(want);
+        if (mode == SessionMode.unknown) {
+            put(`,"error":{"code":-32602,"message":"no mode `); putEscaped(r, want);
+            put(`; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}`);
+            return true;
+        }
+        if (sessions.db !is null) {
+            auto kept = storeSetMode(sessions.db, sid, mode);
+            if (kept != 1) {
+                put(`,"error":{"code":-32603,"message":"the store refused the mode of `);
+                putEscaped(r, sid); put(`"}}`);
+                return true;
+            }
+        }
+        sessions.open[cast(size_t) at].mode = mode;
         put(`,"result":{}}`);
         return true;
     }

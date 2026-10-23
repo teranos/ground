@@ -37,6 +37,7 @@ unittest {
     assert(hasColumn(db, "ritual_position", "id"));
     assert(hasColumn(db, "ritual_position", "worktree"));
     assert(hasColumn(db, "code_session", "closed_at"));
+    assert(hasColumn(db, "code_session", "mode"));
     sqlite3_close(db);
 }
 
@@ -56,5 +57,15 @@ unittest {
     assert(applySchema(db));
     assert(!hasColumn(db, "timing", "nosuchcolumn"));
     assert(!hasColumn(db, "nosuchtable", "id"));
+    sqlite3_close(db);
+}
+
+unittest {
+    // A store from before a session kept its mode.
+    enum old = "CREATE TABLE code_session (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, "
+        ~ "opened_at INTEGER NOT NULL, closed_at INTEGER NOT NULL DEFAULT 0)\0";
+    auto db = openWith(old);
+    assert(applySchema(db));
+    assert(hasColumn(db, "code_session", "mode"));
     sqlite3_close(db);
 }
