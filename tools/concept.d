@@ -34,7 +34,7 @@ immutable Word[] words = [
 // met before the controls it governs rather than under them.
 immutable string[] chapters = [
     "scope", "control", "project", "permission", "models", "ritual", "attestation",
-    "sentry",
+    "sentry", "parity", "code",
 ];
 
 // The order a chapter's own cases are met in. A module and its test are one
@@ -62,6 +62,10 @@ immutable Reading[] readings = [
     Reading("models", ["models"]),
     // Where a performance reports, after the rituals it reports about.
     Reading("sentry", ["sentry"]),
+    // What ground covers of each pinned agent's contract.
+    Reading("parity", ["parity"]),
+    // ground as the agent a harness talks to.
+    Reading("code", ["code"]),
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
@@ -82,7 +86,9 @@ struct Owner {
 immutable Owner[] owners = [
     Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git", "fmt"]),
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
-                          "playbill", "parity"]),
+                          "playbill"]),
+    Owner("parity",      ["parity"]),
+    Owner("code",        ["code"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
