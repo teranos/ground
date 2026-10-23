@@ -257,6 +257,11 @@ extern (C) int main(int argc, const(char)** argv) {
             sqlite3_close(db);
             return rc;
         }
+        // agy names itself; Claude Code and codex run bare ground.
+        if (cmd == "hook") {
+            import agy : handleAgyHook;
+            return handleAgyHook(argc, argv);
+        }
     }
 
     if (isatty(0)) {
