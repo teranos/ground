@@ -124,37 +124,3 @@ command running right now. No glyph carries any of this.
 This table is `perf.d`, where every line of it is a `static assert`. A glyph the
 build has no colour for draws nothing rather than being guessed at as pending.
 
-| | nr | thing | quotes | |
-|---|---|---|---|---|
-
-Row 99 — a performance whose driver is gone is halted where it stands at the
-next Stop or prompt, and its agent, its parent and sentry are told. Before this
-it stood live with nobody walking it, and the status line drew its rite for as
-long as anybody looked. A driver ended by a signal it can catch leaves a note of
-which one, and the halt names it; a write to a reader that is gone fails as an
-error instead of killing the driver. Only SIGKILL is still gone without a word.
-
-"I dont know how to explain how serious this defect is"
-
-Inherited by anything that rides the watcher:
-
-| | nr | thing | |
-|---|---|---|---|
-| | 48 | `claimSession` is not session-scoped | |
-
-One performance, start to finish. Columns are what fires, in order.
-
-| | `ground ritual` | `WorktreeCreate` | `SubagentStart` | `SessionStart` | `CwdChanged` | `UserPromptSubmit` | `PreToolUse` | `PostToolUse` | watcher | `Stop` | `SubagentStop` | `SessionEnd` | |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **position** | written | path bound | — | read | re-resolved | read | read | — | stepped | read | read | decided | |
-| **worktree** | — | created, path from stdout | entered | — | entered or left | — | — | — | — | — | — | — | |
-| **agent knows** | — | — | given the ritual | told the rite | — | told the rite | — | — | told the verdict | told by the block | — | — | |
-| **consent** | — | — | — | — | — | — | allowed while live | — | — | — | — | — | |
-| **can refuse** | — | yes, creation fails | no | no | no | no | yes | yes | — | yes | yes, exit 2 | no | |
-
-The two halves are visible in the third row. Everything in **agent knows** left of the watcher is carrying; everything right of it is interrupting. Only two columns fill it today, and neither is built.
-
-Claude Code hook events, in the context of this feature:
-
-| | nr | thing | quotes | |
-|---|---|---|---|---|
