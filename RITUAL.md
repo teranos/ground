@@ -173,7 +173,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
 | ✓ | 1 | `rites <name> { }` top-level block | `proto.d` | "a ritual consists out of rites" | |
-| ✓ | 2 | `params: [a, b]` list field | `proto.d` | "obviously i would want rites to be able to accept a parameter" | |
 | ✓ | 3 | Rite block: `<name> { eval: msg: catch: goto: }` | `proto.d` | "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci" | |
 | ✓ | 4 | `catch:` as int or int list | `proto.d` | "its decided it will be called catch" | |
 | ✓ | 5 | `ritual <name> { }` nested in `project` | `proto.d` | "why cant the ritual block be literally inside project" | |
