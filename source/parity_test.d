@@ -234,12 +234,17 @@ static assert(acpKeys(acpSample, "$/cancel_request").input.slice() == "requestId
 static assert(acpKeys(acpSample, "$/cancel_request").output.slice() == "requestId");
 static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
 
-// Ground code has no source yet, so it covers none of what ACP names. The hook
-// side would have claimed session/new's cwd: main.d reads a cwd from every
-// hook payload, and that is not ground code handling session/new.
+// Ground code's side is read out of code/acp.d, one method's block at a time. The
+// hook side would have claimed session/new's cwd: main.d reads a cwd from
+// every hook payload, and that is not ground code handling session/new.
 static assert(has(sideFor("claude", "session/new").reads, "cwd"));
 static assert(sideFor("acp", "session/new").reads.slice() == "");
 static assert(sideFor("acp", "session/new").writes.slice() == "");
+// initialize writes protocolVersion and agentInfo, and reads nothing: there is
+// one version to answer whatever the client asked for.
+static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
+static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
+static assert(sideFor("acp", "initialize").reads.slice() == "");
 
 // Ground's side is read out of its own source: main.d's reads for every event,
 // the handler main.d dispatches to, and the extractors that handler calls.
