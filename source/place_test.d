@@ -27,6 +27,7 @@ static immutable parsed = parsePbt(blocks);
 static assert(placeOf(parsed, "/Users/x/teranos/QNTX/server", "", "") == "/teranos/QNTX");
 static assert(placeOf(parsed, "/Users/x/teranos/QNTX/web/src", "", "") == "/teranos/QNTX/web");
 
+// "IF A DIRECTORY IS A REPO AND THAT REPO IS ALSO THE SAME REPO IN A PROJECT BLOCK / RITUALS DEFINED FOR ONE PROJECT SHOULD FIRE FOR GIT WORKTREE CHECKOUTS"
 // A project that names the repo's origin is that repo's, wherever the checkout is.
 static assert(placeOf(parsed, "/tmp/a-worktree", "", "teranos/ground") == "/somewhere/else");
 

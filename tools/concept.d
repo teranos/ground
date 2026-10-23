@@ -92,7 +92,7 @@ immutable Owner[] owners = [
     Owner("parity",      ["parity"]),
     Owner("code",        ["code"]),
     Owner("linked",      ["libgit2", "http"]),
-    Owner("project",     ["project", "routes"]),
+    Owner("project",     ["project", "routes", "place"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
     // command is how a person reads the same windows.
