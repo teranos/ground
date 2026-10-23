@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
-| ✓ | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" / "ground should take responsibility" | "claude -w <id>" |
 | D | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
 | D | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
 | ✓ | 28 | The renderer knows where a performance is | collet, `ug/sql.d` | — | two renderers now, from one row, sharing no code |

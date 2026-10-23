@@ -106,6 +106,7 @@ static assert(!restore("r", 0, "+..", RitualState.Live, 4).valid);
 // --- Abort ---
 // "it ends when it ends, not because i ran ritual stop" — so this is the
 // exception, and it is the only ending a person causes.
+// "ground should take responsibility"
 
 import ritual : abort;
 
