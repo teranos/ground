@@ -158,8 +158,3 @@ Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | |
-| ✓ | 51 | `WorktreeRemove` | — | |
-| | 56 | `CwdChanged` | — | |
-| | 57 | `SessionEnd` | — | |
-| ✓ | 58 | `SessionStart` | — | |
