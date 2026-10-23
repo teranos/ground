@@ -22,10 +22,6 @@ module proto_ritual_test;
 // "never believe anything Claude is inferring from this, always consult Antropic docs as first source."
 // TODO TaskCreated
 // TODO TaskCompleted
-// TODO goto: parity in the boxsurvival example
-// TODO built in the boxsurvival example
-// TODO catch: 22 on survived in the boxsurvival example
-// TODO survived measures the API in the boxsurvival example
 
 import proto : parsePbt, validateRituals;
 import count : countPbt;
@@ -551,6 +547,7 @@ static assert(validateRituals(sandParsed).text() == "ritual probeRitual: probe n
 // readWord lands on a brace and asserts — the parser never gets to run.
 enum sandCounted = countPbt(sandShapeInput);
 static assert(sandCounted.totalProjects == 1);
+import ritual : flatten;
 
 // "make commit be done by run:"
 // "the ritual could make itself complete itself by asking the agent to commit while its in ask"
@@ -573,7 +570,6 @@ project {
 }
 `;
 enum noBranchParsed = parsePbt(noBranchInput);
-import ritual : flatten;
 static assert(flatten(noBranchParsed, 0).count == 1);
 
 // A project can say which repo it is. Set, every checkout of that repo is this
@@ -755,3 +751,51 @@ enum pushDoors = doorsFiredBy(twoDoors, "PostToolUse", "git push origin main");
 static assert(pushDoors.count == 1 && pushDoors.doors[0].block == "deployment");
 static assert(doorsFiredBy(twoDoors, "PostToolUse", "git status").count == 0);
 static assert(doorsFiredBy(twoDoors, "PreToolUse", "git commit").count == 0, "a door names its event");
+
+// "Rituals are performed in the grove."
+enum groveInput = `
+rites green {
+  built {
+    eval: "make build"
+  }
+  tested {
+    eval: "make test"
+  }
+}
+
+rites shipped {
+  sealed {
+    eval: "git diff --quiet"
+  }
+  ci {
+    eval: "gh pr checks ${pr}"
+    catch: 1
+  }
+}
+
+project {
+  path: "/abcd-nl/grove"
+  max_goto: 16
+
+  env {
+    pr: "1"
+  }
+
+  ritual grove {
+    system: "You are a release engineer. You never merge, and you say which commit you are looking at."
+    models { model: sonnet seven_day: ">80" model: haiku }
+
+    green
+    shipped
+  }
+}
+`;
+enum groveParsed = parsePbt(groveInput);
+static assert(validateRituals(groveParsed).text() == "");
+enum groveFlat = flatten(groveParsed, 0);
+static assert(groveFlat.count == 4);
+static assert(groveFlat.maxGoto == 16);
+static assert(groveFlat.system == "You are a release engineer. You never merge, and you say which commit you are looking at.");
+static assert(groveFlat.models[0].model == "sonnet");
+static assert(groveFlat.models[0].rules[0].input == "seven_day");
+static assert(groveFlat.models[0].rules[0].model == "haiku");
