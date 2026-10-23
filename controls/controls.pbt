@@ -278,14 +278,6 @@ scope {
     }
   }
 
-  scope {
-    event: ["SessionStart", "PostToolUse"]
-
-    control {
-      name: "local-controls-separate-repo"
-      msg: "controls/local/*.pbt — private repo, not part of ground. ls it to see available controls (hook definitions)."
-    }
-  }
 
   scope {
     event: "UserPromptSubmit"
