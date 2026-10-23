@@ -245,7 +245,6 @@ Not in the example above, and therefore not implementable from it:
 | x | 46 | A rite's verdict reaches the agent, unasked | "isnt it the perfect mechanism to fiannly use for intterupt on rite ?" / "to: agent doesnt make sense" / "no user facign i would say" / "not part of the api" / "doesnt make sense, because why would you have to specify it ? its expected, everything comes abck to causer" / "i am a user, not an agent" | |
 | D | 70 | Ground's trace is on your screen as it happens | "the first two sentences of what happened in last_assistent_message pre-Stop inside of any rite as a Notification in the parent session" / "it seems like it would increase the clarity i have into ground by an absolute incredible amount" / "i believe my temporal awareness is much greater than yours" | |
 | ✓ | 47 | A CI check is a rite like any other | — | |
-| ✓ | 52 | A performance has its own worktree and branch | "each ritual perfomance occurs in separate named branches" | |
 | x | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | |
 | ✓ | 54 | A performance is identified by itself | "the name of the branch is not something to key on" | |
 | ✓ | 55 | A performance survives losing its worktree | "item 55 approved now" | |
