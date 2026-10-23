@@ -34,7 +34,7 @@ immutable Word[] words = [
 // met before the controls it governs rather than under them.
 immutable string[] chapters = [
     "scope", "control", "project", "permission", "models", "ritual", "attestation",
-    "sentry", "parity", "code",
+    "sentry", "parity", "code", "linked",
 ];
 
 // The order a chapter's own cases are met in. A module and its test are one
@@ -66,6 +66,8 @@ immutable Reading[] readings = [
     Reading("parity", ["parity"]),
     // ground as the agent a harness talks to.
     Reading("code", ["code"]),
+    // What is linked into the binary: libgit2, libsqlite3, libcurl.
+    Reading("linked", ["libgit2"]),
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
@@ -89,6 +91,7 @@ immutable Owner[] owners = [
                           "playbill"]),
     Owner("parity",      ["parity"]),
     Owner("code",        ["code"]),
+    Owner("linked",      ["libgit2"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage

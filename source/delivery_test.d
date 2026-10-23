@@ -27,7 +27,7 @@ static assert(sessionOf(p, Receiver.AgentLlm) == "agent-session");
 // "WE NEED TO SAY THAT RITUAL IS THE RECEIVER, NOT RITE, RITE IS JUST A PIECE OF THE RITUAL, RITUAL DRIVES THE CHAT VIA RITES"
 static assert(sessionOf(p, Receiver.Ritual) is null);
 
-// "NEEDS TO BE SEEN BY BOTH HUMAN AND HOSTLLM"
+// "AGENTLLM STOP OUTPUT FIRST TWO SENTENCES OF LAST MESSAGE NEEDS TO BE SEEN BY BOTH HUMAN AND HOSTLLM"
 static assert(wants(PARENT, Receiver.Human));
 static assert(wants(PARENT, Receiver.HostLlm));
 static assert(!wants(PARENT, Receiver.AgentLlm));
