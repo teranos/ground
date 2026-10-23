@@ -72,6 +72,13 @@ static assert(indexOfRite(flat, "nowhere") == -1);
 // boundary the gate sits on. `parity` is one rite, `live` is two.
 import ritual.resolve : lastOfBlock;
 
+// "a rites block will not complete until each of its rite dispatch has been completed"
+// "in my mental model rites toss is over when both dispatches are over"
+// "dispatch getting a result gates the RITES block"
+// "RITE_B does not start until RITE_A has completely finished"
+// "a RITUAL is not finished until each of its rites blocks finished"
+// "a dispatch gates a rites block from finishing until it results something, a result"
+// "ci passing would still gate the end of a ritual (read ritual not rite)"
 static assert(lastOfBlock(flat, 0));
 static assert(!lastOfBlock(flat, 1));
 static assert(lastOfBlock(flat, 2));
