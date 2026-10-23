@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | done? | nr | thing | where | quotes | notes |
 |---|---|---|---|---|---|
-| ✓ | 6 | Ritual body: bare name = reference | `proto.d` | — | |
 | ✓ | 8 | CTFE structs + arrays | `proto.d`, `controls.d` | — | |
 | ✓ | 10 | `goto` names a rite that exists | CTFE assert | — | |
 | ✓ | 11 | Every declared `param` supplied | CTFE assert | — | |
