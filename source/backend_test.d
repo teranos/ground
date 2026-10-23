@@ -13,6 +13,8 @@ enum fanInput = `
 qntx {
   url: "https://qntx.alice.example"
   token: "~/.qntx/ground-token"
+  model: "openai/gpt-4o-mini"
+  gateway: "https://gateway.alice.example"
 }
 project {
   origin: "alice/hygrometer-server"
@@ -46,6 +48,16 @@ static assert(fan.items[0].token == "~/.qntx/ground-token");
 static assert(fan.items[1].url == "https://qntx.alice.example" && fan.items[1].subject == "beacon:routing-table");
 static assert(fan.items[1].token == "~/.qntx/ground-token");
 static assert(unbacked(fanParsed) == "");
+
+// "we use the qntx openrouter plugin"
+// The model ground code prompts through the node's gateway is the node's block's.
+static assert(fanParsed.qntx.model == "openai/gpt-4o-mini");
+
+// "prompt q for now"
+// The gateway is the node a prompt goes through; named, it is not the node the
+// attestations go to. Unnamed, it is.
+static assert(fanParsed.qntx.gateway == "https://gateway.alice.example");
+static assert(parsePbt(untokenedInput).qntx.gateway == "");
 
 // "i really just have one qntx token"
 // A node named without a token file is spoken to with the one ground attest

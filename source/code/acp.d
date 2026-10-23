@@ -14,10 +14,12 @@ import parse : extractJsonString;
 import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
+import proto : ParsedQntx;
 import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, ferror, FILE;
-import code.mcp : McpGroup, openMcp, closeMcp;
+import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
+import code.prompt;
 public import code.reply : Reply, putEscaped, putNumber;
 
 extern (C) ptrdiff_t getline(char** lineptr, size_t* n, FILE* stream);
@@ -72,6 +74,7 @@ struct Sessions {
     size_t openLen;
     sqlite3* db;   // where sessions are kept; none, and they live in this process only
     bool settingsEffort; // a new session starts at the effort Claude Code's settings name
+    ParsedQntx node; // the node a prompt goes through: its gateway, its token file, its model
 }
 
 // The effort levels effort.d names, lowest first: the one config option a
@@ -119,6 +122,7 @@ struct Open {
     size_t effort; // where it stands among efforts
     char[2048] dirs; // the JSON array a client is answered with
     size_t dirsLen;
+    Reply* history; // the turns so far, as the model's messages; none until the first prompt
 }
 
 // The additionalDirectories a request names, into list as the JSON array a
@@ -259,6 +263,31 @@ private void putModes(ref Reply r, SessionMode current) {
     }
     r.add("]}");
 }
+
+private void forget(ref Open o) {
+    if (o.history !is null) { o.history.dispose(); free(o.history); o.history = null; }
+}
+
+// A session/update to the client, written as it happens: a turn's steps are
+// not held until the turn ends.
+private bool notify(const(char)[] sid, const(char)[] update) {
+    Reply n;
+    scope(exit) n.dispose();
+    n.add(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`); putEscaped(n, sid);
+    n.add(`","update":`); n.add(update); n.add(`}}` ~ "\n");
+    if (n.full) return false;
+    auto s = n.slice();
+    return fwrite(s.ptr, 1, s.length, stdout) == s.length && fflush(stdout) == 0;
+}
+
+// The gateway's answer, kept whole: a completion that did not fit is not the
+// answer, and the far end's words on a refusal are the error's data.
+enum GATEWAY_BODY = 4 << 20;
+
+// "like, longer turns"
+// "assume you always run it with a strong model"
+// A turn ends when the model answers in words; ground code counts no rounds.
+enum GATEWAY_SECONDS = 600;
 
 private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
     r.add("code-"); putNumber(r, s.started); r.add("-"); putNumber(r, s.pid); r.add("-"); putNumber(r, n);
@@ -401,6 +430,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         Reply detail;
         if (!__ctfe) closed = closeMcp(sessions.open[cast(size_t) at].mcp, detail);
         scope(exit) detail.dispose();
+        forget(sessions.open[cast(size_t) at]);
         sessions.openLen--;
         sessions.open[cast(size_t) at] = sessions.open[sessions.openLen];
         sessions.open[sessions.openLen] = Open.init;
@@ -641,6 +671,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         scope(exit) detail.dispose();
         if (at >= 0) {
             if (!__ctfe) ended = closeMcp(sessions.open[cast(size_t) at].mcp, detail);
+            forget(sessions.open[cast(size_t) at]);
             sessions.openLen--;
             sessions.open[cast(size_t) at] = sessions.open[sessions.openLen];
             sessions.open[sessions.openLen] = Open.init;
@@ -648,6 +679,122 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (ended) put(`,"result":{}}`);
         else { put(`,"error":{"code":-32603,"message":"session MCP shutdown failed","data":`); put(detail.slice()); put(`}}`); }
         return true;
+    }
+
+    // "we use the qntx openrouter plugin"
+    // "as the endpoint"
+    if (method == "session/prompt") {
+        auto qntxNode = &sessions.node;
+        char[256] sb;
+        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`); return true; }
+        auto at = openAt(sessions, sid);
+        if (at < 0) {
+            put(`,"error":{"code":-32002,"message":"no open session `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        // The model is the qntx block's, the token the one every attestation carries.
+        if (qntxNode.model.length == 0) {
+            put(`,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+            return true;
+        }
+        if (qntxNode.url.length == 0) {
+            put(`,"error":{"code":-32603,"message":"the qntx block names no url, so ground code has no gateway to prompt"}}`);
+            return true;
+        }
+        if (__ctfe) assert(0, "the gateway is spoken to at runtime");
+        else {
+            import attest : qntxToken;
+            import http : httpPostInto;
+            import core.stdc.stdlib : malloc;
+            auto o = &sessions.open[cast(size_t) at];
+            if (o.history is null) {
+                o.history = cast(Reply*) malloc(Reply.sizeof);
+                if (o.history is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
+                *o.history = Reply.init;
+            }
+            Reply text, tools, detail, url;
+            scope(exit) { text.dispose(); tools.dispose(); detail.dispose(); url.dispose(); }
+            promptText(line, text);
+            userMessage(*o.history, text.slice());
+            if (!toolsOf(o.mcp, tools, detail)) {
+                put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
+                return true;
+            }
+            url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
+            auto token = qntxToken(qntxNode.token);
+            auto dest = cast(char*) malloc(GATEWAY_BODY);
+            if (dest is null) { put(`,"error":{"code":-32603,"message":"could not allocate the gateway's answer"}}`); return true; }
+            scope(exit) free(dest);
+            // The history and the tools go to the gateway; a tool_calls answer is
+            // run through the session's own MCP server and handed back, until the
+            // model answers in words.
+            while (true) {
+                Reply body_;
+                scope(exit) body_.dispose();
+                requestBody(body_, qntxNode.model, o.history.slice(), tools.slice());
+                if (o.history.full || body_.full) { put(`,"error":{"code":-32603,"message":"the session's history outgrew memory"}}`); return true; }
+                auto http = httpPostInto(url.slice(), body_.slice(), token, dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS);
+                if (http.code != 0 || http.overran || http.status != 200) {
+                    put(`,"error":{"code":-32603,"message":"the gateway did not answer the prompt","data":{"url":"`);
+                    putEscaped(r, url.slice());
+                    put(`","status":`); putNumber(r, cast(uint) http.status);
+                    put(`,"curl":`); putNumber(r, cast(uint) http.code);
+                    put(`,"why":"`); putEscaped(r, http.why());
+                    put(`","body":"`); putEscaped(r, dest[0 .. http.len]); put(`"}}}`);
+                    return true;
+                }
+                Completion c;
+                scope(exit) c.dispose();
+                if (!completionOf(dest[0 .. http.len], c)) {
+                    put(`,"error":{"code":-32603,"message":"the gateway's answer is not a completion","data":"`);
+                    putEscaped(r, dest[0 .. http.len]); put(`"}}`);
+                    return true;
+                }
+                assistantMessage(*o.history, c.message);
+                if (c.content.length > 0) {
+                    Reply u;
+                    scope(exit) u.dispose();
+                    u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
+                    putEscaped(u, c.content); u.add(`"}}`);
+                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                }
+                if (c.callCount == 0) { put(`,"result":{"stopReason":"end_turn"}}`); return true; }
+                foreach (i; 0 .. c.callCount) {
+                    auto call = c.calls[i];
+                    Reply u, server, tool, args, result;
+                    scope(exit) { u.dispose(); server.dispose(); tool.dispose(); args.dispose(); result.dispose(); }
+                    u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, call.id);
+                    u.add(`","title":"`); putEscaped(u, call.name);
+                    u.add(`","status":"in_progress","rawInput":`); u.add(call.arguments); u.add(`}`);
+                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    server.add(serverOf(call.name)); server.add("\0");
+                    tool.add(toolOf(call.name)); tool.add("\0");
+                    args.add(call.arguments); args.add("\0");
+                    import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
+                    import core.stdc.string : strlen;
+                    mcp_response response;
+                    mcp_error error;
+                    scope(exit) mcp_response_free(&response);
+                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, error);
+                    bool ok = status == mcp_status.MCP_OK;
+                    if (ok) result.add(response.json[0 .. response.length]);
+                    else {
+                        result.add(`{"status":"`); result.add(mcp_status_string(status)[0 .. strlen(mcp_status_string(status))]);
+                        result.add(`","message":"`); if (error.message !is null) putEscaped(result, error.message[0 .. strlen(error.message)]);
+                        result.add(`","response":"`); if (response.json !is null) putEscaped(result, response.json[0 .. response.length]);
+                        result.add(`"}`);
+                    }
+                    toolMessage(*o.history, call.id, result.slice());
+                    u.len = 0;
+                    u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
+                    u.add(ok ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`); u.add(result.slice()); u.add(`}`);
+                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                }
+            }
+        }
     }
 
     if (rawValue(line, `"id"`) is null) return false;
@@ -665,8 +812,10 @@ int handleCode() {
     char* buf = null;
     size_t cap = 0;
     import db : openDb, sqlite3_close;
+    import controls : qntxNode;
     auto sessions = Sessions(cast(ulong) time(null), cast(uint) getpid());
     sessions.settingsEffort = true;
+    sessions.node = qntxNode;
     // Ground stops rather than degrades: a session no store keeps could not
     // be resumed, and a client told it could would find out too late.
     sessions.db = openDb();
@@ -720,6 +869,7 @@ int handleCode() {
         Reply detail;
         if (!closeMcp(sessions.open[i].mcp, detail)) result = 1;
         detail.dispose();
+        forget(sessions.open[i]);
     }
     sessions.openLen = 0;
     return result;

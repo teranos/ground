@@ -66,9 +66,9 @@ immutable Reading[] readings = [
     // What ground covers of each pinned agent's contract.
     Reading("parity", ["parity"]),
     // ground as the agent a harness talks to.
-    Reading("code", ["code"]),
+    Reading("code", ["code", "prompt"]),
     // What is linked into the binary: libgit2, libsqlite3, libcurl.
-    Reading("linked", ["libgit2", "http"]),
+    Reading("linked", ["libgit2", "http", "libmcp", "libjsonc"]),
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
@@ -91,8 +91,8 @@ immutable Owner[] owners = [
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
                           "playbill"]),
     Owner("parity",      ["parity"]),
-    Owner("code",        ["code"]),
-    Owner("linked",      ["libgit2", "http"]),
+    Owner("code",        ["code", "prompt"]),
+    Owner("linked",      ["libgit2", "http", "libmcp", "libjsonc"]),
     Owner("project",     ["project", "routes", "place"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
