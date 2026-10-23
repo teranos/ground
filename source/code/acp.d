@@ -1,4 +1,4 @@
-module code;
+module code.acp;
 
 // Ground code: the agent ground runs itself, behind an ACP client. One
 // JSON-RPC message a line on stdin, one answer a line on stdout. The protocol

@@ -635,9 +635,9 @@ ref immutable(GroundSide) sideOf(const(char)[] event) {
 }
 
 // Ground code is the agent an ACP client talks to. A method's side is its block
-// in code.d, from the test that picks it to its first return; a method with no
+// in code/acp.d, from the test that picks it to its first return; a method with no
 // block reads and writes nothing.
-private enum codeSource = import("source/code.d");
+private enum codeSource = import("source/code/acp.d");
 
 private struct CodeSides { GroundSide[32] items; size_t count; }
 
@@ -650,11 +650,11 @@ private CodeSides buildCodeSides()() {
         if (at < 0) break;
         auto nameFrom = cast(size_t) at + key.length;
         auto nameEnd = indexIn(codeSource, `"`, nameFrom);
-        assert(nameEnd >= 0, "code.d tests a method it does not close");
+        assert(nameEnd >= 0, "code/acp.d tests a method it does not close");
         from = cast(size_t) nameEnd;
         auto ret = indexIn(codeSource, "return true;", cast(size_t) at);
         auto block = codeSource[cast(size_t) at .. ret < 0 ? codeSource.length : cast(size_t) ret];
-        assert(cs.count < cs.items.length, "code.d handles more methods than parity holds");
+        assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
     }
     return cs;

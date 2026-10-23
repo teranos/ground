@@ -234,7 +234,7 @@ static assert(acpKeys(acpSample, "$/cancel_request").input.slice() == "requestId
 static assert(acpKeys(acpSample, "$/cancel_request").output.slice() == "requestId");
 static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
 
-// Ground code's side is read out of code.d, one method's block at a time. The
+// Ground code's side is read out of code/acp.d, one method's block at a time. The
 // hook side would have claimed session/new's cwd: main.d reads a cwd from
 // every hook payload, and that is not ground code handling session/new.
 static assert(has(sideFor("claude", "session/new").reads, "cwd"));
