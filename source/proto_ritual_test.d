@@ -140,6 +140,7 @@ static assert(paramsParsed.rites[0].paramCount == 1);
 static assert(paramsParsed.rites[0].params[0] == "row");
 static assert(paramsParsed.rites[0].riteCount == 1);
 
+// "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci"
 // "its decided it will be called catch" / "catch: 22"
 // "i think i want goto, not else, goto seems more honest for what it is"
 enum catchInput = `
