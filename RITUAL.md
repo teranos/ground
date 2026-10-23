@@ -196,7 +196,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | ✓ | 21 | The current rite runs and the position moves | `ritual.d` | "it takes a super long time before an agent will reach Stop" | |
 | ✓ | 22 | The agent knows where it is, what happened, and what the author said | integration | "msg i also want as anotgher optional one" | "Performing ritual willow, rite 5 of 10: MANGOx1. It is met when this exits 1: grep -qxF ... . Take the MANGO out of WILLOW.md." / "<RITE> passed." |
 | ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | |
-| ✓ | 24 | Name a ritual | `ritual.d` | "i want to specify a ritual" | |
 | ✓ | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" / "ground should take responsibility" | "claude -w <id>" |
 | D | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |
 | D | 27 | Show one ritual's rites | command | "ask about what rites are inside of one specific ritual" | |
