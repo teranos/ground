@@ -6,7 +6,7 @@ Ground Control for Agentic AI. CLAUDE.md is advisory — ground is the control.
 
 Claude Code ignores CLAUDE.md instructions. You tell it "use `make test`", it runs `go test` without build tags, tests fail, and it starts "fixing" code that was never broken. You tell it "don't use `sed`", it uses `sed` with GNU syntax on macOS. The list never ends.
 
-The only enforcement that works is at the hook level — intercepting events before, during, and after they execute. Not a suggestion. A control.
+The only enforcement that works is at the harness level — intercepting events before, during, and after they execute. Not a suggestion. A control.
 
 ## What happens
 
