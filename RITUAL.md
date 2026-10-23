@@ -208,7 +208,6 @@ Not in the example above, and therefore not implementable from it:
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| ✓ | 30 | `pass:` | "i meant, from 0 to 1, the gate is from 0 to 1" | |
 | x | 31 | `$AUTH` | — | |
 | x | 49 | — | — | |
 | x | 69 | — | — | |
