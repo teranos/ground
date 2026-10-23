@@ -11,14 +11,26 @@ static assert(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnop
 static assert(sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
 // The pins are read out of flake.nix, the one place they are written.
-static assert(pins.length == 3);
+static assert(pins.length == 5);
 static assert(pins[0].agent == "claude" && pins[0].release == "2.1.303");
 static assert(pins[1].agent == "claude" && pins[1].release == "2.1.304");
 static assert(pins[2].agent == "codex" && pins[2].release == "0.163.0");
-version (OSX) version (AArch64) {
-    static assert(pins[1].sha256 == "b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a");
-    // codex's pin is the binary the tarball unpacks to, not the tarball.
-    static assert(pins[2].sha256 == "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31");
+static assert(pins[3].agent == "agy" && pins[3].release == "1.4.4");
+// ACP's pin is its release's schema.json, the same file on every platform.
+static assert(pins[4].agent == "acp" && pins[4].release == "1.26.0");
+static assert(pins[4].sha256 == "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6");
+version (OSX) {
+    version (AArch64) {
+        static assert(pins[1].sha256 == "b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a");
+        // codex's pin is the binary the tarball unpacks to, not the tarball.
+        static assert(pins[2].sha256 == "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31");
+        // agy's pin is the antigravity binary its tarball unpacks to.
+        static assert(pins[3].sha256 == "9abb478686dc08d48699ba1604c14d15819ef6a2542d5d32173acbd5f02d712d");
+    } else {
+        static assert(pins[1].sha256 == "f2ae409b46b1bdc1dec7afa12c6a094ff64e7d4ca272ca09f69dd0080c846703");
+        static assert(pins[2].sha256 == "73697f229103f463acaafd8659976caaa4892ec11e2c246c7fa97f93d523f90e");
+        static assert(pins[3].sha256 == "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253");
+    }
 }
 
 // A pin's block closes where its braces do. Ended at the first `};`, the codex
@@ -117,6 +129,172 @@ static assert(claudeInputKeys(claudeSample, "PostToolUse").slice()
 static assert(claudeOutputKeys(claudeSample, "PostToolUse").slice()
     == "continue,suppressOutput,reason,hookSpecificOutput,hookEventName,additionalContext");
 
+// agy's hooks.proto descriptor, as agy 1.4.4's darwin-arm64 binary carries it:
+// the package, then each message as a length-delimited field of the file.
+private enum agySample = "\x12\x0cexa.hooks_pb"
+    ~ "\"e\x0a\x0fPreToolHookArgs\x127\x0a\x09tool_call\x18\x01 \x01(\x0b2\x1a.exa.hooks_pb.HookToolCallR\x08toolCall\x12\x19\x0a\x08step_idx\x18\x02 \x01(\x05R\x07stepIdx"
+    ~ "\"\xab\x02\x0a\x11PreToolHookResult\x12#\x0a\x08decision\x18\x04 \x01(\x09B\x07\xa0\xa0\xf0\x98\x01\xf0\x15R\x08decision\x12\x1f\x0a\x06reason\x18\x05 \x01(\x09B\x07\xa0\xa0\xf0\x98\x01\xec\x0eR\x06reason\x12>\x0a\x09overwrite\x18\x03 \x01(\x0b2\x17.google.protobuf.StructB\x07\xa0\xa0\xf0\x98\x01\xec\x0eR\x09overwrite\x12:\x0a\x14permission_overrides\x18\x06 \x03(\x09B\x07\xa0\xa0\xf0\x98\x01\xec\x0eR\x13permissionOverrides\x12(\x0a\x0aallow_tool\x18\x01 \x01(\x08B\x09\xa0\xa0\xf0\x98\x01\xf0\x15\x18\x01R\x09allowTool\x12*\x0a\x0bdeny_reason\x18\x02 \x01(\x09B\x09\xa0\xa0\xf0\x98\x01\xec\x0e\x18\x01R\x0adenyReason";
+
+private bool agyHas()(string text, string name) {
+    Keys k;
+    auto a = agyAnchor(text);
+    return a >= 0 && agyMessage(text, cast(size_t) a, name, k);
+}
+
+static assert(agyKeys(agySample, "PreToolHookArgs").slice() == "toolCall,stepIdx");
+// Past 127 bytes a message's length takes two; a field's options hold bytes of their own.
+static assert(agyKeys(agySample, "PreToolHookResult").slice()
+    == "decision,reason,overwrite,permissionOverrides,allowTool,denyReason");
+// A name another message refers to by type is not that message.
+static assert(!agyHas(agySample, "HookToolCall"));
+static assert(!agyHas(agySample, "StopHookResult"));
+
+static assert(jsonKeys(`{"decision":"ask","reason":"a {b}: c","x":{"y":1}}`).slice() == "decision,reason,x");
+static assert(jsonKeys(`{}`).slice() == "");
+
+// agy's side is agy.d's: what it reads of every event, and what it answers each.
+static assert(sideOf("agy", "PreToolUse").reads.slice() == "conversationId,workspacePaths");
+static assert(sideOf("agy", "PreToolUse").writes.slice() == "decision");
+static assert(sideOf("agy", "Stop").writes.slice() == "");
+// codex runs the handlers Claude Code does.
+static assert(sideOf("codex", "PostToolUse").writes.slice() == sideOf("claude", "PostToolUse").writes.slice());
+
+// The ACP schema, as its release publishes it: every request, response and
+// notification names its method and the side that handles it. A key nested in
+// one of them is not the method's.
+private enum acpSample = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ReadTextFileRequest": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["sessionId", "path"],
+      "x-side": "client",
+      "x-method": "fs/read_text_file"
+    },
+    "PromptResponse": {
+      "type": "object",
+      "properties": {
+        "stopReason": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            }
+          ]
+        },
+        "_meta": {
+          "type": ["object", "null"]
+        }
+      },
+      "required": ["stopReason"],
+      "x-side": "agent",
+      "x-method": "session/prompt"
+    },
+    "ReadTextFileResponse": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        }
+      },
+      "x-side": "client",
+      "x-method": "fs/read_text_file"
+    },
+    "SessionNotification": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "update": {
+          "type": "object",
+          "properties": {
+            "sessionUpdate": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "x-side": "client",
+      "x-method": "session/update"
+    },
+    "PromptRequest": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "array"
+        },
+        "_meta": {
+          "type": ["object", "null"]
+        }
+      },
+      "x-side": "agent",
+      "x-method": "session/prompt"
+    },
+    "CancelRequestNotification": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "x-side": "protocol",
+      "x-method": "$/cancel_request"
+    }
+  }
+}`;
+
+// In and out are ground code's side, as they are ground's for a hook: in is
+// what it reads, out is what it writes. A method the agent handles reads the
+// request and writes the response; one the client handles is the other way
+// round, and a notification has only the side that sends it.
+static assert(acpKeys(acpSample, "session/prompt").input.slice() == "sessionId,prompt,_meta");
+static assert(acpKeys(acpSample, "session/prompt").output.slice() == "stopReason,_meta");
+static assert(acpKeys(acpSample, "fs/read_text_file").input.slice() == "content");
+static assert(acpKeys(acpSample, "fs/read_text_file").output.slice() == "sessionId,path");
+static assert(acpKeys(acpSample, "session/update").input.slice() == "");
+static assert(acpKeys(acpSample, "session/update").output.slice() == "sessionId,update");
+// Either peer may cancel a request, so ground code both reads and writes it.
+static assert(acpKeys(acpSample, "$/cancel_request").input.slice() == "requestId");
+static assert(acpKeys(acpSample, "$/cancel_request").output.slice() == "requestId");
+static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
+
+// Ground code's side is read out of code/acp.d, one method's block at a time. The
+// hook side would have claimed session/new's cwd: main.d reads a cwd from
+// every hook payload, and that is not ground code handling session/new.
+static assert(has(sideFor("claude", "session/new").reads, "cwd"));
+static assert(sideFor("acp", "session/load").reads.slice() == "");
+static assert(sideFor("acp", "session/load").writes.slice() == "");
+// A block is the whole branch, past the errors it returns early on.
+static assert(has(sideFor("acp", "session/new").reads, "cwd"));
+static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
+static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
+static assert(!has(sideFor("acp", "initialize").writes, "sessionId"));
+static assert(has(sideFor("acp", "initialize").writes, "agentCapabilities"));
+static assert(has(sideFor("acp", "session/close").reads, "sessionId"));
+static assert(has(sideFor("acp", "session/list").reads, "cwd"));
+static assert(has(sideFor("acp", "session/list").reads, "cursor"));
+static assert(has(sideFor("acp", "session/list").writes, "sessions"));
+// initialize writes protocolVersion and agentInfo, and reads nothing: there is
+// one version to answer whatever the client asked for.
+static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
+static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
+static assert(sideFor("acp", "initialize").reads.slice() == "");
+
 // Ground's side is read out of its own source: main.d's reads for every event,
 // the handler main.d dispatches to, and the extractors that handler calls.
 static assert(has(groundReads!"PostToolUse", "cwd"));
@@ -151,3 +329,42 @@ static assert(percentOf(624) == 62);
 
 static assert(covered("a,b,c", "b,c,d") == 2);
 static assert(covered("", "b") == 0);
+
+// "is to record how we are doing on parity over time against different specs and also have that plot as a line."
+// A harness's total is the mean of its cells. A spec with neither side is no cell.
+static assert(total([390, 610, -1]) == 500);
+static assert(total([-1, -1]) == -1);
+
+// "so we give each harness a line for total coverage"
+// "and ACP as well separately"
+enum pts = [Point("claude", "2026-10-21 20:12", 270), Point("claude", "2026-10-23 12:00", 300),
+            Point("acp", "2026-10-23 12:00", 50)];
+static assert(seriesTex(pts).text() ==
+    "\\begin{tikzpicture}\n"
+    ~ "\\begin{axis}[date coordinates in=x, xticklabel={\\day.\\month.}, ymin=0, ymax=100, "
+    ~ "ylabel={\\%}, legend pos=north west, width=\\textwidth, height=60mm]\n"
+    ~ "\\addplot coordinates {(2026-10-21 20:12,27) (2026-10-23 12:00,30)};\n\\addlegendentry{claude}\n"
+    ~ "\\addplot coordinates {(2026-10-23 12:00,5)};\n\\addlegendentry{acp}\n"
+    ~ "\\end{axis}\n\\end{tikzpicture}\n");
+
+// No runs, no plot: the page carries nothing rather than empty axes.
+static assert(seriesTex([]).text() == "");
+
+// A run attests one row per spec, and the series reads one point per harness
+// per run: the mean of that harness's specs.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(attestParity(db, "claude", "2.1.303", "aa", 270, "2026-10-21T20:12:00Z"));
+    assert(attestParity(db, "claude", "2.1.304", "bb", 290, "2026-10-21T20:12:00Z"));
+    assert(attestParity(db, "acp", "1.26.0", "cc", 50, "2026-10-21T20:12:00Z"));
+    assert(attestParity(db, "claude", "2.1.304", "bb", 310, "2026-10-23T12:00:00Z"));
+    auto s = readSeries(db);
+    assert(s.count == 3);
+    assert(s.at(0).agent == "claude" && s.at(0).when == "2026-10-21 20:12" && s.at(0).total == 280);
+    assert(s.at(1).agent == "acp" && s.at(1).when == "2026-10-21 20:12" && s.at(1).total == 50);
+    assert(s.at(2).agent == "claude" && s.at(2).when == "2026-10-23 12:00" && s.at(2).total == 310);
+    sqlite3_close(db);
+}

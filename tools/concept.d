@@ -32,9 +32,10 @@ immutable Word[] words = [
 // The order a reader meets them in, outermost to innermost. A scope carries
 // the path and the event, and both govern whatever sits inside it, so it is
 // met before the controls it governs rather than under them.
+// "and make parity the first chapter"
 immutable string[] chapters = [
-    "scope", "control", "project", "permission", "models", "ritual", "attestation",
-    "sentry",
+    "parity", "scope", "control", "project", "permission", "models", "ritual", "attestation",
+    "sentry", "code", "linked",
 ];
 
 // The order a chapter's own cases are met in. A module and its test are one
@@ -62,6 +63,12 @@ immutable Reading[] readings = [
     Reading("models", ["models"]),
     // Where a performance reports, after the rituals it reports about.
     Reading("sentry", ["sentry"]),
+    // What ground covers of each pinned agent's contract.
+    Reading("parity", ["parity"]),
+    // ground as the agent a harness talks to.
+    Reading("code", ["code"]),
+    // What is linked into the binary: libgit2, libsqlite3, libcurl.
+    Reading("linked", ["libgit2", "http"]),
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
@@ -80,10 +87,13 @@ struct Owner {
 }
 
 immutable Owner[] owners = [
-    Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git"]),
+    Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git", "fmt"]),
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
                           "playbill"]),
-    Owner("project",     ["project", "routes"]),
+    Owner("parity",      ["parity"]),
+    Owner("code",        ["code"]),
+    Owner("linked",      ["libgit2", "http"]),
+    Owner("project",     ["project", "routes", "place"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
     // command is how a person reads the same windows.
@@ -98,9 +108,11 @@ immutable Owner[] owners = [
                           "dispatch", "ritual", "ritual_resolve", "proto_ritual",
                           "rite_script", "advance", "briefing", "choose", "contend",
                           "consent", "delivery", "notification", "reap", "apierror",
-                          "onoff", "noul", "regoto"]),
+                          "onoff", "noul", "regoto", "spawn", "wiring", "rite_attest",
+                          "ritual/shell", "worktree"]),
     // What a row is, where it goes, and how one comes back to the session.
-    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream"]),
+    Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream",
+                          "sessiontrail"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world

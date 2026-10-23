@@ -86,6 +86,38 @@
             mv $out/bin/codex-${codexTarget} $out/bin/codex
             echo "${sha256.${codexTarget}.binary}  $out/bin/codex" | sha256sum -c -
           '';
+
+          agyTarget = {
+            aarch64-darwin = "mac_arm64";
+            x86_64-darwin = "mac_x64";
+            aarch64-linux = "linux_arm64_musl";
+            x86_64-linux = "linux_x64_musl";
+          }.${system};
+
+          # tarball: the release's asset digest, github.com/google-antigravity/antigravity-cli <version>.
+          # binary: the antigravity it unpacks to, which agy's installer puts at ~/.local/bin/agy.
+          agy = version: sha256: pkgs.runCommand "agy-${version}" {
+            src = pkgs.fetchurl {
+              url = "https://github.com/google-antigravity/antigravity-cli/releases/download/${version}/agy_cli_${agyTarget}.tar.gz";
+              sha256 = sha256.${agyTarget}.tarball;
+            };
+          } ''
+            mkdir -p $out/bin
+            tar -xzf $src -C $out/bin antigravity
+            mv $out/bin/antigravity $out/bin/agy
+            echo "${sha256.${agyTarget}.binary}  $out/bin/agy" | sha256sum -c -
+          '';
+
+          # The protocol ground code answers an ACP client in, at the schema it is
+          # held to: github.com/agentclientprotocol/agent-client-protocol
+          # schema-v<version>, the release's schema.json. It is the tag's
+          # schema/v1/schema.json byte for byte, and it names every method and the
+          # side that handles it. One file, the same on every platform.
+          acp = version: sha256: pkgs.fetchurl {
+            name = "acp-${version}-schema.json";
+            url = "https://github.com/agentclientprotocol/agent-client-protocol/releases/download/schema-v${version}/schema.json";
+            sha256 = sha256.schema;
+          };
         in {
           default = ground;
           inherit ground;
@@ -122,6 +154,38 @@
               binary = "399ff69c431c066e40de318fba45c2b07f45a76b19939d247ee4828fc70c4215";
             };
           };
+
+          agy-1_4_4 = agy "1.4.4" {
+            mac_arm64 = {
+              tarball = "85482aa8969300183f71c9653d9f581248fba7f506342a8eb087f3d2503203bd";
+              binary = "9abb478686dc08d48699ba1604c14d15819ef6a2542d5d32173acbd5f02d712d";
+            };
+            mac_x64 = {
+              tarball = "12c96c065ac50d36e087c1fda1bba8d6fb4fa7af232d1ef2a44499c2481a52bf";
+              binary = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+            };
+            linux_arm64_musl = {
+              tarball = "4900f50954ad6fb3747c2d80fe29b5986ae861d0f8ea04c2a5bd9cb1781507dc";
+              binary = "03ac1122a12a479a5110da1fcdfeb718988a323e0eaa3d2ccf96e98956b2ed9f";
+            };
+            linux_x64_musl = {
+              tarball = "f85f39bf74b6ff5f7f45da768ba52b39318a7e528811df65f394995959cbcc2c";
+              binary = "9caa302d10c42c698fb72ebda71910a2032b01a2ec99c391e8cd6fdc03ed31fd";
+            };
+          };
+
+          acp-1_26_0 = acp "1.26.0" {
+            schema = "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6";
+          };
+
+          # Every acp pin above, a directory per release, for make install to link
+          # where ground parity reads them. A new pin joins without being named here.
+          acp-schemas = pkgs.linkFarm "acp-schemas" (pkgs.lib.mapAttrsToList
+            (name: schema: {
+              name = "${pkgs.lib.replaceStrings [ "acp-" "_" ] [ "" "." ] name}/schema.json";
+              path = schema;
+            })
+            (pkgs.lib.filterAttrs (name: _: builtins.match "acp-[0-9_]+" name != null) self.packages.${system}));
         }
       );
 

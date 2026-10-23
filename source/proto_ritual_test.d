@@ -3,6 +3,25 @@ module proto_ritual_test;
 // Rituals and rites. A ritual is one or more sequences of rites blocks, and a
 // rite is a command whose exit code says whether the walk advances, holds or
 // halts. A performance is one full run of a ritual, in a checkout of its own.
+// TODO A run's result reaches the parent when that run concludes
+// "failure needs to prop to parent immediately when i happens"
+// "if FLIP1 ci is red, parent should know about it on T15 and the FLIP2 ci red would surface on T2 + T15"
+// "90c is only halfish done, because we cant do better on a --bg agent"
+// TODO List rituals for this path
+// "ask about rituals for where we are now"
+// TODO Show one ritual's rites
+// "ask about what rites are inside of one specific ritual"
+// TODO A rite's verdict reaches the agent, unasked
+// "i am a user, not an agent"
+// TODO Ground's trace is on your screen as it happens
+// "the first two sentences of what happened in last_assistent_message pre-Stop inside of any rite as a Notification in the parent session"
+// TODO Commit, push and CI auto-approved inside a performance
+// "commits and pushes and ci check, are all auto-approved"
+// TODO Notification
+// "Notification is one that is on my wish list actually"
+// "never believe anything Claude is inferring from this, always consult Antropic docs as first source."
+// TODO TaskCreated
+// TODO TaskCompleted
 
 import proto : parsePbt, validateRituals;
 import count : countPbt;
@@ -28,6 +47,7 @@ static assert(ritesParsed.rites[0].riteCount == 1);
 static assert(ritesParsed.rites[0].rites[0].name == "parity");
 static assert(ritesParsed.rites[0].rites[0].eval == "make parity");
 
+// "i want the machinery to be interchangable and composable"
 // "to me its eval"
 // "because its evaluated, and its up to the writer of the rite to change default eval behaviour through to: goto: pass: etc"
 enum evalInput = `
@@ -131,7 +151,7 @@ rites parity {
   params: [row]
 
   parity {
-    eval: ` ~ "`" ~ `make parity | grep "$row *YES *YES"` ~ "`" ~ `
+    eval: "make parity | grep '$row *YES *YES'"
   }
 }
 `;
@@ -140,6 +160,7 @@ static assert(paramsParsed.rites[0].paramCount == 1);
 static assert(paramsParsed.rites[0].params[0] == "row");
 static assert(paramsParsed.rites[0].riteCount == 1);
 
+// "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci"
 // "its decided it will be called catch" / "catch: 22"
 // "i think i want goto, not else, goto seems more honest for what it is"
 enum catchInput = `
@@ -353,6 +374,7 @@ rites bad {
 `;
 static assert(validateRituals(parsePbt(overlapInput)).text() == "rite both: 1 is both pass and catch");
 
+// "env block right?"
 // "why cant the ritual block be literally inside project for this purpose?"
 // "a ritual is LIVE its active RIGHT NOW, a rite isnt."
 // "how do i set the row param from the ritual"
@@ -418,6 +440,9 @@ rites a {
 static assert(validateRituals(parsePbt(dupInput)).text() == "duplicate rite name: shared");
 
 // "but in my mental image, you can have a same name rite in multiple RITES"
+// "so you could have a rite called SLEEP1 in two rites blocks"
+// "Both blocks name FLIP1, SLEEP1, FLIP2, SLEEP2 / i dont see the problem here."
+// "i expect to be able / using vim / press y12[DOWN_ARROW][UP_ARROW]p / change the name of only the rites block / yyp on line 18, a 2 to toss"
 // — a block copied with yyp, only the block renamed, is the authoring this
 // grammar is for.
 enum sameNameTwoBlocks = `
@@ -522,7 +547,10 @@ static assert(validateRituals(sandParsed).text() == "ritual probeRitual: probe n
 // readWord lands on a brace and asserts — the parser never gets to run.
 enum sandCounted = countPbt(sandShapeInput);
 static assert(sandCounted.totalProjects == 1);
+import ritual : flatten;
 
+// "make commit be done by run:"
+// "the ritual could make itself complete itself by asking the agent to commit while its in ask"
 // `branch:` was a project field that named the base of the pull request ground
 // opened on Done. Ground opens none — "i want NO pr to be created if i did not
 // set it" — so a ritual that wants one says --base in the rite that runs gh.
@@ -542,7 +570,6 @@ project {
 }
 `;
 enum noBranchParsed = parsePbt(noBranchInput);
-import ritual : flatten;
 static assert(flatten(noBranchParsed, 0).count == 1);
 
 // A project can say which repo it is. Set, every checkout of that repo is this
@@ -570,6 +597,7 @@ project {
 `;
 static assert(parsePbt(pathOnlyInput).projects[0].origin == "");
 
+// "THE AGENT CANNOT NOT BE SUBJECT TO THE CONTROLS A RITUALS THAT FIRE FOR A GIVEN PROJECT."
 // A control in a project that names a repo belongs to that repo. Firing is the
 // project's property, so the control carries it and no path decides.
 enum projectControlInput = `
@@ -651,18 +679,26 @@ static assert(plainParsed.scopes[0].paths[0] == "/");
 enum twoDoorsInput = `
 rites pairing {
   event: "PostToolUse"
-  cmd:   "git commit"
+  cmd: "git commit"
 
-  STAND { eval: "true" }
-  MOVE  { eval: "true" }
+  STAND {
+    eval: "true"
+  }
+  MOVE {
+    eval: "true"
+  }
 }
 
 rites deployment {
   event: "PostToolUse"
-  cmd:   "git push"
+  cmd: "git push"
 
-  TARGET   { eval: "true" }
-  VERSIONS { eval: "true" }
+  TARGET {
+    eval: "true"
+  }
+  VERSIONS {
+    eval: "true"
+  }
 }
 
 project {
@@ -716,3 +752,51 @@ enum pushDoors = doorsFiredBy(twoDoors, "PostToolUse", "git push origin main");
 static assert(pushDoors.count == 1 && pushDoors.doors[0].block == "deployment");
 static assert(doorsFiredBy(twoDoors, "PostToolUse", "git status").count == 0);
 static assert(doorsFiredBy(twoDoors, "PreToolUse", "git commit").count == 0, "a door names its event");
+
+// "Rituals are performed in the grove."
+enum groveInput = `
+rites green {
+  built {
+    eval: "make build"
+  }
+  tested {
+    eval: "make test"
+  }
+}
+
+rites shipped {
+  sealed {
+    eval: "git diff --quiet"
+  }
+  ci {
+    eval: "gh pr checks ${pr}"
+    catch: 1
+  }
+}
+
+project {
+  path: "/abcd-nl/grove"
+  max_goto: 16
+
+  env {
+    pr: "1"
+  }
+
+  ritual grove {
+    system: "You are a release engineer. You never merge, and you say which commit you are looking at."
+    models { model: sonnet seven_day: ">80" model: haiku }
+
+    green
+    shipped
+  }
+}
+`;
+enum groveParsed = parsePbt(groveInput);
+static assert(validateRituals(groveParsed).text() == "");
+enum groveFlat = flatten(groveParsed, 0);
+static assert(groveFlat.count == 4);
+static assert(groveFlat.maxGoto == 16);
+static assert(groveFlat.system == "You are a release engineer. You never merge, and you say which commit you are looking at.");
+static assert(groveFlat.models[0].model == "sonnet");
+static assert(groveFlat.models[0].rules[0].input == "seven_day");
+static assert(groveFlat.models[0].rules[0].model == "haiku");

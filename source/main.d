@@ -244,6 +244,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import parity : handleParity;
             return handleParity(argc, argv);
         }
+        if (cmd == "code") {
+            import code : handleCode;
+            return handleCode();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
@@ -252,6 +256,11 @@ extern (C) int main(int argc, const(char)** argv) {
             auto rc = decayDb(db);
             sqlite3_close(db);
             return rc;
+        }
+        // agy names itself; Claude Code and codex run bare ground.
+        if (cmd == "hook") {
+            import agy : handleAgyHook;
+            return handleAgyHook(argc, argv);
         }
     }
 

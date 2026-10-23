@@ -1,12 +1,12 @@
 module ritual_test;
 
 // Where we are, and what each rite has already been.
-// "see where we are INSIDE of the ritual"
 
 import rite : Verdict;
 import ritual : Position, RiteState, RitualState, start, step, jump,
                 encodeStates, restore;
 
+// "see where we are INSIDE of the ritual"
 // A ritual that has not run has no history. Every rite is the darker gray.
 enum fresh = start("probe", 3);
 static assert(fresh.ritual == "probe");
@@ -109,6 +109,7 @@ static assert(!restore("r", 0, "+..", RitualState.Live, 4).valid);
 
 import ritual : abort;
 
+// "ground should take responsibility"
 enum stopped = abort(step(fresh, Verdict.Advance));
 static assert(stopped.state == RitualState.Aborted);
 
@@ -123,11 +124,11 @@ static assert(abort(atLast).state == RitualState.Done);
 static assert(abort(halted).state == RitualState.Halted);
 
 // --- Identity ---
-// "each ritual perfomance occurs in separate named branches" /
-// "the name of the branch is not something to key on"
 
 import ritual : performanceId;
 
+// "each ritual perfomance occurs in separate named branches"
+// "the name of the branch is not something to key on"
 // The id names the performance and the moment. Two performances of the same
 // ritual are two rows, not one overwriting the other.
 enum idA = performanceId("probe", 1754400000);

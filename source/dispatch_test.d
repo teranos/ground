@@ -93,6 +93,7 @@ static assert(contains(s.text(), "^GROUND_REF="));
 // A repo that cannot be asked has not been dispatched to: unreached, not guessed.
 static assert(contains(s.text(), "could not read the default branch of"));
 
+// "in the more sophisticated version, the ci rite happens while the agent continues onto the next rite without needing to wait for ci to finish"
 // "the dispatch happened thus we move on from the rite". It sends the job and
 // ends. No run id, no status, no waiting — none of that is the rite's.
 static assert(!contains(s.text(), "--json status"));

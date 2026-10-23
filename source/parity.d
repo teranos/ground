@@ -9,10 +9,13 @@ import db : ZBuf;
 static import parse;
 
 enum BOOK_COMMAND = q"EOS
-# what ground covers of each pinned agent's hook contract, per event and version:
+# what ground covers of each pinned agent's hook contract, per event and version,
+# and what ground code covers of the pinned ACP schema, per method:
 ground parity
 # one event's keys per version, covered and missing:
 ground parity PostToolUse
+# one ACP method's, read and written by ground code:
+ground parity session/prompt
 EOS";
 
 // --- sha256: a binary is the pinned one or it is not measured ---
@@ -86,11 +89,11 @@ char[64] sha256Hex()(const(char)[] s) {
 struct Pin { string agent; string release; string sha256; }
 
 version (OSX) {
-    version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; }
-    else { enum claudePlatform = "darwin-x64"; enum codexTarget = "x86_64-apple-darwin"; }
+    version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; enum agyTarget = "mac_arm64"; }
+    else { enum claudePlatform = "darwin-x64"; enum codexTarget = "x86_64-apple-darwin"; enum agyTarget = "mac_x64"; }
 } else {
-    version (AArch64) { enum claudePlatform = "linux-arm64"; enum codexTarget = "aarch64-unknown-linux-musl"; }
-    else { enum claudePlatform = "linux-x64"; enum codexTarget = "x86_64-unknown-linux-musl"; }
+    version (AArch64) { enum claudePlatform = "linux-arm64"; enum codexTarget = "aarch64-unknown-linux-musl"; enum agyTarget = "linux_arm64_musl"; }
+    else { enum claudePlatform = "linux-x64"; enum codexTarget = "x86_64-unknown-linux-musl"; enum agyTarget = "linux_x64_musl"; }
 }
 
 private bool startsAt(const(char)[] text, size_t at, const(char)[] s) {
@@ -124,6 +127,8 @@ PinSet readPins()(string flake) {
         string agent;
         if (startsAt(flake, i, `claude "`)) agent = "claude";
         else if (startsAt(flake, i, `codex "`)) agent = "codex";
+        else if (startsAt(flake, i, `agy "`)) agent = "agy";
+        else if (startsAt(flake, i, `acp "`)) agent = "acp";
         else continue;
         auto from = i + agent.length + 2;
         auto close = indexIn(flake[from .. $], `"`);
@@ -141,8 +146,10 @@ PinSet readPins()(string flake) {
         auto block = flake[from .. end];
         string sha;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
+        else if (agent == "acp") sha = hexAfter(block, "schema");
         else {
-            auto t = assigned(block, codexTarget, " = {");
+            // codex and agy pin each target's tarball and the binary it unpacks to.
+            auto t = assigned(block, agent == "codex" ? codexTarget : agyTarget, " = {");
             if (t >= 0) sha = hexAfter(block[cast(size_t) t .. $], "binary");
         }
         if (sha !is null && found.count < found.items.length) found.items[found.count++] = Pin(agent, release, sha);
@@ -318,6 +325,65 @@ Keys codexKeys()(string text, string title) {
     return k;
 }
 
+// --- acp: one JSON Schema document, its definitions four spaces deep ---
+
+enum acpMethodKey = "\n      \"x-method\": \"";
+
+private bool endsWith(const(char)[] s, const(char)[] tail) {
+    return s.length >= tail.length && s[$ - tail.length .. $] == tail;
+}
+
+// One method's keys from ground code's side, as a hook's are from ground's: in
+// is what it reads, out is what it writes. Every definition naming the method
+// gives its top-level properties to a side. A request or notification the
+// agent handles is read and its response written; one the client handles is
+// the other way round. Either peer may send a protocol method, so it is both.
+bool acpSpec(const(char)[] text, const(char)[] method, ref Keys input, ref Keys output) {
+    char[160] nb;
+    auto needle = joined(nb, acpMethodKey, method, `"`);
+    bool found = false;
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(text, needle, from);
+        if (at < 0) return found;
+        from = cast(size_t) at + needle.length;
+        auto start = lastIndexIn(text[0 .. cast(size_t) at], "\n    \"");
+        auto end = indexIn(text, "\n    }", cast(size_t) at);
+        if (start < 0 || end < 0) continue;
+        auto nameFrom = cast(size_t) start + 6;
+        auto nameEnd = indexIn(text, `"`, nameFrom);
+        if (nameEnd < 0) continue;
+        auto name = text[nameFrom .. cast(size_t) nameEnd];
+        auto def = text[cast(size_t) start .. cast(size_t) end];
+
+        enum sideKey = "\n      \"x-side\": \"";
+        auto s = indexIn(def, sideKey);
+        if (s < 0) continue;
+        auto sideFrom = cast(size_t) s + sideKey.length;
+        auto sideEnd = indexIn(def, `"`, sideFrom);
+        if (sideEnd < 0) continue;
+        auto side = def[sideFrom .. cast(size_t) sideEnd];
+        found = true;
+
+        bool sent = !endsWith(name, "Response");
+        bool reads = side == "protocol" || (side == "agent") == sent;
+        bool writes = side == "protocol" || !reads;
+        enum props = "\n      \"properties\": {";
+        auto p = indexIn(def, props);
+        if (p < 0) continue;
+        if (reads) keysAtIndent(def, cast(size_t) p + props.length, 8, input);
+        if (writes) keysAtIndent(def, cast(size_t) p + props.length, 8, output);
+    }
+}
+
+struct SpecKeys { Keys input; Keys output; }
+
+SpecKeys acpKeys()(string text, string method) {
+    SpecKeys k;
+    acpSpec(text, method, k.input, k.output);
+    return k;
+}
+
 // --- claude: zod objects in minified JS ---
 
 // The keys of the object whose body runs from here, one brace deep. A string
@@ -427,6 +493,89 @@ Keys claudeOutputKeys()(string text, string event) {
     if (a >= 0) claudeOutput(text, cast(size_t) a, event, k);
     return k;
 }
+
+// --- agy: hooks.proto's descriptor, compiled into the Go binary ---
+
+// A protobuf varint from i on, leaving i past it.
+private bool varint(const(char)[] m, ref size_t i, ref ulong v) {
+    v = 0;
+    for (uint shift = 0; i < m.length && shift < 64; shift += 7) {
+        auto b = cast(ubyte) m[i++];
+        v |= cast(ulong)(b & 0x7f) << shift;
+        if (b < 0x80) return true;
+    }
+    return false;
+}
+
+// The field at i: its number and, when it is length-delimited, its bytes.
+// False on bytes that are no field.
+private bool nextField(const(char)[] m, ref size_t i, ref ulong number, ref bool delimited, ref const(char)[] bytes) {
+    ulong tag, n;
+    if (!varint(m, i, tag)) return false;
+    number = tag >> 3;
+    delimited = (tag & 7) == 2;
+    switch (tag & 7) {
+        case 0: return varint(m, i, n);
+        case 1: i += 8; return i <= m.length;
+        case 5: i += 4; return i <= m.length;
+        case 2:
+            if (!varint(m, i, n) || n > m.length - i) return false;
+            bytes = m[i .. i + cast(size_t) n];
+            i += cast(size_t) n;
+            return true;
+        default: return false;
+    }
+}
+
+// The descriptor's package declaration, its field 2. Its messages follow it.
+ptrdiff_t agyAnchor(const(char)[] text) { return indexIn(text, "\x12\x0cexa.hooks_pb"); }
+
+// A message of the file is its field 4. The message's name is its own field 1,
+// each of its fields is its field 2, and a field's JSON name is that field's 10.
+bool agyMessage(const(char)[] text, size_t anchor, const(char)[] name, ref Keys keys) {
+    size_t i = anchor;
+    ulong number;
+    bool delimited;
+    const(char)[] m;
+    while (i < text.length) {
+        if (!nextField(text, i, number, delimited, m)) return false;
+        if (number == 12) return false; // syntax, the file's last field
+        if (number != 4 || !delimited) continue;
+        size_t j = 0;
+        const(char)[] own;
+        if (!nextField(m, j, number, delimited, own) || number != 1 || own != name) continue;
+        while (j < m.length) {
+            const(char)[] field;
+            if (!nextField(m, j, number, delimited, field)) return false;
+            if (number != 2 || !delimited) continue;
+            size_t k = 0;
+            const(char)[] json;
+            while (k < field.length) {
+                if (!nextField(field, k, number, delimited, json)) return false;
+                if (number == 10 && delimited) keys.add(json);
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+Keys agyKeys()(string text, string name) {
+    Keys k;
+    auto a = agyAnchor(text);
+    if (a >= 0) agyMessage(text, cast(size_t) a, name, k);
+    return k;
+}
+
+// agy's hooks.json names the events; hooks.proto names what each sends and reads back.
+private static immutable string[3][6] agyEvents = [
+    ["SessionStart", "SessionStartHookArgs", "SessionStartHookResult"],
+    ["PreToolUse", "PreToolHookArgs", "PreToolHookResult"],
+    ["PostToolUse", "PostToolHookArgs", "PostToolHookResult"],
+    ["PreInvocation", "PreInvocationHookArgs", "PreInvocationHookResult"],
+    ["PostInvocation", "PostInvocationHookArgs", "PostInvocationHookResult"],
+    ["Stop", "StopHookArgs", "StopHookResult"],
+];
 
 // --- ground's side, read out of its own source at compile time ---
 
@@ -564,10 +713,108 @@ private GroundSide[eventCount] buildSides()() {
 private static immutable GroundSide[eventCount] groundSides = buildSides();
 private static immutable GroundSide unknownSide = GroundSide(null, commonReads, GroundKeys.init);
 
-// An event ground dispatches nowhere still has what run() reads first.
-ref immutable(GroundSide) sideOf(const(char)[] event) {
+// The keys of a JSON object, its own and not its values'.
+GroundKeys jsonKeys()(const(char)[] json) {
+    GroundKeys keys;
+    int depth = 0;
+    for (size_t i = 0; i < json.length; i++) {
+        char c = json[i];
+        if (c == '"') {
+            size_t j = i + 1;
+            while (j < json.length && json[j] != '"') j += json[j] == '\\' ? 2 : 1;
+            if (j >= json.length) break;
+            size_t k = j + 1;
+            while (k < json.length && json[k] == ' ') k++;
+            if (depth == 1 && k < json.length && json[k] == ':') keys.add(json[i + 1 .. j]);
+            i = j;
+        }
+        else if (c == '{' || c == '[') depth++;
+        else if (c == '}' || c == ']') depth--;
+    }
+    return keys;
+}
+
+// agy is answered by agy.d, which reads the same of every event and answers each its own.
+private enum agySource = import("source/agy.d");
+
+private GroundSide[agyEvents.length] buildAgySides()() {
+    import agy : answerOf;
+    GroundSide[agyEvents.length] sides;
+    foreach (i, ref e; agyEvents) sides[i] = GroundSide(e[0], readsIn(agySource), jsonKeys(answerOf(e[0])));
+    return sides;
+}
+
+private static immutable GroundSide[agyEvents.length] agySides = buildAgySides();
+private static immutable GroundSide agyUnknown = GroundSide(null, readsIn(agySource), GroundKeys.init);
+
+// An event ground dispatches nowhere still has what run() reads first. codex
+// runs the handlers Claude Code does.
+ref immutable(GroundSide) sideOf(const(char)[] agent, const(char)[] event) {
+    if (agent == "agy") {
+        foreach (ref s; agySides) if (s.event == event) return s;
+        return agyUnknown;
+    }
     foreach (ref s; groundSides) if (s.event == event) return s;
     return unknownSide;
+}
+
+// Ground code is the agent an ACP client talks to. A method's side is its block
+// in code/acp.d, the whole branch that tests for it, early returns and all; a
+// method with no block reads and writes nothing.
+private enum codeSource = import("source/code/acp.d");
+
+private struct CodeSides { GroundSide[32] items; size_t count; }
+
+// Where the branch opening after `from` closes. A brace in a string, a
+// character or a comment is not one.
+private size_t branchEnd()(string src, size_t from) {
+    auto open = indexIn(src, "{", from);
+    if (open < 0) return src.length;
+    int depth = 0;
+    char quote = 0;
+    for (size_t i = cast(size_t) open; i < src.length; i++) {
+        char c = src[i];
+        if (quote) {
+            if (quote != '`' && c == '\\') { i++; continue; }
+            if (c == quote) quote = 0;
+            continue;
+        }
+        if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
+            while (i < src.length && src[i] != '\n') i++;
+            continue;
+        }
+        if (c == '"' || c == '`' || c == '\'') quote = c;
+        else if (c == '{') depth++;
+        else if (c == '}' && --depth == 0) return i + 1;
+    }
+    return src.length;
+}
+
+private CodeSides buildCodeSides()() {
+    CodeSides cs;
+    enum key = `method == "`;
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(codeSource, key, from);
+        if (at < 0) break;
+        auto nameFrom = cast(size_t) at + key.length;
+        auto nameEnd = indexIn(codeSource, `"`, nameFrom);
+        assert(nameEnd >= 0, "code/acp.d tests a method it does not close");
+        from = cast(size_t) nameEnd;
+        auto block = codeSource[cast(size_t) at .. branchEnd(codeSource, cast(size_t) at)];
+        assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
+        cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
+    }
+    return cs;
+}
+
+private static immutable CodeSides codeSides = buildCodeSides();
+private static immutable GroundSide codeSide = GroundSide(null, GroundKeys.init, GroundKeys.init);
+
+ref immutable(GroundSide) sideFor(const(char)[] agent, const(char)[] event) {
+    if (agent != "acp") return sideOf(agent, event);
+    foreach (ref s; codeSides.items[0 .. codeSides.count]) if (s.event == event) return s;
+    return codeSide;
 }
 
 // --- the score ---
@@ -594,6 +841,127 @@ private int meanOf(const(int)[] cells) {
     return cast(int)((sum * 2 + n) / (2 * n));
 }
 
+// --- the series: a row a spec a run, a point a harness a run ---
+
+// "is to record how we are doing on parity over time against different specs and also have that plot as a line."
+// A harness's total is the mean of its cells. A spec with neither side is no cell.
+int total(const(int)[] cells) { return meanOf(cells); }
+
+struct Point { const(char)[] agent; const(char)[] when; int total; }
+
+struct Tex {
+    char[16384] buf = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < buf.length) buf[n++] = c; }
+    void putInt(int v) {
+        char[12] d;
+        int k = 0;
+        do { d[k++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+        while (k > 0) put(d[--k .. k + 1]);
+    }
+    const(char)[] text() const return { return buf[0 .. n]; }
+}
+
+// "so we give each harness a line for total coverage"
+// "and ACP as well separately"
+// One line a harness, in the order the harnesses were first measured; x is
+// the run, y its total. No run, no plot.
+Tex seriesTex(const(Point)[] pts) {
+    Tex t;
+    if (pts.length == 0) return t;
+    t.put("\\begin{tikzpicture}\n"
+        ~ "\\begin{axis}[date coordinates in=x, xticklabel={\\day.\\month.}, ymin=0, ymax=100, "
+        ~ "ylabel={\\%}, legend pos=north west, width=\\textwidth, height=60mm]\n");
+    foreach (i, p; pts) {
+        bool seen = false;
+        foreach (q; pts[0 .. i]) if (q.agent == p.agent) { seen = true; break; }
+        if (seen) continue;
+        t.put("\\addplot coordinates {");
+        bool first = true;
+        foreach (q; pts) {
+            if (q.agent != p.agent) continue;
+            if (!first) t.put(" ");
+            first = false;
+            t.put("("); t.put(q.when); t.put(","); t.putInt(percentOf(q.total)); t.put(")");
+        }
+        t.put("};\n\\addlegendentry{"); t.put(p.agent); t.put("}\n");
+    }
+    t.put("\\end{axis}\n\\end{tikzpicture}\n");
+    return t;
+}
+
+// A run's score for one spec is an attestation: ground at this version said,
+// of this agent at this release, this total. Appended, never replaced, so the
+// series is every run and sky carries each row like any other.
+bool attestParity(sqlite3* db, const(char)[] agent, const(char)[] release, const(char)[] sha,
+                  int total, const(char)[] ts) {
+    import db : versionString, jsonArray1;
+    __gshared ZBuf id, subjects, contexts, attrs;
+    id.reset();
+    id.put("ground:parity:"); id.put(agent); id.put(":"); id.put(release); id.put(":"); id.put(ts);
+    id.put(":"); id.put(versionString());
+    __gshared ZBuf subject;
+    subject.reset(); subject.put("ground:"); subject.put(versionString());
+    jsonArray1(subjects, subject.slice());
+    __gshared ZBuf context;
+    context.reset(); context.put(agent); context.put(":"); context.put(release);
+    jsonArray1(contexts, context.slice());
+    Tex num;
+    num.putInt(total);
+    attrs.reset();
+    attrs.put(`{"agent":"`); attrs.put(agent); attrs.put(`","release":"`); attrs.put(release);
+    attrs.put(`","sha256":"`); attrs.put(sha); attrs.put(`","total":`); attrs.put(num.text()); attrs.put("}");
+
+    enum sql = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES (?1, ?2, '[\"parity\"]', ?3, '[\"ground\"]', ?4, 'ground', ?5)\0";
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return false;
+    bind(st, 1, id.slice());
+    bind(st, 2, subjects.slice());
+    bind(st, 3, contexts.slice());
+    bind(st, 4, ts);
+    bind(st, 5, attrs.slice());
+    auto ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+struct Series {
+    char[32][64] agents;
+    ubyte[64] agentLen;
+    char[16][64] whens;
+    int[64] totals;
+    size_t count;
+    Point at(size_t i) const return {
+        return Point(agents[i][0 .. agentLen[i]], whens[i][0 .. 16], totals[i]);
+    }
+}
+
+// Every run, oldest first: a harness's point is the mean of its specs' totals
+// in that run, and the minute it was measured.
+Series readSeries(sqlite3* db) {
+    Series s;
+    enum sql = "SELECT json_extract(attributes, '$.agent'), "
+        ~ "substr(timestamp, 1, 10) || ' ' || substr(timestamp, 12, 5), "
+        ~ "CAST(round(avg(json_extract(attributes, '$.total'))) AS INTEGER) "
+        ~ "FROM attestations WHERE json_extract(predicates, '$[0]') = 'parity' "
+        ~ "GROUP BY 1, timestamp ORDER BY timestamp, min(rowid)\0";
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return s;
+    while (sqlite3_step(st) == SQLITE_ROW && s.count < s.totals.length) {
+        auto agent = cstr(sqlite3_column_text(st, 0));
+        auto when = cstr(sqlite3_column_text(st, 1));
+        if (agent.length > s.agents[0].length || when.length != 16) continue;
+        foreach (i, c; agent) s.agents[s.count][i] = c;
+        s.agentLen[s.count] = cast(ubyte) agent.length;
+        foreach (i, c; when) s.whens[s.count][i] = c;
+        s.totals[s.count] = cast(int) sqlite3_column_int64(st, 2);
+        s.count++;
+    }
+    sqlite3_finalize(st);
+    return s;
+}
+
 // --- reading a pinned binary ---
 
 import core.sys.posix.sys.mman : mmap, munmap, PROT_READ, MAP_PRIVATE, MAP_FAILED;
@@ -615,12 +983,15 @@ private void pathOf(ref const Pin pin, ref Measured m) {
     auto home = getenv("HOME\0".ptr);
     size_t hl = 0;
     if (home !is null) while (home[hl] != 0) hl++;
-    auto suffix = pin.agent == "claude" ? "/.local/share/claude/versions/" : "/.codex/packages/standalone/current/bin/codex";
     size_t n = 0;
     void add(const(char)[] s) { foreach (c; s) if (n + 1 < m.path.length) m.path[n++] = c; }
     if (home !is null) add(home[0 .. hl]);
-    add(suffix);
-    if (pin.agent == "claude") add(pin.release);
+    if (pin.agent == "claude") { add("/.local/share/claude/versions/"); add(pin.release); }
+    // make install links the pinned schemas here from the store.
+    else if (pin.agent == "acp") { add("/.local/lib/ground/acp/"); add(pin.release); add("/schema.json"); }
+    // where agy's installer puts it
+    else if (pin.agent == "agy") add("/.local/bin/agy");
+    else add("/.codex/packages/standalone/current/bin/codex");
     m.path[n] = 0;
     m.pathLen = n;
 }
@@ -680,6 +1051,49 @@ private void readCodex(const(char)[] text) {
     }
 }
 
+private void readAgy(const(char)[] text) {
+    auto anchor = agyAnchor(text);
+    if (anchor < 0) return;
+    Keys common;
+    if (!agyMessage(text, cast(size_t) anchor, "HookArgsCommon", common)) { unread("HookArgsCommon"); return; }
+    foreach (ref e; agyEvents) {
+        Keys input = common;
+        Keys output;
+        if (!agyMessage(text, cast(size_t) anchor, e[1], input)) { unread(e[1]); continue; }
+        if (!agyMessage(text, cast(size_t) anchor, e[2], output)) { unread(e[2]); continue; }
+        addSpec(e[0], input, output);
+    }
+}
+
+private void unread(const(char)[] message) {
+    say("ground parity: agy's hooks.proto has no message ");
+    say(message);
+    say("\n");
+}
+
+private bool haveSpec(const(char)[] event) {
+    foreach (i; 0 .. specCount)
+        if (specs[i].event[0 .. specs[i].eventLen] == event) return true;
+    return false;
+}
+
+private void readAcp(const(char)[] text) {
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(text, acpMethodKey, from);
+        if (at < 0) break;
+        auto nameFrom = cast(size_t) at + acpMethodKey.length;
+        auto nameEnd = indexIn(text, `"`, nameFrom);
+        if (nameEnd < 0) break;
+        from = cast(size_t) nameEnd;
+        auto method = text[nameFrom .. cast(size_t) nameEnd];
+        if (haveSpec(method)) continue;
+        Keys input, output;
+        acpSpec(text, method, input, output);
+        addSpec(method, input, output);
+    }
+}
+
 private Measured measure(ref const Pin pin) {
     Measured m;
     specCount = 0;
@@ -699,6 +1113,8 @@ private Measured measure(ref const Pin pin) {
     sha256(text, m.sha);
     if (m.sha[] != pin.sha256) { m.access = Access.mismatch; return m; }
     if (pin.agent == "claude") readClaude(text);
+    else if (pin.agent == "acp") readAcp(text);
+    else if (pin.agent == "agy") readAgy(text);
     else readCodex(text);
     m.access = specCount > 0 ? Access.live : Access.empty;
     return m;
@@ -805,6 +1221,21 @@ private Row* rowFor(const(char)[] event) {
 
 private void put(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); }
 
+// `ground parity tex` sets the same table for the book: cells parted by &,
+// rows ended by \\, and the characters TeX reads as instructions escaped.
+private __gshared bool texOut;
+
+private void cell() { put(texOut ? " & " : "| "); }
+private void eol() { put(texOut ? " \\\\\n" : "\n"); }
+
+private void putName(const(char)[] s, size_t width) {
+    if (!texOut) { putPad(s, width); return; }
+    foreach (c; s) {
+        if (c == '_' || c == '#' || c == '%' || c == '&' || c == '$' || c == '{' || c == '}') put("\\");
+        put((&c)[0 .. 1]);
+    }
+}
+
 private void putPad(const(char)[] s, size_t width) {
     put(s);
     foreach (_; s.length .. width) put(" ");
@@ -817,6 +1248,7 @@ private const(char)[] percentText(int perMille, ref char[8] buf) {
     if (p >= 100) buf[n++] = cast(char)('0' + p / 100);
     if (p >= 10) buf[n++] = cast(char)('0' + (p / 10) % 10);
     buf[n++] = cast(char)('0' + p % 10);
+    if (texOut) buf[n++] = '\\';
     buf[n++] = '%';
     return buf[0 .. n];
 }
@@ -896,8 +1328,8 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
             auto input = cstr(sqlite3_column_text(st, 1));
             auto output = cstr(sqlite3_column_text(st, 2));
             measuredAt[pi] = sqlite3_column_int64(st, 3);
-            auto reads = sideOf(event).reads.slice();
-            auto writes = sideOf(event).writes.slice();
+            auto reads = sideFor(pin.agent, event).reads.slice();
+            auto writes = sideFor(pin.agent, event).writes.slice();
             int ic = covered(input, reads), it = countOf(input);
             int oc = covered(output, writes), ot = countOf(output);
             auto cell = score(ic, it, oc, ot);
@@ -916,46 +1348,87 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         sqlite3_finalize(st);
     }
 
-    if (only.length == 0) {
+    // "and put acp in a separatae table separate page"
+    // One table over the pins it is asked for. The terminal gets every pin in
+    // one; the book gets the hook harnesses on one page and ACP on the next.
+    void table(bool wantAcp, bool split) {
+        bool shown(size_t pi) { return !split || (pins[pi].agent == "acp") == wantAcp; }
+        bool any(ref const Row r) {
+            foreach (pi; 0 .. pins.length) if (shown(pi) && r.cells[pi] >= 0) return true;
+            return false;
+        }
+
         // A row is an event some pinned version names; a member of ground's
         // enum that no agent sends is not one.
         size_t eventWidth = 7;
         foreach (i; 0 .. rowCount)
-            if (anyCell(rows[i]) && rows[i].len + 1 > eventWidth) eventWidth = rows[i].len + 1;
+            if (any(rows[i]) && rows[i].len + 1 > eventWidth) eventWidth = rows[i].len + 1;
 
+        if (texOut) {
+            put("\\begin{center}\\small\\begin{tabular}{l|r");
+            for (size_t pi = 0; pi < pins.length;) {
+                auto agent = pins[pi].agent;
+                if (shown(pi)) put("|r");
+                while (pi < pins.length && pins[pi].agent == agent) { if (shown(pi)) put("|r"); pi++; }
+            }
+            put("}\n");
+        }
         putPad("Event:", eventWidth);
-        put("| overall ");
+        cell(); put("overall ");
         for (size_t pi = 0; pi < pins.length;) {
             auto agent = pins[pi].agent;
-            put("| ## "); put(agent); put(" ");
-            while (pi < pins.length && pins[pi].agent == agent) { put("| "); put(pins[pi].release); put(" "); pi++; }
+            if (shown(pi)) { cell(); put(texOut ? "" : "## "); put(agent); put(" "); }
+            while (pi < pins.length && pins[pi].agent == agent) {
+                if (shown(pi)) { cell(); put(pins[pi].release); put(" "); }
+                pi++;
+            }
         }
-        put("\n");
+        eol();
+        if (texOut) put("\\hline\n");
 
         foreach (i; 0 .. rowCount) {
-            if (!anyCell(rows[i])) continue;
+            if (!any(rows[i])) continue;
             int[8] agentMeans = -1;
             size_t agents = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
                 size_t from = pi;
                 while (pi < pins.length && pins[pi].agent == agent) pi++;
-                agentMeans[agents++] = meanOf(rows[i].cells[from .. pi]);
+                if (shown(from)) agentMeans[agents++] = meanOf(rows[i].cells[from .. pi]);
             }
             char[8] pb;
-            putPad(rows[i].event[0 .. rows[i].len], eventWidth);
-            put("| "); putPad(percentText(meanOf(agentMeans[0 .. agents]), pb), 8);
+            putName(rows[i].event[0 .. rows[i].len], eventWidth);
+            cell(); putPad(percentText(meanOf(agentMeans[0 .. agents]), pb), 8);
             size_t a = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
-                put("| "); putPad(percentText(agentMeans[a++], pb), agent.length + 4);
+                if (shown(pi)) { cell(); putPad(percentText(agentMeans[a++], pb), agent.length + 4); }
                 while (pi < pins.length && pins[pi].agent == agent) {
-                    put("| "); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1);
+                    if (shown(pi)) { cell(); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1); }
                     pi++;
                 }
             }
-            put("\n");
+            eol();
         }
+        if (texOut) put("\\end{tabular}\\end{center}\n\n");
+    }
+
+    if (only.length == 0 && !texOut) table(false, false);
+
+    // The book carries no path from this machine, and the series is its own.
+    if (texOut) {
+        table(false, true);
+        auto s = readSeries(db);
+        Point[64] pts;
+        foreach (i; 0 .. s.count) pts[i] = s.at(i);
+        put(seriesTex(pts[0 .. s.count]).text());
+        bool anyAcp = false;
+        foreach (ref pin; pins) if (pin.agent == "acp") anyAcp = true;
+        if (anyAcp) {
+            put("\\clearpage\n\\gsection{acp}\n");
+            table(true, true);
+        }
+        return;
     }
 
     put("\n");
@@ -970,8 +1443,14 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
                 put(m.path[0 .. m.pathLen]); put(" is "); put(m.sha[0 .. 12]);
                 put(", pinned "); put(pin.sha256[0 .. 12]);
                 break;
-            case Access.empty: put("no hook schemas read from "); put(m.path[0 .. m.pathLen]); break;
-            case Access.absent: put("no binary at "); put(m.path[0 .. m.pathLen]); break;
+            case Access.empty:
+                put(pin.agent == "acp" ? "no methods read from " : "no hook schemas read from ");
+                put(m.path[0 .. m.pathLen]);
+                break;
+            case Access.absent:
+                put(pin.agent == "acp" ? "no schema at " : "no binary at ");
+                put(m.path[0 .. m.pathLen]);
+                break;
         }
         if (m.access != Access.live && measuredAt[pi] > 0) { put(", measured "); putTime(measuredAt[pi]); }
         put("\n");
@@ -986,6 +1465,8 @@ int handleParity(int argc, const(char)** argv) {
 
     const(char)[] only;
     if (argc >= 3) only = cstr(argv[2]);
+    texOut = only == "tex";
+    if (texOut) only = "";
 
     auto db = openDb();
     if (db is null) {
@@ -995,7 +1476,9 @@ int handleParity(int argc, const(char)** argv) {
 
     Measured[8] status;
     int rc = 0;
+    // The book reads the store and measures nothing: a build is not a run.
     foreach (pi, ref pin; pins) {
+        if (texOut) break;
         status[pi] = measure(pin);
         if (status[pi].access != Access.live) continue;
         bool overflow = specsFull;
@@ -1016,6 +1499,22 @@ int handleParity(int argc, const(char)** argv) {
     }
 
     render(db, only, status);
+
+    // A whole run is attested, one row a spec, at the minute it was rendered.
+    if (!texOut && only.length == 0) {
+        import db : formatTimestamp;
+        auto ts = formatTimestamp();
+        foreach (pi, ref pin; pins) {
+            int[96] cells;
+            foreach (i; 0 .. rowCount) cells[i] = rows[i].cells[pi];
+            auto t = total(cells[0 .. rowCount]);
+            if (t < 0) continue;
+            if (!attestParity(db, pin.agent, pin.release, pin.sha256, t, ts)) {
+                say("ground parity: the store refused the run's row for "); say(pin.agent); say(" "); say(pin.release); say("\n");
+                rc = 1;
+            }
+        }
+    }
     sqlite3_close(db);
     return rc;
 }
