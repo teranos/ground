@@ -542,6 +542,8 @@ bool applySchema(sqlite3* db) {
     enum codeSessionSchema = "CREATE TABLE IF NOT EXISTS code_session (id TEXT PRIMARY KEY, "
         ~ "cwd TEXT NOT NULL, opened_at INTEGER NOT NULL, closed_at INTEGER NOT NULL DEFAULT 0)\0";
     sqlite3_exec(db, codeSessionSchema.ptr, null, null, null);
+    // A session's mode, by its wire value, so a resume comes back in it.
+    ensureColumn(db, "code_session", "mode", "TEXT NOT NULL DEFAULT 'default'");
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

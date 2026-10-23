@@ -7,6 +7,7 @@ module code.store;
 import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
     sqlite3_step, sqlite3_finalize, sqlite3_column_text, sqlite3_changes,
     SQLITE_OK, SQLITE_ROW, SQLITE_DONE, SQLITE_TRANSIENT;
+import sessionmode : SessionMode, parseSessionMode, nameOf;
 
 private void bind(sqlite3_stmt* st, int idx, const(char)[] s) {
     sqlite3_bind_text(st, idx, s.ptr, cast(int) s.length, SQLITE_TRANSIENT);
@@ -43,14 +44,34 @@ bool storeClose(sqlite3* db, const(char)[] id, long now) {
     return ok;
 }
 
-// Moves an open session to the cwd a resume names. 1 moved, 0 no open session
-// by that id, -1 the store refused.
-int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd) {
+// Moves an open session to the cwd a resume names, and reads the mode it was
+// left in. 1 moved, 0 no open session by that id, -1 the store refused.
+int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, ref SessionMode mode) {
     sqlite3_stmt* st;
-    enum sql = "UPDATE code_session SET cwd = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "UPDATE code_session SET cwd = ?2 WHERE id = ?1 AND closed_at = 0 RETURNING mode\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, cwd);
+    auto rc = sqlite3_step(st);
+    int found = 0;
+    if (rc == SQLITE_ROW) {
+        mode = parseSessionMode(text(st, 0));
+        found = 1;
+        rc = sqlite3_step(st);
+    }
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE || mode == SessionMode.unknown) return -1;
+    return found;
+}
+
+// Keeps the mode a session was set to. 1 kept, 0 no open session by that id,
+// -1 the store refused.
+int storeSetMode(sqlite3* db, const(char)[] id, SessionMode mode) {
+    sqlite3_stmt* st;
+    enum sql = "UPDATE code_session SET mode = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    bind(st, 2, nameOf(mode));
     auto rc = sqlite3_step(st);
     sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
