@@ -238,8 +238,13 @@ static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
 // hook side would have claimed session/new's cwd: main.d reads a cwd from
 // every hook payload, and that is not ground code handling session/new.
 static assert(has(sideFor("claude", "session/new").reads, "cwd"));
-static assert(sideFor("acp", "session/new").reads.slice() == "");
-static assert(sideFor("acp", "session/new").writes.slice() == "");
+static assert(sideFor("acp", "session/load").reads.slice() == "");
+static assert(sideFor("acp", "session/load").writes.slice() == "");
+// A block is the whole branch, past the errors it returns early on.
+static assert(has(sideFor("acp", "session/new").reads, "cwd"));
+static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
+static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
+static assert(!has(sideFor("acp", "initialize").writes, "sessionId"));
 // initialize writes protocolVersion and agentInfo, and reads nothing: there is
 // one version to answer whatever the client asked for.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
