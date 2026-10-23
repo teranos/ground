@@ -635,11 +635,36 @@ ref immutable(GroundSide) sideOf(const(char)[] event) {
 }
 
 // Ground code is the agent an ACP client talks to. A method's side is its block
-// in code/acp.d, from the test that picks it to its first return; a method with no
-// block reads and writes nothing.
+// in code/acp.d, the whole branch that tests for it, early returns and all; a
+// method with no block reads and writes nothing.
 private enum codeSource = import("source/code/acp.d");
 
 private struct CodeSides { GroundSide[32] items; size_t count; }
+
+// Where the branch opening after `from` closes. A brace in a string, a
+// character or a comment is not one.
+private size_t branchEnd()(string src, size_t from) {
+    auto open = indexIn(src, "{", from);
+    if (open < 0) return src.length;
+    int depth = 0;
+    char quote = 0;
+    for (size_t i = cast(size_t) open; i < src.length; i++) {
+        char c = src[i];
+        if (quote) {
+            if (quote != '`' && c == '\\') { i++; continue; }
+            if (c == quote) quote = 0;
+            continue;
+        }
+        if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
+            while (i < src.length && src[i] != '\n') i++;
+            continue;
+        }
+        if (c == '"' || c == '`' || c == '\'') quote = c;
+        else if (c == '{') depth++;
+        else if (c == '}' && --depth == 0) return i + 1;
+    }
+    return src.length;
+}
 
 private CodeSides buildCodeSides()() {
     CodeSides cs;
@@ -652,8 +677,7 @@ private CodeSides buildCodeSides()() {
         auto nameEnd = indexIn(codeSource, `"`, nameFrom);
         assert(nameEnd >= 0, "code/acp.d tests a method it does not close");
         from = cast(size_t) nameEnd;
-        auto ret = indexIn(codeSource, "return true;", cast(size_t) at);
-        auto block = codeSource[cast(size_t) at .. ret < 0 ? codeSource.length : cast(size_t) ret];
+        auto block = codeSource[cast(size_t) at .. branchEnd(codeSource, cast(size_t) at)];
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
     }
