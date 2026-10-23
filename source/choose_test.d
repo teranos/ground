@@ -2,8 +2,6 @@ module choose_test;
 
 // "ground should refuse if it cant resolve to a single one cleanly"
 // "in case of two equal candidates. ground cant know which one we mean"
-// "ask about rituals for where we are now"
-// "ask about what rites are inside of one specific ritual"
 
 import proto : parsePbt;
 import ritual.resolve : chooseRitual;
