@@ -3,6 +3,10 @@ module proto_ritual_test;
 // Rituals and rites. A ritual is one or more sequences of rites blocks, and a
 // rite is a command whose exit code says whether the walk advances, holds or
 // halts. A performance is one full run of a ritual, in a checkout of its own.
+// TODO A run's result reaches the parent when that run concludes
+// "failure needs to prop to parent immediately when i happens"
+// "if FLIP1 ci is red, parent should know about it on T15 and the FLIP2 ci red would surface on T2 + T15"
+// "90c is only halfish done, because we cant do better on a --bg agent"
 // TODO List rituals for this path
 // "ask about rituals for where we are now"
 // TODO Show one ritual's rites
