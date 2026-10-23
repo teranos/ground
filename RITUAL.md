@@ -132,10 +132,7 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | | 79 | One thing advances a position | — mine, from reading the callers | "the position only advances when a turn ends, which for a working agent can be never" |
 | x | 75 | A ritual is carried by an Agent, not a detached process | — | |
 | x | 76 | — | — | |
-| x | 46 | A rite's verdict reaches the agent, unasked | "isnt it the perfect mechanism to fiannly use for intterupt on rite ?" / "to: agent doesnt make sense" / "no user facign i would say" / "not part of the api" / "doesnt make sense, because why would you have to specify it ? its expected, everything comes abck to causer" / "i am a user, not an agent" | |
-| D | 70 | Ground's trace is on your screen as it happens | "the first two sentences of what happened in last_assistent_message pre-Stop inside of any rite as a Notification in the parent session" / "it seems like it would increase the clarity i have into ground by an absolute incredible amount" / "i believe my temporal awareness is much greater than yours" | |
 | ✓ | 47 | A CI check is a rite like any other | — | |
-| x | 53 | Commit, push and CI auto-approved inside a performance | "commits and pushes and ci check, are all auto-approved" | |
 | ✓ | 55 | A performance survives losing its worktree | "item 55 approved now" | |
 
 Row 99 — a performance whose driver is gone is halted where it stands at the
@@ -146,15 +143,6 @@ which one, and the halt names it; a write to a reader that is gone fails as an
 error instead of killing the driver. Only SIGKILL is still gone without a word.
 
 "I dont know how to explain how serious this defect is"
-
-Known defects in the example:
-
-| | nr | thing | |
-|---|---|---|---|
-| D | 33 | `goto: parity` | |
-| D | 34 | `built` | |
-| D | 35 | `catch: 22` on `survived` | |
-| D | 36 | `survived` measures the API | |
 
 Inherited by anything that rides the watcher:
 
@@ -178,9 +166,6 @@ Claude Code hook events, in the context of this feature:
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| D | 39 | `TaskCreated` | — | |
-| D | 40 | `TaskCompleted` | — | |
-| x | 42 | `Notification` | "Notification is one that is on my wish list actually" | "Impossible to reason about, or have a real conversation about it with CLaude Code without it confabulating and inventing and not working with me. In my session, there were multiple instances of me doing an easy ask, If Claude Code sends notifications, and this event matches on it. do it now, you are Claude Code, you can make it happen. The reality is it cant't make it happen at will on command. The basic thing required to develop this thing, i havent yet figured out how to do it, further research required before we can make definitive statements about it, never believe anything Claude is inferring from this, always consult Antropic docs as first source." |
 | ✓ | 50 | `WorktreeCreate` | "should we finally adop git worktrees for this" | |
 | ✓ | 51 | `WorktreeRemove` | — | |
 | | 56 | `CwdChanged` | — | |
