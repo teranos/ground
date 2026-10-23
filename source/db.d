@@ -547,6 +547,8 @@ bool applySchema(sqlite3* db) {
     // Its additional workspace roots, as the JSON array a client is answered
     // with: ordered, each path absolute, [] for none.
     ensureColumn(db, "code_session", "dirs", "TEXT NOT NULL DEFAULT '[]'");
+    // The effort a session is at: low, medium, high, xhigh or max.
+    ensureColumn(db, "code_session", "effort", "TEXT NOT NULL DEFAULT 'medium'");
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

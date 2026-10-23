@@ -14,7 +14,7 @@ import parse : extractJsonString;
 import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
-import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode;
+import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, ferror, FILE;
 import code.mcp : McpGroup, openMcp, closeMcp;
@@ -71,6 +71,40 @@ struct Sessions {
     Open[64] open; // the sessions live in this process
     size_t openLen;
     sqlite3* db;   // where sessions are kept; none, and they live in this process only
+    bool settingsEffort; // a new session starts at the effort Claude Code's settings name
+}
+
+// The effort levels effort.d names, lowest first: the one config option a
+// session offers, as a thought_level select.
+private immutable string[5] efforts = ["low", "medium", "high", "xhigh", "max"];
+private immutable string[5] effortNames = ["Low", "Medium", "High", "Extra high", "Max"];
+private enum MEDIUM = 1;
+
+// Where a level stands among the five, or efforts.length for one ground does
+// not know.
+private size_t effortAt(const(char)[] level) {
+    foreach (i, e; efforts) if (e == level) return i;
+    return efforts.length;
+}
+
+// The effort a new session starts at: the effortLevel Claude Code's settings
+// name, when it is one of the five; medium with none, or one ground does not
+// know.
+string effortDefault()(const(char)[] settings) {
+    import effort : effortIn;
+    auto at = effortAt(effortIn(settings));
+    return efforts[at < efforts.length ? at : MEDIUM];
+}
+
+// The configOptions a session answers with: effort, at the level it is at.
+private void putConfig(ref Reply r, size_t effort) {
+    r.add(`[{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`);
+    r.add(efforts[effort]); r.add(`","options":[`);
+    foreach (i, e; efforts) {
+        if (i > 0) r.add(",");
+        r.add(`{"value":"`); r.add(e); r.add(`","name":"`); r.add(effortNames[i]); r.add(`"}`);
+    }
+    r.add("]}]");
 }
 
 // A live session: its id, the cwd it is in and its additional roots, each kept
@@ -82,6 +116,7 @@ struct Open {
     size_t cwdLen;
     McpGroup mcp;
     SessionMode mode;
+    size_t effort; // where it stands among efforts
     char[2048] dirs; // the JSON array a client is answered with
     size_t dirsLen;
 }
@@ -229,12 +264,13 @@ private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
     r.add("code-"); putNumber(r, s.started); r.add("-"); putNumber(r, s.pid); r.add("-"); putNumber(r, n);
 }
 
-private void keep(ref Open o, const(char)[] id, const(char)[] cwd, SessionMode mode, const(char)[] dirs) {
+private void keep(ref Open o, const(char)[] id, const(char)[] cwd, SessionMode mode, const(char)[] dirs, size_t effort) {
     foreach (i, c; id) o.id[i] = c; // a slice copy calls druntime
     o.idLen = id.length;
     foreach (i, c; cwd) o.cwd[i] = c;
     o.cwdLen = cwd.length;
     o.mode = mode;
+    o.effort = effort;
     foreach (i, c; dirs) o.dirs[i] = c;
     o.dirsLen = dirs.length;
 }
@@ -319,17 +355,24 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         sessions.count++;
         Reply sid;
         putSessionId(sid, sessions, sessions.count);
-        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), now())) {
+        size_t effort = MEDIUM;
+        if (sessions.settingsEffort && !__ctfe) {
+            import effort : settingsInto;
+            __gshared char[65536] settings;
+            effort = effortAt(effortDefault(settings[0 .. settingsInto(settings[])]));
+        }
+        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), efforts[effort], now())) {
             Reply detail;
             scope(exit) detail.dispose();
             if (!__ctfe) closeMcp(o.mcp, detail);
             put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
             return true;
         }
-        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice());
+        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice(), effort);
         sessions.openLen++;
         put(`,"result":{"sessionId":"`); put(sid.slice());
-        put(`","modes":`); putModes(r, SessionMode.manual); put(`}}`);
+        put(`","modes":`); putModes(r, SessionMode.manual);
+        put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
         return true;
     }
 
@@ -445,10 +488,17 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
         auto at = openAt(sessions, sid);
         auto mode = at < 0 ? SessionMode.manual : sessions.open[cast(size_t) at].mode;
+        size_t effort = at < 0 ? MEDIUM : sessions.open[cast(size_t) at].effort;
+        char[16] level;
+        size_t levelLen = 0;
         char[1024] was;
         size_t wasLen = 0;
         int stored;
-        if (sessions.db !is null) stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen);
+        if (sessions.db !is null) {
+            stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen, level[], levelLen);
+            effort = effortAt(level[0 .. levelLen]);
+            if (stored == 1 && effort == efforts.length) stored = -1;
+        }
         else if (at < 0) stored = 0;
         else {
             auto o = &sessions.open[cast(size_t) at];
@@ -479,8 +529,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             at = cast(ptrdiff_t) sessions.openLen;
             sessions.openLen++;
         }
-        keep(sessions.open[cast(size_t) at], sid, cwd, mode, dirs.slice());
-        put(`,"result":{"modes":`); putModes(r, mode); put(`}}`);
+        keep(sessions.open[cast(size_t) at], sid, cwd, mode, dirs.slice(), effort);
+        put(`,"result":{"modes":`); putModes(r, mode);
+        put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
         return true;
     }
 
@@ -517,6 +568,50 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         sessions.open[cast(size_t) at].mode = mode;
         put(`,"result":{}}`);
+        return true;
+    }
+
+    // Effort is the one option a session offers, a select over the five
+    // levels. Set, it is kept with the session, and the answer is "The full
+    // set of configuration options and their current values".
+    if (method == "session/set_config_option") {
+        char[256] sb;
+        char[64] cb;
+        char[64] vb;
+        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        auto config = extractJsonString(line, `"configId"`, &cb[0], cb.length);
+        auto value = extractJsonString(line, `"value"`, &vb[0], vb.length);
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`); return true; }
+        if (config is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`); return true; }
+        if (value is null) {
+            put(`,"error":{"code":-32602,"message":"session/set_config_option needs a value: effort is a select, not a boolean"}}`);
+            return true;
+        }
+        auto at = openAt(sessions, sid);
+        if (at < 0) {
+            put(`,"error":{"code":-32002,"message":"no open session `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        if (config != "effort") {
+            put(`,"error":{"code":-32602,"message":"no config option `); putEscaped(r, config);
+            put(`; a session offers effort"}}`);
+            return true;
+        }
+        auto effort = effortAt(value);
+        if (effort == efforts.length) {
+            put(`,"error":{"code":-32602,"message":"no effort `); putEscaped(r, value);
+            put(`; effort is low, medium, high, xhigh or max"}}`);
+            return true;
+        }
+        if (sessions.db !is null && storeSetEffort(sessions.db, sid, efforts[effort]) != 1) {
+            put(`,"error":{"code":-32603,"message":"the store refused the effort of `);
+            putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        sessions.open[cast(size_t) at].effort = effort;
+        put(`,"result":{"configOptions":`); putConfig(r, effort); put(`}}`);
         return true;
     }
 
@@ -571,6 +666,7 @@ int handleCode() {
     size_t cap = 0;
     import db : openDb, sqlite3_close;
     auto sessions = Sessions(cast(ulong) time(null), cast(uint) getpid());
+    sessions.settingsEffort = true;
     // Ground stops rather than degrades: a session no store keeps could not
     // be resumed, and a client told it could would find out too late.
     sessions.db = openDb();

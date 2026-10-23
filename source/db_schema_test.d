@@ -39,6 +39,7 @@ unittest {
     assert(hasColumn(db, "code_session", "closed_at"));
     assert(hasColumn(db, "code_session", "mode"));
     assert(hasColumn(db, "code_session", "dirs"));
+    assert(hasColumn(db, "code_session", "effort"));
     sqlite3_close(db);
 }
 
@@ -69,5 +70,6 @@ unittest {
     assert(applySchema(db));
     assert(hasColumn(db, "code_session", "mode"));
     assert(hasColumn(db, "code_session", "dirs"));
+    assert(hasColumn(db, "code_session", "effort"));
     sqlite3_close(db);
 }
