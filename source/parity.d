@@ -634,13 +634,39 @@ ref immutable(GroundSide) sideOf(const(char)[] event) {
     return unknownSide;
 }
 
-// Ground code is the agent an ACP client talks to. It has no source yet, so it
-// reads and writes none of what the protocol names.
+// Ground code is the agent an ACP client talks to. A method's side is its block
+// in code.d, from the test that picks it to its first return; a method with no
+// block reads and writes nothing.
+private enum codeSource = import("source/code.d");
+
+private struct CodeSides { GroundSide[32] items; size_t count; }
+
+private CodeSides buildCodeSides()() {
+    CodeSides cs;
+    enum key = `method == "`;
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(codeSource, key, from);
+        if (at < 0) break;
+        auto nameFrom = cast(size_t) at + key.length;
+        auto nameEnd = indexIn(codeSource, `"`, nameFrom);
+        assert(nameEnd >= 0, "code.d tests a method it does not close");
+        from = cast(size_t) nameEnd;
+        auto ret = indexIn(codeSource, "return true;", cast(size_t) at);
+        auto block = codeSource[cast(size_t) at .. ret < 0 ? codeSource.length : cast(size_t) ret];
+        assert(cs.count < cs.items.length, "code.d handles more methods than parity holds");
+        cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
+    }
+    return cs;
+}
+
+private static immutable CodeSides codeSides = buildCodeSides();
 private static immutable GroundSide codeSide = GroundSide(null, GroundKeys.init, GroundKeys.init);
 
 ref immutable(GroundSide) sideFor(const(char)[] agent, const(char)[] event) {
-    if (agent == "acp") return codeSide;
-    return sideOf(event);
+    if (agent != "acp") return sideOf(event);
+    foreach (ref s; codeSides.items[0 .. codeSides.count]) if (s.event == event) return s;
+    return codeSide;
 }
 
 // --- the score ---

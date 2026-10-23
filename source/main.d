@@ -244,6 +244,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import parity : handleParity;
             return handleParity(argc, argv);
         }
+        if (cmd == "code") {
+            import code : handleCode;
+            return handleCode();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
