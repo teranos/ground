@@ -1201,19 +1201,28 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         sqlite3_finalize(st);
     }
 
-    if (only.length == 0) {
+    // "and put acp in a separatae table separate page"
+    // One table over the pins it is asked for. The terminal gets every pin in
+    // one; the book gets the hook harnesses on one page and ACP on the next.
+    void table(bool wantAcp, bool split) {
+        bool shown(size_t pi) { return !split || (pins[pi].agent == "acp") == wantAcp; }
+        bool any(ref const Row r) {
+            foreach (pi; 0 .. pins.length) if (shown(pi) && r.cells[pi] >= 0) return true;
+            return false;
+        }
+
         // A row is an event some pinned version names; a member of ground's
         // enum that no agent sends is not one.
         size_t eventWidth = 7;
         foreach (i; 0 .. rowCount)
-            if (anyCell(rows[i]) && rows[i].len + 1 > eventWidth) eventWidth = rows[i].len + 1;
+            if (any(rows[i]) && rows[i].len + 1 > eventWidth) eventWidth = rows[i].len + 1;
 
         if (texOut) {
             put("\\begin{center}\\small\\begin{tabular}{l|r");
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
-                put("|r");
-                while (pi < pins.length && pins[pi].agent == agent) { put("|r"); pi++; }
+                if (shown(pi)) put("|r");
+                while (pi < pins.length && pins[pi].agent == agent) { if (shown(pi)) put("|r"); pi++; }
             }
             put("}\n");
         }
@@ -1221,21 +1230,24 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         cell(); put("overall ");
         for (size_t pi = 0; pi < pins.length;) {
             auto agent = pins[pi].agent;
-            cell(); put(texOut ? "" : "## "); put(agent); put(" ");
-            while (pi < pins.length && pins[pi].agent == agent) { cell(); put(pins[pi].release); put(" "); pi++; }
+            if (shown(pi)) { cell(); put(texOut ? "" : "## "); put(agent); put(" "); }
+            while (pi < pins.length && pins[pi].agent == agent) {
+                if (shown(pi)) { cell(); put(pins[pi].release); put(" "); }
+                pi++;
+            }
         }
         eol();
         if (texOut) put("\\hline\n");
 
         foreach (i; 0 .. rowCount) {
-            if (!anyCell(rows[i])) continue;
+            if (!any(rows[i])) continue;
             int[8] agentMeans = -1;
             size_t agents = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
                 size_t from = pi;
                 while (pi < pins.length && pins[pi].agent == agent) pi++;
-                agentMeans[agents++] = meanOf(rows[i].cells[from .. pi]);
+                if (shown(from)) agentMeans[agents++] = meanOf(rows[i].cells[from .. pi]);
             }
             char[8] pb;
             putName(rows[i].event[0 .. rows[i].len], eventWidth);
@@ -1243,9 +1255,9 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
             size_t a = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
-                cell(); putPad(percentText(agentMeans[a++], pb), agent.length + 4);
+                if (shown(pi)) { cell(); putPad(percentText(agentMeans[a++], pb), agent.length + 4); }
                 while (pi < pins.length && pins[pi].agent == agent) {
-                    cell(); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1);
+                    if (shown(pi)) { cell(); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1); }
                     pi++;
                 }
             }
@@ -1254,12 +1266,21 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         if (texOut) put("\\end{tabular}\\end{center}\n\n");
     }
 
+    if (only.length == 0 && !texOut) table(false, false);
+
     // The book carries no path from this machine, and the series is its own.
     if (texOut) {
+        table(false, true);
         auto s = readSeries(db);
         Point[64] pts;
         foreach (i; 0 .. s.count) pts[i] = s.at(i);
         put(seriesTex(pts[0 .. s.count]).text());
+        bool anyAcp = false;
+        foreach (ref pin; pins) if (pin.agent == "acp") anyAcp = true;
+        if (anyAcp) {
+            put("\\clearpage\n\\gsection{acp}\n");
+            table(true, true);
+        }
         return;
     }
 
