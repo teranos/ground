@@ -3,9 +3,15 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # The MCP client ground code owns its sessions' servers through, built as
+    # its own flake builds it, with the json-c it is held to.
+    libmcp = {
+      url = "github:teranos/libmcp";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, libmcp }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [
         "x86_64-linux"
@@ -13,6 +19,8 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
+      # What the client and ground link: the library, and the json-c it patched.
+      mcp = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
     in {
       packages = forAllSystems (system:
         let
@@ -25,8 +33,8 @@
             inherit version;
             src = ./.;
 
-            nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git ];
-            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ];
+            nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git pkgs.pkg-config ];
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ] ++ mcp system;
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -195,7 +203,9 @@
           default = pkgs.mkShell {
             # dub asks pkg-config for each lib. Without the pinned one in the
             # shell it asked Homebrew's, which named an x86_64 libgit2.
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config ];
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 ] ++ mcp system;
+            # make test-mcp links the input's layout test and talks to its test server.
+            LIBMCP_SRC = libmcp.outPath;
           };
         }
       );

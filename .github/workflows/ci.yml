@@ -81,6 +81,9 @@
           "run": "nix build .#ground"
         },
         {
+          "run": "nix develop .#default --command make test-mcp"
+        },
+        {
           "run": "nix develop .#default --command sh -c 'make wind && dub test'"
         },
         {

@@ -8,7 +8,7 @@
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC", "--lowmem"],
-    "libs": ["sqlite3", "curl", "git2"],
+    "libs": ["sqlite3", "curl", "git2", "mcp", "json-c"],
     "extraDependencyFiles": [".ctfe/sand"],
     "preBuildCommands": ["date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind"],
 

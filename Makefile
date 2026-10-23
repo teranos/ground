@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug install install-ug prune-dub-cache wind ug book annot press binder editor
+.PHONY: build test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor
 
 PREFIX ?= $(HOME)/.local
 
@@ -70,8 +70,25 @@ UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
 ug: $(UG_SOURCES)
 	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2
 
-test: test-tools test-ug
+test: test-tools test-ug test-mcp
 	dub test
+
+# ground's side of libmcp: the D binding's layout against the C, ground mcp
+# against the library's test server, the harness dispatch, and ground code
+# owning a session's servers. LIBMCP_SRC is the input's source; the devShell sets it.
+MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c),-L$(f))
+MCP_SERVER = LIBMCP_SERVER=$(LIBMCP_SRC)/tests/server.py
+test-mcp: build
+	test -n "$(LIBMCP_SRC)" || { echo "test-mcp: LIBMCP_SRC names no libmcp source; run under nix develop" >&2; exit 1; }
+	mkdir -p build
+	cc -c $(LIBMCP_SRC)/tests/abi.c $(shell pkg-config --cflags libmcp) -o build/abi.o
+	ldc2 -betterC -I=source -of=build/abi-test mcp/abi.d build/abi.o $(MCP_LIBS)
+	build/abi-test
+	ldc2 -betterC -I=source -of=build/mcp-client mcp/client.d source/mcpcmd.d $(MCP_LIBS)
+	$(MCP_SERVER) python3 mcp/test_d.py build/mcp-client
+	ldc2 -betterC -I=source -of=build/mcp-harness mcp/harness.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
+	$(MCP_SERVER) python3 mcp/test_harness.py build/mcp-harness
+	$(MCP_SERVER) python3 mcp/test_ground.py ./ground
 
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:

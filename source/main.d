@@ -248,6 +248,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import code : handleCode;
             return handleCode();
         }
+        if (cmd == "mcp") {
+            import mcpcmd : handleMcp;
+            return handleMcp(argc, argv);
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;
