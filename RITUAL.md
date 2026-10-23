@@ -194,7 +194,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 | x | 74 | The agent carries on when the Stop goes back | — | — | |
 | ✓ | 20 | Halt with code + output on screen | `stop.d`, collet | "leave on the screen the non 0 non 1 was and its message" | |
 | ✓ | 21 | The current rite runs and the position moves | `ritual.d` | "it takes a super long time before an agent will reach Stop" | |
-| ✓ | 22 | The agent knows where it is, what happened, and what the author said | integration | "msg i also want as anotgher optional one" | "Performing ritual willow, rite 5 of 10: MANGOx1. It is met when this exits 1: grep -qxF ... . Take the MANGO out of WILLOW.md." / "<RITE> passed." |
 | ✓ | 23 | Attest each rite's outcome | `ritual.d` | — | |
 | ✓ | 25 | Abort a ritual | command | "it ends when it ends, not because i ran ritual stop" / "ground should take responsibility" | "claude -w <id>" |
 | D | 26 | List rituals for this path | command | "ask about rituals for where we are now" | |

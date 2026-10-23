@@ -106,6 +106,7 @@ static assert(flip.catchCount == 0);
 static assert(classify(0, flip) == Verdict.Advance);
 static assert(classify(1, flip) == Verdict.Halt);
 
+// "msg i also want as anotgher optional one"
 // "i want APP to be silent about its non zero exit"
 // The author foresaw the refusal. Caught, it holds and goes to REST, and what
 // is said about it is the author's sentence, not the exit.
