@@ -67,7 +67,7 @@ immutable Reading[] readings = [
     // ground as the agent a harness talks to.
     Reading("code", ["code"]),
     // What is linked into the binary: libgit2, libsqlite3, libcurl.
-    Reading("linked", ["libgit2"]),
+    Reading("linked", ["libgit2", "http"]),
     // What a ritual is written as, then what a rite is, then how one is chosen,
     // walked, spoken and ended. A case the operator argued for stands where its
     // module stands, not at the front for being said.
@@ -91,7 +91,7 @@ immutable Owner[] owners = [
                           "playbill"]),
     Owner("parity",      ["parity"]),
     Owner("code",        ["code"]),
-    Owner("linked",      ["libgit2"]),
+    Owner("linked",      ["libgit2", "http"]),
     Owner("project",     ["project", "routes"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage

@@ -126,7 +126,6 @@ build has no colour for draws nothing rather than being guessed at as pending.
 
 | | nr | thing | quotes | |
 |---|---|---|---|---|
-| x | 85 | An agent that cannot act says so in its own form | — | |
 | ✓ | 87 | CI holds the mic while a run is in flight | "there needs to be a way for the ball to land in the court of ci" / "and ci keeps holding the mic in this case" / "it keeps holding the mic until ci has an outcome" / "and the outcome is what is spoken back into the mic to both the agent and parent" | |
 | ✓ | 88 | A rite can speak, and what it says reaches both sides | "mic makes sure it also gets to us" / "if it goes through the mic, it means both the parent and the child agent would be receivers" / "nothing / msg / mic / msg+mic are all possible" | "CHERRY passed · The CHERRY rite is looking at WILLOW.md. · I plucked a CHERRY." |
 | ✓ | 90a | A dispatched rite is over when the job is sent | "in the more sophisticated version, the ci rite happens while the agent continues onto the next rite without needing to wait for ci to finish" | "<owner>/<repo> <workflow>" |
