@@ -86,11 +86,11 @@ char[64] sha256Hex()(const(char)[] s) {
 struct Pin { string agent; string release; string sha256; }
 
 version (OSX) {
-    version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; enum agyPlatform = "darwin-arm64"; }
-    else { enum claudePlatform = "darwin-x64"; enum codexTarget = "x86_64-apple-darwin"; enum agyPlatform = "darwin-x64"; }
+    version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; enum agyTarget = "mac_arm64"; }
+    else { enum claudePlatform = "darwin-x64"; enum codexTarget = "x86_64-apple-darwin"; enum agyTarget = "mac_x64"; }
 } else {
-    version (AArch64) { enum claudePlatform = "linux-arm64"; enum codexTarget = "aarch64-unknown-linux-musl"; enum agyPlatform = "linux-arm64"; }
-    else { enum claudePlatform = "linux-x64"; enum codexTarget = "x86_64-unknown-linux-musl"; enum agyPlatform = "linux-x64"; }
+    version (AArch64) { enum claudePlatform = "linux-arm64"; enum codexTarget = "aarch64-unknown-linux-musl"; enum agyTarget = "linux_arm64_musl"; }
+    else { enum claudePlatform = "linux-x64"; enum codexTarget = "x86_64-unknown-linux-musl"; enum agyTarget = "linux_x64_musl"; }
 }
 
 private bool startsAt(const(char)[] text, size_t at, const(char)[] s) {
@@ -129,25 +129,22 @@ PinSet readPins()(string flake) {
         auto from = i + agent.length + 2;
         auto close = indexIn(flake[from .. $], `"`);
         if (close < 0) continue;
-        auto brace = indexIn(flake[from .. $], "{", cast(size_t) close);
-        if (brace < 0) continue;
-        size_t bpos = cast(size_t) from + cast(size_t) brace;
-        int depth = 0;
-        size_t end = flake.length;
-        for (size_t p = bpos; p < flake.length; p++) {
-            if (flake[p] == '{') depth++;
-            else if (flake[p] == '}') {
-                depth--;
-                if (depth == 0) { end = p + 1; break; }
-            }
-        }
         auto release = flake[from .. from + close];
+        // The block closes where its braces balance: a platform's own block is nested in it.
+        auto open = indexIn(flake, "{", from + cast(size_t) close);
+        if (open < 0) continue;
+        size_t end = flake.length;
+        int depth = 0;
+        foreach (p; cast(size_t) open .. flake.length) {
+            if (flake[p] == '{') depth++;
+            else if (flake[p] == '}' && --depth == 0) { end = p + 1; break; }
+        }
         auto block = flake[from .. end];
         string sha;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
-        else if (agent == "agy") sha = hexAfter(block, agyPlatform);
         else {
-            auto t = assigned(block, codexTarget, " = {");
+            // codex and agy pin each target's tarball and the binary it unpacks to.
+            auto t = assigned(block, agent == "codex" ? codexTarget : agyTarget, " = {");
             if (t >= 0) sha = hexAfter(block[cast(size_t) t .. $], "binary");
         }
         if (sha !is null && found.count < found.items.length) found.items[found.count++] = Pin(agent, release, sha);
@@ -433,6 +430,89 @@ Keys claudeOutputKeys()(string text, string event) {
     return k;
 }
 
+// --- agy: hooks.proto's descriptor, compiled into the Go binary ---
+
+// A protobuf varint from i on, leaving i past it.
+private bool varint(const(char)[] m, ref size_t i, ref ulong v) {
+    v = 0;
+    for (uint shift = 0; i < m.length && shift < 64; shift += 7) {
+        auto b = cast(ubyte) m[i++];
+        v |= cast(ulong)(b & 0x7f) << shift;
+        if (b < 0x80) return true;
+    }
+    return false;
+}
+
+// The field at i: its number and, when it is length-delimited, its bytes.
+// False on bytes that are no field.
+private bool nextField(const(char)[] m, ref size_t i, ref ulong number, ref bool delimited, ref const(char)[] bytes) {
+    ulong tag, n;
+    if (!varint(m, i, tag)) return false;
+    number = tag >> 3;
+    delimited = (tag & 7) == 2;
+    switch (tag & 7) {
+        case 0: return varint(m, i, n);
+        case 1: i += 8; return i <= m.length;
+        case 5: i += 4; return i <= m.length;
+        case 2:
+            if (!varint(m, i, n) || n > m.length - i) return false;
+            bytes = m[i .. i + cast(size_t) n];
+            i += cast(size_t) n;
+            return true;
+        default: return false;
+    }
+}
+
+// The descriptor's package declaration, its field 2. Its messages follow it.
+ptrdiff_t agyAnchor(const(char)[] text) { return indexIn(text, "\x12\x0cexa.hooks_pb"); }
+
+// A message of the file is its field 4. The message's name is its own field 1,
+// each of its fields is its field 2, and a field's JSON name is that field's 10.
+bool agyMessage(const(char)[] text, size_t anchor, const(char)[] name, ref Keys keys) {
+    size_t i = anchor;
+    ulong number;
+    bool delimited;
+    const(char)[] m;
+    while (i < text.length) {
+        if (!nextField(text, i, number, delimited, m)) return false;
+        if (number == 12) return false; // syntax, the file's last field
+        if (number != 4 || !delimited) continue;
+        size_t j = 0;
+        const(char)[] own;
+        if (!nextField(m, j, number, delimited, own) || number != 1 || own != name) continue;
+        while (j < m.length) {
+            const(char)[] field;
+            if (!nextField(m, j, number, delimited, field)) return false;
+            if (number != 2 || !delimited) continue;
+            size_t k = 0;
+            const(char)[] json;
+            while (k < field.length) {
+                if (!nextField(field, k, number, delimited, json)) return false;
+                if (number == 10 && delimited) keys.add(json);
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+Keys agyKeys()(string text, string name) {
+    Keys k;
+    auto a = agyAnchor(text);
+    if (a >= 0) agyMessage(text, cast(size_t) a, name, k);
+    return k;
+}
+
+// agy's hooks.json names the events; hooks.proto names what each sends and reads back.
+private static immutable string[3][6] agyEvents = [
+    ["SessionStart", "SessionStartHookArgs", "SessionStartHookResult"],
+    ["PreToolUse", "PreToolHookArgs", "PreToolHookResult"],
+    ["PostToolUse", "PostToolHookArgs", "PostToolHookResult"],
+    ["PreInvocation", "PreInvocationHookArgs", "PreInvocationHookResult"],
+    ["PostInvocation", "PostInvocationHookArgs", "PostInvocationHookResult"],
+    ["Stop", "StopHookArgs", "StopHookResult"],
+];
+
 // --- ground's side, read out of its own source at compile time ---
 
 private enum mainSource = import("source/main.d");
@@ -569,8 +649,47 @@ private GroundSide[eventCount] buildSides()() {
 private static immutable GroundSide[eventCount] groundSides = buildSides();
 private static immutable GroundSide unknownSide = GroundSide(null, commonReads, GroundKeys.init);
 
-// An event ground dispatches nowhere still has what run() reads first.
-ref immutable(GroundSide) sideOf(const(char)[] event) {
+// The keys of a JSON object, its own and not its values'.
+GroundKeys jsonKeys()(const(char)[] json) {
+    GroundKeys keys;
+    int depth = 0;
+    for (size_t i = 0; i < json.length; i++) {
+        char c = json[i];
+        if (c == '"') {
+            size_t j = i + 1;
+            while (j < json.length && json[j] != '"') j += json[j] == '\\' ? 2 : 1;
+            if (j >= json.length) break;
+            size_t k = j + 1;
+            while (k < json.length && json[k] == ' ') k++;
+            if (depth == 1 && k < json.length && json[k] == ':') keys.add(json[i + 1 .. j]);
+            i = j;
+        }
+        else if (c == '{' || c == '[') depth++;
+        else if (c == '}' || c == ']') depth--;
+    }
+    return keys;
+}
+
+// agy is answered by agy.d, which reads the same of every event and answers each its own.
+private enum agySource = import("source/agy.d");
+
+private GroundSide[agyEvents.length] buildAgySides()() {
+    import agy : answerOf;
+    GroundSide[agyEvents.length] sides;
+    foreach (i, ref e; agyEvents) sides[i] = GroundSide(e[0], readsIn(agySource), jsonKeys(answerOf(e[0])));
+    return sides;
+}
+
+private static immutable GroundSide[agyEvents.length] agySides = buildAgySides();
+private static immutable GroundSide agyUnknown = GroundSide(null, readsIn(agySource), GroundKeys.init);
+
+// An event ground dispatches nowhere still has what run() reads first. codex
+// runs the handlers Claude Code does.
+ref immutable(GroundSide) sideOf(const(char)[] agent, const(char)[] event) {
+    if (agent == "agy") {
+        foreach (ref s; agySides) if (s.event == event) return s;
+        return agyUnknown;
+    }
     foreach (ref s; groundSides) if (s.event == event) return s;
     return unknownSide;
 }
@@ -623,7 +742,7 @@ private void pathOf(ref const Pin pin, ref Measured m) {
     string suffix;
     if (pin.agent == "claude") suffix = "/.local/share/claude/versions/";
     else if (pin.agent == "codex") suffix = "/.codex/packages/standalone/current/bin/codex";
-    else if (pin.agent == "agy") suffix = "/.local/bin/agy";
+    else if (pin.agent == "agy") suffix = "/.local/bin/agy"; // where agy's installer puts it
     size_t n = 0;
     void add(const(char)[] s) { foreach (c; s) if (n + 1 < m.path.length) m.path[n++] = c; }
     if (home !is null) add(home[0 .. hl]);
@@ -688,62 +807,24 @@ private void readCodex(const(char)[] text) {
     }
 }
 
-// --- agy: protobuf descriptors in Go binary ---
-
-void agyMessageKeys(const(char)[] text, size_t anchor, const(char)[] msgName, ref Keys keys) {
-    char[64] needle;
-    if (msgName.length + 2 > needle.length) return;
-    needle[0] = 0x0a;
-    needle[1] = cast(char) msgName.length;
-    foreach (i, c; msgName) needle[2 + i] = c;
-    auto at = indexIn(text, needle[0 .. 2 + msgName.length], anchor);
-    if (at < 0) return;
-
-    size_t i = cast(size_t) at + 2 + msgName.length;
-    size_t limit = i + 1024 < text.length ? i + 1024 : text.length;
-    while (i < limit) {
-        if (text[i] == 0x0a && i + 2 < limit && text[i + 1] >= 2 && text[i + 1] <= 40 && text[i + 2] >= 'A' && text[i + 2] <= 'Z') {
-            break;
-        }
-        if (cast(ubyte) text[i] == 0x52 && i + 1 < limit) {
-            size_t slen = cast(ubyte) text[i + 1];
-            if (slen > 0 && slen <= 50 && i + 2 + slen <= limit) {
-                auto s = text[i + 2 .. i + 2 + slen];
-                bool valid = true;
-                foreach (c; s) if (!isIdent(c)) { valid = false; break; }
-                if (valid) {
-                    keys.add(s);
-                    i += 2 + slen;
-                    continue;
-                }
-            }
-        }
-        i++;
+private void readAgy(const(char)[] text) {
+    auto anchor = agyAnchor(text);
+    if (anchor < 0) return;
+    Keys common;
+    if (!agyMessage(text, cast(size_t) anchor, "HookArgsCommon", common)) { unread("HookArgsCommon"); return; }
+    foreach (ref e; agyEvents) {
+        Keys input = common;
+        Keys output;
+        if (!agyMessage(text, cast(size_t) anchor, e[1], input)) { unread(e[1]); continue; }
+        if (!agyMessage(text, cast(size_t) anchor, e[2], output)) { unread(e[2]); continue; }
+        addSpec(e[0], input, output);
     }
 }
 
-private void readAgy(const(char)[] text) {
-    enum anchorNeedle = "\x0a\x0eHookArgsCommon";
-    auto anchor = indexIn(text, anchorNeedle);
-    if (anchor < 0) return;
-
-    Keys common;
-    agyMessageKeys(text, cast(size_t) anchor, "HookArgsCommon", common);
-
-    void addAgyEvent(string event, string inMsg, string outMsg) {
-        Keys inKeys = common;
-        if (inMsg.length > 0) agyMessageKeys(text, cast(size_t) anchor, inMsg, inKeys);
-        Keys outKeys;
-        if (outMsg.length > 0) agyMessageKeys(text, cast(size_t) anchor, outMsg, outKeys);
-        addSpec(event, inKeys, outKeys);
-    }
-
-    addAgyEvent("SessionStart", "SessionStartHookArgs", "SessionStartHookResult");
-    addAgyEvent("PreToolUse", "PreToolHookArgs", "PreToolHookResult");
-    addAgyEvent("PostToolUse", "PostToolHookArgs", "PostToolHookResult");
-    addAgyEvent("PreInvocation", "PreInvocationHookArgs", "PreInvocationHookResult");
-    addAgyEvent("PostInvocation", "PostInvocationHookArgs", "PostInvocationHookResult");
-    addAgyEvent("Stop", "StopHookArgs", "StopHookResult");
+private void unread(const(char)[] message) {
+    say("ground parity: agy's hooks.proto has no message ");
+    say(message);
+    say("\n");
 }
 
 private Measured measure(ref const Pin pin) {
@@ -963,8 +1044,8 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
             auto input = cstr(sqlite3_column_text(st, 1));
             auto output = cstr(sqlite3_column_text(st, 2));
             measuredAt[pi] = sqlite3_column_int64(st, 3);
-            auto reads = sideOf(event).reads.slice();
-            auto writes = sideOf(event).writes.slice();
+            auto reads = sideOf(pin.agent, event).reads.slice();
+            auto writes = sideOf(pin.agent, event).writes.slice();
             int ic = covered(input, reads), it = countOf(input);
             int oc = covered(output, writes), ot = countOf(output);
             auto cell = score(ic, it, oc, ot);

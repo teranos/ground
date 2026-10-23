@@ -1,29 +1,50 @@
 module agy;
 
-import core.stdc.stdio : stdin, stdout, stderr, fread, fputs, fwrite;
-import db : openDb, sqlite3_close, attestEvent;
-import parse : extractJsonString;
-import matcher : indexOf;
+// agy runs `ground hook agy <Event>` from a hooks.json entry: the event's JSON
+// on stdin, the answer read back from stdout. What each event sends and reads,
+// per pinned version, is the binary's own hooks.proto: `ground parity <Event>`.
 
-// BOOK_COMMAND = q"EOS
-// # run by Google Antigravity (AGY) on every lifecycle hook:
-// ground hook agy <Event>
-// EOS";
+import core.stdc.stdio : stdin, stdout, stderr, fread, fwrite, fputs;
 
-size_t strLen(const(char)* ptr) {
-    size_t len = 0;
-    while (ptr[len] != 0) len++;
-    return len;
+enum BOOK_COMMAND = q"EOS
+# what a hooks.json entry has agy run, the event's JSON on stdin:
+ground hook agy PreToolUse
+EOS";
+
+// What ground answers an event. An empty decision is not agy's own: agy 1.4.4
+// reads it as the deprecated allowTool, false unless set, and denies the tool.
+// "ask" leaves it to agy's permissions and their Always Allow cache.
+const(char)[] answerOf(const(char)[] event) {
+    if (event == "PreToolUse") return `{"decision":"ask"}`;
+    return "{}";
+}
+
+// agy's events share Claude Code's names, so they are attested under their own.
+const(char)[] predicateOf(const(char)[] event, char[] buf) {
+    size_t n = 0;
+    foreach (c; "Agy") if (n < buf.length) buf[n++] = c;
+    foreach (c; event) if (n < buf.length) buf[n++] = c;
+    return buf[0 .. n];
+}
+
+private size_t cLen(const(char)* p) {
+    size_t n = 0;
+    while (p[n] != 0) n++;
+    return n;
 }
 
 int handleAgyHook(int argc, const(char)** argv) {
-    if (argc < 4) {
-        fputs("ground hook agy: missing event argument (usage: ground hook agy <Event>)\n", stderr);
+    import db : openDb, sqlite3_close, attestEvent;
+    import exec : emitError;
+    import matcher : indexOf;
+    import parse : extractJsonString;
+
+    if (argc < 4 || argv[2][0 .. cLen(argv[2])] != "agy") {
+        fputs("ground hook: usage: ground hook agy <Event>\n", stderr);
         return 1;
     }
-    const(char)[] event = argv[3][0 .. strLen(argv[3])];
+    auto event = argv[3][0 .. cLen(argv[3])];
 
-    // Read full stdin payload
     __gshared char[262144] buf = 0;
     size_t total = 0;
     while (total < buf.length) {
@@ -31,20 +52,14 @@ int handleAgyHook(int argc, const(char)** argv) {
         if (n == 0) break;
         total += n;
     }
-    if (total == 0) {
-        fputs("ground hook agy: empty stdin\n", stderr);
-        return 1;
-    }
     auto input = buf[0 .. total];
 
-    // Extract AGY conversationId
     __gshared char[128] convBuf = 0;
-    auto conversationId = extractJsonString(input, `"conversationId"`, &convBuf[0], convBuf.length);
-    if (conversationId is null) conversationId = "unknown";
+    auto conversation = extractJsonString(input, `"conversationId"`, &convBuf[0], convBuf.length);
 
-    // Extract first workspace path from "workspacePaths": ["/path/to/ws", ...]
+    // The first of workspacePaths is where the conversation runs.
     __gshared char[4096] wsBuf = 0;
-    const(char)[] workspacePath = null;
+    const(char)[] workspace = null;
     auto wsIdx = indexOf(input, `"workspacePaths"`);
     if (wsIdx >= 0) {
         size_t pos = cast(size_t) wsIdx + `"workspacePaths"`.length;
@@ -55,32 +70,25 @@ int handleAgyHook(int argc, const(char)** argv) {
             if (pos < input.length && input[pos] == '"') {
                 pos++;
                 size_t wlen = 0;
-                while (pos < input.length && input[pos] != '"' && wlen < wsBuf.length) {
-                    wsBuf[wlen++] = input[pos++];
-                }
-                if (wlen > 0) workspacePath = wsBuf[0 .. wlen];
+                while (pos < input.length && input[pos] != '"' && wlen < wsBuf.length) wsBuf[wlen++] = input[pos++];
+                if (wlen > 0) workspace = wsBuf[0 .. wlen];
             }
         }
     }
-    if (workspacePath is null) workspacePath = "";
 
-    // Attest event directly into Ground's SQLite store
+    char[64] pb;
+    auto predicate = predicateOf(event, pb[]);
     auto db = openDb();
-    if (db !is null) {
-        attestEvent(db, event, workspacePath, conversationId, input);
+    if (db is null) {
+        emitError("agy.db", "the store would not open, so this agy event is not recorded",
+                  0, 0, cast(string) conversation, cast(string) predicate, "", "", "");
+    } else {
+        attestEvent(db, predicate, workspace, conversation, input);
         sqlite3_close(db);
     }
 
-    // Output AGY-compliant JSON on stdout
-    if (event == "PreToolUse") {
-        fputs("{\"decision\": \"allow\"}\n", stdout);
-    } else if (event == "SessionStart" || event == "PreInvocation" || event == "PostInvocation") {
-        fputs("{\"injectSteps\": []}\n", stdout);
-    } else if (event == "Stop") {
-        fputs("{\"decision\": \"\"}\n", stdout);
-    } else {
-        fputs("{}\n", stdout);
-    }
-
+    auto answer = answerOf(event);
+    fwrite(answer.ptr, 1, answer.length, stdout);
+    fputs("\n", stdout);
     return 0;
 }

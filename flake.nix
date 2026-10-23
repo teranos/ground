@@ -87,16 +87,25 @@
             echo "${sha256.${codexTarget}.binary}  $out/bin/codex" | sha256sum -c -
           '';
 
-          agyPlatform = {
-            aarch64-darwin = "darwin-arm64";
-            x86_64-darwin = "darwin-x64";
-            aarch64-linux = "linux-arm64";
-            x86_64-linux = "linux-x64";
+          agyTarget = {
+            aarch64-darwin = "mac_arm64";
+            x86_64-darwin = "mac_x64";
+            aarch64-linux = "linux_arm64_musl";
+            x86_64-linux = "linux_x64_musl";
           }.${system};
 
-          agy = version: sha256: pkgs.runCommand "agy-${version}" {} ''
+          # tarball: the release's asset digest, github.com/google-antigravity/antigravity-cli <version>.
+          # binary: the antigravity it unpacks to, which agy's installer puts at ~/.local/bin/agy.
+          agy = version: sha256: pkgs.runCommand "agy-${version}" {
+            src = pkgs.fetchurl {
+              url = "https://github.com/google-antigravity/antigravity-cli/releases/download/${version}/agy_cli_${agyTarget}.tar.gz";
+              sha256 = sha256.${agyTarget}.tarball;
+            };
+          } ''
             mkdir -p $out/bin
-            echo "${version}" > $out/bin/agy
+            tar -xzf $src -C $out/bin antigravity
+            mv $out/bin/antigravity $out/bin/agy
+            echo "${sha256.${agyTarget}.binary}  $out/bin/agy" | sha256sum -c -
           '';
         in {
           default = ground;
@@ -136,10 +145,22 @@
           };
 
           agy-1_4_4 = agy "1.4.4" {
-            darwin-arm64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
-            darwin-x64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
-            linux-arm64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
-            linux-x64 = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+            mac_arm64 = {
+              tarball = "85482aa8969300183f71c9653d9f581248fba7f506342a8eb087f3d2503203bd";
+              binary = "9abb478686dc08d48699ba1604c14d15819ef6a2542d5d32173acbd5f02d712d";
+            };
+            mac_x64 = {
+              tarball = "12c96c065ac50d36e087c1fda1bba8d6fb4fa7af232d1ef2a44499c2481a52bf";
+              binary = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+            };
+            linux_arm64_musl = {
+              tarball = "4900f50954ad6fb3747c2d80fe29b5986ae861d0f8ea04c2a5bd9cb1781507dc";
+              binary = "03ac1122a12a479a5110da1fcdfeb718988a323e0eaa3d2ccf96e98956b2ed9f";
+            };
+            linux_x64_musl = {
+              tarball = "f85f39bf74b6ff5f7f45da768ba52b39318a7e528811df65f394995959cbcc2c";
+              binary = "9caa302d10c42c698fb72ebda71910a2032b01a2ec99c391e8cd6fdc03ed31fd";
+            };
           };
         }
       );

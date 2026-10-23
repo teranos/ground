@@ -253,25 +253,10 @@ extern (C) int main(int argc, const(char)** argv) {
             sqlite3_close(db);
             return rc;
         }
+        // agy names itself; Claude Code and codex run bare ground.
         if (cmd == "hook") {
-            if (argc < 3) {
-                fputs("ground hook: missing agent (usage: ground hook <agy|claude|codex> <Event>)\n", stderr);
-                return 1;
-            }
-            const(char)[] agent = argv[2][0 .. argLen(argv[2])];
-            if (agent == "agy") {
-                import agy : handleAgyHook;
-                return handleAgyHook(argc, argv);
-            }
-            if (agent == "claude") {
-                // proceed to Claude hook runner below
-            } else if (agent == "codex") {
-                fputs("ground hook codex: not implemented yet\n", stderr);
-                return 1;
-            } else {
-                fputs("ground hook: unknown agent (expected agy, claude, or codex)\n", stderr);
-                return 1;
-            }
+            import agy : handleAgyHook;
+            return handleAgyHook(argc, argv);
         }
     }
 
@@ -279,10 +264,6 @@ extern (C) int main(int argc, const(char)** argv) {
         printVersion();
         fputs(" — Ground Control for Agentic AI\n", stderr);
         return 0;
-    }
-
-    if (argc < 2 || argv[1][0 .. argLen(argv[1])] != "hook") {
-        fputs("ground: deprecation warning: bare 'ground' hook invocation is deprecated; use 'ground hook claude'\n", stderr);
     }
 
     auto t0 = usecNow();

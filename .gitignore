@@ -83,3 +83,6 @@ grove-*/
 
 # Jev key, lives at ~/.qntx/jev-token; never in the tree
 jev_token
+
+# A session bookmark: the claude --resume line a branch's work continues from
+sesscodex
