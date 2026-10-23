@@ -268,6 +268,8 @@ struct ParsedQntx {
     bool present;
     string url;
     string token;
+    string model;   // what ground code prompts through the gateway
+    string gateway; // the node a prompt goes through; url when empty
 }
 
 // A ritual is the only thing that can be invoked, and it lives inside the
@@ -1439,7 +1441,7 @@ ParsedOrg parseOrg(ref string input, ref size_t pos, string name) {
     assert(0, "Unterminated org block");
 }
 
-// url: and token:, and nothing else.
+// url:, token:, model: and gateway:, and nothing else.
 ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
     ParsedQntx q;
     q.present = true;
@@ -1458,6 +1460,8 @@ ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
 
         if (key == "token") q.token = val;
         else if (key == "url") q.url = val;
+        else if (key == "model") q.model = val;
+        else if (key == "gateway") q.gateway = val;
         else assert(0, "Unknown qntx field");
     }
     assert(0, "Unterminated qntx block");
