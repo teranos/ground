@@ -11,7 +11,7 @@ for mode in ("modern", "legacy", "fragment"):
         ("tools/list", {}, 0),
         ("tools/call", {"name": "echo", "arguments": {"text": '☃\n"\\'}}, 0),
         ("test/remote", {}, 1),
-        ("test/input", {}, 1),
+        ("resources/read", {"uri": "test:input"}, 1),
         ("tools/call", {"name": "fail", "arguments": {}}, 1),
     ]:
         proc = subprocess.run([client, method, json.dumps(params), "--", sys.executable, server, mode], capture_output=True, timeout=5)
