@@ -21,9 +21,10 @@ static assert(sessionOf(p, Receiver.Human) == "parent-session");
 static assert(sessionOf(p, Receiver.HostLlm) == "parent-session");
 static assert(sessionOf(p, Receiver.AgentLlm) == "agent-session");
 
-// The ritual is the receiver, not a rite — a rite is a piece of it, and the
-// ritual is what drives the chat through them. It has no session of its own,
-// so naming it as an address is a mistake with an answer.
+// "THERE ARE FOR RECEIVERS"
+// "PARENT: HUMAN / HOSTLLM"
+// "CHILD : RITE  / AGENTLLM"
+// "WE NEED TO SAY THAT RITUAL IS THE RECEIVER, NOT RITE, RITE IS JUST A PIECE OF THE RITUAL, RITUAL DRIVES THE CHAT VIA RITES"
 static assert(sessionOf(p, Receiver.Ritual) is null);
 
 // "NEEDS TO BE SEEN BY BOTH HUMAN AND HOSTLLM"
