@@ -132,6 +132,8 @@ install: build install-ug
 	nix build .#acp-schemas --out-link $(PREFIX)/lib/ground/acp
 	$(MAKE) prune-dub-cache
 	./ground attest
+# Every install is a run of parity, so the series has a point per ground built.
+	./ground parity
 	./ground decay
 
 # dub keys its cache by version and every commit is a version: 129 builds, 18G.
@@ -159,11 +161,14 @@ editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d d
 # One typesetter, and the web copy is bound from what it set. Page 12 on the
 # screen is the sheet carrying 12 on paper, because it is that sheet and not a
 # second rendering of the same source.
-book: press binder
-	mkdir -p doc/tex
+book: press binder build
+	mkdir -p doc/tex doc/measured
 # press clears doc/tex itself, once it has proved every example fits a page.
 # Clearing here meant a halt deleted the last good book on its way out.
 	./tools/press
+# What this ground measured, read out of the store: the parity table as it
+# stands and the series of every run before it.
+	./ground parity tex > doc/measured/parity.tex
 	rm -f doc/html/*.html
 # B5, and the margin is only what keeps the ink off the edge.
 	@printf '%s\n' \

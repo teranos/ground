@@ -12,6 +12,12 @@
 % for fancyvrb and none for fvextra, whose line breaking left every example in
 % the book empty.
 \ifdefined\HCode\else\usepackage{fvextra}\fi
+% The parity series is drawn from the rows ground attested, one line a harness.
+\ifdefined\HCode\else
+  \usepackage{pgfplots}
+  \pgfplotsset{compat=1.18}
+  \usepgfplotslibrary{dateplot}
+\fi
 % D identifiers carry underscores, and a bare _ is a math shift in LaTeX. Every
 % symbol name in the book would otherwise have to be escaped by hand.
 \usepackage{underscore}

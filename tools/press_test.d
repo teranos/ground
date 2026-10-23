@@ -19,6 +19,12 @@ static assert(chapterFor(Case("f", "", false, "", "", `"so"`), "zbuf") == "");
 // A row without one is the two columns it always was.
 // "can you see the issue i spot here?"
 // The card and its row are one box, so a page never falls between them.
+// A chapter opens on its lead, then on whatever was measured for it at build:
+// a file under doc/measured named for the chapter, and nothing when none is.
+import press : chapterHead;
+static assert(chapterHead("parity", "\nLead.\n") ==
+    "\\chapter{parity}\n\nLead.\n\\InputIfFileExists{measured/parity}{}{}\n");
+
 import press : renderBody, Placed;
 enum hung = renderBody([Placed(0, "f.d", Case("f", "", false, "scope {\n}", "Why.", `"so"`))]);
 static assert(hung ==
