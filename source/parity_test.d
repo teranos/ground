@@ -284,6 +284,11 @@ static assert(has(sideFor("acp", "session/new").reads, "cwd"));
 static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
 static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(!has(sideFor("acp", "initialize").writes, "sessionId"));
+static assert(has(sideFor("acp", "initialize").writes, "agentCapabilities"));
+static assert(has(sideFor("acp", "session/close").reads, "sessionId"));
+static assert(has(sideFor("acp", "session/list").reads, "cwd"));
+static assert(has(sideFor("acp", "session/list").reads, "cursor"));
+static assert(has(sideFor("acp", "session/list").writes, "sessions"));
 // initialize writes protocolVersion and agentInfo, and reads nothing: there is
 // one version to answer whatever the client asked for.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
@@ -324,3 +329,42 @@ static assert(percentOf(624) == 62);
 
 static assert(covered("a,b,c", "b,c,d") == 2);
 static assert(covered("", "b") == 0);
+
+// "is to record how we are doing on parity over time against different specs and also have that plot as a line."
+// A harness's total is the mean of its cells. A spec with neither side is no cell.
+static assert(total([390, 610, -1]) == 500);
+static assert(total([-1, -1]) == -1);
+
+// "so we give each harness a line for total coverage"
+// "and ACP as well separately"
+enum pts = [Point("claude", "2026-10-21 20:12", 270), Point("claude", "2026-10-23 12:00", 300),
+            Point("acp", "2026-10-23 12:00", 50)];
+static assert(seriesTex(pts).text() ==
+    "\\begin{tikzpicture}\n"
+    ~ "\\begin{axis}[date coordinates in=x, xticklabel={\\day.\\month.}, ymin=0, ymax=100, "
+    ~ "ylabel={\\%}, legend pos=north west, width=\\textwidth, height=60mm]\n"
+    ~ "\\addplot coordinates {(2026-10-21 20:12,27) (2026-10-23 12:00,30)};\n\\addlegendentry{claude}\n"
+    ~ "\\addplot coordinates {(2026-10-23 12:00,5)};\n\\addlegendentry{acp}\n"
+    ~ "\\end{axis}\n\\end{tikzpicture}\n");
+
+// No runs, no plot: the page carries nothing rather than empty axes.
+static assert(seriesTex([]).text() == "");
+
+// A run attests one row per spec, and the series reads one point per harness
+// per run: the mean of that harness's specs.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(attestParity(db, "claude", "2.1.303", "aa", 270, "2026-10-21T20:12:00Z"));
+    assert(attestParity(db, "claude", "2.1.304", "bb", 290, "2026-10-21T20:12:00Z"));
+    assert(attestParity(db, "acp", "1.26.0", "cc", 50, "2026-10-21T20:12:00Z"));
+    assert(attestParity(db, "claude", "2.1.304", "bb", 310, "2026-10-23T12:00:00Z"));
+    auto s = readSeries(db);
+    assert(s.count == 3);
+    assert(s.at(0).agent == "claude" && s.at(0).when == "2026-10-21 20:12" && s.at(0).total == 280);
+    assert(s.at(1).agent == "acp" && s.at(1).when == "2026-10-21 20:12" && s.at(1).total == 50);
+    assert(s.at(2).agent == "claude" && s.at(2).when == "2026-10-23 12:00" && s.at(2).total == 310);
+    sqlite3_close(db);
+}

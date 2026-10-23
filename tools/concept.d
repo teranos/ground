@@ -32,9 +32,10 @@ immutable Word[] words = [
 // The order a reader meets them in, outermost to innermost. A scope carries
 // the path and the event, and both govern whatever sits inside it, so it is
 // met before the controls it governs rather than under them.
+// "and make parity the first chapter"
 immutable string[] chapters = [
-    "scope", "control", "project", "permission", "models", "ritual", "attestation",
-    "sentry", "parity", "code", "linked",
+    "parity", "scope", "control", "project", "permission", "models", "ritual", "attestation",
+    "sentry", "code", "linked",
 ];
 
 // The order a chapter's own cases are met in. A module and its test are one
@@ -92,7 +93,7 @@ immutable Owner[] owners = [
     Owner("parity",      ["parity"]),
     Owner("code",        ["code"]),
     Owner("linked",      ["libgit2", "http"]),
-    Owner("project",     ["project", "routes"]),
+    Owner("project",     ["project", "routes", "place"]),
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
     // command is how a person reads the same windows.

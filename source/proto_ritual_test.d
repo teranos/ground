@@ -597,6 +597,7 @@ project {
 `;
 static assert(parsePbt(pathOnlyInput).projects[0].origin == "");
 
+// "THE AGENT CANNOT NOT BE SUBJECT TO THE CONTROLS A RITUALS THAT FIRE FOR A GIVEN PROJECT."
 // A control in a project that names a repo belongs to that repo. Firing is the
 // project's property, so the control carries it and no path decides.
 enum projectControlInput = `
