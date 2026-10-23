@@ -245,6 +245,11 @@ static assert(has(sideFor("acp", "session/new").reads, "cwd"));
 static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
 static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(!has(sideFor("acp", "initialize").writes, "sessionId"));
+static assert(has(sideFor("acp", "initialize").writes, "agentCapabilities"));
+static assert(has(sideFor("acp", "session/close").reads, "sessionId"));
+static assert(has(sideFor("acp", "session/list").reads, "cwd"));
+static assert(has(sideFor("acp", "session/list").reads, "cursor"));
+static assert(has(sideFor("acp", "session/list").writes, "sessions"));
 // initialize writes protocolVersion and agentInfo, and reads nothing: there is
 // one version to answer whatever the client asked for.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
