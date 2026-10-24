@@ -48,7 +48,11 @@ def main():
     if rc != 0:
         print("bench: the build failed with %d after %.2fs" % (rc, seconds), file=sys.stderr)
         return rc
+    # One id per measurement, so a POST that timed out and is sent again is
+    # the same row: k took 90 s to answer once and the retry made a second.
+    ran = os.environ.get("GITHUB_RUN_ID") or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     row = {
+        "id": "ground:bench:ctfe:" + sha[:12] + ":" + runner + ":" + ran,
         "subjects": ["ground:" + version],
         "predicates": ["bench:ctfe"],
         "contexts": [where],
