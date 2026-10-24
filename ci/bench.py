@@ -1,0 +1,80 @@
+"""The CTFE benchmark: build what ground ships, say what it cost, and attest it.
+
+The measurement is the Makefile's own: the production build, timed, with its
+peak resident size. Here it is a forced rebuild, so a cached object cannot
+stand in for the work. The result is one attestation on the node, appended,
+never replaced, so the series is every run. No node named means no row, and
+that is a failure, not a quiet pass.
+"""
+import json
+import os
+import platform
+import resource
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+
+def out(cmd):
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def main():
+    url, token = os.environ.get("QNTX_URL", ""), os.environ.get("QNTX_TOKEN", "")
+    # On a runner the token is a secret in the environment; on a machine it is
+    # the file ground itself reads, named so the secret never crosses a command line.
+    if not token and os.environ.get("QNTX_TOKEN_FILE"):
+        token = open(os.path.expanduser(os.environ["QNTX_TOKEN_FILE"])).read().strip()
+    if not url or not token:
+        print("bench: QNTX_URL and QNTX_TOKEN (or QNTX_TOKEN_FILE) name where the row goes; one is missing", file=sys.stderr)
+        return 1
+    subprocess.run(["make", "wind"], check=True)
+    ldc = out(["ldc2", "--version"]).splitlines()[0]
+    sha = out(["git", "rev-parse", "HEAD"])
+    version = open(".version").read().strip()
+    runner = os.environ.get("RUNNER_OS", platform.system()).lower()
+    build = ["dub", "build", "--build=release", "--config=production", "--force"]
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    start = time.monotonic()
+    rc = subprocess.run(build).returncode
+    seconds = round(time.monotonic() - start, 2)
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    # ru_maxrss is the largest child so far: bytes on macOS, KiB on Linux.
+    peak = after.ru_maxrss if platform.system() == "Linux" else after.ru_maxrss // 1024
+    if rc != 0:
+        print("bench: the build failed with %d after %.2fs" % (rc, seconds), file=sys.stderr)
+        return rc
+    row = {
+        "subjects": ["ground:" + version],
+        "predicates": ["bench:ctfe"],
+        "contexts": ["github:" + runner],
+        "actors": ["ground-ci"],
+        "source": "ground-ci",
+        "attributes": {
+            "seconds": seconds,
+            "peak_kib": peak,
+            "ldc": ldc,
+            "sha": sha,
+            "version": version,
+            "runner": runner,
+        },
+    }
+    if os.environ.get("GITHUB_RUN_ID"):  # the run this row came from; a machine has none
+        row["attributes"]["run"] = "%s/%s/actions/runs/%s" % (
+            os.environ["GITHUB_SERVER_URL"], os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"])
+    print(json.dumps(row, indent=1))
+    req = urllib.request.Request(url.rstrip("/") + "/api/attestations", data=json.dumps(row).encode(),
+                                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            print("bench: %d %s" % (r.status, r.read().decode()))
+    except urllib.error.HTTPError as e:
+        print("bench: the node refused the row: %d %s" % (e.code, e.read().decode()), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
