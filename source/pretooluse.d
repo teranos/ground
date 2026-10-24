@@ -106,7 +106,7 @@ const(char)[] contextResponse(char[] dest, const(char)[] context, const(char)[] 
 // Context response for non-Bash tools. Carries the pending rewrite, and says
 // why beside whatever else there was to say.
 void writeContextResponse(const(char)[] context, const(char)[] decision) {
-    __gshared char[262144] out_ = 0;
+    __gshared char[262144] out_ = "";
     __gshared char[4096] said = 0;
     size_t sn;
     void say(const(char)[] s) { foreach (c; s) if (sn < said.length) said[sn++] = c; }
@@ -180,7 +180,7 @@ const(char)[] bashResponse(char[] dest, const(char)[] command, const(char)[] con
 void writeResponse(const(char)[] command, const(char)[] context, const(char)[] decision,
     bool background = false, int timeout = 0)
 {
-    __gshared char[262144] out_ = 0;
+    __gshared char[262144] out_ = "";
     auto r = bashResponse(out_[], command, context, decision, background, timeout);
     fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
@@ -279,8 +279,8 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
 
     // Two buffers, swapped between passes, so a pass that does not fit leaves
     // the previous one intact.
-    __gshared char[131072] bufA = 0;
-    __gshared char[131072] bufB = 0;
+    __gshared char[131072] bufA = "";
+    __gshared char[131072] bufB = "";
 
     const(char)[] current = region;
     size_t found = 0;

@@ -181,7 +181,7 @@ const(char)[] readProjectFile(const(char)[] root, const(char)[] rel) {
     auto f = fopen(&path[0], "rb");
     if (f is null) return null;
 
-    __gshared char[262144] content = 0;
+    __gshared char[262144] content = "";
     auto n = fread(&content[0], 1, content.length, f);
     fclose(f);
     if (n == 0) return null;
@@ -198,7 +198,7 @@ struct Rewrite {
 // resolves to nothing, or names a line the file does not reach, is left as it
 // was written — a wrong inline is worse than an address.
 Rewrite inlineRefs(const(char)[] text, const(string)[] files, ReadFile read) {
-    __gshared char[262144] buf = 0;
+    __gshared char[262144] buf = "";
     size_t o = 0;
     size_t changed = 0;
     size_t cursor = 0;

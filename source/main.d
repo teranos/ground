@@ -69,7 +69,7 @@ bool parseHookEvent(const(char)[] name, ref HookEvent event) {
 // Reads all of stdin into a static buffer.
 // Returns the filled slice, or null on failure/empty.
 const(char)[] readStdin() {
-    __gshared char[262144] buf = 0; // 256KB — Edit payloads can exceed 64KB
+    __gshared char[262144] buf = ""; // 256KB — Edit payloads can exceed 64KB
     size_t total = 0;
 
     while (total < buf.length) {
