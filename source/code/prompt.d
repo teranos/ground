@@ -249,6 +249,50 @@ bool toolsOf(ref McpGroup group, ref Reply tools, ref Reply detail) {
     return true;
 }
 
+// Whether the session's catalog says the tool, by its full name, only reads:
+// its MCP annotations' readOnlyHint is true. A tool that says nothing does not.
+bool readOnlyTool(ref McpGroup group, const(char)[] full) {
+    foreach (i; 0 .. group.count) {
+        auto server = &group.servers[i];
+        auto name = server.name[0 .. strlen(server.name)];
+        for (auto page = server.tools; page !is null; page = page.next) {
+            auto root = parseJson(page.response.json[0 .. page.response.length]);
+            scope(exit) json_object_put(root);
+            auto list = jsonField(jsonField(root, "result"), "tools");
+            if (json_object_get_type(list) != json_type.array) continue;
+            foreach (j; 0 .. json_object_array_length(list)) {
+                auto tool = json_object_array_get_idx(list, j);
+                auto toolName = text(jsonField(tool, "name"));
+                if (toolName is null) continue;
+                Reply n;
+                putToolName(n, name, toolName);
+                bool same = n.slice() == full;
+                n.dispose();
+                if (!same) continue;
+                auto hint = jsonField(jsonField(tool, "annotations"), "readOnlyHint");
+                return json_object_get_type(hint) == json_type.boolean && json_object_get_boolean(hint) != 0;
+            }
+        }
+    }
+    return false;
+}
+
+// The client's answer to session/request_permission: 1 an option was selected,
+// its optionId in optionId; 0 "The prompt turn was cancelled before the user
+// responded"; -1 an answer of neither kind, or an error.
+int permissionOutcome(const(char)[] line, ref Reply optionId) {
+    auto root = parseJson(line);
+    scope(exit) json_object_put(root);
+    auto outcome = jsonField(jsonField(root, "result"), "outcome");
+    auto kind = text(jsonField(outcome, "outcome"));
+    if (kind == "cancelled") return 0;
+    if (kind != "selected") return -1;
+    auto id = text(jsonField(outcome, "optionId"));
+    if (id is null) return -1;
+    optionId.add(id);
+    return 1;
+}
+
 struct Call { const(char)[] id; const(char)[] name; const(char)[] arguments; }
 
 // What the model answered: its text, or the calls it wants made. The slices

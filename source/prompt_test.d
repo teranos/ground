@@ -86,3 +86,24 @@ unittest {
     assert(!completionOf(`{"error":{"message":"No models provided","code":400}}`, c));
     c.dispose();
 }
+
+// "readOnlyHint": what plan mode runs. Only a tool whose annotations say it is
+// true counts; one that says false, or says nothing, does not.
+unittest {
+    import code.mcp : McpGroup, McpServer, McpPage;
+    import code.prompt : readOnlyTool;
+    enum page = `{"result":{"tools":[{"name":"look","annotations":{"readOnlyHint":true}},`
+        ~ `{"name":"write","annotations":{"readOnlyHint":false}},{"name":"plain"}]}}`;
+    McpPage p;
+    p.response.json = cast(char*) page.ptr;
+    p.response.length = page.length;
+    McpServer server;
+    server.name = cast(char*) "fs\0".ptr;
+    server.tools = &p;
+    McpGroup group = McpGroup(&server, 1);
+    assert(readOnlyTool(group, "fs__look"));
+    assert(!readOnlyTool(group, "fs__write"));
+    assert(!readOnlyTool(group, "fs__plain"));
+    assert(!readOnlyTool(group, "fs__missing"));
+    assert(!readOnlyTool(group, "other__look"));
+}

@@ -21,7 +21,7 @@ import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
 import code.prompt;
 public import code.reply : Reply, putEscaped, putNumber;
-public import code.input : Input, nextLine, take;
+public import code.input : Input, nextLine, take, more;
 
 extern (C) void free(void* p);
 extern (C) int getpid();
@@ -76,6 +76,7 @@ struct Sessions {
     bool settingsEffort; // a new session starts at the effort Claude Code's settings name
     ParsedQntx node; // the node a prompt goes through: its gateway, its token file, its model
     long clock;      // the time, when one is given; otherwise the system's
+    uint asked;      // the permissions ground code has asked the client for, for the next one's id
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
 }
 
@@ -105,6 +106,98 @@ private bool cancelAsked(ref Turn t) {
     bool mine(const(char)[] line) { return cancels(line, t.sid, t.id); }
     t.cancelled = take(*t.input, &mine);
     return t.cancelled;
+}
+
+// Whether name is a line of names.
+private bool listed(const(char)[] names, const(char)[] name) {
+    size_t start = 0;
+    foreach (i, c; names) {
+        if (c != '\n') continue;
+        if (names[start .. i] == name) return true;
+        start = i + 1;
+    }
+    return false;
+}
+
+// What a session's mode makes of a call its turn asks for. Manual asks the
+// client; acceptEdits and auto have no meaning of their own for ground code,
+// which has no edit tools and no classifier, so they ask as Manual does.
+private enum Verdict { run, ask, refuse }
+private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref const(char)[] why) {
+    final switch (o.mode) {
+        case SessionMode.bypassPermissions: return Verdict.run;
+        case SessionMode.plan:
+            why = "plan mode runs only tools whose MCP annotations say readOnlyHint";
+            return readOnly ? Verdict.run : Verdict.refuse;
+        case SessionMode.dontAsk:
+            why = "dontAsk mode runs only what is approved ahead, and nothing is";
+            return Verdict.refuse;
+        case SessionMode.manual:
+        case SessionMode.acceptEdits:
+        case SessionMode.auto_:
+        case SessionMode.unknown:
+            if (listed(o.always.slice(), tool)) return Verdict.run;
+            why = "the user rejected it";
+            if (listed(o.never.slice(), tool)) return Verdict.refuse;
+            return Verdict.ask;
+    }
+}
+
+// "Request for user permission to execute a tool call." Asked of the client,
+// the turn waiting on its answer, and still on a cancel: 1 allowed, 0
+// rejected, 2 the turn was called off, -1 no answer ground code can read,
+// said in why. An always is the session's from then on.
+private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, const(char)[] sid,
+        const(char)[] callId, const(char)[] tool, const(char)[] arguments, ref Reply why) {
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    sessions.asked++;
+    Reply pid;
+    scope(exit) pid.dispose();
+    pid.add(`"perm-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    Reply n;
+    scope(exit) n.dispose();
+    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
+    n.add(`,"method":"session/request_permission","params":{"sessionId":"`); putEscaped(n, sid);
+    n.add(`","toolCall":{"toolCallId":"`); putEscaped(n, callId);
+    n.add(`","title":"`); putEscaped(n, tool);
+    n.add(`","status":"pending","rawInput":`); n.add(arguments);
+    n.add(`},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`);
+    n.add(`{"optionId":"allow_always","name":"Always allow `); putEscaped(n, tool); n.add(`","kind":"allow_always"},`);
+    n.add(`{"optionId":"reject_once","name":"Reject once","kind":"reject_once"},`);
+    n.add(`{"optionId":"reject_always","name":"Always reject `); putEscaped(n, tool); n.add(`","kind":"reject_always"}]}}` ~ "\n");
+    if (n.full) { why.add(`"could not allocate the permission request"`); return -1; }
+    auto out_ = n.slice();
+    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+        why.add(`"could not write session/request_permission"`);
+        return -1;
+    }
+    Reply answered;
+    scope(exit) answered.dispose();
+    bool calledOff = false;
+    bool mine(const(char)[] line) {
+        if (cancels(line, turn.sid, turn.id)) { calledOff = true; return true; }
+        char[64] mb;
+        if (extractJsonString(line, `"method"`, &mb[0], mb.length) !is null) return false;
+        if (rawValue(line, `"id"`) != pid.slice()) return false;
+        answered.add(line);
+        return true;
+    }
+    while (!take(*turn.input, &mine)) {
+        if (!more(*turn.input)) { why.add(`"the client's input ended while ground code waited on its permission"`); return -1; }
+    }
+    if (calledOff) { turn.cancelled = true; return 2; }
+    Reply option;
+    scope(exit) option.dispose();
+    auto outcome = permissionOutcome(answered.slice(), option);
+    if (outcome == 0) { turn.cancelled = true; return 2; }
+    auto chosen = option.slice();
+    if (outcome == 1 && chosen == "allow_once") return 1;
+    if (outcome == 1 && chosen == "allow_always") { o.always.add(tool); o.always.add("\n"); return 1; }
+    if (outcome == 1 && chosen == "reject_once") return 0;
+    if (outcome == 1 && chosen == "reject_always") { o.never.add(tool); o.never.add("\n"); return 0; }
+    why.add(`{"message":"the client's answer to session/request_permission is not one ground code offered","answer":"`);
+    putEscaped(why, answered.slice()); why.add(`"}`);
+    return -1;
 }
 
 // libcurl asks this while the gateway is answering: a cancel cuts the request off.
@@ -184,6 +277,8 @@ struct Open {
     char[2048] dirs; // the JSON array a client is answered with
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
+    Reply always;   // the tools the user said to always allow here, a name a line
+    Reply never;    // and to always reject
 }
 
 // The additionalDirectories a request names, into list as the JSON array a
@@ -320,13 +415,17 @@ private void putModes(ref Reply r, SessionMode current) {
         if (i > 0) r.add(",");
         char[1] letter = [letterOf(m)];
         r.add(`{"id":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
-        r.add(`","description":"`); r.add(letter[]); r.add(` in a permission block"}`);
+        r.add(`","description":"`); r.add(letter[]); r.add(` in a permission block`);
+        // Neither has a meaning of its own for ground code's tool calls yet.
+        if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
+        r.add(`"}`);
     }
     r.add("]}");
 }
 
 private void forget(ref Open o) {
     if (o.history !is null) { o.history.dispose(); free(o.history); o.history = null; }
+    o.always.dispose(); o.never.dispose();
 }
 
 // A session/update to the client, written as it happens: a turn's steps are
@@ -388,6 +487,16 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     auto id = rawValue(line, `"id"`);
     if (id is null) id = "null";
 
+    // An answer to a question ground code asked and stopped waiting on, as a
+    // turn called off while asking leaves: no request, so no answer to give.
+    if (method is null && (rawValue(line, `"result"`) !is null || rawValue(line, `"error"`) !is null)) {
+        if (!__ctfe) {
+            fputs("ground code: an answer to a request no turn is waiting on: ", stderr);
+            fwrite(line.ptr, 1, line.length, stderr);
+            fputs("\n", stderr);
+        }
+        return true;
+    }
     if (method is null) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         put(`,"error":{"code":-32600,"message":"no method"}}`);
@@ -939,10 +1048,53 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     }
                     Reply u, server, tool, args, result;
                     scope(exit) { u.dispose(); server.dispose(); tool.dispose(); args.dispose(); result.dispose(); }
+                    // The session's mode decides whether the call runs, and
+                    // Manual asks the client. "pending": "awaiting approval".
+                    const(char)[] why;
+                    auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), why);
                     u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, call.id);
                     u.add(`","title":"`); putEscaped(u, call.name);
-                    u.add(`","status":"in_progress","rawInput":`); u.add(call.arguments); u.add(`}`);
+                    u.add(verdict == Verdict.run ? `","status":"in_progress","rawInput":` : `","status":"pending","rawInput":`);
+                    u.add(call.arguments); u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (verdict == Verdict.ask) {
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto got = askPermission(sessions, *o, turn, sid, call.id, call.name, call.arguments, asking);
+                        if (got == 2) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"the client cancelled the turn"}`);
+                            stopCancelled();
+                            return true;
+                        }
+                        if (got < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client's permission","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
+                        why = "the user rejected it";
+                        verdict = got == 1 ? Verdict.run : Verdict.refuse;
+                        if (verdict == Verdict.run) {
+                            u.len = 0;
+                            u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
+                            u.add(`","status":"in_progress"}`);
+                            if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                        }
+                    }
+                    // Not run: the model is told why, and so is the client.
+                    if (verdict == Verdict.refuse) {
+                        Reply refused;
+                        scope(exit) refused.dispose();
+                        refused.add(`{"status":"not run","why":"`); putEscaped(refused, why); refused.add(`"}`);
+                        toolMessage(*o.history, call.id, refused.slice());
+                        u.len = 0;
+                        u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
+                        u.add(`","status":"failed","rawOutput":`); u.add(refused.slice()); u.add(`}`);
+                        if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                        continue;
+                    }
                     server.add(serverOf(call.name)); server.add("\0");
                     tool.add(toolOf(call.name)); tool.add("\0");
                     args.add(call.arguments); args.add("\0");
