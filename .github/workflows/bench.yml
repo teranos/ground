@@ -13,11 +13,7 @@
           "uses": "cachix/install-nix-action@v30"
         },
         {
-          "env": {
-            "QNTX_TOKEN": "${{ secrets.QNTX_TOKEN }}",
-            "QNTX_URL": "https://api.q.sbvh.nl"
-          },
-          "name": "build what ships, time it, attest it",
+          "name": "build what ships, time it, write the row",
           "run": "nix develop .#default --command python3 ci/bench.py"
         },
         {

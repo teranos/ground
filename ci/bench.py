@@ -2,9 +2,13 @@
 
 The measurement is the Makefile's own: the production build, timed, with its
 peak resident size. Here it is a forced rebuild, so a cached object cannot
-stand in for the work. The result is one attestation on the node, appended,
-never replaced, so the series is every run. No node named means no row, and
-that is a failure, not a quiet pass.
+stand in for the work. The result is one attestation row, bench-ctfe.json,
+appended on the node, never replaced, so the series is every run.
+
+On a hosted runner the row travels as the run's artifact: ground attests the
+push, sky streams that row to the node, and the node's ci.watch takes the
+bench-ctfe artifact of the concluded run (teranos/QNTX#1390). A node named by
+QNTX_URL and QNTX_TOKEN is posted to as well, from a machine that reaches one.
 """
 import json
 import os
@@ -27,8 +31,8 @@ def main():
     # the file ground itself reads, named so the secret never crosses a command line.
     if not token and os.environ.get("QNTX_TOKEN_FILE"):
         token = open(os.path.expanduser(os.environ["QNTX_TOKEN_FILE"])).read().strip()
-    if not url or not token:
-        print("bench: QNTX_URL and QNTX_TOKEN (or QNTX_TOKEN_FILE) name where the row goes; one is missing", file=sys.stderr)
+    if bool(url) != bool(token):
+        print("bench: QNTX_URL and QNTX_TOKEN (or QNTX_TOKEN_FILE) name a node together; one is missing", file=sys.stderr)
         return 1
     subprocess.run(["make", "wind"], check=True)
     ldc = out(["ldc2", "--version"]).splitlines()[0]
@@ -75,6 +79,9 @@ def main():
     # pulls rather than one that is posted to (ADR-043's shape).
     with open("bench-ctfe.json", "w") as f:
         json.dump(row, f)
+    if not url:
+        print("bench: no node named; the row is bench-ctfe.json, the run's artifact, for ci.watch to take")
+        return 0
     req = urllib.request.Request(url.rstrip("/") + "/api/attestations", data=json.dumps(row).encode(),
                                  headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     try:

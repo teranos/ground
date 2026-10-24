@@ -24,15 +24,13 @@ in
     steps = [
       checkout
       installNix
+      # No node is posted to from here: the Ground namespace lives on k, which a
+      # hosted runner does not reach. The row is the run's artifact, and k's
+      # ci.watch takes it from the run of the push it watches (QNTX#1390).
       {
-        name = "build what ships, time it, attest it";
-        env = {
-          QNTX_URL = "https://api.q.sbvh.nl";
-          QNTX_TOKEN = "\${{ secrets.QNTX_TOKEN }}";
-        };
+        name = "build what ships, time it, write the row";
         run = "nix develop .#default --command python3 ci/bench.py";
       }
-      # The row as the run's artifact too, whether or not the node took it.
       {
         "if" = "always()";
         uses = "actions/upload-artifact@v7";
