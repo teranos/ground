@@ -128,7 +128,7 @@ EOS";
 int handleDrive(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import core.stdc.time : time;
-    import controls : allParsed;
+    import controls : parsedOnce;
     import db : openDb, sqlite3_close, ZBuf;
     import immediate : writeNote;
     import main : argLen;
@@ -151,7 +151,7 @@ int handleDrive(int argc, const(char)** argv) {
         armDeathNote(getpid());
     }
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
     uint nextSleep = 2;
 
     // The driver starts before the agent has made the tree, so a missing one

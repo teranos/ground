@@ -114,7 +114,7 @@ void attestRemovals(const(char)[] sha, const(char)[] tree, const(char)[] session
                    -1, sessionId, QUOTE_REMOVED, sha);
         return;
     }
-    __gshared char[4 * 1024 * 1024] patch = 0;
+    __gshared char[4 * 1024 * 1024] patch = "";
     auto shown = g.show(sha, patch[]);
     auto over = g.overflowed;
     g.close();

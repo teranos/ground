@@ -513,7 +513,7 @@ int handleSky(int argc, const(char)** argv) {
     long effortLookedAt = 0;
 
     import immediate : MESSAGE_CAP;
-    __gshared char[4 * MESSAGE_CAP] batchBuf = 0;
+    __gshared char[4 * MESSAGE_CAP] batchBuf = "";
     size_t batchLen = 0;
 
     int nextSleep = PASS_SEC;
