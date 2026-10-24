@@ -5,6 +5,8 @@ module parity;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite;
 import hooks : HookEvent;
 import parse : Reads;
+import std.meta : AliasSeq;
+static import parse, code.prompt;
 import db : ZBuf;
 static import parse;
 
@@ -615,13 +617,16 @@ private template handlerSource(string event) {
     else enum handlerSource = "";
 }
 
-// The key an extractor in parse.d is marked as reading, or null.
+// The key a function is marked as reading, or null: parse.d's extractors, and
+// ground code's helpers that read a request for the branch that calls them.
 private string readKeyOf()(string name) {
-    static foreach (m; __traits(allMembers, parse)) {
-        static if (__traits(compiles, __traits(getAttributes, __traits(getMember, parse, m)))) {
-            static foreach (a; __traits(getAttributes, __traits(getMember, parse, m))) {
-                static if (is(typeof(a) == Reads)) {
-                    if (name == m) return a.key;
+    static foreach (mod; AliasSeq!(parse, code.prompt)) {
+        static foreach (m; __traits(allMembers, mod)) {
+            static if (__traits(compiles, __traits(getAttributes, __traits(getMember, mod, m)))) {
+                static foreach (a; __traits(getAttributes, __traits(getMember, mod, m))) {
+                    static if (is(typeof(a) == Reads)) {
+                        if (name == m) return a.key;
+                    }
                 }
             }
         }
@@ -656,7 +661,7 @@ GroundKeys readsIn()(string text) {
             size_t j = i;
             while (j < text.length && isIdent(text[j])) j++;
             auto name = text[i .. j];
-            if (j < text.length && text[j] == '(' && (startsAt(name, 0, "extract") || name == "toolResponseRegion")) {
+            if (j < text.length && text[j] == '(') {
                 auto k = readKeyOf(name);
                 if (k !is null) keys.add(k);
             }
@@ -668,7 +673,8 @@ GroundKeys readsIn()(string text) {
 
 // Writes: the keys of the JSON a handler puts on stdout, directly or through
 // a bare put() building its answer. A buffer's own put() writes an attestation.
-GroundKeys writesIn()(string text) {
+// whole: every line builds the message, as a function sending one does.
+GroundKeys writesIn()(string text, bool whole = false) {
     GroundKeys keys;
     size_t lineStart = 0;
     foreach (i; 0 .. text.length + 1) {
@@ -679,7 +685,7 @@ GroundKeys writesIn()(string text) {
         if (commentLine(text, start)) continue;
         auto bare = indexIn(line, "put(");
         bool emits = indexIn(line, "stdout") >= 0 || (bare >= 0 && (bare == 0 || line[cast(size_t) bare - 1] != '.'));
-        if (!emits) continue;
+        if (!emits && !whole) continue;
         foreach (q; 0 .. line.length) {
             if (line[q] != '"') continue;
             size_t j = q + 1;
@@ -790,6 +796,29 @@ private size_t branchEnd()(string src, size_t from) {
     return src.length;
 }
 
+// The function a method ground code sends is written in: the top-level
+// declaration around its "method", to the brace that closes it. null when
+// nothing sends it.
+string sentBlock()(string src, string method) {
+    enum sent = `"method":"`;
+    ptrdiff_t at = -1;
+    for (auto f = indexIn(src, sent); f >= 0; f = indexIn(src, sent, cast(size_t) f + 1)) {
+        auto n = cast(size_t) f + sent.length;
+        if (startsAt(src, n, method) && startsAt(src, n + method.length, `"`)) { at = f; break; }
+    }
+    if (at < 0) return null;
+    size_t start = cast(size_t) at;
+    while (start > 0) {
+        auto lineStart = start;
+        while (lineStart > 0 && src[lineStart - 1] != '\n') lineStart--;
+        auto c = src[lineStart];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '/' && c != '}') { start = lineStart; break; }
+        if (lineStart == 0) return null;
+        start = lineStart - 1;
+    }
+    return src[start .. branchEnd(src, start)];
+}
+
 private CodeSides buildCodeSides()() {
     CodeSides cs;
     enum key = `method == "`;
@@ -804,6 +833,25 @@ private CodeSides buildCodeSides()() {
         auto block = codeSource[cast(size_t) at .. branchEnd(codeSource, cast(size_t) at)];
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
+    }
+    // A method sent to the client has no branch: what ground code writes is
+    // the message its sending function builds.
+    enum sent = `"method":"`;
+    from = 0;
+    while (true) {
+        auto at = indexIn(codeSource, sent, from);
+        if (at < 0) break;
+        auto nameFrom = cast(size_t) at + sent.length;
+        auto nameEnd = indexIn(codeSource, `"`, nameFrom);
+        assert(nameEnd >= 0, "code/acp.d sends a method it does not close");
+        from = cast(size_t) nameEnd;
+        auto name = codeSource[nameFrom .. cast(size_t) nameEnd];
+        bool seen = false;
+        foreach (ref s; cs.items[0 .. cs.count]) if (s.event == name) seen = true;
+        if (seen) continue;
+        auto block = sentBlock(codeSource, name);
+        assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
+        cs.items[cs.count++] = GroundSide(name, readsIn(block), writesIn(block, true));
     }
     return cs;
 }
