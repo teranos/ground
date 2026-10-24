@@ -118,4 +118,20 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         if proc.poll() is None:
             proc.kill(); proc.wait()
-print("Ground ACP: session ownership, resume, paginated discovery, env/cwd, rollback, validation and EOF cleanup passed")
+    # A named pipe's end is EOF too, though Darwin's poll never reports it on one.
+    fifo = tmp / "in"
+    os.mkfifo(fifo)
+    rfd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    wfd = os.open(fifo, os.O_WRONLY)
+    os.set_blocking(rfd, True)
+    named = subprocess.Popen([GROUND, "code"], stdin=rfd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    os.close(rfd)
+    try:
+        os.write(wfd, (json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}) + "\n").encode())
+        os.close(wfd)
+        assert named.wait(timeout=8) == 0, named.stderr.read()
+        assert json.loads(named.stdout.readline())["id"] == 1
+    finally:
+        if named.poll() is None:
+            named.kill(); named.wait()
+print("Ground ACP: session ownership, resume, paginated discovery, env/cwd, rollback, validation and EOF cleanup, from a pipe and a named pipe, passed")
