@@ -141,8 +141,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) == SQLITE_OK) {
                 import git : originOf, repoRoot;
                 import place : placeOf;
-                import controls : allParsed;
-                static immutable parsed = allParsed;
+                import controls : parsedOnce;
+                alias parsed = parsedOnce;
                 __gshared ZBuf sidBuf;
                 __gshared ZBuf projBuf;
                 sidBuf.reset();
@@ -317,7 +317,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         import db : openDb, sqlite3_close;
         import ritual : readPositionAt, briefing, flatten, bindSession, writePosition,
                         RitualState;
-        import controls : allParsed;
+        import controls : parsedOnce;
 
         auto rdb = openDb();
         if (rdb !is null) {
@@ -345,7 +345,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 import ritual.shell : sessionSources;
                 if (found.p.state == RitualState.Live)
                     sessionSources(found.p.id, found.p.worktree);
-                static immutable parsed = allParsed;
+                alias parsed = parsedOnce;
                 foreach (i; 0 .. parsed.ritualCount) {
                     if (parsed.rituals[i].name != found.p.ritual) continue;
                     auto brief = briefing(found.p, flatten(parsed, i));

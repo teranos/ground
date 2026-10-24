@@ -51,7 +51,6 @@ const(char)[] branchOf(const(char)[] path) {
 // written. Empty when this name names no performance — a worktree asked for
 // by anything other than a ritual.
 Path plannedTree(const(char)[] name) {
-    import controls : allParsed;
     import db : openDb, sqlite3_close;
     import ritual.store : byPerformanceId;
 
@@ -74,7 +73,7 @@ Path plannedTree(const(char)[] name) {
 // Which kind of tree this path is for. The ritual says, and the row is what
 // connects the path back to the ritual that named it.
 private bool wantsEmptyTree(const(char)[] name) {
-    import controls : allParsed;
+    import controls : parsedOnce;
     import db : openDb, sqlite3_close;
     import ritual.store : byPerformanceId;
 
@@ -84,7 +83,7 @@ private bool wantsEmptyTree(const(char)[] name) {
     sqlite3_close(db);
     if (!found.valid) return false;
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
     foreach (i; 0 .. parsed.ritualCount) {
         if (parsed.rituals[i].name != found.p.ritual) continue;
         return parsed.rituals[i].tree == "empty";

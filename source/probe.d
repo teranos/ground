@@ -234,7 +234,7 @@ void probeCommit(const(char)[] sha, const(char)[] tree, const(char)[] sessionId)
                    -1, sessionId, PREDICATE, sha);
         return;
     }
-    __gshared char[4 * 1024 * 1024] diff = 0;
+    __gshared char[4 * 1024 * 1024] diff = "";
     auto shown = g.show(sha, diff[]);
     auto over = g.overflowed;
     g.close();
