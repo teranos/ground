@@ -7,7 +7,8 @@ import libjsonc;
 import code.reply : Reply, putEscaped, putNumber;
 import core.stdc.stdlib : calloc, malloc, free;
 import core.stdc.string : strlen, strcmp, strncmp, memcpy;
-import core.stdc.stdio : stderr, fputs, fwrite;
+import core.stdc.stdio : stderr, fputs, fwrite, snprintf;
+import core.sys.posix.strings : strcasecmp;
 
 extern(C) extern __gshared const(char*)* environ;
 
@@ -95,6 +96,59 @@ bool closeMcp(ref McpGroup group, ref Reply detail) {
 private mcp_status localError(ref mcp_error e, mcp_status status, const(char)* message) {
     e = mcp_error.init; e.code = status; e.message = message;
     return status;
+}
+
+// "HTTP transport configuration": name, url and headers, all required. libmcp
+// takes a bearer token for an endpoint and sets no other header, so an
+// Authorization: Bearer header is the token and any other is refused by name,
+// before anything is asked of the server. why says which.
+private __gshared char[512] whyBuf;
+private bool httpValid(json_object* config, const(char)* name, ref const(char)* why) {
+    auto type = stringAt(jsonField(config, "type"));
+    if (type is null || strcmp(type, "http") != 0) return false;
+    auto headers = jsonField(config, "headers");
+    if (name is null || !*name || stringAt(jsonField(config, "url")) is null ||
+        json_object_get_type(headers) != json_type.array || json_object_array_length(headers) > 128) return false;
+    bool bearer = false;
+    foreach (j; 0 .. json_object_array_length(headers)) {
+        auto entry = json_object_array_get_idx(headers, j);
+        auto key = stringAt(jsonField(entry, "name")), value = stringAt(jsonField(entry, "value"));
+        if (key is null || value is null) return false;
+        if (strcasecmp(key, "Authorization") != 0) {
+            snprintf(whyBuf.ptr, whyBuf.length, "the http MCP server %s names the header %s; libmcp sets no header but Authorization: Bearer", name, key);
+            why = whyBuf.ptr;
+            return false;
+        }
+        if (bearer || strncmp(value, "Bearer ", 7) != 0) {
+            snprintf(whyBuf.ptr, whyBuf.length, "the http MCP server %s names an Authorization that is not Bearer; libmcp sets no other", name);
+            why = whyBuf.ptr;
+            return false;
+        }
+        bearer = true;
+    }
+    return true;
+}
+
+// The bearer token an http server's headers carry, or null: what follows
+// "Bearer " in the one Authorization header httpValid let through.
+private const(char)* bearerOf(json_object* config) {
+    auto headers = jsonField(config, "headers");
+    foreach (j; 0 .. json_object_array_length(headers)) {
+        auto value = stringAt(jsonField(json_object_array_get_idx(headers, j), "value"));
+        if (value !is null) return value + 7;
+    }
+    return null;
+}
+
+// Streamable HTTP, through libmcp: it holds TLS verification mandatory and
+// plain HTTP to loopback only, and its refusal is the session's failure.
+private mcp_status startHttp(json_object* config, ref McpServer server, ref mcp_response response, ref mcp_error error) {
+    mcp_options options;
+    mcp_options_init(&options);
+    options.client_name = "ground";
+    options.on_message = &ground_mcp_log; options.context = server.name;
+    return mcp_client_open_http(&options, null, stringAt(jsonField(config, "url")), bearerOf(config),
+        &server.client, &response, &error);
 }
 
 // argv/env use the parsed JSON's strings only until spawn returns. ACP's env
@@ -195,14 +249,20 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
     const(char)* failedName;
     auto count = json_object_get_type(configs) == json_type.array ? json_object_array_length(configs) : 0;
     bool valid = json_object_get_type(configs) == json_type.array && count <= 32;
+    const(char)* why = "MCP needs unique named servers, stdio with command, args and env or http with url and headers (limits: 32 servers, 128 args/env entries); SSE is unsupported";
     foreach (i; 0 .. (valid ? count : 0)) {
         auto config = json_object_array_get_idx(configs, i);
         auto name = stringAt(jsonField(config, "name")), command = stringAt(jsonField(config, "command"));
+        foreach (j; 0 .. i) if (name !is null && strcmp(name, stringAt(jsonField(json_object_array_get_idx(configs, j), "name"))) == 0) valid = false;
+        if (!valid) break;
+        if (jsonField(config, "type") !is null) {
+            if (!httpValid(config, name, why)) { valid = false; break; }
+            continue;
+        }
         auto args = jsonField(config, "args"), env = jsonField(config, "env");
         if (name is null || !*name || command is null || !*command || jsonField(config, "type") !is null ||
             json_object_get_type(args) != json_type.array || json_object_get_type(env) != json_type.array ||
             json_object_array_length(args) > 128 || json_object_array_length(env) > 128) { valid = false; break; }
-        foreach (j; 0 .. i) if (strcmp(name, stringAt(jsonField(json_object_array_get_idx(configs, j), "name"))) == 0) valid = false;
         foreach (j; 0 .. json_object_array_length(args)) if (stringAt(json_object_array_get_idx(args, j)) is null) valid = false;
         foreach (j; 0 .. json_object_array_length(env)) {
             auto entry = json_object_array_get_idx(env, j);
@@ -217,7 +277,7 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
         if (!valid) break;
     }
     if (!valid) {
-        localError(error, mcp_status.MCP_INVALID_ARGUMENT, "MCP needs unique named stdio servers with command, args and env (limits: 32 servers, 128 args/env entries); HTTP/SSE are unsupported");
+        localError(error, mcp_status.MCP_INVALID_ARGUMENT, why);
     } else if (count == 0) return true;
     else {
         group.servers = cast(McpServer*) calloc(count, McpServer.sizeof);
@@ -233,7 +293,9 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
                 auto server = &group.servers[i];
                 server.name = copy(stringAt(jsonField(config, "name"))); failedName = server.name;
                 if (server.name is null) { localError(error, mcp_status.MCP_NO_MEMORY, "copy MCP server name"); break; }
-                auto status = startServer(config, dir, *server, response, error);
+                auto status = jsonField(config, "type") !is null
+                    ? startHttp(config, *server, response, error)
+                    : startServer(config, dir, *server, response, error);
                 if (status == mcp_status.MCP_OK) {
                     mcp_response_free(&response);
                     status = discoverTools(*server, response, error);

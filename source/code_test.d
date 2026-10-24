@@ -37,13 +37,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // authenticate: "Must be one of the methods advertised in the initialize

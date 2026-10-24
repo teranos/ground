@@ -2,10 +2,12 @@
 import json
 import os
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import select
 import subprocess
 import sys
 import tempfile
+import threading
 
 GROUND = str(Path(sys.argv[1]).resolve())
 SERVER = os.environ["LIBMCP_SERVER"]  # the library's test server, from its source
@@ -39,11 +41,72 @@ def dead(pid):
     return False
 
 
+class Peer(BaseHTTPRequestHandler):
+    """A Streamable HTTP MCP server on loopback, as libmcp's own test_http.py speaks it."""
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.seen.append((req["method"], self.headers.get("Authorization")))
+        result = {"resultType": "complete"}
+        if req["method"] == "server/discover":
+            result.update(supportedVersions=["2026-07-28"], capabilities={"tools": {}})
+        elif req["method"] == "tools/list":
+            result["tools"] = [{"name": "remote", "inputSchema": {"type": "object"}}]
+        wire = json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": result}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(wire)))
+        self.end_headers()
+        self.wfile.write(wire)
+
+
+def http(name, url, headers):
+    return {"type": "http", "name": name, "url": url, "headers": headers}
+
+
 with tempfile.TemporaryDirectory() as tmp:
     tmp = Path(tmp).resolve()  # the server reports getcwd, and macOS's temp dir is a link
     proc = subprocess.Popen([GROUND, "code"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        assert "result" in request(proc, 1, "initialize", {"protocolVersion": 1})
+        init = request(proc, 1, "initialize", {"protocolVersion": 1})
+        # "Agent supports McpServer::Http": libmcp's Streamable HTTP client.
+        assert init["result"]["agentCapabilities"]["mcpCapabilities"] == {"http": True}, init
+        peer = ThreadingHTTPServer(("127.0.0.1", 0), Peer)
+        peer.seen = []
+        threading.Thread(target=peer.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{peer.server_port}/mcp"
+        # A session's http server is reached at its url, its bearer token the
+        # Authorization header the client named, and its tools discovered.
+        result = request(proc, 20, "session/new", {"cwd": str(tmp), "mcpServers": [http("far", url, [{"name": "Authorization", "value": "Bearer t0k"}])]})
+        assert "result" in result, result
+        assert ("server/discover", "Bearer t0k") in peer.seen and ("tools/list", "Bearer t0k") in peer.seen, peer.seen
+        assert "result" in request(proc, 21, "session/close", {"sessionId": result["result"]["sessionId"]})
+        # No headers, no token.
+        result = request(proc, 22, "session/new", {"cwd": str(tmp), "mcpServers": [http("bare", url, [])]})
+        assert "result" in result, result
+        assert peer.seen[-1] == ("tools/list", None), peer.seen
+        assert "result" in request(proc, 23, "session/close", {"sessionId": result["result"]["sessionId"]})
+        # libmcp sets no header but the bearer token: any other is refused by
+        # name, before anything is asked of the server.
+        asked = len(peer.seen)
+        result = request(proc, 24, "session/new", {"cwd": str(tmp), "mcpServers": [http("far", url, [{"name": "X-Key", "value": "v"}])]})
+        assert result["error"]["data"]["failure"]["message"] == "the http MCP server far names the header X-Key; libmcp sets no header but Authorization: Bearer", result
+        result = request(proc, 25, "session/new", {"cwd": str(tmp), "mcpServers": [http("far", url, [{"name": "Authorization", "value": "Basic eA=="}])]})
+        assert result["error"]["data"]["failure"]["message"] == "the http MCP server far names an Authorization that is not Bearer; libmcp sets no other", result
+        assert len(peer.seen) == asked
+        # SSE is not advertised, and not taken.
+        result = request(proc, 26, "session/new", {"cwd": str(tmp), "mcpServers": [{"type": "sse", "name": "old", "url": url, "headers": []}]})
+        assert "SSE" in result["error"]["data"]["failure"]["message"], result
+        result = request(proc, 27, "session/new", {"cwd": str(tmp), "mcpServers": [http("nourl", None, [])]})
+        assert "error" in result, result
+        # libmcp's own refusal crosses intact: plain HTTP off loopback.
+        result = request(proc, 28, "session/new", {"cwd": str(tmp), "mcpServers": [http("open", "http://example.invalid/mcp", [])]})
+        assert result["error"]["data"]["failure"]["server"] == "open", result
+        peer.shutdown()
         log1, log2 = tmp / "a.jsonl", tmp / "b.jsonl"
         result = request(proc, 2, "session/new", {"cwd": str(tmp), "mcpServers": [server("same-name", log1)]})
         assert "result" in result, result
@@ -134,4 +197,4 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         if named.poll() is None:
             named.kill(); named.wait()
-print("Ground ACP: session ownership, resume, paginated discovery, env/cwd, rollback, validation and EOF cleanup, from a pipe and a named pipe, passed")
+print("Ground ACP: session ownership, http servers, resume, paginated discovery, env/cwd, rollback, validation and EOF cleanup, from a pipe and a named pipe, passed")
