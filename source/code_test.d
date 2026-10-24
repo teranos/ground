@@ -58,7 +58,11 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/load","params"
     == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle session/load"}}`);
 
 // A notification has no answer to give; the caller says it on stderr instead.
-static assert(answerOf(`{"jsonrpc":"2.0","method":"session/cancel","params":{}}`) is null);
+static assert(answerOf(`{"jsonrpc":"2.0","method":"session/frobnicate","params":{}}`) is null);
+// A cancel with no turn running has nothing to stop: it is answered with
+// nothing, and said on stderr.
+static assert(answerOf(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-1-1-1"}}`) == "");
+static assert(answerOf(`{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":4}}`) == "");
 
 // A line naming no method is not a request.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4}`)
@@ -424,4 +428,158 @@ unittest {
         `{"jsonrpc":"2.0","id":6,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ effortOf!"low" ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":7,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:17:20Z"}]}}`));
+}
+
+// ACP's input is read a line at a time, by ground code itself: a turn looks at
+// what has arrived while it runs and takes the cancel meant for it out of line,
+// and every other line is still answered after, in order.
+unittest {
+    import core.sys.posix.unistd : pipe, write, close;
+    int[2] p;
+    assert(pipe(p) == 0);
+    enum lines = "a\n\nb\n{\"method\":\"x\"}\nc";
+    assert(write(p[1], lines.ptr, lines.length) == lines.length);
+    close(p[1]);
+    Input input = Input(p[0]);
+    scope(exit) { input.dispose(); close(p[0]); }
+    const(char)[] line;
+    assert(nextLine(input, line) && line == "a");
+    bool isX(const(char)[] l) { return l == `{"method":"x"}`; }
+    assert(take(input, &isX));
+    assert(!take(input, &isX));
+    assert(nextLine(input, line) && line == "");
+    assert(nextLine(input, line) && line == "b");
+    assert(nextLine(input, line) && line == "c");
+    assert(!nextLine(input, line) && !input.failed);
+}
+
+// "When the Agent receives this notification, it SHOULD stop all language model
+// requests and all tool call invocations as soon as possible", and then "MUST
+// respond to the original session/prompt request with the cancelled stop
+// reason". A gateway that never answers is cut off by the cancel that arrives
+// while ground code waits on it; one queued before the turn stops it before it
+// asks. "max_tokens": the gateway's finish_reason length ends the turn there.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, sleep, dup, dup2;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.sys.posix.fcntl : open, O_WRONLY;
+    import core.stdc.stdio : fflush, stdout;
+    import core.stdc.time : time;
+
+    // The fake gateway: it reads a request, then writes `then` into ground
+    // code's input and `answer` back, or hangs when answer is null.
+    ushort gateway(int inputEnd, string then, string answer, ref int child) {
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 1) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        child = fork();
+        if (child == 0) {
+            auto c = accept(fd, null, null);
+            char[65536] got;
+            read(c, got.ptr, got.length);
+            write(inputEnd, then.ptr, then.length);
+            if (answer is null) sleep(30);
+            else write(c, answer.ptr, answer.length);
+            _exit(0);
+        }
+        close(fd);
+        return htons(a.sin_port);
+    }
+    __gshared char[32] urlBuf;
+    string url(ushort port) {
+        size_t len = 0;
+        foreach (c; "http://127.0.0.1:") urlBuf[len++] = c;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        return cast(string) urlBuf[0 .. len];
+    }
+    void run(ref Sessions s, string line) { Reply r; answer(line, r, s); r.dispose(); }
+    enum newSession = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
+    enum prompt = `{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`;
+    enum cancel = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}`;
+    // session/update notifications go to stdout; the test's own stays clean.
+    fflush(stdout);
+    auto saved = dup(1);
+    auto devnull = open("/dev/null", O_WRONLY);
+    dup2(devnull, 1);
+    scope(exit) { fflush(stdout); dup2(saved, 1); close(saved); close(devnull); }
+
+    // Cut off mid-request.
+    {
+        int[2] p;
+        assert(pipe(p) == 0);
+        int child;
+        auto port = gateway(p[1], cancel ~ "\n", null, child);
+        Input input = Input(p[0]);
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        run(s, newSession);
+        auto began = time(null);
+        assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
+        assert(time(null) - began < 10);
+    }
+    // Queued before the turn: stopped before it asks, the other lines kept in order.
+    {
+        int[2] p;
+        assert(pipe(p) == 0);
+        enum queued = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-9"}}` ~ "\n"
+            ~ `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}` ~ "\n" ~ cancel ~ "\n";
+        assert(write(p[1], queued.ptr, queued.length) == queued.length);
+        Input input = Input(p[0]);
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); }
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        run(s, newSession);
+        assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
+        const(char)[] line;
+        assert(nextLine(input, line) && line == `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-9"}}`);
+        assert(nextLine(input, line) && line == `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`);
+    }
+    // $/cancel_request names the prompt by its id.
+    {
+        int[2] p;
+        assert(pipe(p) == 0);
+        int child;
+        auto port = gateway(p[1], `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":2}}` ~ "\n", null, child);
+        Input input = Input(p[0]);
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        run(s, newSession);
+        assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
+    }
+    // Cut off at the token limit, with a call it asked for: the call is not run,
+    // and the history still answers it, so the next turn is one the gateway takes.
+    {
+        int[2] p;
+        assert(pipe(p) == 0);
+        enum body_ = `{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"par","tool_calls":[`
+            ~ `{"id":"c1","type":"function","function":{"name":"x__y","arguments":"{}"}}]}}]}`;
+        enum answer = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n" ~ body_;
+        int child;
+        auto port = gateway(p[1], "", answer, child);
+        Input input = Input(p[0]);
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        run(s, newSession);
+        assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"max_tokens"}}`));
+        auto history = s.open[0].history.slice();
+        assert(history.length > 0 && history[$ - 1 .. $] == "}");
+        import matcher : indexOf;
+        assert(indexOf(history, `{"role":"tool","tool_call_id":"c1"`) >= 0);
+    }
 }
