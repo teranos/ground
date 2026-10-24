@@ -11,8 +11,12 @@ in
 {
   name = "bench";
 
+  # On pull requests too: k's ci.watch watches the sha ground's hook attested
+  # when the laptop pushed, and a merge GitHub makes is no laptop push. The
+  # branch's run is the one whose artifact reaches k.
   on = {
     push.branches = [ "main" ];
+    pull_request = null;
     workflow_dispatch = { };
   };
 
