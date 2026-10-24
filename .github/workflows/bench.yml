@@ -30,6 +30,7 @@
   },
   "name": "bench",
   "on": {
+    "pull_request": null,
     "push": {
       "branches": [
         "main"
