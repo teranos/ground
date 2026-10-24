@@ -547,10 +547,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, cwd); put(`"}}`);
             return true;
         }
-        if (mcp == 0) {
-            put(`,"error":{"code":-32602,"message":"ground code connects no MCP servers yet, and session/resume named some"}}`);
-            return true;
-        }
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
@@ -559,6 +555,20 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         scope(exit) { dirs.dispose(); bad.dispose(); }
         if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
         auto at = openAt(sessions, sid);
+        if (at < 0 && sessions.openLen == sessions.open.length) {
+            put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
+            return true;
+        }
+        // "List of MCP servers to connect to for this session." They are the
+        // session's from now on, and they come up once it is found, before its
+        // row says it was resumed. None named is none.
+        McpGroup fresh;
+        Reply setup;
+        scope(exit) setup.dispose();
+        bool up() {
+            if (__ctfe) { if (mcp == 0) assert(0, "MCP processes are tested at runtime"); return true; }
+            return mcp != 0 || openMcp(line, cwd, fresh, setup);
+        }
         auto mode = at < 0 ? SessionMode.manual : sessions.open[cast(size_t) at].mode;
         size_t effort = at < 0 ? MEDIUM : sessions.open[cast(size_t) at].effort;
         char[16] level;
@@ -567,16 +577,23 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         size_t wasLen = 0;
         int stored;
         if (sessions.db !is null) {
-            stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen, level[], levelLen, now(sessions));
+            stored = storeResume(sessions.db, sid, cwd, dirs.slice(), mode, was[], wasLen, level[], levelLen, now(sessions), &up);
             effort = effortAt(level[0 .. levelLen]);
             if (stored == 1 && effort == efforts.length) stored = -1;
         }
         else if (at < 0) stored = 0;
         else {
             auto o = &sessions.open[cast(size_t) at];
-            stored = o.cwd[0 .. o.cwdLen] == cwd ? 1 : 2;
+            stored = o.cwd[0 .. o.cwdLen] == cwd ? (up() ? 1 : 3) : 2;
             foreach (c; o.cwd[0 .. o.cwdLen]) was[wasLen++] = c;
         }
+        if (stored == 3) {
+            put(`,"error":{"code":-32603,"message":"session MCP setup failed","data":`);
+            put(setup.slice()); put(`}}`);
+            return true;
+        }
+        // Up, but not resumed: the servers it brought up are not the session's.
+        if (stored != 1 && !__ctfe && fresh.count > 0) { Reply d; closeMcp(fresh, d); d.dispose(); }
         if (stored == 2) {
             put(`,"error":{"code":-32602,"message":"`); putEscaped(r, sid);
             put(` is in `); putEscaped(r, was[0 .. wasLen]);
@@ -594,15 +611,24 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         if (at < 0) {
-            if (sessions.openLen == sessions.open.length) {
-                put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
-                return true;
-            }
             at = cast(ptrdiff_t) sessions.openLen;
             sessions.openLen++;
         }
-        keep(sessions.open[cast(size_t) at], sid, cwd, mode, dirs.slice(), effort);
-        sessions.open[cast(size_t) at].updatedAt = now(sessions);
+        auto o = &sessions.open[cast(size_t) at];
+        // The servers it had end; ending them failing is said, with the
+        // session already resumed on its new ones.
+        bool ended = true;
+        Reply shutdown;
+        scope(exit) shutdown.dispose();
+        if (!__ctfe && o.mcp.count > 0) ended = closeMcp(o.mcp, shutdown);
+        o.mcp = fresh;
+        keep(*o, sid, cwd, mode, dirs.slice(), effort);
+        o.updatedAt = now(sessions);
+        if (!ended) {
+            put(`,"error":{"code":-32603,"message":"session resumed on its new MCP servers, but its old ones failed to shut down","data":`);
+            put(shutdown.slice()); put(`}}`);
+            return true;
+        }
         put(`,"result":{"modes":`); putModes(r, mode);
         put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
         return true;

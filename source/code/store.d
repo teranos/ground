@@ -51,10 +51,11 @@ bool storeClose(sqlite3* db, const(char)[] id, long now) {
 // the same one, and the additional roots it names replace the ones kept. The
 // mode and effort it was left at are read back, the effort into effort. 1
 // resumed, 0 no open session by that id,
-// 2 the session is in another cwd (written into storedCwd), -1 the store
-// refused.
+// 2 the session is in another cwd (written into storedCwd), 3 up refused it,
+// -1 the store refused.
 int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] dirs,
-        ref SessionMode mode, char[] storedCwd, ref size_t storedLen, char[] effort, ref size_t effortLen, long now) {
+        ref SessionMode mode, char[] storedCwd, ref size_t storedLen, char[] effort, ref size_t effortLen, long now,
+        scope bool delegate() up = null) {
     sqlite3_stmt* st;
     enum find = "SELECT cwd, mode, effort FROM code_session WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, find.ptr, -1, &st, null) != SQLITE_OK) return -1;
@@ -72,6 +73,8 @@ int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] 
     sqlite3_finalize(st);
     if (mode == SessionMode.unknown) return -1;
     if (!same) return 2;
+    // What has to come up for the session to be resumed, before its row says it was.
+    if (up !is null && !up()) return 3;
 
     enum keep = "UPDATE code_session SET dirs = ?2, updated_at = ?3 WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, keep.ptr, -1, &st, null) != SQLITE_OK) return -1;
