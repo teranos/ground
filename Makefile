@@ -186,6 +186,8 @@ book: press binder build
 # What this ground measured, read out of the store: the parity table as it
 # stands and the series of every run before it.
 	./ground parity tex > doc/measured/parity.tex
+# What each build cost, as the node holds the bench:ctfe rows.
+	./ground ctfe tex > doc/measured/ctfe.tex
 	rm -f doc/html/*.html
 # B5, and the margin is only what keeps the ink off the edge.
 	@printf '%s\n' \
