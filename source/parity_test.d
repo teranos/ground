@@ -286,6 +286,17 @@ static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(!has(sideFor("acp", "initialize").writes, "sessionId"));
 static assert(has(sideFor("acp", "initialize").writes, "authMethods"));
 static assert(has(sideFor("acp", "authenticate").reads, "methodId"));
+// A key read through a helper is the helper's, marked as reading it, as parse.d's
+// extractors are: session/prompt's prompt is read by promptText.
+static assert(has(sideFor("acp", "session/prompt").reads, "prompt"));
+// A method ground code sends has no branch: its side is the function that
+// writes it, and that function's message is its out.
+static assert(has(sideFor("acp", "session/update").writes, "sessionId"));
+static assert(has(sideFor("acp", "session/update").writes, "update"));
+static assert(!has(sideFor("acp", "session/update").writes, "stopReason"));
+static assert(sentBlock("x\nprivate bool f() {\n    a(`{\"method\":\"m\",\"k\":1}`);\n}\nvoid g() { }\n", "m")
+    == "private bool f() {\n    a(`{\"method\":\"m\",\"k\":1}`);\n}");
+static assert(sentBlock("void g() { }\n", "m") is null);
 static assert(has(sideFor("acp", "initialize").writes, "agentCapabilities"));
 static assert(has(sideFor("acp", "session/close").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/list").reads, "cwd"));
