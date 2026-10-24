@@ -90,7 +90,7 @@ private void noteRewriteOnce(const(char)[] cwd, const(char)[] sessionId) {
 int handleMessageDisplay(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     if (sessionId.length == 0) return 0;
 
-    __gshared char[262144] deltaBuf = 0;
+    __gshared char[262144] deltaBuf = "";
     auto delta = extractJsonString(input, `"delta"`, &deltaBuf[0], deltaBuf.length);
 
     // An address is replaced by the lines it names, on every chunk. The

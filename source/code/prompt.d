@@ -5,6 +5,7 @@ module code.prompt;
 // the session's own MCP servers and handed back, until the model stops.
 
 import matcher : indexOf;
+import parse : Reads;
 import code.reply : Reply, putEscaped, putNumber;
 
 // The path on the node that the openrouter-qntx plugin answers at.
@@ -116,7 +117,7 @@ private size_t blanks(const(char)[] json, size_t pos) {
 // The prompt's text blocks, in order, one line each. A block of another kind
 // has no text to give the model, and is not pretended to: false, and other
 // gets the type of the first such block, empty when it names none.
-bool promptText(const(char)[] line, ref Reply r, ref Reply other) {
+@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other) {
     auto at = indexOf(line, `"prompt"`);
     if (at < 0) return true;
     size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
