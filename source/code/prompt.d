@@ -257,12 +257,13 @@ struct Completion {
     json_object* root;
     const(char)[] message;  // choices[0].message, as the gateway wrote it
     const(char)[] content;
+    const(char)[] finish;   // choices[0].finish_reason: why the model stopped, when the gateway says
     Call* calls;
     size_t callCount;
     void dispose() {
         json_object_put(root); root = null;
         free(calls); calls = null; callCount = 0;
-        message = null; content = null;
+        message = null; content = null; finish = null;
     }
 }
 
@@ -270,8 +271,10 @@ bool completionOf(const(char)[] json, ref Completion c) {
     c.root = parseJson(json);
     auto choices = jsonField(c.root, "choices");
     if (json_object_get_type(choices) != json_type.array || json_object_array_length(choices) == 0) return false;
-    auto message = jsonField(json_object_array_get_idx(choices, 0), "message");
+    auto choice = json_object_array_get_idx(choices, 0);
+    auto message = jsonField(choice, "message");
     if (json_object_get_type(message) != json_type.object) return false;
+    c.finish = text(jsonField(choice, "finish_reason"));
     c.message = raw(message);
     c.content = text(jsonField(message, "content"));
     auto calls = jsonField(message, "tool_calls");
