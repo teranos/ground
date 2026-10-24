@@ -17,12 +17,12 @@ import db : versionString, sqlite3;
 import proto : ParsedQntx;
 import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
-import core.stdc.stdio : stdin, stdout, stderr, fputs, fwrite, fflush, ferror, FILE;
+import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
 import code.prompt;
 public import code.reply : Reply, putEscaped, putNumber;
+public import code.input : Input, nextLine, take;
 
-extern (C) ptrdiff_t getline(char** lineptr, size_t* n, FILE* stream);
 extern (C) void free(void* p);
 extern (C) int getpid();
 
@@ -76,6 +76,40 @@ struct Sessions {
     bool settingsEffort; // a new session starts at the effort Claude Code's settings name
     ParsedQntx node; // the node a prompt goes through: its gateway, its token file, its model
     long clock;      // the time, when one is given; otherwise the system's
+    Input* input;    // what the client has sent and ground code has not read; a turn looks at it
+}
+
+// The turn under way: whose it is, the request that asked for it, and whether
+// the client has called it off.
+private struct Turn {
+    Input* input;
+    const(char)[] sid;
+    const(char)[] id;
+    bool cancelled;
+}
+
+// session/cancel for this turn's session, or $/cancel_request naming the
+// request that asked for it.
+private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
+    char[64] mb;
+    auto method = extractJsonString(line, `"method"`, &mb[0], mb.length);
+    if (method == "$/cancel_request") return rawValue(line, `"requestId"`) == id;
+    if (method != "session/cancel") return false;
+    char[256] sb;
+    return extractJsonString(line, `"sessionId"`, &sb[0], sb.length) == sid;
+}
+
+// Whether the client has called the turn off, taking the line that did.
+private bool cancelAsked(ref Turn t) {
+    if (t.cancelled || t.input is null) return t.cancelled;
+    bool mine(const(char)[] line) { return cancels(line, t.sid, t.id); }
+    t.cancelled = take(*t.input, &mine);
+    return t.cancelled;
+}
+
+// libcurl asks this while the gateway is answering: a cancel cuts the request off.
+private extern (C) int stopIfCancelled(void* turn, long, long, long, long) {
+    return cancelAsked(*cast(Turn*) turn) ? 1 : 0;
 }
 
 // A unix time as ISO 8601 in UTC, to the second: 2026-10-23T18:55:33Z. Days
@@ -366,6 +400,32 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
+        return true;
+    }
+
+    // "Clients MAY cancel an ongoing prompt turn at any time by sending a
+    // session/cancel notification". A turn takes its own cancel while it runs;
+    // one read here found no turn running, and has nothing to stop. A
+    // notification is answered with nothing, so it is said on stderr.
+    if (method == "session/cancel") {
+        char[256] sb;
+        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        if (!__ctfe) {
+            fputs("ground code: session/cancel for ", stderr);
+            if (sid is null) fputs("no sessionId", stderr); else fwrite(sid.ptr, 1, sid.length, stderr);
+            fputs(", with no turn running\n", stderr);
+        }
+        return true;
+    }
+    // "Notification to cancel an ongoing request." Every request but a turn is
+    // answered before the next line is read, so only a turn's can be ongoing.
+    if (method == "$/cancel_request") {
+        auto rid = rawValue(line, `"requestId"`);
+        if (!__ctfe) {
+            fputs("ground code: $/cancel_request for ", stderr);
+            if (rid is null) fputs("no requestId", stderr); else fwrite(rid.ptr, 1, rid.length, stderr);
+            fputs(", which no turn is answering\n", stderr);
+        }
         return true;
     }
 
@@ -782,13 +842,21 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             scope(exit) free(dest);
             // The history and the tools go to the gateway; a tool_calls answer is
             // run through the session's own MCP server and handed back, until the
-            // model answers in words.
+            // model answers in words, or the client calls the turn off.
+            Turn turn = Turn(sessions.input, sid, id);
+            // "the Agent MUST respond to the original session/prompt request
+            // with the cancelled stop reason"; the history keeps what happened.
+            void stopCancelled() { put(`,"result":{"stopReason":"cancelled"}}`); }
             while (true) {
+                if (cancelAsked(turn)) { stopCancelled(); return true; }
                 Reply body_;
                 scope(exit) body_.dispose();
                 requestBody(body_, qntxNode.model, o.history.slice(), tools.slice());
                 if (o.history.full || body_.full) { put(`,"error":{"code":-32603,"message":"the session's history outgrew memory"}}`); return true; }
-                auto http = httpPostInto(url.slice(), body_.slice(), token, dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS);
+                import http : Abort;
+                auto http = httpPostInto(url.slice(), body_.slice(), token, dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS,
+                    "application/json", Abort(&stopIfCancelled, &turn));
+                if (turn.cancelled) { stopCancelled(); return true; }
                 if (http.code != 0 || http.overran || http.status != 200) {
                     put(`,"error":{"code":-32603,"message":"the gateway did not answer the prompt","data":{"url":"`);
                     putEscaped(r, url.slice());
@@ -813,9 +881,26 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     putEscaped(u, c.content); u.add(`"}}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
+                // "max_tokens": the answer was cut off at the model's token
+                // limit. The calls it asked for are not run, and the history
+                // says so, so the next turn is one the gateway still takes.
+                if (c.finish == "length") {
+                    foreach (i; 0 .. c.callCount)
+                        toolMessage(*o.history, c.calls[i].id, `{"status":"not run","why":"the answer asking for it was cut off at the model's token limit"}`);
+                    put(`,"result":{"stopReason":"max_tokens"}}`);
+                    return true;
+                }
                 if (c.callCount == 0) { put(`,"result":{"stopReason":"end_turn"}}`); return true; }
                 foreach (i; 0 .. c.callCount) {
                     auto call = c.calls[i];
+                    // A call the turn was called off before is not run; the
+                    // history answers it, as the gateway needs every call answered.
+                    if (cancelAsked(turn)) {
+                        foreach (j; i .. c.callCount)
+                            toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"the client cancelled the turn"}`);
+                        stopCancelled();
+                        return true;
+                    }
                     Reply u, server, tool, args, result;
                     scope(exit) { u.dispose(); server.dispose(); tool.dispose(); args.dispose(); result.dispose(); }
                     u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, call.id);
@@ -861,8 +946,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
 int handleCode() {
     import core.stdc.time : time;
-    char* buf = null;
-    size_t cap = 0;
     import db : openDb, sqlite3_close;
     import controls : qntxNode;
     auto sessions = Sessions(cast(ulong) time(null), cast(uint) getpid());
@@ -877,14 +960,16 @@ int handleCode() {
     }
     scope (exit) sqlite3_close(sessions.db);
     int result;
-    scope(exit) free(buf);
+    // ground code reads its input itself, so a turn can see what arrives while it runs.
+    Input input = Input(0);
+    scope(exit) input.dispose();
+    sessions.input = &input;
     while (true) {
-        auto n = getline(&buf, &cap, stdin);
-        if (n < 0) {
-            if (ferror(stdin)) { fputs("ground code: failed reading ACP input\n", stderr); result = 1; }
+        const(char)[] line;
+        if (!nextLine(input, line)) {
+            if (input.failed) { fputs("ground code: failed reading ACP input\n", stderr); result = 1; }
             break;
         }
-        auto line = buf[0 .. cast(size_t) n];
         while (line.length > 0 && (line[$ - 1] == '\n' || line[$ - 1] == '\r')) line = line[0 .. $ - 1];
         if (line.length == 0) continue;
         Reply r;
@@ -895,6 +980,8 @@ int handleCode() {
             fputs("\n", stderr);
             continue;
         }
+        // A notification it handled has no answer to write.
+        if (r.len == 0 && !r.full) continue;
         if (r.full) {
             fputs("ground code: the answer to this outgrew its buffer and was not sent: ", stderr);
             fwrite(line.ptr, 1, line.length, stderr);

@@ -34,9 +34,21 @@ private enum {
     CURLOPT_POSTFIELDSIZE  = 60,
     CURLOPT_NOSIGNAL       = 99,
     CURLOPT_PROTOCOLS_STR  = 10_318,
+    CURLOPT_NOPROGRESS     = 43,
+    CURLOPT_XFERINFODATA   = 10_057,
+    CURLOPT_XFERINFOFUNCTION = 20_219,
     CURLINFO_RESPONSE_CODE = 0x200000 + 2,
     CURL_ERROR_SIZE        = 256,
 }
+
+// A transfer its caller can stop: libcurl asks stop about once a second, and
+// often while bytes move, and a nonzero answer ends it with
+// CURLE_ABORTED_BY_CALLBACK. curl_xferinfo_callback, as curl.h declares it.
+struct Abort {
+    extern (C) int function(void* data, long dltotal, long dlnow, long ultotal, long ulnow) stop;
+    void* data;
+}
+enum CURLE_ABORTED_BY_CALLBACK = 42;
 
 // Strip surrounding whitespace from a credential. A token read from a file
 // carries the newline the file ends with, and a newline inside a header value
@@ -100,7 +112,7 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
 // a caller that did not ask for files cannot be handed one by a url.
 private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
                      const(char)[] token, const(char)[] contentType,
-                     char[] dest, int timeoutSec, const(char)[] protocols) {
+                     char[] dest, int timeoutSec, const(char)[] protocols, Abort abort = Abort.init) {
     Http r;
 
     void say(const(char)[] s) {
@@ -155,6 +167,11 @@ private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
     curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, &intoSink);
     curl_easy_setopt(h, CURLOPT_WRITEDATA, &sink);
     if (headers !is null) curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers);
+    if (abort.stop !is null) {
+        curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, abort.stop);
+        curl_easy_setopt(h, CURLOPT_XFERINFODATA, abort.data);
+        curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
+    }
     if (isPost) {
         // The size goes first: without it libcurl measures the body with
         // strlen, and a slice carries no terminator to stop at.
@@ -276,9 +293,10 @@ Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
 // The same, keeping the reply in dest. For a caller that owes somebody the
 // far end's reason: a 400 with its words thrown away told nobody why 89 rows
 // were refused for a week.
+// abort, when given, can stop it before it ends.
 Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, char[] dest,
-                  int timeoutSec = 10, const(char)[] contentType = "application/json") {
-    return perform(url, body_, true, token, contentType, dest, timeoutSec, WEB);
+                  int timeoutSec = 10, const(char)[] contentType = "application/json", Abort abort = Abort.init) {
+    return perform(url, body_, true, token, contentType, dest, timeoutSec, WEB, abort);
 }
 
 // The HTTP status, or 0 when there was none. For a caller that reads only the
