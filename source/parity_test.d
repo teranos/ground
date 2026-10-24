@@ -284,6 +284,8 @@ static assert(has(sideFor("acp", "session/new").reads, "cwd"));
 static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
 static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(!has(sideFor("acp", "initialize").writes, "sessionId"));
+static assert(has(sideFor("acp", "initialize").writes, "authMethods"));
+static assert(has(sideFor("acp", "authenticate").reads, "methodId"));
 static assert(has(sideFor("acp", "initialize").writes, "agentCapabilities"));
 static assert(has(sideFor("acp", "session/close").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/list").reads, "cwd"));

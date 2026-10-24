@@ -364,8 +364,21 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // client's is answered with it whatever it asked for.
     if (method == "initialize") {
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}}},"agentInfo":{"name":"ground","version":"`);
+        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
+        return true;
+    }
+
+    // "Must be one of the methods advertised in the initialize response."
+    // initialize advertises none: the model is reached through the QNTX node,
+    // whose credentials ground code never holds.
+    if (method == "authenticate") {
+        char[256] ab;
+        auto mid = extractJsonString(line, `"methodId"`, &ab[0], ab.length);
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (mid is null) { put(`,"error":{"code":-32602,"message":"authenticate needs methodId"}}`); return true; }
+        put(`,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named `);
+        putEscaped(r, mid); put(`"}}`);
         return true;
     }
 
