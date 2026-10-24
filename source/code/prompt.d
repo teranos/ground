@@ -176,12 +176,13 @@ void toolMessage(ref Reply h, const(char)[] callId, const(char)[] content) {
     h.add(`","content":"`); putEscaped(h, content); h.add(`"}`);
 }
 
-// The body the gateway gets: the model, the messages, and the tools when
-// there are any.
-void requestBody(ref Reply b, const(char)[] model, const(char)[] history, const(char)[] tools) {
+// The body the gateway gets: the model, the messages, the tools when there
+// are any, and the session's effort, which the plugin hands OpenRouter as is.
+void requestBody(ref Reply b, const(char)[] model, const(char)[] history, const(char)[] tools, const(char)[] effort) {
     b.add(`{"model":"`); putEscaped(b, model);
     b.add(`","messages":[`); b.add(history); b.add(`]`);
     if (tools.length > 0) { b.add(`,"tools":[`); b.add(tools); b.add(`]`); }
+    b.add(`,"reasoning":{"effort":"`); putEscaped(b, effort); b.add(`"}`);
     b.add(`}`);
 }
 
