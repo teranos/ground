@@ -40,6 +40,7 @@ unittest {
     assert(hasColumn(db, "code_session", "mode"));
     assert(hasColumn(db, "code_session", "dirs"));
     assert(hasColumn(db, "code_session", "effort"));
+    assert(hasColumn(db, "code_session", "updated_at"));
     sqlite3_close(db);
 }
 
@@ -71,5 +72,22 @@ unittest {
     assert(hasColumn(db, "code_session", "mode"));
     assert(hasColumn(db, "code_session", "dirs"));
     assert(hasColumn(db, "code_session", "effort"));
+    assert(hasColumn(db, "code_session", "updated_at"));
+    sqlite3_close(db);
+}
+
+unittest {
+    import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_int64, sqlite3_stmt, SQLITE_ROW;
+    // A session from before updated_at was last active when it was opened.
+    enum old = "CREATE TABLE code_session (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, "
+        ~ "opened_at INTEGER NOT NULL, closed_at INTEGER NOT NULL DEFAULT 0);"
+        ~ "INSERT INTO code_session (id, cwd, opened_at) VALUES ('code-1-1-1', '/w', 1700000000)\0";
+    auto db = openWith(old);
+    assert(applySchema(db));
+    sqlite3_stmt* st;
+    assert(sqlite3_prepare_v2(db, "SELECT updated_at FROM code_session\0".ptr, -1, &st, null) == 0);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(sqlite3_column_int64(st, 0) == 1700000000);
+    sqlite3_finalize(st);
     sqlite3_close(db);
 }
