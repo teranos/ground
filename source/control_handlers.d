@@ -886,7 +886,7 @@ bool spanStandsInFile(const(char)[] input, const(char)[] span) {
     auto f = fopen(&pathBuf[0], "rb");
     if (f is null) return false;
 
-    __gshared char[262144] fileBuf = 0;
+    __gshared char[262144] fileBuf = "";
     auto n = fread(&fileBuf[0], 1, fileBuf.length, f);
     fclose(f);
     if (n == 0) return false;
