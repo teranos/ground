@@ -97,3 +97,10 @@ bool take(ref Input input, scope bool delegate(const(char)[]) matches) {
         start = cast(size_t) nl + 1;
     }
 }
+
+// Waits for more to arrive. false at the end of the input, or when it failed:
+// nothing more is coming.
+bool more(ref Input input) {
+    fill(input, -1);
+    return !input.eof && !input.failed;
+}
