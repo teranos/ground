@@ -35,6 +35,8 @@ def main():
     sha = out(["git", "rev-parse", "HEAD"])
     version = open(".version").read().strip()
     runner = os.environ.get("RUNNER_OS", platform.system()).lower()
+    # A hosted runner is the same machine every time; a host is whichever ran it.
+    where = ("github:" if os.environ.get("GITHUB_ACTIONS") else "host:") + runner
     build = ["dub", "build", "--build=release", "--config=production", "--force"]
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start = time.monotonic()
@@ -49,7 +51,7 @@ def main():
     row = {
         "subjects": ["ground:" + version],
         "predicates": ["bench:ctfe"],
-        "contexts": ["github:" + runner],
+        "contexts": [where],
         "actors": ["ground-ci"],
         "source": "ground-ci",
         "attributes": {
@@ -65,6 +67,10 @@ def main():
         row["attributes"]["run"] = "%s/%s/actions/runs/%s" % (
             os.environ["GITHUB_SERVER_URL"], os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"])
     print(json.dumps(row, indent=1))
+    # The row is also a file, so a run's artifact holds it for a node that
+    # pulls rather than one that is posted to (ADR-043's shape).
+    with open("bench-ctfe.json", "w") as f:
+        json.dump(row, f)
     req = urllib.request.Request(url.rstrip("/") + "/api/attestations", data=json.dumps(row).encode(),
                                  headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     try:
@@ -72,6 +78,9 @@ def main():
             print("bench: %d %s" % (r.status, r.read().decode()))
     except urllib.error.HTTPError as e:
         print("bench: the node refused the row: %d %s" % (e.code, e.read().decode()), file=sys.stderr)
+        return 1
+    except (urllib.error.URLError, OSError) as e:
+        print("bench: the node was not reached at %s: %s" % (url, e), file=sys.stderr)
         return 1
     return 0
 

@@ -19,6 +19,15 @@
           },
           "name": "build what ships, time it, attest it",
           "run": "nix develop .#default --command python3 ci/bench.py"
+        },
+        {
+          "if": "always()",
+          "uses": "actions/upload-artifact@v7",
+          "with": {
+            "if-no-files-found": "ignore",
+            "name": "bench-ctfe",
+            "path": "bench-ctfe.json"
+          }
         }
       ]
     }

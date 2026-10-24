@@ -32,6 +32,16 @@ in
         };
         run = "nix develop .#default --command python3 ci/bench.py";
       }
+      # The row as the run's artifact too, whether or not the node took it.
+      {
+        "if" = "always()";
+        uses = "actions/upload-artifact@v7";
+        "with" = {
+          name = "bench-ctfe";
+          path = "bench-ctfe.json";
+          if-no-files-found = "ignore";
+        };
+      }
     ];
   };
 }
