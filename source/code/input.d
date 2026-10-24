@@ -26,13 +26,16 @@ struct Input {
 }
 
 // Reads what the fd has, waiting up to waitMs, or forever at -1. false when
-// nothing came: the wait ran out, the input ended, or it failed.
+// nothing came: the wait ran out, the input ended, or it failed. Forever is a
+// blocking read, not a poll: Darwin's poll never reports a FIFO's end.
 private bool fill(ref Input input, int waitMs) {
     if (input.eof || input.failed) return false;
-    pollfd p = pollfd(input.fd, POLLIN, 0);
-    auto ready = poll(&p, 1, waitMs);
-    if (ready < 0) { if (errno != EINTR) input.failed = true; return false; }
-    if (ready == 0) return false;
+    if (waitMs >= 0) {
+        pollfd p = pollfd(input.fd, POLLIN, 0);
+        auto ready = poll(&p, 1, waitMs);
+        if (ready < 0) { if (errno != EINTR) input.failed = true; return false; }
+        if (ready == 0) return false;
+    }
     if (input.cap - input.len < 4096) {
         auto grown = input.cap == 0 ? 65536 : input.cap * 2;
         auto b = cast(char*) realloc(input.buf, grown);
