@@ -49,16 +49,19 @@ private string twoTurns()() {
 }
 static assert(twoTurns() == `{"role":"user","content":"hi"},{"role":"user","content":"again \"now\""}`);
 
-// The body the gateway gets: the model, the messages, and the tools when there are any.
-private string bodyOf()(string model, string history, string tools) {
+// The body the gateway gets: the model, the messages, the tools when there are
+// any, and the session's effort as OpenRouter's reasoning effort. The plugin
+// passes the body on whole, and every effort ground code offers is one of
+// OpenRouter's: "max", "xhigh", "high", "medium", "low", "minimal" or "none".
+private string bodyOf()(string model, string history, string tools, string effort) {
     Reply b;
-    requestBody(b, model, history, tools);
+    requestBody(b, model, history, tools, effort);
     return b.slice().idup;
 }
-static assert(bodyOf("openai/gpt-4o-mini", `{"role":"user","content":"hi"}`, "")
-    == `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`);
-static assert(bodyOf("m", `{"role":"user","content":"hi"}`, `{"type":"function","function":{"name":"test__echo"}}`)
-    == `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test__echo"}}]}`);
+static assert(bodyOf("openai/gpt-4o-mini", `{"role":"user","content":"hi"}`, "", "medium")
+    == `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"reasoning":{"effort":"medium"}}`);
+static assert(bodyOf("m", `{"role":"user","content":"hi"}`, `{"type":"function","function":{"name":"test__echo"}}`, "max")
+    == `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test__echo"}}],"reasoning":{"effort":"max"}}`);
 
 // What the model answered: its text, or the calls it wants made, read from
 // the gateway's JSON at runtime.
