@@ -1,0 +1,40 @@
+{
+  "jobs": {
+    "ctfe": {
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "uses": "actions/checkout@v6",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "uses": "cachix/install-nix-action@v30"
+        },
+        {
+          "name": "build what ships, time it, write the row",
+          "run": "nix develop .#default --command python3 ci/bench.py"
+        },
+        {
+          "if": "always()",
+          "uses": "actions/upload-artifact@v7",
+          "with": {
+            "if-no-files-found": "ignore",
+            "name": "bench-ctfe",
+            "path": "bench-ctfe.json"
+          }
+        }
+      ]
+    }
+  },
+  "name": "bench",
+  "on": {
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "workflow_dispatch": {}
+  }
+}
