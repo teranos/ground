@@ -160,12 +160,12 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // Live, which is every case except a ritual that finished inside the call.
     if (command !is null && sessionId.length > 0) {
         import ritual : ritualStarted, readPosition, writePosition, RitualState;
-        import controls : allParsed;
+        import controls : parsedOnce;
         import db : openDb, sqlite3_close;
 
         auto started = ritualStarted(command);
         if (started.length > 0) {
-            static immutable parsed = allParsed;
+            alias parsed = parsedOnce;
             foreach (i; 0 .. parsed.ritualCount) {
                 if (parsed.rituals[i].name != started) continue;
                 auto db = openDb();
@@ -263,8 +263,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     // "rituals off should mean totally off"
                     {
                         import ritual : ritualOff;
-                        import controls : allParsed;
-                        static immutable offParsed = allParsed;
+                        import controls : parsedOnce;
+                        alias offParsed = parsedOnce;
                         auto off = ritualOff(edb, offParsed, c.ritual);
                         if (off !is null) {
                             import core.stdc.stdio : fputs, stderr, fwrite;
@@ -373,10 +373,10 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
         // there. The gates are a control's: the repo the work was in is the
         // ritual's project, and a push origin refused fires nothing.
         {
-            import controls : allParsed;
+            import controls : parsedOnce;
             import ritual : doorsFiredBy, chooseRitual, ritualOff, secondFire, landOn, performFromControl;
             import git : originOf, placeRepo = repoRoot;
-            static immutable doorParsed = allParsed;
+            alias doorParsed = parsedOnce;
             auto fired = doorsFiredBy(doorParsed, "PostToolUse", detail);
             foreach (di; 0 .. fired.count) {
                 auto door = fired.doors[di];

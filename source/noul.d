@@ -27,7 +27,7 @@ bool overTokens(int status, const(char)[] reply) {
 size_t diffLines(const(char)[] worktree) {
     import libgit2 : Repo, Shown;
     __gshared Repo g;
-    __gshared char[4 * 1024 * 1024] patch = 0;
+    __gshared char[4 * 1024 * 1024] patch = "";
     if (!g.open(worktree)) return 0;
     scope (exit) g.close();
     auto text = g.between("HEAD~1", "HEAD", 3, Shown.patch, patch[]);

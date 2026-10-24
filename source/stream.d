@@ -480,7 +480,7 @@ Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
     auto claimed = claimStream(db, pid, take);
     if (claimed == 0) return p;
 
-    __gshared char[NODE_BODY_CAP] batch = 0;
+    __gshared char[NODE_BODY_CAP] batch = "";
     auto built = buildBatch(db, pid, now, batch[]);
     if (built.rows == 0) {
         claimReleased(db, pid);
@@ -495,7 +495,7 @@ Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
 
     // Each answer is a few words about one row, so the reply is smaller than
     // the list; a reply that is not is said, not read cut.
-    __gshared char[NODE_BODY_CAP] reply = 0;
+    __gshared char[NODE_BODY_CAP] reply = "";
     auto r = httpPostInto(endpoint.slice(), batch[0 .. built.len], token, reply[], 10);
     p.status = r.status > 0 ? r.status : -r.code;
 

@@ -8,7 +8,11 @@ import concept : conceptOf, isConcept, chapters, rank, opener, chapterOf, module
 // "most chapters arent supposed to be their own standalone chapters"
 // "Code should be its own Chapter"
 // "and Parity should also be its own Chapter"
-static assert(chapters.length == 11);
+// "can you have a CTFE Chapter with one or two line graphs on ground CTFE"
+static assert(chapters.length == 12);
+static assert(chapters[11] == "ctfe");
+static assert(opener("ctfe") == "ctfe");
+static assert(chapterOf("ctfe") == "ctfe");
 
 // "and make parity the first chapter"
 static assert(chapters[0] == "parity");

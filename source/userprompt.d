@@ -71,10 +71,10 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     size_t swLen = 0;
     {
         import ritual : saidOf, Said, switched;
-        import controls : allParsed;
+        import controls : parsedOnce;
         import git : repoRoot, originOf;
         import core.stdc.time : time;
-        static immutable parsed = allParsed;
+        alias parsed = parsedOnce;
         auto said = saidOf(prompt);
         if (said != Said.Nothing) {
             swLen = switched(db, parsed, said, cwd, repoRoot(cwd), originOf(cwd),

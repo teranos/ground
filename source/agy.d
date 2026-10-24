@@ -45,7 +45,7 @@ int handleAgyHook(int argc, const(char)** argv) {
     }
     auto event = argv[3][0 .. cLen(argv[3])];
 
-    __gshared char[262144] buf = 0;
+    __gshared char[262144] buf = "";
     size_t total = 0;
     while (total < buf.length) {
         auto n = fread(&buf[total], 1, buf.length - total, stdin);
