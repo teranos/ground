@@ -21,13 +21,22 @@ static assert(serverOf("echo") == "");
 static assert(toolOf("echo") == "echo");
 
 // The prompt's text blocks, in order, one line each; a block of another kind
-// has no text to give.
+// has no text to give, and its type is said instead of dropped.
 private string textOf()(string line) {
-    Reply r;
-    promptText(line, r);
+    Reply r, other;
+    promptText(line, r, other);
     return r.slice().idup;
 }
+private string otherOf()(string line) {
+    Reply r, other;
+    return promptText(line, r, other) ? "all text" : other.slice().idup;
+}
 static assert(textOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"text","text":"b"}]}`) == "a\nb");
+static assert(otherOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"resource_link","uri":"file:///a"}]}`) == "image");
+static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`) == "resource_link");
+static assert(otherOf(`{"prompt":[{"text":"a"}]}`) == "");
+static assert(otherOf(`{"prompt":[{"type":"text","text":"a"}]}`) == "all text");
+static assert(otherOf(`{"prompt":[]}`) == "all text");
 static assert(textOf(`{"prompt":[{"type":"text","text":"say \"hi\""}]}`) == `say "hi"`);
 static assert(textOf(`{"prompt":[]}`) == "");
 
@@ -40,16 +49,19 @@ private string twoTurns()() {
 }
 static assert(twoTurns() == `{"role":"user","content":"hi"},{"role":"user","content":"again \"now\""}`);
 
-// The body the gateway gets: the model, the messages, and the tools when there are any.
-private string bodyOf()(string model, string history, string tools) {
+// The body the gateway gets: the model, the messages, the tools when there are
+// any, and the session's effort as OpenRouter's reasoning effort. The plugin
+// passes the body on whole, and every effort ground code offers is one of
+// OpenRouter's: "max", "xhigh", "high", "medium", "low", "minimal" or "none".
+private string bodyOf()(string model, string history, string tools, string effort) {
     Reply b;
-    requestBody(b, model, history, tools);
+    requestBody(b, model, history, tools, effort);
     return b.slice().idup;
 }
-static assert(bodyOf("openai/gpt-4o-mini", `{"role":"user","content":"hi"}`, "")
-    == `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`);
-static assert(bodyOf("m", `{"role":"user","content":"hi"}`, `{"type":"function","function":{"name":"test__echo"}}`)
-    == `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test__echo"}}]}`);
+static assert(bodyOf("openai/gpt-4o-mini", `{"role":"user","content":"hi"}`, "", "medium")
+    == `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"reasoning":{"effort":"medium"}}`);
+static assert(bodyOf("m", `{"role":"user","content":"hi"}`, `{"type":"function","function":{"name":"test__echo"}}`, "max")
+    == `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test__echo"}}],"reasoning":{"effort":"max"}}`);
 
 // What the model answered: its text, or the calls it wants made, read from
 // the gateway's JSON at runtime.

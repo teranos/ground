@@ -217,13 +217,13 @@ const(char)[] performFromControl(const(char)[] ritualName, const(char)[] session
                                  const(char)[] where = "",
                                  const(char)[] toolInput = "", const(char)[] toolOutput = "",
                                  const(char)[] enter = "") {
-    import controls : allParsed;
+    import controls : parsedOnce;
     import db : openDb, sqlite3_close;
     import core.stdc.time : time;
     import exec : emitError;
     import git : placeRepo = repoRoot;
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
     auto chosen = chooseRitual(parsed, ritualName, "");
     if (!chosen.ok) {
         emitError("ritual.control.resolve", "a control names a ritual that does not resolve",
@@ -292,7 +292,7 @@ EOS";
 
 int handleAbort(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fwrite;
-    import controls : allParsed;
+    import controls : parsedOnce;
     import db : openDb, sqlite3_close;
     import main : argLen;
     import ritual.position : RitualState, abort;
@@ -304,7 +304,7 @@ int handleAbort(int argc, const(char)** argv) {
     }
     auto name = argv[2][0 .. argLen(argv[2])];
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
     size_t idx;
     bool known = false;
     foreach (i; 0 .. parsed.ritualCount) {
@@ -447,7 +447,7 @@ EOS";
 int handleRitual(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fwrite;
     import core.stdc.time : time;
-    import controls : allParsed;
+    import controls : parsedOnce;
     import db : openDb, sqlite3_close;
     import exec : dispatchExec;
     import main : argLen;
@@ -471,7 +471,7 @@ int handleRitual(int argc, const(char)** argv) {
     while (cwdBuf[cwdLen] != 0) cwdLen++;
     auto cwd = cwdBuf[0 .. cwdLen];
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
     auto chosen = chooseRitual(parsed, name, second);
 
     // "ground should refuse if it cant resolve to a single one cleanly"

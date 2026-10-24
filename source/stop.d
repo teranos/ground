@@ -143,7 +143,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     {
         import ritual : readPositionAt, advance, briefing, flatten, RitualState;
         import rite : Verdict;
-        import controls : allParsed;
+        import controls : parsedOnce;
         import core.stdc.time : time;
 
         // "I dont know how to explain how serious this defect is"
@@ -171,7 +171,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         // and walking is its whole job; this ran the same rite a second time,
         // which for a `dispatch:` rite meant a second workflow run.
         if (found.valid && found.p.state == RitualState.Live) {
-            static immutable ritualsParsed = allParsed;
+            alias ritualsParsed = parsedOnce;
             foreach (i; 0 .. ritualsParsed.ritualCount) {
                 if (ritualsParsed.rituals[i].name != found.p.ritual) continue;
 

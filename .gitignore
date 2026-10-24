@@ -87,3 +87,6 @@ jev_token
 
 # A session bookmark: the claude --resume line a branch's work continues from
 sesscodex
+
+# The row ci/bench.py writes beside the build, for the run to upload.
+bench-ctfe.json

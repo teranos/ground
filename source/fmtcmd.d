@@ -118,8 +118,8 @@ private bool endsWith(const(char)[] s, const(char)[] p) {
 }
 
 private int formatPath(const(char)[] path) {
-    __gshared char[CAP] in_ = 0;
-    __gshared char[CAP] out_ = 0;
+    __gshared char[CAP] in_ = "";
+    __gshared char[CAP] out_ = "";
     __gshared char[65536] scratch = 0;
     __gshared char[4096] name = 0;
 
@@ -156,8 +156,8 @@ EOS";
 
 int handleFmt(int argc, const(char)** argv) {
     if (argc <= 2) {
-        __gshared char[CAP] in_ = 0;
-        __gshared char[CAP] out_ = 0;
+        __gshared char[CAP] in_ = "";
+        __gshared char[CAP] out_ = "";
         auto src = readWhole(stdin, in_[]);
         auto n = formatInto(src, out_[]);
         if (n < 0) { fputs("fmt: cannot read stdin as pbt\n", stderr); return 2; }

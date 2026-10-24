@@ -384,6 +384,23 @@ private string promptWithoutModel()() {
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, s);
 }
+// "As a baseline, the Agent MUST support ContentBlock::Text and
+// ContentBlock::ResourceLink". ground code reads text only, so a block of any
+// other kind is refused by its type before the turn starts, not dropped.
+private string promptWithLink()() {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
+}
+static assert(promptWithLink()
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only text blocks, and the prompt holds a block of type resource_link"}}`);
+private string promptUntyped()() {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`, s);
+}
+static assert(promptUntyped()
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only text blocks, and the prompt holds a block that names no type"}}`);
 static assert(promptWithoutModel()
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 

@@ -766,6 +766,17 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
+        // "the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
+        // ground code reads text only: a block it cannot read is refused by its
+        // type, not dropped from what the model is told.
+        Reply text, other;
+        scope(exit) { text.dispose(); other.dispose(); }
+        if (!promptText(line, text, other)) {
+            put(`,"error":{"code":-32602,"message":"ground code reads only text blocks, and the prompt holds a block `);
+            if (other.len == 0) put(`that names no type"}}`);
+            else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }
+            return true;
+        }
         // The model is the qntx block's, the token the one every attestation carries.
         if (qntxNode.model.length == 0) {
             put(`,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
@@ -793,9 +804,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 if (o.history is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
                 *o.history = Reply.init;
             }
-            Reply text, tools, detail, url;
-            scope(exit) { text.dispose(); tools.dispose(); detail.dispose(); url.dispose(); }
-            promptText(line, text);
+            Reply tools, detail, url;
+            scope(exit) { tools.dispose(); detail.dispose(); url.dispose(); }
             userMessage(*o.history, text.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
@@ -812,7 +822,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             while (true) {
                 Reply body_;
                 scope(exit) body_.dispose();
-                requestBody(body_, qntxNode.model, o.history.slice(), tools.slice());
+                requestBody(body_, qntxNode.model, o.history.slice(), tools.slice(), efforts[o.effort]);
                 if (o.history.full || body_.full) { put(`,"error":{"code":-32603,"message":"the session's history outgrew memory"}}`); return true; }
                 auto http = httpPostInto(url.slice(), body_.slice(), token, dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS);
                 if (http.code != 0 || http.overran || http.status != 200) {
