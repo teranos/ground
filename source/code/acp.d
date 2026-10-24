@@ -786,7 +786,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             while (true) {
                 Reply body_;
                 scope(exit) body_.dispose();
-                requestBody(body_, qntxNode.model, o.history.slice(), tools.slice());
+                requestBody(body_, qntxNode.model, o.history.slice(), tools.slice(), efforts[o.effort]);
                 if (o.history.full || body_.full) { put(`,"error":{"code":-32603,"message":"the session's history outgrew memory"}}`); return true; }
                 auto http = httpPostInto(url.slice(), body_.slice(), token, dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS);
                 if (http.code != 0 || http.overran || http.status != 200) {
