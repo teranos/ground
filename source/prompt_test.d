@@ -21,13 +21,22 @@ static assert(serverOf("echo") == "");
 static assert(toolOf("echo") == "echo");
 
 // The prompt's text blocks, in order, one line each; a block of another kind
-// has no text to give.
+// has no text to give, and its type is said instead of dropped.
 private string textOf()(string line) {
-    Reply r;
-    promptText(line, r);
+    Reply r, other;
+    promptText(line, r, other);
     return r.slice().idup;
 }
+private string otherOf()(string line) {
+    Reply r, other;
+    return promptText(line, r, other) ? "all text" : other.slice().idup;
+}
 static assert(textOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"text","text":"b"}]}`) == "a\nb");
+static assert(otherOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"resource_link","uri":"file:///a"}]}`) == "image");
+static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`) == "resource_link");
+static assert(otherOf(`{"prompt":[{"text":"a"}]}`) == "");
+static assert(otherOf(`{"prompt":[{"type":"text","text":"a"}]}`) == "all text");
+static assert(otherOf(`{"prompt":[]}`) == "all text");
 static assert(textOf(`{"prompt":[{"type":"text","text":"say \"hi\""}]}`) == `say "hi"`);
 static assert(textOf(`{"prompt":[]}`) == "");
 

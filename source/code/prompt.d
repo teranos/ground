@@ -115,21 +115,22 @@ private size_t blanks(const(char)[] json, size_t pos) {
 }
 
 // The prompt's text blocks, in order, one line each. A block of another kind
-// has no text to give the model, and is not pretended to.
-@Reads("prompt") void promptText(const(char)[] line, ref Reply r) {
+// has no text to give the model, and is not pretended to: false, and other
+// gets the type of the first such block, empty when it names none.
+@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other) {
     auto at = indexOf(line, `"prompt"`);
-    if (at < 0) return;
+    if (at < 0) return true;
     size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
-    if (pos >= line.length || line[pos] != ':') return;
+    if (pos >= line.length || line[pos] != ':') return true;
     pos = blanks(line, pos + 1);
-    if (pos >= line.length || line[pos] != '[') return;
+    if (pos >= line.length || line[pos] != '[') return true;
     pos = blanks(line, pos + 1);
-    bool first = true;
+    bool first = true, all = true;
     while (pos < line.length && line[pos] == '{') {
         auto end = skipValue(line, pos);
         auto block = line[pos .. end];
         bool text;
-        Reply value;
+        Reply value, kind;
         size_t p = 1;
         while (p < block.length) {
             p = blanks(block, p);
@@ -139,12 +140,16 @@ private size_t blanks(const(char)[] json, size_t pos) {
             p = blanks(block, p);
             if (p >= block.length || block[p] != ':') break;
             p = blanks(block, p + 1);
-            if (key.slice() == "type") text = block.length - p >= 6 && block[p .. p + 6] == `"text"`;
+            if (key.slice() == "type" && p < block.length && block[p] == '"') {
+                kind.len = 0; copyString(block, p, kind);
+                text = kind.slice() == "text";
+            }
             if (key.slice() == "text" && p < block.length && block[p] == '"') { value.len = 0; copyString(block, p, value); }
             p = skipValue(block, p);
             p = blanks(block, p);
             if (p < block.length && block[p] == ',') p++;
         }
+        if (!text && all) { all = false; other.add(kind.slice()); }
         if (text) {
             if (!first) r.add("\n");
             first = false;
@@ -153,6 +158,7 @@ private size_t blanks(const(char)[] json, size_t pos) {
         pos = blanks(line, end);
         if (pos < line.length && line[pos] == ',') pos = blanks(line, pos + 1);
     }
+    return all;
 }
 
 // --- the history: the messages array's inside, grown a message at a time ---
