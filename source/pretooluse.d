@@ -257,7 +257,7 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     import homedir : rewriteField, HOME_TOKEN;
     import audience : audienceOf, internetSees, Audience;
     import hooks : rewriteFrom, rewriteTo;
-    import controls : allParsed;
+    import controls : parsedOnce;
     import parse : extractToolInputRegion;
     import db : getenv;
 
@@ -287,7 +287,7 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     bool inA = true;
     const(char)[] why;
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
 
     // The scope is asked about the file being changed, not about where the
     // session stands. A session in a public repo writing into a private one
