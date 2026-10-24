@@ -17,8 +17,8 @@ private string modes()(string current) {
     return `{"currentModeId":"` ~ current ~ `","availableModes":[`
         ~ `{"id":"default","name":"Manual","description":"m in a permission block"},`
         ~ `{"id":"plan","name":"Plan","description":"p in a permission block"},`
-        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block"},`
-        ~ `{"id":"auto","name":"Auto","description":"a in a permission block"},`
+        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code asks, as Manual does"},`
+        ~ `{"id":"auto","name":"Auto","description":"a in a permission block; ground code asks, as Manual does"},`
         ~ `{"id":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
         ~ `{"id":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]}`;
 }
@@ -599,5 +599,220 @@ version (Posix) unittest {
         assert(history.length > 0 && history[$ - 1 .. $] == "}");
         import matcher : indexOf;
         assert(indexOf(history, `{"role":"tool","tool_call_id":"c1"`) >= 0);
+    }
+}
+
+// What a session's mode does to the tool calls its turns ask for:
+//   default (Manual), acceptEdits, auto  the client is asked, by
+//       session/request_permission; ground code has no edit tools of its own
+//       and no classifier, so the last two ask as Manual does
+//   plan               only a tool whose MCP annotations say readOnlyHint runs
+//   dontAsk            nothing is approved ahead, so nothing runs
+//   bypassPermissions  every call runs
+// A call not run is answered in the history, so the model is told why.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+
+    enum http = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    enum oneCall = http ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+        ~ `{"id":"c1","type":"function","function":{"name":"x__y","arguments":"{}"}}]}}]}`;
+    enum twoCalls = http ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+        ~ `{"id":"c1","type":"function","function":{"name":"x__y","arguments":"{}"}},`
+        ~ `{"id":"c2","type":"function","function":{"name":"x__y","arguments":"{}"}}]}}]}`;
+    enum done = http ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    enum newSession = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
+    enum prompt = `{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`;
+    enum endTurn = `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`;
+    enum chose(string option) = `{"jsonrpc":"2.0","id":"perm-1","result":{"outcome":{"outcome":"selected","optionId":"` ~ option ~ `"}}}` ~ "\n";
+
+    __gshared char[32] urlBuf;
+    __gshared char[65536] said;  // what ground code wrote to the client
+    __gshared size_t saidLen;
+    __gshared char[4096] gotBuf;
+    __gshared size_t gotLen;
+
+    size_t count(const(char)[] text, const(char)[] what) {
+        size_t n = 0;
+        for (auto at = indexOf(text, what); at >= 0; at = indexOf(text[cast(size_t) at + 1 .. $], what) < 0 ? -1
+            : at + 1 + indexOf(text[cast(size_t) at + 1 .. $], what)) n++;
+        return n;
+    }
+
+    // A turn in a session at mode, against a gateway giving answers in turn,
+    // with queued already sent by the client. Its answer, and what it wrote.
+    bool turn(string mode, string queued, const(string)[] answers, string want, ref Sessions s, ref Input input, ref int[2] p) {
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 4) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            foreach (answer; answers) {
+                auto c = accept(fd, null, null);
+                char[65536] got;
+                read(c, got.ptr, got.length);
+                write(c, answer.ptr, answer.length);
+                close(c);
+            }
+            _exit(0);
+        }
+        close(fd);
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+
+        assert(pipe(p) == 0);
+        input = Input(p[0]);
+        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        assert(write(p[1], queued.ptr, queued.length) == queued.length);
+
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        Reply r;
+        answer(newSession, r, s); r.len = 0;
+        Reply m;
+        if (mode != "default") {
+            import core.stdc.string : strlen;
+            m.add(`{"jsonrpc":"2.0","id":9,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"`);
+            m.add(mode); m.add(`"}}`);
+            answer(m.slice(), r, s); r.len = 0;
+        }
+        m.dispose();
+        answer(prompt, r, s);
+        bool ok = r.slice() == want;
+        gotLen = r.len < gotBuf.length ? r.len : gotBuf.length;
+        foreach (i; 0 .. gotLen) gotBuf[i] = r.slice()[i];
+        r.dispose();
+        fflush(stdout);
+        dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        import core.sys.posix.signal : kill, SIGKILL;
+        kill(child, SIGKILL);
+        waitpid(child, null, 0);
+        if (!ok) {
+            import core.stdc.stdio : fprintf, stderr;
+            fprintf(stderr, "turn at %.*s answered: %.*s\nand said: %.*s\n", cast(int) mode.length, mode.ptr,
+                cast(int) gotLen, gotBuf.ptr, cast(int) saidLen, said.ptr);
+        }
+        return ok;
+    }
+    void end(ref Input input, ref int[2] p, ref Sessions s) {
+        input.dispose(); close(p[0]); close(p[1]);
+        foreach (i; 0 .. s.openLen) if (s.open[i].history !is null) { s.open[i].history.dispose(); }
+    }
+    Sessions s;
+    Input input;
+    int[2] p;
+
+    // Manual: asked, with the four options the schema names, the call pending until answered.
+    {
+        const string[2] answers = [oneCall, done];
+        assert(turn("default", chose!"allow_once", answers[], endTurn, s, input, p));
+        auto out_ = said[0 .. saidLen];
+        assert(count(out_, `"method":"session/request_permission"`) == 1);
+        assert(indexOf(out_, `{"jsonrpc":"2.0","id":"perm-1","method":"session/request_permission","params":{"sessionId":"code-100-7-1",`
+            ~ `"toolCall":{"toolCallId":"c1","title":"x__y","status":"pending","rawInput":{}},"options":[`
+            ~ `{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`
+            ~ `{"optionId":"allow_always","name":"Always allow x__y","kind":"allow_always"},`
+            ~ `{"optionId":"reject_once","name":"Reject once","kind":"reject_once"},`
+            ~ `{"optionId":"reject_always","name":"Always reject x__y","kind":"reject_always"}]}}`) >= 0);
+        assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","status":"pending","rawInput":{}}`) >= 0);
+        assert(indexOf(out_, `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress"}`) >= 0);
+        assert(indexOf(s.open[0].history.slice(), `not run`) < 0);
+        end(input, p, s);
+    }
+    // Rejected: not run, and the model is told.
+    {
+        const string[2] answers = [oneCall, done];
+        assert(turn("default", chose!"reject_once", answers[], endTurn, s, input, p));
+        auto out_ = said[0 .. saidLen];
+        assert(indexOf(out_, `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":`) >= 0);
+        assert(indexOf(s.open[0].history.slice(), `{\"status\":\"not run\",\"why\":\"the user rejected it\"}`) >= 0);
+        end(input, p, s);
+    }
+    // Always: the session remembers, and the tool is not asked about again.
+    {
+        const string[2] answers = [twoCalls, done];
+        assert(turn("acceptEdits", chose!"allow_always", answers[], endTurn, s, input, p));
+        assert(count(said[0 .. saidLen], `"method":"session/request_permission"`) == 1);
+        assert(indexOf(s.open[0].history.slice(), `not run`) < 0);
+        end(input, p, s);
+    }
+    {
+        const string[2] answers = [twoCalls, done];
+        assert(turn("auto", chose!"reject_always", answers[], endTurn, s, input, p));
+        assert(count(said[0 .. saidLen], `"method":"session/request_permission"`) == 1);
+        assert(count(s.open[0].history.slice(), `the user rejected it`) == 2);
+        end(input, p, s);
+    }
+    // Plan: x__y says nothing of being read-only, so it does not run and nobody is asked.
+    {
+        const string[2] answers = [oneCall, done];
+        assert(turn("plan", "", answers[], endTurn, s, input, p));
+        assert(count(said[0 .. saidLen], `request_permission`) == 0);
+        assert(indexOf(s.open[0].history.slice(), `{\"status\":\"not run\",\"why\":\"plan mode runs only tools whose MCP annotations say readOnlyHint\"}`) >= 0);
+        end(input, p, s);
+    }
+    // Don't ask: nothing is approved ahead.
+    {
+        const string[2] answers = [oneCall, done];
+        assert(turn("dontAsk", "", answers[], endTurn, s, input, p));
+        assert(count(said[0 .. saidLen], `request_permission`) == 0);
+        assert(indexOf(s.open[0].history.slice(), `{\"status\":\"not run\",\"why\":\"dontAsk mode runs only what is approved ahead, and nothing is\"}`) >= 0);
+        end(input, p, s);
+    }
+    // Bypass: run, nobody asked.
+    {
+        const string[2] answers = [oneCall, done];
+        assert(turn("bypassPermissions", "", answers[], endTurn, s, input, p));
+        assert(count(said[0 .. saidLen], `request_permission`) == 0);
+        assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","status":"in_progress","rawInput":{}}`) >= 0);
+        assert(indexOf(s.open[0].history.slice(), `not run`) < 0);
+        end(input, p, s);
+    }
+    // Cancelled while asking: "it MUST respond to all pending
+    // session/request_permission requests with this Cancelled outcome", and
+    // the turn stops there. The session/cancel that follows finds no turn
+    // running, and an answer to a question nobody waits on is no request:
+    // neither gets an answer.
+    {
+        enum cancelled = `{"jsonrpc":"2.0","id":"perm-1","result":{"outcome":{"outcome":"cancelled"}}}` ~ "\n";
+        const string[1] answers = [oneCall];
+        assert(turn("default", cancelled, answers[], `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`, s, input, p));
+        assert(count(said[0 .. saidLen], `"method":"session/request_permission"`) == 1);
+        assert(indexOf(s.open[0].history.slice(), `{\"status\":\"not run\",\"why\":\"the client cancelled the turn\"}`) >= 0);
+        assert(says(s, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}`, ""));
+        assert(says(s, `{"jsonrpc":"2.0","id":"perm-7","result":{"outcome":{"outcome":"cancelled"}}}`, ""));
+        end(input, p, s);
+    }
+    // An answer naming no option ground code offered is said, not guessed at.
+    {
+        const string[1] answers = [oneCall];
+        assert(turn("default", chose!"maybe", answers[], `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"ground code could not ask the client's permission","data":`
+            ~ `{"message":"the client's answer to session/request_permission is not one ground code offered","answer":"`
+            ~ `{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"maybe\"}}}"}}}`, s, input, p));
+        end(input, p, s);
     }
 }
