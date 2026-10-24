@@ -35,7 +35,7 @@ immutable Word[] words = [
 // "and make parity the first chapter"
 immutable string[] chapters = [
     "parity", "scope", "control", "project", "permission", "models", "ritual", "attestation",
-    "sentry", "code", "linked",
+    "sentry", "code", "linked", "ctfe",
 ];
 
 // The order a chapter's own cases are met in. A module and its test are one
@@ -65,6 +65,8 @@ immutable Reading[] readings = [
     Reading("sentry", ["sentry"]),
     // What ground covers of each pinned agent's contract.
     Reading("parity", ["parity"]),
+    // What compiling ground costs, build by build.
+    Reading("ctfe", ["ctfe"]),
     // ground as the agent a harness talks to.
     Reading("code", ["code", "prompt"]),
     // What is linked into the binary: libgit2, libsqlite3, libcurl.
@@ -91,6 +93,7 @@ immutable Owner[] owners = [
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
                           "playbill"]),
     Owner("parity",      ["parity"]),
+    Owner("ctfe",        ["ctfe"]),
     Owner("code",        ["code", "prompt"]),
     Owner("linked",      ["libgit2", "http", "libmcp", "libjsonc"]),
     Owner("project",     ["project", "routes", "place"]),

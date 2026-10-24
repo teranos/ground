@@ -244,6 +244,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import parity : handleParity;
             return handleParity(argc, argv);
         }
+        if (cmd == "ctfe") {
+            import ctfe : handleCtfe;
+            return handleCtfe(argc, argv);
+        }
         if (cmd == "code") {
             import code : handleCode;
             return handleCode();
