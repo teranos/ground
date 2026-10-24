@@ -59,9 +59,22 @@ ground parity PostToolUse
 # one ACP method's, read and written by ground code:
 ground parity session/prompt
 
+# what each build of ground cost to compile, as the node holds it:
+ground ctfe
+# the same rows as the book draws them:
+ground ctfe tex
+
 # an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
 ground code
 
+# list tools from a stdio MCP server, in-process through libmcp:
+ground mcp tools/list '{}' -- /path/to/server arg
+# call a tool (no shell is used to start the server):
+ground mcp tools/call '{"name":"echo","arguments":{"text":"hello"}}' -- /path/to/server
+
 # strip the bulk out of the db (make install does):
 ground decay
+
+# what a hooks.json entry has agy run, the event's JSON on stdin:
+ground hook agy PreToolUse
 ```

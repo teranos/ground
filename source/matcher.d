@@ -1298,8 +1298,8 @@ const(char)[] envSubst(const(char)[] msg, const(char)[] cwd) {
     if (!hasDollar) return msg;
 
     // Find matching env block — longest path wins
-    import controls : allParsed;
-    static immutable parsed = allParsed;
+    import controls : parsedOnce;
+    alias parsed = parsedOnce;
 
     int bestIdx = -1;
     size_t bestLen = 0;

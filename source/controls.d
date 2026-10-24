@@ -9,6 +9,11 @@ import permission : buildPermissions, PermissionSet;
 
 enum allParsed = parsePbt(import(".ctfe/sand"));
 
+// The parse, held once. A function that reads it at run time names this one:
+// a static immutable copy of allParsed in each function that wanted it was
+// fifteen copies of the same ParseResult in the binary.
+static immutable parsedOnce = allParsed;
+
 // --- Handler resolvers (CTFE) ---
 
 import control_handlers;
