@@ -21,14 +21,16 @@ private const(char)[] text(sqlite3_stmt* st, int col) {
     return p[0 .. n];
 }
 
-bool storeOpen(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] dirs, long now) {
+bool storeOpen(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] dirs,
+        const(char)[] effort, long now) {
     sqlite3_stmt* st;
-    enum sql = "INSERT INTO code_session (id, cwd, opened_at, dirs) VALUES (?1, ?2, ?3, ?4)\0";
+    enum sql = "INSERT INTO code_session (id, cwd, opened_at, dirs, effort) VALUES (?1, ?2, ?3, ?4, ?5)\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return false;
     bind(st, 1, id);
     bind(st, 2, cwd);
     sqlite3_bind_int64(st, 3, now);
     bind(st, 4, dirs);
+    bind(st, 5, effort);
     auto ok = sqlite3_step(st) == SQLITE_DONE;
     sqlite3_finalize(st);
     return ok;
@@ -47,13 +49,14 @@ bool storeClose(sqlite3* db, const(char)[] id, long now) {
 
 // Resumes an open session: its cwd is its own for its life, so a resume names
 // the same one, and the additional roots it names replace the ones kept. The
-// mode it was left in is read back. 1 resumed, 0 no open session by that id,
+// mode and effort it was left at are read back, the effort into effort. 1
+// resumed, 0 no open session by that id,
 // 2 the session is in another cwd (written into storedCwd), -1 the store
 // refused.
 int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] dirs,
-        ref SessionMode mode, char[] storedCwd, ref size_t storedLen) {
+        ref SessionMode mode, char[] storedCwd, ref size_t storedLen, char[] effort, ref size_t effortLen) {
     sqlite3_stmt* st;
-    enum find = "SELECT cwd, mode FROM code_session WHERE id = ?1 AND closed_at = 0\0";
+    enum find = "SELECT cwd, mode, effort FROM code_session WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, find.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     auto rc = sqlite3_step(st);
@@ -61,6 +64,8 @@ int storeResume(sqlite3* db, const(char)[] id, const(char)[] cwd, const(char)[] 
     if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
     auto was = text(st, 0);
     mode = parseSessionMode(text(st, 1));
+    effortLen = 0;
+    foreach (c; text(st, 2)) if (effortLen < effort.length) effort[effortLen++] = c;
     bool same = was == cwd;
     storedLen = 0;
     if (!same) foreach (c; was) if (storedLen < storedCwd.length) storedCwd[storedLen++] = c;
@@ -85,6 +90,20 @@ int storeSetMode(sqlite3* db, const(char)[] id, SessionMode mode) {
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, nameOf(mode));
+    auto rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+    return sqlite3_changes(db) > 0 ? 1 : 0;
+}
+
+// Keeps the effort a session was set to. 1 kept, 0 no open session by that
+// id, -1 the store refused.
+int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort) {
+    sqlite3_stmt* st;
+    enum sql = "UPDATE code_session SET effort = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    bind(st, 2, effort);
     auto rc = sqlite3_step(st);
     sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
