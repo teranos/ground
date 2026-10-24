@@ -85,11 +85,37 @@ with tempfile.TemporaryDirectory() as tmp:
         remote = json.loads(result["error"]["data"]["failure"]["response"])
         assert remote["error"]["message"] == "☃" * 9000
         assert remote["error"]["data"]["sacred"] is True
+        # "List of MCP servers to connect to for this session." Resumed, a session's
+        # servers are the ones the request names: the old ones end, the new ones
+        # come up in the session's cwd.
+        log3 = tmp / "c.jsonl"
+        result = request(proc, 10, "session/resume", {"sessionId": sid2, "cwd": str(tmp), "mcpServers": [server("again", log3)]})
+        assert "result" in result, result
+        c = records(log3)
+        assert c[0]["cwd"] == str(tmp) and dead(b[0]["pid"]) and not dead(c[0]["pid"])
+        # Servers that fail to come up leave the session as it was.
+        result = request(proc, 11, "session/resume", {"sessionId": sid2, "cwd": str(tmp), "mcpServers": [bad]})
+        assert result["error"]["data"]["failure"]["server"] == "missing", result
+        assert not dead(c[0]["pid"])
+        # A session found in the store, by another process, is given its servers there.
+        other = subprocess.Popen([GROUND, "code"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            log4 = tmp / "d.jsonl"
+            result = request(other, 1, "session/resume", {"sessionId": sid2, "cwd": str(tmp), "mcpServers": [server("elsewhere", log4)]})
+            assert "result" in result, result
+            d = records(log4)
+            assert d[0]["cwd"] == str(tmp)
+            other.stdin.close()
+            assert other.wait(timeout=8) == 0, other.stderr.read()
+            assert dead(d[0]["pid"])
+        finally:
+            if other.poll() is None:
+                other.kill(); other.wait()
         # EOF shuts the remaining session down and reaps its child.
         proc.stdin.close()
         assert proc.wait(timeout=8) == 0, proc.stderr.read()
-        assert dead(b[0]["pid"])
+        assert dead(c[0]["pid"])
     finally:
         if proc.poll() is None:
             proc.kill(); proc.wait()
-print("Ground ACP: session ownership, paginated discovery, env/cwd, rollback, validation and EOF cleanup passed")
+print("Ground ACP: session ownership, resume, paginated discovery, env/cwd, rollback, validation and EOF cleanup passed")
