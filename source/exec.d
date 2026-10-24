@@ -173,7 +173,7 @@ ChildEnv prepareChildEnv(
 // content to a mkstemp'd file at fire time, chmods +x, and execv's the
 // file. /tmp housekeeping cleans up the file eventually.
 //
-// Project env for cwd is resolved from controls.allParsed via
+// Project env for cwd is resolved from controls.parsedOnce via
 // longest-path-wins match, matching envSubst's own resolution rule.
 //
 // timeoutSec: how many seconds the wrapper waits before SIGTERM'ing the
@@ -187,7 +187,7 @@ void dispatchExec(
     string sessionId, const(char)[] cwd, const(char)[] toolInput,
     const(char)[] toolOutput = "",
 ) {
-    import controls : allParsed;
+    import controls : parsedOnce;
     import matcher : contains;
 
     if (execScript.length == 0) {
@@ -198,7 +198,7 @@ void dispatchExec(
 
     if (timeoutSec <= 0) timeoutSec = DEFAULT_TIMEOUT_SEC;
 
-    static immutable parsed = allParsed;
+    alias parsed = parsedOnce;
     int bestIdx = -1;
     size_t bestLen = 0;
     foreach (i; 0 .. parsed.envCount) {
