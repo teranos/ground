@@ -37,7 +37,6 @@ def main():
     subprocess.run(["make", "wind"], check=True)
     ldc = out(["ldc2", "--version"]).splitlines()[0]
     sha = out(["git", "rev-parse", "HEAD"])
-    version = open(".version").read().strip()
     runner = os.environ.get("RUNNER_OS", platform.system()).lower()
     # A hosted runner is the same machine every time; a host is whichever ran it.
     where = ("github:" if os.environ.get("GITHUB_ACTIONS") else "host:") + runner
@@ -52,6 +51,9 @@ def main():
     if rc != 0:
         print("bench: the build failed with %d after %.2fs" % (rc, seconds), file=sys.stderr)
         return rc
+    # dub's pre-build runs tools/wind, which writes .version; a fresh checkout
+    # has none before that, and the first run on a hosted runner read it too early.
+    version = open(".version").read().strip()
     # One id per measurement, so a POST that timed out and is sent again is
     # the same row: k took 90 s to answer once and the retry made a second.
     ran = os.environ.get("GITHUB_RUN_ID") or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
