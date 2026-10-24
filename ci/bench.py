@@ -37,6 +37,11 @@ def main():
     subprocess.run(["make", "wind"], check=True)
     ldc = out(["ldc2", "--version"]).splitlines()[0]
     sha = out(["git", "rev-parse", "HEAD"])
+    # A pull_request run checks out GitHub's merge ref; the commit the push
+    # attested, and the one ci.watch watches, is the PR's head.
+    if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+        with open(os.environ["GITHUB_EVENT_PATH"]) as f:
+            sha = json.load(f)["pull_request"]["head"]["sha"]
     runner = os.environ.get("RUNNER_OS", platform.system()).lower()
     # A hosted runner is the same machine every time; a host is whichever ran it.
     where = ("github:" if os.environ.get("GITHUB_ACTIONS") else "host:") + runner
