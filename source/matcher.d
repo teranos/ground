@@ -161,6 +161,22 @@ bool inCommentedCode(const(char)[] text, size_t pos) {
     return false;
 }
 
+// A C or C++ preprocessor directive: # and its keyword together, as #include.
+// A shell or Python comment that starts with such a word after a space stays one.
+private bool preprocessorDirective(const(char)[] rest) {
+    static immutable string[] keywords = ["include", "define", "undef", "ifdef", "ifndef", "if", "elif",
+        "else", "endif", "pragma", "error", "warning", "line", "import"];
+    if (rest.length < 2 || rest[0] != '#') return false;
+    foreach (k; keywords) {
+        auto end = 1 + k.length;
+        if (rest.length < end || rest[1 .. end] != k) continue;
+        if (rest.length == end) return true;
+        auto c = rest[end];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return true;
+    }
+    return false;
+}
+
 int maxCommentRun(const(char)[] text) {
     int best = 0;
     int run = 0;
@@ -199,7 +215,7 @@ int maxCommentRun(const(char)[] text) {
 
         bool isComment = false;
         if (!scaffold && !ddoc && p < line.length) {
-            if (line[p] == '#') isComment = true;
+            if (line[p] == '#') isComment = !preprocessorDirective(line[p .. $]);
             else if (line[p] == '/' && p + 1 < line.length && line[p + 1] == '/')
                 isComment = true;
             // A leading `*` is comment content only inside an open block.

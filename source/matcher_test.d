@@ -689,6 +689,17 @@ unittest {
     assert(maxCommentRun("resource \"x\" \"y\" {") == 0);
 }
 
+// #98:
+// "the # in cpp projects need not to be seen as a comment of anysort for includes, they should not count for consecutive comments deny in ground"
+unittest {
+    enum cpp = "#include <stdio.h>\n#include <string.h>\n#include \"mcp.h\"\n#define N 4\n#ifndef X\n#endif\n#pragma once";
+    assert(maxCommentRun(cpp) == 0, "a preprocessor directive is code");
+    // Nor do they join a run of real comments on either side.
+    assert(maxCommentRun("// a\n// b\n// c\n#include <x.h>\n// d") == 3);
+    // A shell or Python comment that only starts with the word stays a comment.
+    assert(maxCommentRun("# if this fails\n# include the log\n# define it again\n# else retry") == 4);
+}
+
 unittest {
     // A run is consecutive comment lines, and the longest one wins.
     assert(maxCommentRun("# one") == 1);
