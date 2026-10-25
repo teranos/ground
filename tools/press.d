@@ -12,7 +12,7 @@ import std.stdio : stderr;
 
 import cases : extractCases, Case, splitLines, unmark, flow,
                extractGlossary, extractCommandBlocks, Entry;
-import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners;
+import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners, Section, sections;
 import fmt : isCanonical;
 
 // Room for the canonical form of one fixture. A page holds 54 lines.
@@ -193,6 +193,15 @@ int main(string[] argv) {
     // so a halt leaves the last good book standing instead of deleting it.
     foreach (e; dirEntries("doc/tex", "*.tex", SpanMode.shallow)) remove(e.name);
 
+    // A chapter with a section is set for it, though no case of its own stands.
+    foreach (s; sections) {
+        auto ch = chapterOf(s.mod);
+        if (ch.length > 0 && ch !in chapters) {
+            chapters[ch] = null;
+            present ~= ch;
+        }
+    }
+
     // The chapter list, in the order asked for, then anything not named.
     string[] order;
     foreach (w; wanted) {
@@ -229,7 +238,7 @@ int main(string[] argv) {
         if (op.length > 0 && op in leads) lead = "\n" ~ escape(flow(leads[op])) ~ "\n";
         else if (op.length > 0) stderr.writefln("press: %s opens %s and says nothing", op, o);
 
-        write("doc/tex/" ~ o ~ ".tex", chapterHead(o, lead) ~ renderBody(placed));
+        write("doc/tex/" ~ o ~ ".tex", chapterHead(o, lead) ~ chapterBody(o, placed));
         list ~= "\\input{tex/" ~ o ~ "}\n";
     }
 
@@ -255,6 +264,31 @@ int main(string[] argv) {
 string chapterHead(string chapter, string lead) {
     return "\\chapter{" ~ chapter ~ "}\n" ~ lead
         ~ "\\InputIfFileExists{measured/" ~ chapter ~ "}{}{}\n";
+}
+
+// A section opens on its title, then on what was measured for its module:
+// doc/measured/<module>.tex, written by the Makefile, and nothing when none is.
+string sectionHead(Section s) {
+    return "\\section*{" ~ s.title ~ "}\n\\InputIfFileExists{measured/" ~ s.mod ~ "}{}{}\n";
+}
+
+// A chapter's body: the cases of the modules that are no section of it, then
+// each of its sections with the cases of its own module.
+string chapterBody(string chapter, Placed[] placed) {
+    bool sectioned(string file) {
+        foreach (s; sections) if (stem(file) == s.mod) return true;
+        return false;
+    }
+    Placed[] rest;
+    foreach (p; placed) if (!sectioned(p.file)) rest ~= p;
+    auto out_ = renderBody(rest);
+    foreach (s; sections) {
+        if (chapterOf(s.mod) != chapter) continue;
+        Placed[] own;
+        foreach (p; placed) if (stem(p.file) == s.mod) own ~= p;
+        out_ ~= sectionHead(s) ~ renderBody(own);
+    }
+    return out_;
 }
 
 // Where a case is set. A pbt example is placed by its block word. A case with

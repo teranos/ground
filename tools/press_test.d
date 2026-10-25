@@ -25,7 +25,25 @@ import press : chapterHead;
 static assert(chapterHead("parity", "\nLead.\n") ==
     "\\chapter{parity}\n\nLead.\n\\InputIfFileExists{measured/parity}{}{}\n");
 
+// "and there should be a table in the book of ground under the libMCP subchapter in the Linking Chapter"
+// A section opens on its title, then on whatever was measured for its module.
+import press : sectionHead;
+import concept : Section;
+static assert(sectionHead(Section("libmcp", "libMCP")) ==
+    "\\section*{libMCP}\n\\InputIfFileExists{measured/libmcp}{}{}\n");
+
 import press : renderBody, Placed;
+
+// A chapter's body is the cases of its other modules, then each section with
+// the cases of its own module.
+import press : chapterBody;
+enum libgit2Row = Placed(0, "libgit2_test.d", Case("f", "", false, "scope {\n}", "Why.", ""));
+enum libmcpRow = Placed(2, "libmcp_test.d", Case("g", "", false, "scope {\n}", "How.", ""));
+static assert(chapterBody("linked", [libgit2Row, libmcpRow]) ==
+    renderBody([libgit2Row]) ~ sectionHead(Section("libmcp", "libMCP")) ~ renderBody([libmcpRow]));
+// A section is set with no case of its own, for what was measured.
+static assert(chapterBody("linked", [libgit2Row]) ==
+    renderBody([libgit2Row]) ~ sectionHead(Section("libmcp", "libMCP")));
 enum hung = renderBody([Placed(0, "f.d", Case("f", "", false, "scope {\n}", "Why.", `"so"`))]);
 static assert(hung ==
     "\n\\par\\noindent\\begin{minipage}{\\textwidth}\n"
