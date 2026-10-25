@@ -356,6 +356,15 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         outer.store.openUs = tWrite - tOpen;
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);
+            // codex runs no statusline for ug to read its model from.
+            {
+                import parse : codexModel;
+                import db : recordModel;
+                import core.stdc.time : time;
+                char[128] mb = 0;
+                auto model = codexModel(input, mb[]);
+                if (model !is null) cast(void) recordModel(db, sessionId, model, "", cast(long) time(null));
+            }
             auto tClose = usecNow();
             outer.store.writeUs = tClose - tWrite;
             sqlite3_close(db);
