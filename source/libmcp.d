@@ -3,7 +3,7 @@ module libmcp;
 // The C ABI declared in libmcp/include/mcp.h. No druntime and no GC ownership.
 // mcp_response.json is freed by mcp_response_free, including on error returns.
 
-enum MCP_VERSION = "0.2.0";
+enum MCP_VERSION = "0.4.0-dev";
 enum MCP_PROTOCOL_VERSION = "2026-07-28";
 
 extern (C) nothrow @nogc {
@@ -13,7 +13,7 @@ extern (C) nothrow @nogc {
         MCP_TIMEOUT, MCP_EOF, MCP_PROTOCOL_ERROR, MCP_REMOTE_ERROR,
         MCP_INVALID_STATE, MCP_MESSAGE_TOO_LARGE, MCP_INPUT_REQUIRED,
         MCP_TOOL_ERROR, MCP_UNSUPPORTED, MCP_PENDING, MCP_CANCELLED,
-        MCP_HTTP_ERROR, MCP_AUTH_REQUIRED
+        MCP_HTTP_ERROR, MCP_AUTH_REQUIRED, MCP_SCHEMA_ERROR, MCP_VALIDATION_ERROR, MCP_VALIDATION_LIMIT
     }
     enum mcp_protocol : int { MCP_PROTOCOL_AUTO = 0, MCP_PROTOCOL_MODERN, MCP_PROTOCOL_LEGACY }
 
@@ -49,6 +49,27 @@ extern (C) nothrow @nogc {
     // 0.2: poll-driven requests, host features, HTTP. Declared as mcp.h has
     // them; ground calls none of them yet.
     struct mcp_request;
+    struct mcp_schema;
+    struct mcp_tool;
+    struct mcp_schema_options {
+        size_t max_bytes;
+        uint max_depth;
+        uint pattern_timeout_ms;
+        const(char)* resources_json;
+    }
+    void mcp_schema_options_init(mcp_schema_options*);
+    mcp_status mcp_schema_compile(const(char)*, const(mcp_schema_options)*, mcp_schema**, mcp_response*, mcp_error*);
+    mcp_status mcp_schema_validate(const(mcp_schema)*, const(char)*, mcp_response*, mcp_error*);
+    void mcp_schema_destroy(mcp_schema*);
+    mcp_status mcp_tool_compile(const(char)*, const(mcp_schema_options)*, mcp_tool**, mcp_response*, mcp_error*);
+    void mcp_tool_destroy(mcp_tool*);
+    const(char)* mcp_tool_name(const(mcp_tool)*);
+    mcp_status mcp_tool_submit(mcp_client*, const(mcp_tool)*, const(char)*, int, mcp_request**, mcp_error*);
+    mcp_status mcp_tool_call(mcp_client*, const(mcp_tool)*, const(char)*, mcp_response*, mcp_response*, mcp_error*);
+    const(char)* mcp_request_validation_json(const(mcp_request)*);
+    const(char)* mcp_request_auth_challenge(const(mcp_request)*);
+    long mcp_request_http_status(const(mcp_request)*);
+    int mcp_request_transport_code(const(mcp_request)*);
     alias mcp_handler_fn = mcp_status function(void*, const(char)*, const(char)*, mcp_response*, mcp_error*) nothrow @nogc;
     struct mcp_features {
         const(char)* capabilities_json;

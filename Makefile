@@ -76,7 +76,9 @@ test: test-tools test-ug test-mcp
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
 # owning a session's servers. LIBMCP_SRC is the input's source; the devShell sets it.
-MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c libcurl),-L$(f))
+# libmcp embeds its validator, while curl/json-c remain shared dependencies.
+# --static here would also demand every private curl archive/development symlink.
+MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c libcurl),-L$(f)) -L-lm -L-lpthread $(if $(filter Darwin,$(shell uname -s)),-L-liconv,-L-ldl)
 MCP_SERVER = LIBMCP_SERVER=$(LIBMCP_SRC)/tests/server.py
 test-mcp: build
 	test -n "$(LIBMCP_SRC)" || { echo "test-mcp: LIBMCP_SRC names no libmcp source; run under nix develop" >&2; exit 1; }
@@ -89,6 +91,8 @@ test-mcp: build
 	ldc2 -betterC -I=source -of=build/mcp-harness mcp/harness.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	$(MCP_SERVER) python3 mcp/test_harness.py build/mcp-harness
 	$(MCP_SERVER) python3 mcp/test_ground.py ./ground
+	ldc2 -betterC -I=source -of=build/checked-test mcp/checked.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
+	python3 mcp/test_checked.py build/checked-test
 
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:

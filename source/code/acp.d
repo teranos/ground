@@ -1100,17 +1100,20 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     args.add(call.arguments); args.add("\0");
                     import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
                     import core.stdc.string : strlen;
-                    mcp_response response;
+                    mcp_response response, validation;
                     mcp_error error;
-                    scope(exit) mcp_response_free(&response);
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, error);
+                    scope(exit) { mcp_response_free(&response); mcp_response_free(&validation); }
+                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error);
                     bool ok = status == mcp_status.MCP_OK;
                     if (ok) result.add(response.json[0 .. response.length]);
                     else {
                         result.add(`{"status":"`); result.add(mcp_status_string(status)[0 .. strlen(mcp_status_string(status))]);
                         result.add(`","message":"`); if (error.message !is null) putEscaped(result, error.message[0 .. strlen(error.message)]);
                         result.add(`","response":"`); if (response.json !is null) putEscaped(result, response.json[0 .. response.length]);
-                        result.add(`"}`);
+                        result.add(`","validation":`);
+                        if (validation.json !is null) result.add(validation.json[0 .. validation.length]);
+                        else result.add("null");
+                        result.add(`}`);
                     }
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
