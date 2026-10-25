@@ -511,11 +511,33 @@ unittest {
     assert(!sparedByModel("gpt-6.1-sol", none), "a control naming no model spares nobody");
 }
 
+unittest {
+    // codex runs whatever model its provider names, the node's gateway's
+    // anthropic/claude-sonnet-4.5 among them: the harness is what lacks a
+    // Read tool, not the model.
+    import hooks : Control;
+    Control c;
+    c.paramKeys[0] = "unless_agent";
+    c.paramValues[0] = "codex";
+    c.paramCount = 1;
+    assert(sparedByAgent("codex", c));
+    assert(!sparedByAgent("claude", c));
+    Control none;
+    assert(!sparedByAgent("codex", none), "a control naming no agent spares nobody");
+}
+
 // Whether the control's unless_model names the session's model, on any
 // control, with or without a check handler of its own.
 bool sparedByModel(const(char)[] model, const ref Control c) {
     foreach (i; 0 .. c.paramCount)
         if (c.paramKeys[i] == "unless_model") return modelExempt(model, c.paramValues[i]);
+    return false;
+}
+
+// Whether the control's unless_agent names the harness that sent the event.
+bool sparedByAgent(const(char)[] agent, const ref Control c) {
+    foreach (i; 0 .. c.paramCount)
+        if (c.paramKeys[i] == "unless_agent") return modelExempt(agent, c.paramValues[i]);
     return false;
 }
 

@@ -693,8 +693,9 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 auto m = results.matches[idx];
                 auto c = m.control;
                 {
-                    import control_handlers : sparedByModel;
+                    import control_handlers : sparedByModel, sparedByAgent;
                     if (sparedByModel(sessionModel, *c)) continue;
+                    if (sparedByAgent(codexAsks ? "codex" : "claude", *c)) continue;
                 }
 
                 // Strop controls: extract flag, apply matchStrop, deny on mismatch.
