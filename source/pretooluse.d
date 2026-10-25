@@ -60,6 +60,10 @@ FileAnswer fileAnswer(bool granted, bool controlsSpoke, const(char)[] controlDec
 // Whether codex is the harness asking: its answers take codex's shape.
 __gshared bool codexAsks;
 
+// What the file controls said of a file the Bash call writes, short of a
+// deny: carried on whatever the call is answered with.
+__gshared const(char)[] shellWriteSaid;
+
 // While an apply_patch is answered a file at a time, each file's answer is
 // kept here, and the patch gets one answer for all of them.
 __gshared bool collecting;
@@ -234,6 +238,13 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
     bool background = false, int timeout = 0)
 {
     __gshared char[262144] out_ = "";
+    __gshared Buf said;
+    if (shellWriteSaid.length > 0) {
+        said = Buf.init;
+        said.put(shellWriteSaid);
+        if (context.length > 0) { said.put(" | "); said.put(context); }
+        context = said.slice();
+    }
     auto r = bashResponse(out_[], command, context, decision, background, timeout, codexAsks);
     fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
@@ -404,41 +415,49 @@ private bool inLivePerformance(const(char)[] cwd, SessionMode sessionMode) {
 // codex's apply_patch, answered a file at a time as the Write or Edit Claude
 // Code would have sent for it: its permissions and file controls are asked.
 // One file denied denies the patch; what the others said is said with it.
+// One file a call writes, asked as the Write or Edit Claude Code would have
+// sent for it, the event's own session, turn and mode carried over. Its
+// answer goes where collecting keeps it.
+private void askAsFile(const(char)[] input, const(char)[] cwd, const(char)[] sessionId,
+                       const(char)[] tool, const(char)[] path, const(char)[] text) {
+    import parse : extractJsonString;
+    __gshared char[131072] synth = 0;
+    char[128] turn = 0, use = 0;
+    char[32] mode = 0;
+    char[4096] tp = 0;
+    auto turnId = extractJsonString(input, `"turn_id"`, &turn[0], turn.length);
+    auto useId = extractJsonString(input, `"tool_use_id"`, &use[0], use.length);
+    auto permMode = extractJsonString(input, `"permission_mode"`, &mode[0], mode.length);
+    auto transcript = extractJsonString(input, `"transcript_path"`, &tp[0], tp.length);
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < synth.length) synth[n++] = c; }
+    char[] dest = synth[];
+    put(`{"session_id":"`); putJsonString(dest, n, sessionId);
+    if (turnId !is null) { put(`","turn_id":"`); putJsonString(dest, n, turnId); }
+    put(`","transcript_path":"`); putJsonString(dest, n, transcript);
+    put(`","cwd":"`); putJsonString(dest, n, cwd);
+    put(`","hook_event_name":"PreToolUse","permission_mode":"`); putJsonString(dest, n, permMode);
+    put(`","tool_name":"`); put(tool);
+    put(`","tool_input":{"file_path":"`);
+    if (path.length > 0 && path[0] != '/') { putJsonString(dest, n, cwd); put("/"); }
+    putJsonString(dest, n, path);
+    put(tool == "Edit" ? `","new_string":"` : `","content":"`); putJsonString(dest, n, text);
+    put(`"},"tool_use_id":"`); putJsonString(dest, n, useId);
+    put(`"}`);
+    handlePreToolUse(synth[0 .. n], cwd, sessionId);
+}
+
 private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import parse : extractJsonString;
     import applypatch : PatchFile, nextFile, addedText, movedTo, shellPatch;
     __gshared char[65536] patchBuf = 0;
     __gshared char[32768] textBuf = 0;
-    __gshared char[131072] synth = 0;
-    char[128] turn = 0, use = 0;
-    char[32] mode = 0;
-    char[4096] tp = 0;
     auto patch = extractJsonString(input, `"command"`, &patchBuf[0], patchBuf.length);
     if (patch is null) return 0;
     // Run through the shell, the patch is the command's argument.
     if (auto inShell = shellPatch(patch)) patch = inShell;
-    auto turnId = extractJsonString(input, `"turn_id"`, &turn[0], turn.length);
-    auto useId = extractJsonString(input, `"tool_use_id"`, &use[0], use.length);
-    auto permMode = extractJsonString(input, `"permission_mode"`, &mode[0], mode.length);
-    auto transcript = extractJsonString(input, `"transcript_path"`, &tp[0], tp.length);
-
     void ask(const(char)[] tool, const(char)[] path, const(char)[] text) {
-        size_t n;
-        void put(const(char)[] s) { foreach (c; s) if (n < synth.length) synth[n++] = c; }
-        char[] dest = synth[];
-        put(`{"session_id":"`); putJsonString(dest, n, sessionId);
-        put(`","turn_id":"`); putJsonString(dest, n, turnId);
-        put(`","transcript_path":"`); putJsonString(dest, n, transcript);
-        put(`","cwd":"`); putJsonString(dest, n, cwd);
-        put(`","hook_event_name":"PreToolUse","permission_mode":"`); putJsonString(dest, n, permMode);
-        put(`","tool_name":"`); put(tool);
-        put(`","tool_input":{"file_path":"`);
-        if (path.length > 0 && path[0] != '/') { putJsonString(dest, n, cwd); put("/"); }
-        putJsonString(dest, n, path);
-        put(tool == "Edit" ? `","new_string":"` : `","content":"`); putJsonString(dest, n, text);
-        put(`"},"tool_use_id":"`); putJsonString(dest, n, useId);
-        put(`"}`);
-        handlePreToolUse(synth[0 .. n], cwd, sessionId);
+        askAsFile(input, cwd, sessionId, tool, path, text);
     }
 
     collecting = true;
@@ -496,6 +515,28 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             || (codexAsks && toolName == "Bash" && shellPatch(extractCommand(input)) !is null))) {
         exitLabel = "apply-patch";
         return answerPatch(input, cwd, sessionId);
+    }
+    // #102: a file written through the shell meets the file controls as the
+    // Write it amounts to. Their deny denies the command; what else they say
+    // rides on the command's own answer.
+    shellWriteSaid = null;
+    if (!collecting && toolName == "Bash") {
+        import shellwrite : shellWrite;
+        __gshared char[32768] written = 0;
+        auto w = shellWrite(extractCommand(input), written[]);
+        if (w.ok) {
+            collecting = true;
+            collectedDeny = false;
+            collected = Buf.init;
+            askAsFile(input, cwd, sessionId, "Write", w.path, w.text);
+            collecting = false;
+            if (collectedDeny) {
+                exitLabel = "shell-write-deny";
+                writeDenyResponse(collected.slice());
+                return 0;
+            }
+            shellWriteSaid = collected.slice();
+        }
     }
     import sessionmode : parseSessionMode;
     auto sessionMode = parseSessionMode(extractPermissionMode(input));
@@ -950,7 +991,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             return 0;
         }
         // The commit with its sessions is the command, whoever else spoke.
-        if (provenanced) writeResponse(command, "", "");
+        if (provenanced || shellWriteSaid.length > 0) writeResponse(command, "", "");
         return 0;
     }
 
