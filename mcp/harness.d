@@ -14,11 +14,12 @@ extern(C) int main(int argc, const(char)** argv) {
     if (!openMcp(config, "/tmp", group, detail)) {
         auto text = detail.slice(); fwrite(text.ptr, 1, text.length, stderr); return 1;
     }
-    mcp_response response;
+    mcp_response response, validation;
     mcp_error error;
-    auto status = callMcpTool(group, "test", "echo", `{"text":"harness"}`, response, error);
+    auto status = callMcpTool(group, "test", "echo", `{"text":"harness"}`, response, validation, error);
     if (response.json !is null) fwrite(response.json, 1, response.length, stdout);
     mcp_response_free(&response);
+    mcp_response_free(&validation);
     bool closed = closeMcp(group, detail);
     return status == mcp_status.MCP_OK && closed ? 0 : 1;
 }

@@ -12,10 +12,12 @@ import core.sys.posix.strings : strcasecmp;
 
 extern(C) extern __gshared const(char*)* environ;
 
+struct McpContract { mcp_tool* tool; McpContract* next; }
 struct McpPage { mcp_response response; McpPage* next; }
 struct McpServer {
     char* name;
     mcp_client* client;
+    McpContract* contracts;
     McpPage* tools; // all tools/list pages, kept whole for the harness
 }
 struct McpGroup { McpServer* servers; size_t count; }
@@ -41,7 +43,7 @@ private void quoted(ref Reply r, const(char)* s) {
 }
 
 private void failure(ref Reply r, const(char)* server, ref const mcp_error e,
-                     ref const mcp_response response) {
+                     ref const mcp_response response, const(mcp_response)* validation = null) {
     r.add(`{"server":`); quoted(r, server);
     r.add(`,"status":`); quoted(r, mcp_status_string(e.code));
     r.add(`,"systemErrno":`); putNumber(r, cast(uint) e.system_errno);
@@ -55,6 +57,9 @@ private void failure(ref Reply r, const(char)* server, ref const mcp_error e,
     r.add(`,"cleanupErrno":`); putNumber(r, cast(uint) e.cleanup_errno);
     r.add(`,"cleanupChildStatus":`); putNumber(r, cast(uint) e.cleanup_child_status);
     r.add(`,"cleanupMessage":`); quoted(r, e.cleanup_message);
+    r.add(`,"validation":`);
+    if (validation !is null && validation.json !is null) r.add(validation.json[0 .. validation.length]);
+    else r.add("null");
     r.add(`}`);
 }
 
@@ -71,6 +76,11 @@ bool closeMcp(ref McpGroup group, ref Reply detail) {
     detail.add("[");
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
+        auto contract = server.contracts;
+        while (contract !is null) {
+            auto next = contract.next;
+            mcp_tool_destroy(contract.tool); free(contract); contract = next;
+        }
         auto page = server.tools;
         while (page !is null) {
             auto next = page.next;
@@ -200,7 +210,7 @@ private mcp_status startServer(json_object* config, const(char)* cwd,
     return mcp_client_open(&options, &server.client, &response, &error);
 }
 
-private mcp_status discoverTools(ref McpServer server, ref mcp_response response, ref mcp_error error) {
+private mcp_status discoverTools(ref McpServer server, ref mcp_response response, ref mcp_response validation, ref mcp_error error) {
     const(char)* cursor;
     // Pages keep their storage, so cursor remains valid until the next call.
     json_object* parsed;
@@ -216,6 +226,21 @@ private mcp_status discoverTools(ref McpServer server, ref mcp_response response
         if (json_object_get_type(jsonField(result, "tools")) != json_type.array) {
             json_object_put(nextParsed);
             return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "tools/list result has no tools array");
+        }
+        auto tools = jsonField(result, "tools");
+        foreach (i; 0 .. json_object_array_length(tools)) {
+            auto definition = json_object_array_get_idx(tools, i);
+            auto row = cast(McpContract*) calloc(1, McpContract.sizeof);
+            if (row is null) { json_object_put(nextParsed); return localError(error, mcp_status.MCP_NO_MEMORY, "allocate tool contract"); }
+            auto status_ = mcp_tool_compile(json_object_to_json_string_ext(definition, JSON_C_TO_STRING_PLAIN), null, &row.tool, &validation, &error);
+            if (status_ != mcp_status.MCP_OK) { free(row); json_object_put(nextParsed); return status_; }
+            for (auto previous = server.contracts; previous !is null; previous = previous.next) {
+                if (strcmp(mcp_tool_name(previous.tool), mcp_tool_name(row.tool)) == 0) {
+                    mcp_tool_destroy(row.tool); free(row); json_object_put(nextParsed);
+                    return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "duplicate tool name in server catalog");
+                }
+            }
+            row.next = server.contracts; server.contracts = row;
         }
         auto next = jsonField(result, "nextCursor");
         auto nextCursor = next is null ? null : stringAt(next);
@@ -245,7 +270,7 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
     scope(exit) json_object_put(root);
     auto configs = jsonField(jsonField(root, "params"), "mcpServers");
     mcp_error error;
-    mcp_response response;
+    mcp_response response, validation;
     const(char)* failedName;
     auto count = json_object_get_type(configs) == json_type.array ? json_object_array_length(configs) : 0;
     bool valid = json_object_get_type(configs) == json_type.array && count <= 32;
@@ -298,14 +323,15 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
                     : startServer(config, dir, *server, response, error);
                 if (status == mcp_status.MCP_OK) {
                     mcp_response_free(&response);
-                    status = discoverTools(*server, response, error);
+                    status = discoverTools(*server, response, validation, error);
                 }
                 if (status != mcp_status.MCP_OK) break;
                 if (i + 1 == count) return true;
             }
         }
     }
-    detail.add(`{"failure":`); failure(detail, failedName, error, response);
+    detail.add(`{"failure":`); failure(detail, failedName, error, response, &validation);
+    mcp_response_free(&validation);
     detail.add(`,"cleanup":`);
     closeMcp(group, detail);
     detail.add("}");
@@ -316,12 +342,16 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
 // This is the harness dispatch boundary. Names stay a (server, tool) pair,
 // so two servers exposing "search" never overwrite or masquerade as each other.
 mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
-                       const(char)* arguments, ref mcp_response response, ref mcp_error error) {
+                       const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error) {
     if (serverName is null || toolName is null) return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool dispatch needs server and tool names");
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
-        if (strcmp(server.name, serverName) == 0)
-            return mcp_tools_call(server.client, toolName, arguments, &response, &error);
+        if (strcmp(server.name, serverName) == 0) {
+            for (auto contract = server.contracts; contract !is null; contract = contract.next)
+                if (strcmp(mcp_tool_name(contract.tool), toolName) == 0)
+                    return mcp_tool_call(server.client, contract.tool, arguments, &response, &validation, &error);
+            return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool is not in the session server catalog");
+        }
     }
     return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "session has no MCP server with that name");
 }
