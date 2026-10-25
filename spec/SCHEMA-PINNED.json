@@ -1,0 +1,10 @@
+{
+  "validator_repository": "https://github.com/corvus-dotnet/Corvus.JsonSchema",
+  "validator_commit": "4fcedcfef95c869a7477df64d8114c83266595ae",
+  "core_version": "0.1.7",
+  "capi_version": "0.1.4",
+  "cargo_lock_sha256": "8565cab03c452d99573716e7843ffc338692b906db9af4bd481cc718b31a1490",
+  "suite_repository": "https://github.com/json-schema-org/JSON-Schema-Test-Suite",
+  "suite_commit": "89e83a74014617ffbe79a56d83d14d054cd11417",
+  "suite_scope": "tests/draft2020-12/*.json; excludes two named custom-dialect groups; optional directory not executed"
+}
