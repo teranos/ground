@@ -59,6 +59,14 @@ static assert(r5.decision == Decision.none);
 enum r6 = evaluatePermission(testPermSet[], "/home/user/other", "Bash", "npm run test", SessionMode.acceptEdits);
 static assert(r6.decision == Decision.none);
 
+// PermissionRequest carries permission_mode from Claude Code and codex alike.
+// Asked without it, the mode was unknown, which grants nothing: no allow rule
+// ever answered a PermissionRequest.
+import permissionrequest : permissionFor;
+static assert(permissionFor(testPermSet[], "/p", "Bash", "go build ./...", "bypassPermissions").decision == Decision.allow);
+static assert(permissionFor(testPermSet[], "/p", "Bash", "go build ./...", "default").decision == Decision.none);
+static assert(permissionFor(testPermSet[], "/p", "Bash", "rm -rf /tmp", "default").decision == Decision.deny);
+
 // Scope match — npm rule fires in /only-here
 enum r7 = evaluatePermission(testPermSet[], "/home/user/only-here", "Bash", "npm run test", SessionMode.acceptEdits);
 static assert(r7.decision == Decision.allow);
