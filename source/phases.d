@@ -38,6 +38,8 @@ struct Store {
     long writeUs;
     long lockUs;
     long closeUs;
+    const(char)[] heldBy; // who held the lock when the write first waited
+
     long total() const { return stdinUs + openUs + writeUs + closeUs; }
 }
 
@@ -51,6 +53,10 @@ void outerPhases(S)(ref S sink, Store s, long handlerUs, const(char)[] inner) {
     putUs(sink, s.writeUs);
     sink.put(" lock=");
     putUs(sink, s.lockUs);
+    if (s.heldBy.length > 0) {
+        sink.put(" held_by=");
+        sink.put(s.heldBy);
+    }
     sink.put(" close=");
     putUs(sink, s.closeUs);
     sink.put(" handler=");

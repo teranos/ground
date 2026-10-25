@@ -371,6 +371,10 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
             outer.store.closeUs = usecNow() - tClose;
         }
         outer.store.lockUs = lockWaitUs;
+        {
+            import db : lockHolder;
+            outer.store.heldBy = lockHolder();
+        }
         // Checked after the write, not only on a null handle: a damaged store
         // opens cleanly when its schema tree survived, and announces itself
         // only when real data moves through the broken ones.

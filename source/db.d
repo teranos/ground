@@ -160,9 +160,32 @@ enum BUSY_LIMIT_US = 5_000_000;
 // attempt from zero. lockWaitUs keeps the process total for the timing row.
 __gshared long attemptUs;
 
+// Who held the lock when this process first had to wait, as a phase value;
+// empty until it waits. Asked of the kernel once, not on every sleep.
+__gshared char[96] lockHolderBuf = 0;
+__gshared size_t lockHolderLen;
+__gshared bool lockHolderAsked;
+
+const(char)[] lockHolder() { return lockHolderBuf[0 .. lockHolderLen]; }
+
 extern (C) int groundBusy(void*, int count) {
     if (count == 0) attemptUs = 0;
     if (attemptUs >= BUSY_LIMIT_US) return 0;
+    if (!lockHolderAsked) {
+        lockHolderAsked = true;
+        import lockholder : writeLockHolder, holderName;
+        __gshared ZBuf shm;
+        shm.reset();
+        auto store = storePath();
+        if (store !is null) {
+            size_t sl;
+            while (store[sl] != 0) sl++;
+            shm.put(store[0 .. sl]);
+            shm.put("-shm");
+            auto pid = writeLockHolder(shm.ptr());
+            if (pid > 0) lockHolderLen = holderName(pid, lockHolderBuf[]).length;
+        }
+    }
     timeval a, b;
     gettimeofday(&a, null);
     usleep(BUSY_SLEEP_US);
