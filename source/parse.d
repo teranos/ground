@@ -103,6 +103,13 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
     return extractJsonString(json, `"permission_mode"`, &buf[0], buf.length);
 }
 
+// Whether codex sent the event: its tool events all carry a turn_id, and
+// Claude Code's carry none. codex's answers are read by other rules.
+@Reads("turn_id") bool fromCodex(const(char)[] json) {
+    char[128] buf = 0;
+    return extractJsonString(json, `"turn_id"`, &buf[0], buf.length) !is null;
+}
+
 // Returns the raw JSON region for "tool_input": { ... } — no parsing, just the brace-delimited slice.
 @Reads("tool_input") const(char)[] extractToolInputRegion(const(char)[] json) {
     auto idx = indexOf(json, `"tool_input"`);

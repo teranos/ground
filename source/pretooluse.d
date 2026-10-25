@@ -57,6 +57,17 @@ FileAnswer fileAnswer(bool granted, bool controlsSpoke, const(char)[] controlDec
 
 // --- JSON response writers (PreToolUse format) ---
 
+// Whether codex is the harness asking: its answers take codex's shape.
+__gshared bool codexAsks;
+
+// codex fails a hook over updatedInput with no allow, allow with no
+// updatedInput, and any ask, and drops the rewrite and context with it.
+const(char)[] codexDecision(const(char)[] decision, bool rewrites) {
+    if (decision == "deny") return decision;
+    // Its allow lifts no approval; only the updated input applies.
+    return rewrites ? "allow" : "";
+}
+
 // The rewritten tool_input for the call in flight, computed once before any
 // control is asked, and the reason. Every answer the handler gives carries it:
 // a permission rule that allowed a write used to answer before the rewrite was
@@ -84,9 +95,19 @@ private void putJsonString(ref char[] dest, ref size_t n, const(char)[] s) {
 // decision: the rewrite is the floor, and the floor is not conditional on
 // which rule happened to speak first.
 const(char)[] contextResponse(char[] dest, const(char)[] context, const(char)[] decision,
-                              const(char)[] updatedInput) {
+                              const(char)[] updatedInput, bool codex = false) {
     size_t n;
     void put(const(char)[] s) { foreach (c; s) if (n < dest.length) dest[n++] = c; }
+    if (codex) {
+        decision = codexDecision(decision, updatedInput.length > 0);
+        if (decision == "deny") {
+            put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"`);
+            putJsonString(dest, n, context.length > 0 ? context : "ground denied it");
+            put(`"}}`);
+            return dest[0 .. n];
+        }
+        if (decision.length == 0 && context.length == 0) return dest[0 .. 0];
+    }
     put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`);
     if (decision.length > 0) {
         put(`,"permissionDecision":"`);
@@ -97,9 +118,13 @@ const(char)[] contextResponse(char[] dest, const(char)[] context, const(char)[] 
         put(`,"updatedInput":`);
         put(updatedInput);
     }
-    put(`,"additionalContext":"`);
-    putJsonString(dest, n, context);
-    put(`"}}`);
+    // codex hands an empty one to its model as an empty developer message.
+    if (!codex || context.length > 0) {
+        put(`,"additionalContext":"`);
+        putJsonString(dest, n, context);
+        put(`"`);
+    }
+    put(`}}`);
     return dest[0 .. n];
 }
 
@@ -119,14 +144,17 @@ void writeContextResponse(const(char)[] context, const(char)[] decision) {
     // only advisory does not turn into a prompt for it.
     auto verdict = decision;
     if (pendingRewrite.length > 0 && verdict.length == 0) verdict = "allow";
-    auto r = contextResponse(out_[], said[0 .. sn], verdict, pendingRewrite);
+    auto r = contextResponse(out_[], said[0 .. sn], verdict, pendingRewrite, codexAsks);
+    if (r.length == 0) return;
     fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
 }
 
 // The question, asked the way a denial is answered: the reason rides on the
-// decision, so the prompt says who is asking and why.
+// decision, so the prompt says who is asking and why. codex has no ask, and
+// its own approval policy decides: the reason is said to the model instead.
 void writeAskResponse(const(char)[] reason) {
+    if (codexAsks) { writeContextResponse(reason, ""); return; }
     fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"`, stdout);
     writeJsonString(reason);
     fputs(`"}}`, stdout);
@@ -144,10 +172,11 @@ void writeDenyResponse(const(char)[] reason) {
 // An empty decision is no decision, and the key is left out: the empty string
 // is not allow, deny or ask, and Claude Code discards the whole answer over it.
 const(char)[] bashResponse(char[] dest, const(char)[] command, const(char)[] context,
-                           const(char)[] decision, bool background, int timeout) {
+                           const(char)[] decision, bool background, int timeout, bool codex = false) {
     size_t n;
     void put(const(char)[] s) { foreach (c; s) if (n < dest.length) dest[n++] = c; }
 
+    if (codex) decision = codexDecision(decision, true);
     put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse"`);
     if (decision.length > 0) {
         put(`,"permissionDecision":"`);
@@ -171,9 +200,13 @@ const(char)[] bashResponse(char[] dest, const(char)[] command, const(char)[] con
         }
         put(tbuf[0 .. tlen]);
     }
-    put(`},"additionalContext":"`);
-    putJsonString(dest, n, context);
-    put(`"}}`);
+    put(`}`);
+    if (!codex || context.length > 0) {
+        put(`,"additionalContext":"`);
+        putJsonString(dest, n, context);
+        put(`"`);
+    }
+    put(`}}`);
     return dest[0 .. n];
 }
 
@@ -181,7 +214,7 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
     bool background = false, int timeout = 0)
 {
     __gshared char[262144] out_ = "";
-    auto r = bashResponse(out_[], command, context, decision, background, timeout);
+    auto r = bashResponse(out_[], command, context, decision, background, timeout, codexAsks);
     fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
 }
@@ -377,6 +410,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     }
 
     auto toolName = extractToolName(input);
+    import parse : fromCodex;
+    codexAsks = fromCodex(input);
     import sessionmode : parseSessionMode;
     auto sessionMode = parseSessionMode(extractPermissionMode(input));
     auto toolUseId = extractToolUseId(input);

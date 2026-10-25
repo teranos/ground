@@ -100,3 +100,57 @@ static assert(() {
     auto r = bashResponse(b[], "make build", "", "allow", true, 120);
     return contains(r, `"run_in_background":true`) && contains(r, `"timeout":120`);
 }());
+
+// codex 0.163.0 fails the hook, and drops the rewrite and its context, over:
+// "PreToolUse hook returned updatedInput without permissionDecision:allow"
+// Its allow lifts no approval: only the updated input applies.
+static assert(() {
+    char[512] b;
+    auto r = bashResponse(b[], "git commit -m x", "Git hooks must not be bypassed, ever.", "", false, 0, true);
+    return contains(r, `"permissionDecision":"allow"`)
+        && contains(r, `"updatedInput":{"command":"git commit -m x"}`)
+        && contains(r, `"additionalContext":"Git hooks must not be bypassed, ever."`);
+}());
+
+// codex has no ask:
+// "PreToolUse hook returned unsupported permissionDecision:ask"
+static assert(() {
+    char[512] b;
+    auto r = bashResponse(b[], "git push", "", "ask", false, 0, true);
+    return contains(r, `"permissionDecision":"allow"`) && !contains(r, "additionalContext");
+}());
+
+// Nor an allow with nothing to update:
+// "PreToolUse hook returned unsupported permissionDecision:allow"
+static assert(() {
+    char[512] b;
+    auto r = contextResponse(b[], "Use the Read tool instead of cat.", "allow", null, true);
+    return !contains(r, "permissionDecision") && contains(r, `"additionalContext":"Use the Read tool instead of cat."`);
+}());
+
+// An empty additionalContext reaches codex's model as an empty developer message.
+static assert(() {
+    char[512] b;
+    return contextResponse(b[], "", "allow", null, true).length == 0;
+}());
+
+static assert(() {
+    char[512] b;
+    auto r = contextResponse(b[], "", "", `{"file_path":"/p"}`, true);
+    return contains(r, `"permissionDecision":"allow"`) && contains(r, `"updatedInput":{"file_path":"/p"}`);
+}());
+
+// A deny never carries a rewrite, and to codex one without a reason is invalid.
+static assert(() {
+    char[512] b;
+    auto r = contextResponse(b[], "no binary files", "deny", `{"file_path":"/p"}`, true);
+    return contains(r, `"permissionDecision":"deny"`)
+        && contains(r, `"permissionDecisionReason":"no binary files"`)
+        && !contains(r, "updatedInput");
+}());
+
+// codex says which harness it is by its turn_id: every PreToolUse of codex's
+// carries one and none of Claude Code's does.
+import parse : fromCodex;
+static assert(fromCodex(`{"session_id":"s","turn_id":"t","tool_name":"Bash"}`));
+static assert(!fromCodex(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"echo \"turn_id\""}}`));
