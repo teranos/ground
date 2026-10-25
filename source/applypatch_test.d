@@ -1,6 +1,16 @@
 module applypatch_test;
 
-import applypatch : PatchFile, nextFile, addedText, movedTo;
+import applypatch : PatchFile, nextFile, addedText, movedTo, shellPatch;
+
+// What codex sends when its model runs apply_patch through the shell, as
+// anthropic/claude-sonnet-4.5 on the node's gateway does: a Bash call.
+static assert(shellPatch("apply_patch '*** Begin Patch\n*** Add File: gw.txt\n+gateway\n*** End Patch'")
+    == "*** Begin Patch\n*** Add File: gw.txt\n+gateway\n*** End Patch");
+static assert(shellPatch("apply_patch <<'EOF'\n*** Begin Patch\n*** Delete File: a\n*** End Patch\nEOF")
+    == "*** Begin Patch\n*** Delete File: a\n*** End Patch");
+// Only a command that is apply_patch; one that only mentions a patch is not.
+static assert(shellPatch("echo '*** Begin Patch\n*** End Patch'") is null);
+static assert(shellPatch("apply_patch") is null);
 
 // What codex 0.163.0 sent ground for a file it created with apply_patch.
 enum add = "*** Begin Patch\n*** Add File: /r/notes.txt\n+hello\n+world\n*** End Patch";

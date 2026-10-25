@@ -406,7 +406,7 @@ private bool inLivePerformance(const(char)[] cwd, SessionMode sessionMode) {
 // One file denied denies the patch; what the others said is said with it.
 private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import parse : extractJsonString;
-    import applypatch : PatchFile, nextFile, addedText, movedTo;
+    import applypatch : PatchFile, nextFile, addedText, movedTo, shellPatch;
     __gshared char[65536] patchBuf = 0;
     __gshared char[32768] textBuf = 0;
     __gshared char[131072] synth = 0;
@@ -415,6 +415,8 @@ private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] se
     char[4096] tp = 0;
     auto patch = extractJsonString(input, `"command"`, &patchBuf[0], patchBuf.length);
     if (patch is null) return 0;
+    // Run through the shell, the patch is the command's argument.
+    if (auto inShell = shellPatch(patch)) patch = inShell;
     auto turnId = extractJsonString(input, `"turn_id"`, &turn[0], turn.length);
     auto useId = extractJsonString(input, `"tool_use_id"`, &use[0], use.length);
     auto permMode = extractJsonString(input, `"permission_mode"`, &mode[0], mode.length);
@@ -487,8 +489,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     auto toolName = extractToolName(input);
     import parse : fromCodex;
     codexAsks = fromCodex(input);
-    // Its patch names the files it edits in its text, and no file_path.
-    if (toolName == "apply_patch" && !collecting) {
+    // Its patch names the files it edits in its text, and no file_path. A
+    // model that runs apply_patch through the shell sends it as Bash.
+    import applypatch : shellPatch;
+    if (!collecting && (toolName == "apply_patch"
+            || (codexAsks && toolName == "Bash" && shellPatch(extractCommand(input)) !is null))) {
         exitLabel = "apply-patch";
         return answerPatch(input, cwd, sessionId);
     }
