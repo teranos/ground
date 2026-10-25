@@ -1,0 +1,9 @@
+json-c 0.18 treats signed UTF-8 bytes as control characters in strict mode.
+Backport the unsigned comparison documented in upstream issue #875:
+https://github.com/json-c/json-c/issues/875
+
+--- a/json_tokener.c
++++ b/json_tokener.c
+@@ -681 +681 @@
+-				else if ((tok->flags & JSON_TOKENER_STRICT) && c <= 0x1f)
++				else if ((tok->flags & JSON_TOKENER_STRICT) && (unsigned char)c <= 0x1f)
