@@ -91,6 +91,9 @@ static assert(projectAt(parsed, "/Users/x/teranos/QNTX/server", "", "") == "/ter
 static assert(saidOf("rituals on") == Said.On);
 static assert(saidOf("rituals off") == Said.Off);
 static assert(saidOf("  rituals off\n") == Said.Off);
+// "make sure 'enable' also works"
+static assert(saidOf("rituals enable") == Said.On);
+static assert(saidOf("rituals disable") == Said.Off);
 static assert(saidOf("rituals off please") == Said.Nothing);
 static assert(saidOf("are rituals on?") == Said.Nothing);
 static assert(saidOf("") == Said.Nothing);

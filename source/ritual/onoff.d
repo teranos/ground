@@ -15,8 +15,8 @@ Said saidOf(const(char)[] prompt) {
     while (a < b && blank(prompt[a])) a++;
     while (b > a && blank(prompt[b - 1])) b--;
     auto s = prompt[a .. b];
-    if (s == "rituals on") return Said.On;
-    if (s == "rituals off") return Said.Off;
+    if (s == "rituals on" || s == "rituals enable") return Said.On;
+    if (s == "rituals off" || s == "rituals disable") return Said.Off;
     return Said.Nothing;
 }
 
