@@ -32,7 +32,7 @@ $(BUILD):
 OBJECTS = $(addprefix $(BUILD)/,mcp.o json.o protocol.o stdio.o http.o schema.o)
 
 $(CORVUS_LIB): $(shell find vendor/corvus -type f) | $(BUILD)
-	$(CARGO) build --offline --locked --release --manifest-path $(CORVUS_MANIFEST) --target-dir $(abspath $(BUILD)/corvus)
+	$(CARGO) build --locked --release --manifest-path $(CORVUS_MANIFEST) --target-dir $(abspath $(BUILD)/corvus)
 
 $(BUILD)/%.o: src/%.c src/internal.h include/mcp.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@

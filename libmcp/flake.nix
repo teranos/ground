@@ -34,8 +34,14 @@
 
             # The archive merges the validator in with libtool on Darwin, and the
             # build sandbox has none until cctools is named.
-            nativeBuildInputs = [ pkgs.pkg-config pkgs.python3 pkgs.cargo pkgs.rustc ]
+            # The validator's crates, each fetched at the checksum its Cargo.lock
+            # names; cargoSetupHook points cargo at them.
+            cargoDeps = pkgs.rustPlatform.importCargoLock {
+              lockFile = ./vendor/corvus/corvus-json-schema-capi/Cargo.lock;
+            };
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.python3 pkgs.cargo pkgs.rustc pkgs.rustPlatform.cargoSetupHook ]
               ++ pkgs.lib.optional pkgs.stdenv.isDarwin pkgs.cctools;
+            cargoRoot = "vendor/corvus/corvus-json-schema-capi";
             buildInputs = [ (jsonC pkgs) pkgs.curl ];
 
             buildPhase = "export CARGO_HOME=$TMPDIR/cargo; make";
