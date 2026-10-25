@@ -676,9 +676,26 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             int maxTmo = 0;
             bool hasDeny = false;
 
+            // The session's model, read once, for a control unless_model spares.
+            const(char)[] sessionModel;
+            {
+                import db : modelOf;
+                __gshared char[128] modelBuf = 0;
+                if (db !is null) {
+                    auto held = modelOf(db, sessionId).model();
+                    auto n = held.length < modelBuf.length ? held.length : modelBuf.length;
+                    modelBuf[0 .. n] = held[0 .. n];
+                    sessionModel = modelBuf[0 .. n];
+                }
+            }
+
             foreach (idx; 0 .. results.count) {
                 auto m = results.matches[idx];
                 auto c = m.control;
+                {
+                    import control_handlers : sparedByModel;
+                    if (sparedByModel(sessionModel, *c)) continue;
+                }
 
                 // Strop controls: extract flag, apply matchStrop, deny on mismatch.
                 // Strop supersedes all other control fields (arg/omit/msg).

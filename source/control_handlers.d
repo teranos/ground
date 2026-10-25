@@ -1,7 +1,7 @@
 module control_handlers;
 
 import matcher : contains;
-import hooks : CheckResult, fires, passes;
+import hooks : CheckResult, fires, passes, Control;
 import db : sqlite3, ZBuf;
 
 // Verdict for the approval-gated handlers (commit / merge / kill).
@@ -495,6 +495,28 @@ unittest {
     assert(modelExempt("claude-fable-5-1", "opus,fable"));
     assert(!modelExempt("claude-sonnet-5-5", "opus,fable"));
     assert(!modelExempt("claude-sonnet-5-5", "opus,,fable,"), "an empty word exempts nobody");
+}
+
+unittest {
+    // codex reads files with its shell, and has no Read tool to be sent to.
+    // unless_model spares a plain control too.
+    import hooks : Control;
+    Control c;
+    c.paramKeys[0] = "unless_model";
+    c.paramValues[0] = "gpt";
+    c.paramCount = 1;
+    assert(sparedByModel("gpt-6.1-sol", c));
+    assert(!sparedByModel("claude-opus-5-5", c));
+    Control none;
+    assert(!sparedByModel("gpt-6.1-sol", none), "a control naming no model spares nobody");
+}
+
+// Whether the control's unless_model names the session's model, on any
+// control, with or without a check handler of its own.
+bool sparedByModel(const(char)[] model, const ref Control c) {
+    foreach (i; 0 .. c.paramCount)
+        if (c.paramKeys[i] == "unless_model") return modelExempt(model, c.paramValues[i]);
+    return false;
 }
 
 // True when the session's model, as ug wrote it, carries one of the comma-
