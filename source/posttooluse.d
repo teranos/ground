@@ -136,6 +136,8 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     auto command = extractCommand(input);
     auto filePath = extractFilePath(input);
     auto toolName = extractToolName(input);
+    // codex's apply_patch carries its patch as command: no shell ran it.
+    if (toolName == "apply_patch") command = null;
     // What the tool printed, for the floor. Read once here: the buffer behind
     // it is shared, and the whole payload below is still `input`.
     auto toolOutput = extractToolOutput(input);

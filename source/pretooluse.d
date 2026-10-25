@@ -60,6 +60,18 @@ FileAnswer fileAnswer(bool granted, bool controlsSpoke, const(char)[] controlDec
 // Whether codex is the harness asking: its answers take codex's shape.
 __gshared bool codexAsks;
 
+// While an apply_patch is answered a file at a time, each file's answer is
+// kept here, and the patch gets one answer for all of them.
+__gshared bool collecting;
+__gshared bool collectedDeny;
+__gshared Buf collected;
+
+private void collect(const(char)[] said) {
+    if (said.length == 0) return;
+    if (collected.len > 0) collected.put(" | ");
+    collected.put(said);
+}
+
 // codex fails a hook over updatedInput with no allow, allow with no
 // updatedInput, and any ask, and drops the rewrite and context with it.
 const(char)[] codexDecision(const(char)[] decision, bool rewrites) {
@@ -142,6 +154,13 @@ void writeContextResponse(const(char)[] context, const(char)[] decision) {
     }
     // A write the floor changed is allowed as changed; a decision that was
     // only advisory does not turn into a prompt for it.
+    if (collecting) {
+        if (decision == "deny") collectedDeny = true;
+        collect(said[0 .. sn]);
+        // A patch carries no updatedInput: the amendment is said instead.
+        if (pendingRewrite.length > 0) collect("apply_patch cannot take ground's amendment of this file; make it in the patch.");
+        return;
+    }
     auto verdict = decision;
     if (pendingRewrite.length > 0 && verdict.length == 0) verdict = "allow";
     auto r = contextResponse(out_[], said[0 .. sn], verdict, pendingRewrite, codexAsks);
@@ -162,6 +181,7 @@ void writeAskResponse(const(char)[] reason) {
 }
 
 void writeDenyResponse(const(char)[] reason) {
+    if (collecting) { collectedDeny = true; collect(reason); return; }
     fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"`, stdout);
     writeJsonString(reason);
     fputs(`"}}`, stdout);
@@ -381,6 +401,61 @@ private bool inLivePerformance(const(char)[] cwd, SessionMode sessionMode) {
 
 // --- PreToolUse handler ---
 
+// codex's apply_patch, answered a file at a time as the Write or Edit Claude
+// Code would have sent for it: its permissions and file controls are asked.
+// One file denied denies the patch; what the others said is said with it.
+private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
+    import parse : extractJsonString;
+    import applypatch : PatchFile, nextFile, addedText, movedTo;
+    __gshared char[65536] patchBuf = 0;
+    __gshared char[32768] textBuf = 0;
+    __gshared char[131072] synth = 0;
+    char[128] turn = 0, use = 0;
+    char[32] mode = 0;
+    char[4096] tp = 0;
+    auto patch = extractJsonString(input, `"command"`, &patchBuf[0], patchBuf.length);
+    if (patch is null) return 0;
+    auto turnId = extractJsonString(input, `"turn_id"`, &turn[0], turn.length);
+    auto useId = extractJsonString(input, `"tool_use_id"`, &use[0], use.length);
+    auto permMode = extractJsonString(input, `"permission_mode"`, &mode[0], mode.length);
+    auto transcript = extractJsonString(input, `"transcript_path"`, &tp[0], tp.length);
+
+    void ask(const(char)[] tool, const(char)[] path, const(char)[] text) {
+        size_t n;
+        void put(const(char)[] s) { foreach (c; s) if (n < synth.length) synth[n++] = c; }
+        char[] dest = synth[];
+        put(`{"session_id":"`); putJsonString(dest, n, sessionId);
+        put(`","turn_id":"`); putJsonString(dest, n, turnId);
+        put(`","transcript_path":"`); putJsonString(dest, n, transcript);
+        put(`","cwd":"`); putJsonString(dest, n, cwd);
+        put(`","hook_event_name":"PreToolUse","permission_mode":"`); putJsonString(dest, n, permMode);
+        put(`","tool_name":"`); put(tool);
+        put(`","tool_input":{"file_path":"`);
+        if (path.length > 0 && path[0] != '/') { putJsonString(dest, n, cwd); put("/"); }
+        putJsonString(dest, n, path);
+        put(tool == "Edit" ? `","new_string":"` : `","content":"`); putJsonString(dest, n, text);
+        put(`"},"tool_use_id":"`); putJsonString(dest, n, useId);
+        put(`"}`);
+        handlePreToolUse(synth[0 .. n], cwd, sessionId);
+    }
+
+    collecting = true;
+    collectedDeny = false;
+    collected = Buf.init;
+    size_t pos;
+    PatchFile f;
+    while (nextFile(patch, pos, f)) {
+        auto text = addedText(patch, f, textBuf[]);
+        ask(f.tool, f.path, text);
+        auto moved = movedTo(patch, f);
+        if (moved !is null) ask("Write", moved, text);
+    }
+    collecting = false;
+    if (collectedDeny) writeDenyResponse(collected.slice());
+    else writeContextResponse(collected.slice(), "");
+    return 0;
+}
+
 int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import main : usecNow;
     import parse : extractPermissionMode;
@@ -412,6 +487,11 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     auto toolName = extractToolName(input);
     import parse : fromCodex;
     codexAsks = fromCodex(input);
+    // Its patch names the files it edits in its text, and no file_path.
+    if (toolName == "apply_patch" && !collecting) {
+        exitLabel = "apply-patch";
+        return answerPatch(input, cwd, sessionId);
+    }
     import sessionmode : parseSessionMode;
     auto sessionMode = parseSessionMode(extractPermissionMode(input));
     auto toolUseId = extractToolUseId(input);

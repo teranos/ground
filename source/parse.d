@@ -143,6 +143,9 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
 // not the two-character \n the hook carries them as.
 @Reads("tool_response") const(char)[] extractToolOutput(const(char)[] json) {
     __gshared char[65536] buf = 0;
+    // codex's is a string, what the command printed as its model reads it.
+    auto asText = extractJsonString(json, `"tool_response"`, &buf[0], buf.length);
+    if (asText !is null) return asText;
     auto region = toolResponseRegion(json);
     if (region is null) return null;
     return extractJsonString(region, `"stdout"`, &buf[0], buf.length);
