@@ -75,13 +75,13 @@ test: test-tools test-ug test-mcp
 
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
-# owning a session's servers. LIBMCP_SRC is the input's source; the devShell sets it.
+# owning a session's servers. libmcp is this repository's libmcp/.
 # libmcp embeds its validator, while curl/json-c remain shared dependencies.
 # --static here would also demand every private curl archive/development symlink.
+LIBMCP_SRC ?= $(CURDIR)/libmcp
 MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c libcurl),-L$(f)) -L-lm -L-lpthread $(if $(filter Darwin,$(shell uname -s)),-L-liconv,-L-ldl)
 MCP_SERVER = LIBMCP_SERVER=$(LIBMCP_SRC)/tests/server.py
 test-mcp: build
-	test -n "$(LIBMCP_SRC)" || { echo "test-mcp: LIBMCP_SRC names no libmcp source; run under nix develop" >&2; exit 1; }
 	mkdir -p build
 	cc -c $(LIBMCP_SRC)/tests/abi.c $(shell pkg-config --cflags libmcp) -o build/abi.o
 	ldc2 -betterC -I=source -of=build/abi-test mcp/abi.d build/abi.o $(MCP_LIBS)
