@@ -48,6 +48,10 @@ scope {
     control {
       name: "use-read-not-cat"
       cmd: "cat"
+      # codex has no Read tool; its shell is how it reads a file.
+      handler_params {
+        unless_model: "gpt"
+      }
       msg: "Use the Read tool instead of cat."
     }
 
