@@ -37,13 +37,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // authenticate: "Must be one of the methods advertised in the initialize
@@ -54,8 +54,17 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":6,"method":"authenticate","params"
     == `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"authenticate needs methodId"}}`);
 
 // A method ground code does not handle is said to the client, by name.
-static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/load","params":{}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle session/load"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"logout","params":{}}`)
+    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle logout"}}`);
+
+// session/load: "Clients MUST call the session/load method with" the session,
+// "MCP servers to connect to" and "The working directory": all three required.
+static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"cwd":"/w","mcpServers":[]}}`)
+    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`)
+    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`)
+    == `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`);
 
 // A notification has no answer to give; the caller says it on stderr instead.
 static assert(answerOf(`{"jsonrpc":"2.0","method":"session/frobnicate","params":{}}`) is null);
@@ -815,4 +824,160 @@ version (Posix) unittest {
             ~ `{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"maybe\"}}}"}}}`, s, input, p));
         end(input, p, s);
     }
+}
+
+// A session's conversation is the store's: a turn keeps its history there, a
+// resume in another process "restores the session context" without replaying
+// it, and session/load does replay it: "The Agent MUST replay the entire
+// conversation to the Client in the form of session/update notifications",
+// and "When all the conversation entries have been streamed to the Client,
+// the Agent MUST respond to the original session/load request."
+version (Posix) unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import code.store : storeHistory, storeHistoryOf;
+    import core.sys.posix.unistd : pipe, read, close, dup, dup2;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    enum history = `{"role":"user","content":"hi \"you\""},`
+        ~ `{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"x__y","arguments":"{\"a\":1}"}},`
+        ~ `{"id":"c2","type":"function","function":{"name":"x__z","arguments":"{}"}}]},`
+        ~ `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"content\":[]}}"},`
+        ~ `{"role":"tool","tool_call_id":"c2","content":"{\"status\":\"not run\",\"why\":\"the user rejected it\"}"},`
+        ~ `{"role":"assistant","content":"done"}`;
+
+    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    a.db = db;
+    assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+    assert(storeHistory(db, "code-100-7-1", history) == 1);
+    Reply kept;
+    assert(storeHistoryOf(db, "code-100-7-1", kept) == 1 && kept.slice() == history);
+    kept.dispose();
+
+    __gshared char[65536] said;
+    size_t saidLen;
+    bool capture(ref Sessions s, string line, string want) {
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        bool ok = says(s, line, want);
+        fflush(stdout);
+        dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        return ok;
+    }
+
+    // Resumed elsewhere: the conversation is the session's again, and nothing is replayed.
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    b.db = db;
+    assert(capture(b, `{"jsonrpc":"2.0","id":2,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+    assert(saidLen == 0);
+    assert(b.open[0].history !is null && b.open[0].history.slice() == history);
+
+    // Loaded elsewhere: replayed, in order, then answered.
+    Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
+    c.db = db;
+    assert(capture(c, `{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/work","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+    enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
+    assert(said[0 .. saidLen] ==
+          up ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi \"you\""}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","rawInput":{"a":1}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","rawInput":{}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
+    assert(c.open[0].history !is null && c.open[0].history.slice() == history);
+    // Loaded where it is live: its conversation is the one this process holds.
+    assert(capture(c, `{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/work","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+    assert(indexOf(said[0 .. saidLen], `"text":"done"`) >= 0);
+    // Its cwd is still its own for life.
+    assert(says(c, `{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/else","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"code-100-7-1 is in /work, not /else"}}`));
+    foreach (i; 0 .. b.openLen) if (b.open[i].history !is null) b.open[i].history.dispose();
+    foreach (i; 0 .. c.openLen) if (c.open[i].history !is null) c.open[i].history.dispose();
+}
+
+// A turn keeps its history in the store as it ends, however it ends.
+version (Posix) unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import code.store : storeHistoryOf;
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.sys.posix.fcntl : open, O_WRONLY;
+    import core.stdc.stdio : fflush, stdout;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    enum reply = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    auto fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a;
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 1) == 0);
+    socklen_t n = a.sizeof;
+    assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+    auto child = fork();
+    if (child == 0) {
+        auto c = accept(fd, null, null);
+        char[65536] got;
+        read(c, got.ptr, got.length);
+        write(c, reply.ptr, reply.length);
+        close(c);
+        _exit(0);
+    }
+    close(fd);
+    __gshared char[32] urlBuf;
+    ushort port = htons(a.sin_port);
+    size_t len = 0;
+    foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+    char[8] d; size_t k = 0;
+    do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+    while (k) urlBuf[len++] = d[--k];
+
+    int[2] p;
+    assert(pipe(p) == 0);
+    Input input = Input(p[0]);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.db = db;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+    s.input = &input;
+    scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+    fflush(stdout);
+    auto saved = dup(1);
+    auto devnull = open("/dev/null", O_WRONLY);
+    dup2(devnull, 1);
+    Reply r;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, r, s);
+    fflush(stdout); dup2(saved, 1); close(saved); close(devnull);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    r.dispose();
+    Reply kept;
+    assert(storeHistoryOf(db, "code-100-7-1", kept) == 1);
+    assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done"}`);
+    assert(kept.slice() == s.open[0].history.slice());
+    kept.dispose();
+    s.open[0].history.dispose();
 }

@@ -554,6 +554,9 @@ bool applySchema(sqlite3* db) {
     if (!hasColumn(db, "code_session", "updated_at")
             && ensureColumn(db, "code_session", "updated_at", "INTEGER NOT NULL DEFAULT 0"))
         sqlite3_exec(db, "UPDATE code_session SET updated_at = opened_at\0".ptr, null, null, null);
+    // Its conversation, as the model's messages: the inside of the messages
+    // array a turn sends, empty before the first.
+    ensureColumn(db, "code_session", "history", "TEXT NOT NULL DEFAULT ''");
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

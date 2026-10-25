@@ -41,6 +41,7 @@ unittest {
     assert(hasColumn(db, "code_session", "dirs"));
     assert(hasColumn(db, "code_session", "effort"));
     assert(hasColumn(db, "code_session", "updated_at"));
+    assert(hasColumn(db, "code_session", "history"));
     sqlite3_close(db);
 }
 
@@ -73,6 +74,7 @@ unittest {
     assert(hasColumn(db, "code_session", "dirs"));
     assert(hasColumn(db, "code_session", "effort"));
     assert(hasColumn(db, "code_session", "updated_at"));
+    assert(hasColumn(db, "code_session", "history"));
     sqlite3_close(db);
 }
 
