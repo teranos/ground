@@ -11,7 +11,6 @@ static assert(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnop
 static assert(sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
 // The pins are read out of flake.nix, the one place they are written.
-static assert(pins.length == 5);
 static assert(pins[0].agent == "claude" && pins[0].release == "2.1.303");
 static assert(pins[1].agent == "claude" && pins[1].release == "2.1.304");
 static assert(pins[2].agent == "codex" && pins[2].release == "0.163.0");
@@ -319,6 +318,168 @@ static assert(has(sideFor("acp", "session/set_config_option").writes, "configOpt
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
 static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
 static assert(sideFor("acp", "initialize").reads.slice() == "");
+
+// "i want it"
+// MCP's pins are each released schema.json at one spec commit, the version as
+// the release. libmcp is the client the table measures.
+static assert(pins.length == 10);
+static assert(pins[5].agent == "mcp" && pins[5].release == "2024-11-05");
+static assert(pins[5].sha256 == "61cea2392d4f284092d09bc84b9ac488c0d5618ac2b38a56942fc5b99fd960ce");
+static assert(pins[9].agent == "mcp" && pins[9].release == "2026-07-28");
+static assert(pins[9].sha256 == "ef70b61f99b6d2e5e3b46863822eab08dff6a45bedc7a08914e0e5b133f40203");
+
+// An MCP schema: who sends a method is which union names it, its params are
+// inline or a reference to their own definition, and its result is named
+// after its request.
+private enum mcpSample = `{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+        "CallToolRequest": {
+            "properties": {
+                "method": {
+                    "const": "tools/call",
+                    "type": "string"
+                },
+                "params": {
+                    "$ref": "#/$defs/CallToolRequestParams"
+                }
+            },
+            "type": "object"
+        },
+        "CallToolRequestParams": {
+            "properties": {
+                "arguments": {
+                    "type": "object"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "CallToolResult": {
+            "properties": {
+                "content": {
+                    "type": "array"
+                },
+                "isError": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "ClientRequest": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/CallToolRequest"
+                }
+            ]
+        },
+        "CreateMessageRequest": {
+            "properties": {
+                "method": {
+                    "const": "sampling/createMessage",
+                    "type": "string"
+                },
+                "params": {
+                    "properties": {
+                        "maxTokens": {
+                            "type": "integer"
+                        },
+                        "messages": {
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "CreateMessageResult": {
+            "properties": {
+                "model": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ProgressNotification": {
+            "properties": {
+                "method": {
+                    "const": "notifications/progress",
+                    "type": "string"
+                },
+                "params": {
+                    "properties": {
+                        "progress": {
+                            "type": "number"
+                        },
+                        "progressToken": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "ServerNotification": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/ProgressNotification"
+                }
+            ]
+        },
+        "ServerRequest": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/CreateMessageRequest"
+                }
+            ]
+        }
+    }
+}`;
+
+// In and out are libmcp's side: a request the client sends is written and its
+// result read; one the server sends is read and its result written; a
+// notification has only the side that sends it.
+static assert(mcpKeys(mcpSample, "tools/call").output.slice() == "arguments,name");
+static assert(mcpKeys(mcpSample, "tools/call").input.slice() == "content,isError");
+static assert(mcpKeys(mcpSample, "sampling/createMessage").input.slice() == "maxTokens,messages");
+static assert(mcpKeys(mcpSample, "sampling/createMessage").output.slice() == "model");
+static assert(mcpKeys(mcpSample, "notifications/progress").input.slice() == "progress,progressToken");
+static assert(mcpKeys(mcpSample, "notifications/progress").output.slice() == "");
+static assert(mcpKeys(mcpSample, "tools/missing").input.slice() == "");
+
+// libmcp's side is read out of its C: the branch that tests for a method, or
+// the function that sends it, what it reads with mcp_field, mcp_has and
+// json_object_object_get_ex, and what it writes with mcp_add.
+static assert(has(sideFor("mcp", "notifications/progress").reads, "progressToken"));
+static assert(has(sideFor("mcp", "notifications/progress").reads, "total"));
+static assert(has(sideFor("mcp", "elicitation/create").reads, "mode"));
+static assert(has(sideFor("mcp", "initialize").writes, "protocolVersion"));
+static assert(has(sideFor("mcp", "initialize").writes, "clientInfo"));
+static assert(has(sideFor("mcp", "initialize").reads, "serverInfo"));
+static assert(has(sideFor("mcp", "subscriptions/listen").writes, "notifications"));
+// A key passed to the call that sends the method is written by it.
+static assert(has(sideFor("mcp", "tools/list").writes, "cursor"));
+static assert(has(sideFor("mcp", "tools/call").writes, "name"));
+// What a function the block calls writes is the block's: helper adds arguments.
+static assert(has(sideFor("mcp", "tools/call").writes, "arguments"));
+// A key read into a name is read wherever the name is used: isError is
+// tool_error, which the tools/call branch tests.
+static assert(has(sideFor("mcp", "tools/call").reads, "isError"));
+// A name a method's test is kept in stands for the method: ack.
+static assert(has(sideFor("mcp", "notifications/subscriptions/acknowledged").reads, "notifications"));
+static assert(sideFor("mcp", "no/such/method").reads.slice() == "");
+// What mcp_dispatch reads of every message before it tells one method from
+// another is every method's: resultType is read from every result.
+static assert(has(sideFor("mcp", "tools/list").reads, "resultType"));
+// What build_message writes into every request, and mcp_request_resume into
+// every continuation, is every request's.
+static assert(has(sideFor("mcp", "tools/call").writes, "_meta"));
+static assert(has(sideFor("mcp", "tools/call").writes, "inputResponses"));
+static assert(has(sideFor("mcp", "tools/call").writes, "requestState"));
 
 // Ground's side is read out of its own source: main.d's reads for every event,
 // the handler main.d dispatches to, and the extractors that handler calls.

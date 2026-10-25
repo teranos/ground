@@ -121,7 +121,10 @@ private string hexAfter()(string text, string key) {
     return text[cast(size_t) from .. cast(size_t) from + 64];
 }
 
-struct PinSet { Pin[8] items; size_t count; }
+// The most pins a build holds, every agent and spec version together.
+enum maxPins = 16;
+
+struct PinSet { Pin[maxPins] items; size_t count; }
 
 PinSet readPins()(string flake) {
     PinSet found;
@@ -131,6 +134,7 @@ PinSet readPins()(string flake) {
         else if (startsAt(flake, i, `codex "`)) agent = "codex";
         else if (startsAt(flake, i, `agy "`)) agent = "agy";
         else if (startsAt(flake, i, `acp "`)) agent = "acp";
+        else if (startsAt(flake, i, `mcp "`)) agent = "mcp";
         else continue;
         auto from = i + agent.length + 2;
         auto close = indexIn(flake[from .. $], `"`);
@@ -148,7 +152,7 @@ PinSet readPins()(string flake) {
         auto block = flake[from .. end];
         string sha;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
-        else if (agent == "acp") sha = hexAfter(block, "schema");
+        else if (agent == "acp" || agent == "mcp") sha = hexAfter(block, "schema");
         else {
             // codex and agy pin each target's tarball and the binary it unpacks to.
             auto t = assigned(block, agent == "codex" ? codexTarget : agyTarget, " = {");
@@ -267,8 +271,9 @@ Keys pascalOf()(string kebab) {
 
 // --- codex: JSON Schema documents, pretty-printed two spaces deep ---
 
-// The keys on lines this many spaces deep, from pos until the object closes.
-private void keysAtIndent(const(char)[] doc, size_t pos, size_t indent, ref Keys keys) {
+// The keys on lines this many spaces deep, from pos until the object closes,
+// one level being step spaces.
+private void keysAtIndent(const(char)[] doc, size_t pos, size_t indent, ref Keys keys, size_t step = 2) {
     size_t i = pos;
     while (i < doc.length) {
         auto nl = indexIn(doc, "\n", i);
@@ -277,7 +282,7 @@ private void keysAtIndent(const(char)[] doc, size_t pos, size_t indent, ref Keys
         size_t spaces = 0;
         while (j < doc.length && doc[j] == ' ') { spaces++; j++; }
         if (j >= doc.length) return;
-        if (spaces + 2 == indent && doc[j] == '}') return;
+        if (spaces + step == indent && doc[j] == '}') return;
         if (spaces == indent && doc[j] == '"') {
             auto close = indexIn(doc, `"`, j + 1);
             if (close < 0) return;
@@ -383,6 +388,109 @@ struct SpecKeys { Keys input; Keys output; }
 SpecKeys acpKeys()(string text, string method) {
     SpecKeys k;
     acpSpec(text, method, k.input, k.output);
+    return k;
+}
+
+// --- mcp: one JSON Schema document per version, four spaces a level ---
+
+// A definition, from its opening line to the brace that closes it, or null.
+// Definitions sit eight spaces deep, under $defs or, before 2025-11-25, definitions.
+private const(char)[] mcpDef(const(char)[] text, const(char)[] name) {
+    char[160] nb;
+    auto open = indexIn(text, joined(nb, "\n        \"", name, "\": {"));
+    if (open < 0) return null;
+    auto close = indexIn(text, "\n        }", cast(size_t) open + 1);
+    if (close < 0) return null;
+    return text[cast(size_t) open .. cast(size_t) close];
+}
+
+// The method a definition is, its properties.method.const, or null.
+private const(char)[] mcpMethodOf(const(char)[] def) {
+    enum at = "\n                \"method\": {";
+    auto m = indexIn(def, at);
+    if (m < 0) return null;
+    auto end = indexIn(def, "\n                }", cast(size_t) m + 1);
+    enum c = "\"const\": \"";
+    auto k = indexIn(def, c, cast(size_t) m);
+    if (k < 0 || (end >= 0 && k > end)) return null;
+    auto from = cast(size_t) k + c.length;
+    auto to = indexIn(def, `"`, from);
+    return to < 0 ? null : def[from .. cast(size_t) to];
+}
+
+// The name the reference at pos points to: #/$defs/Name or #/definitions/Name.
+private const(char)[] mcpRefAt(const(char)[] doc, size_t pos) {
+    auto to = indexIn(doc, `"`, pos);
+    if (to < 0) return null;
+    auto path = doc[pos .. cast(size_t) to];
+    auto slash = lastIndexIn(path, "/");
+    return slash < 0 ? null : path[cast(size_t) slash + 1 .. $];
+}
+
+enum mcpRef = "\"$ref\": \"";
+
+// A definition's top-level properties.
+private void mcpProps(const(char)[] def, ref Keys keys) {
+    enum props = "\n            \"properties\": {";
+    auto p = indexIn(def, props);
+    if (p >= 0) keysAtIndent(def, cast(size_t) p + props.length, 16, keys, 4);
+}
+
+// A message's params: written in its own properties, or a reference to the
+// definition that holds them.
+private void mcpParams(const(char)[] text, const(char)[] def, ref Keys keys) {
+    enum at = "\n                \"params\": {";
+    auto p = indexIn(def, at);
+    if (p < 0) return;
+    auto end = indexIn(def, "\n                }", cast(size_t) p + 1);
+    auto block = def[cast(size_t) p .. end < 0 ? def.length : cast(size_t) end];
+    auto r = indexIn(block, mcpRef);
+    if (r >= 0) {
+        mcpProps(mcpDef(text, mcpRefAt(block, cast(size_t) r + mcpRef.length)), keys);
+        return;
+    }
+    enum props = "\n                    \"properties\": {";
+    auto q = indexIn(block, props);
+    if (q >= 0) keysAtIndent(block, cast(size_t) q + props.length, 24, keys, 4);
+}
+
+// The unions that say who sends what. libmcp is the client: what it sends it
+// writes, and what the server sends it reads; a request's result is written by
+// whoever answers it.
+private static immutable string[2][4] mcpUnions = [
+    ["ClientRequest", "client"], ["ServerRequest", "server"],
+    ["ClientNotification", "client"], ["ServerNotification", "server"],
+];
+
+// One method's keys from libmcp's side, every union that names it.
+bool mcpSpec(const(char)[] text, const(char)[] method, ref Keys input, ref Keys output) {
+    bool found = false;
+    foreach (ref u; mcpUnions) {
+        auto union_ = mcpDef(text, u[0]);
+        if (union_ is null) continue;
+        bool clientSends = u[1] == "client";
+        bool request = endsWith(u[0], "Request");
+        size_t from = 0;
+        while (true) {
+            auto r = indexIn(union_, mcpRef, from);
+            if (r < 0) break;
+            from = cast(size_t) r + mcpRef.length;
+            auto name = mcpRefAt(union_, from);
+            auto def = mcpDef(text, name);
+            if (def is null || mcpMethodOf(def) != method) continue;
+            found = true;
+            mcpParams(text, def, clientSends ? output : input);
+            if (!request || !endsWith(name, "Request")) continue;
+            char[160] rb;
+            mcpProps(mcpDef(text, joined(rb, name[0 .. $ - "Request".length], "Result", "")), clientSends ? input : output);
+        }
+    }
+    return found;
+}
+
+SpecKeys mcpKeys()(string text, string method) {
+    SpecKeys k;
+    mcpSpec(text, method, k.input, k.output);
     return k;
 }
 
@@ -642,7 +750,8 @@ private bool commentLine()(string text, size_t lineStart) {
 
 // Reads: a call to a marked extractor, or a key handed to extractBool or
 // extractJsonString as a backtick literal of its own.
-alias GroundKeys = KeysOf!512;
+// libmcp's sides count a called function's keys too, so they run longer.
+alias GroundKeys = KeysOf!2048;
 
 GroundKeys readsIn()(string text) {
     GroundKeys keys;
@@ -859,7 +968,401 @@ private CodeSides buildCodeSides()() {
 private static immutable CodeSides codeSides = buildCodeSides();
 private static immutable GroundSide codeSide = GroundSide(null, GroundKeys.init, GroundKeys.init);
 
+// --- mcp: libmcp's side, read out of its C at compile time ---
+
+// The library as ground links it, kept in this repository at libmcp/.
+private static immutable string[6] libmcpSources = [
+    import("libmcp/src/mcp.c"), import("libmcp/src/protocol.c"), import("libmcp/src/http.c"),
+    import("libmcp/src/stdio.c"), import("libmcp/src/schema.c"), import("libmcp/src/json.c"),
+];
+
+// Past a string, a character or a comment that starts at i, or i itself.
+private size_t pastC(const(char)[] s, size_t i) {
+    if (s[i] == '"' || s[i] == '\'') {
+        auto q = s[i];
+        for (size_t j = i + 1; j < s.length; j++) {
+            if (s[j] == '\\') { j++; continue; }
+            if (s[j] == q) return j + 1;
+        }
+        return s.length;
+    }
+    if (s[i] == '/' && i + 1 < s.length && s[i + 1] == '/') {
+        auto nl = indexIn(s, "\n", i);
+        return nl < 0 ? s.length : cast(size_t) nl;
+    }
+    if (s[i] == '/' && i + 1 < s.length && s[i + 1] == '*') {
+        auto e = indexIn(s, "*/", i + 2);
+        return e < 0 ? s.length : cast(size_t) e + 2;
+    }
+    return i;
+}
+
+// Past the bracket that closes the one opening at i.
+private size_t pastClose(const(char)[] s, size_t i) {
+    int depth = 0;
+    while (i < s.length) {
+        auto j = pastC(s, i);
+        if (j != i) { i = j; continue; }
+        if (s[i] == '(' || s[i] == '{' || s[i] == '[') depth++;
+        else if ((s[i] == ')' || s[i] == '}' || s[i] == ']') && --depth == 0) return i + 1;
+        i++;
+    }
+    return s.length;
+}
+
+private struct CFn { const(char)[] name; size_t from, to; }
+private struct CFns { CFn[256] items; size_t count; }
+
+// Every function body at the top of a source: a brace after a parameter list.
+private CFns cFunctions()(const(char)[] s) {
+    CFns fns;
+    size_t i = 0;
+    while (i < s.length) {
+        auto j = pastC(s, i);
+        if (j != i) { i = j; continue; }
+        if (s[i] != '{') { i++; continue; }
+        size_t k = i;
+        while (k > 0 && (s[k - 1] == ' ' || s[k - 1] == '\n')) k--;
+        auto close = pastClose(s, i);
+        if (k > 0 && s[k - 1] == ')') {
+            int depth = 0;
+            size_t p = k;
+            while (p > 0) {
+                p--;
+                if (s[p] == ')') depth++;
+                else if (s[p] == '(' && --depth == 0) break;
+            }
+            size_t e = p;
+            while (e > 0 && s[e - 1] == ' ') e--;
+            size_t b = e;
+            while (b > 0 && isIdent(s[b - 1])) b--;
+            assert(fns.count < fns.items.length, "a libmcp source has more functions than parity holds");
+            fns.items[fns.count++] = CFn(s[b .. e], i, close);
+        }
+        i = close;
+    }
+    return fns;
+}
+
+private struct CArgs { const(char)[][24] items; size_t count; }
+
+// The arguments of the call whose parenthesis opens at i, at its top level.
+private CArgs cArgs()(const(char)[] s, size_t i) {
+    CArgs args;
+    auto end = pastClose(s, i) - 1;
+    size_t start = i + 1, j = i + 1;
+    int depth = 0;
+    while (j < end) {
+        auto k = pastC(s, j);
+        if (k != j) { j = k; continue; }
+        if (s[j] == '(' || s[j] == '{' || s[j] == '[') depth++;
+        else if (s[j] == ')' || s[j] == '}' || s[j] == ']') depth--;
+        else if (s[j] == ',' && depth == 0 && args.count < args.items.length) {
+            args.items[args.count++] = s[start .. j];
+            start = j + 1;
+        }
+        j++;
+    }
+    if (args.count < args.items.length) args.items[args.count++] = s[start .. end];
+    return args;
+}
+
+private const(char)[] trimmed(const(char)[] a) {
+    size_t b = 0, e = a.length;
+    while (b < e && (a[b] == ' ' || a[b] == '\n')) b++;
+    while (e > b && (a[e - 1] == ' ' || a[e - 1] == '\n')) e--;
+    return a[b .. e];
+}
+
+// The text of a string literal argument, or null.
+private const(char)[] literalOf(const(char)[] a) {
+    a = trimmed(a);
+    return a.length >= 2 && a[0] == '"' && a[$ - 1] == '"' ? a[1 .. $ - 1] : null;
+}
+
+// Where an identifier is named on its own, from `from`, or -1.
+private ptrdiff_t named(const(char)[] s, const(char)[] ident, size_t from = 0) {
+    while (true) {
+        auto at = indexIn(s, ident, from);
+        if (at < 0) return -1;
+        auto a = cast(size_t) at, e = a + ident.length;
+        if ((a == 0 || !isIdent(s[a - 1])) && (e >= s.length || !isIdent(s[e]))) return at;
+        from = e;
+    }
+}
+
+// The second argument of each call to fn in a region, when it is a literal.
+private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys) {
+    size_t from = 0;
+    while (true) {
+        auto at = named(region, fn, from);
+        if (at < 0) return;
+        from = cast(size_t) at + fn.length;
+        if (from >= region.length || region[from] != '(') continue;
+        auto args = cArgs(region, from);
+        if (args.count >= 2) keys.add(literalOf(args.items[1]));
+    }
+}
+
+private void cReads(const(char)[] region, ref GroundKeys keys) {
+    keyArgs(region, "mcp_field", keys);
+    keyArgs(region, "mcp_has", keys);
+    keyArgs(region, "json_object_object_get_ex", keys);
+}
+
+private void cWrites(const(char)[] region, ref GroundKeys keys) {
+    keyArgs(region, "mcp_add", keys);
+}
+
+// Every string literal in an argument: `v ? "cursor" : NULL` passes cursor.
+private void literalsIn(const(char)[] a, ref GroundKeys keys) {
+    size_t i = 0;
+    while (i < a.length) {
+        if (a[i] != '"') { i++; continue; }
+        auto end = pastC(a, i);
+        if (end - i >= 2) keys.add(a[i + 1 .. end - 1]);
+        i = end;
+    }
+}
+
+// The library's functions, found once.
+private struct LibFn { size_t src; CFn fn; }
+private struct LibFns { LibFn[512] items; size_t count; }
+
+private LibFns libmcpFns()() {
+    LibFns all;
+    foreach (i, s; libmcpSources) {
+        auto fns = cFunctions(s);
+        foreach (f; fns.items[0 .. fns.count]) {
+            assert(all.count < all.items.length, "libmcp has more functions than parity holds");
+            all.items[all.count++] = LibFn(i, f);
+        }
+    }
+    return all;
+}
+
+// What a block reads and writes: its own calls, the names in the function it
+// sits in that a read was kept in, and one level of the library's own functions
+// it calls.
+private void gather(const(LibFn)[] lib, const(char)[] src, CFn fn, const(char)[] region, ref GroundSide side) {
+    cReads(region, side.reads);
+    cWrites(region, side.writes);
+    auto body_ = src[fn.from .. fn.to];
+    enum kept = "= mcp_field(";
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(body_, kept, from);
+        if (at < 0) break;
+        from = cast(size_t) at + kept.length;
+        size_t e = cast(size_t) at;
+        while (e > 0 && body_[e - 1] == ' ') e--;
+        size_t b = e;
+        while (b > 0 && isIdent(body_[b - 1])) b--;
+        auto args = cArgs(body_, from - 1);
+        auto key = args.count >= 2 ? literalOf(args.items[1]) : null;
+        if (key !is null && b < e && named(region, body_[b .. e]) >= 0) side.reads.add(key);
+    }
+    foreach (ref l; lib) {
+        if (l.fn.name == fn.name) continue;
+        auto c = named(region, l.fn.name);
+        if (c < 0 || cast(size_t) c + l.fn.name.length >= region.length
+            || region[cast(size_t) c + l.fn.name.length] != '(') continue;
+        auto calleeBody = libmcpSources[l.src][l.fn.from .. l.fn.to];
+        cReads(calleeBody, side.reads);
+        cWrites(calleeBody, side.writes);
+    }
+}
+
+// The statement a position sits in: back to the last ; { or } outside brackets.
+private size_t statementStart(const(char)[] s, size_t from, size_t floor) {
+    size_t i = from;
+    int depth = 0;
+    while (i > floor) {
+        i--;
+        if (s[i] == ')') depth++;
+        else if (s[i] == '(') { if (depth > 0) depth--; }
+        else if (depth == 0 && (s[i] == ';' || s[i] == '{' || s[i] == '}')) return i + 1;
+    }
+    return floor;
+}
+
+// An if from its condition to the end of what it governs.
+private size_t ifEnd(const(char)[] s, size_t cond) {
+    auto i = pastClose(s, cond);
+    while (i < s.length && (s[i] == ' ' || s[i] == '\n')) i++;
+    if (i < s.length && s[i] == '{') return pastClose(s, i);
+    int depth = 0;
+    while (i < s.length) {
+        auto j = pastC(s, i);
+        if (j != i) { i = j; continue; }
+        if (s[i] == '(' || s[i] == '{') depth++;
+        else if (s[i] == ')' || s[i] == '}') depth--;
+        else if (s[i] == ';' && depth == 0) return i + 1;
+        i++;
+    }
+    return s.length;
+}
+
+// The if a statement is, as the index of its condition's parenthesis, or -1.
+private ptrdiff_t ifAt(const(char)[] s, size_t start) {
+    auto t = start;
+    while (t < s.length && (s[t] == ' ' || s[t] == '\n')) t++;
+    if (startsAt(s, t, "else ")) t += 5;
+    while (t < s.length && s[t] == ' ') t++;
+    if (!startsAt(s, t, "if ")) return -1;
+    auto p = indexIn(s, "(", t);
+    return p;
+}
+
+// One method's side of libmcp: wherever its name is tested, the branch it
+// governs or the names the test was kept in; wherever it is sent, the function
+// that sends it and the keys passed with it.
+GroundSide mcpSide()(const(LibFn)[] lib, string method) {
+    GroundSide side;
+    side.event = method;
+    char[200] qb;
+    auto quoted = joined(qb, `"`, method, `"`);
+    foreach (si, s; libmcpSources) {
+        size_t from = 0;
+        while (true) {
+            auto at = indexIn(s, quoted, from);
+            if (at < 0) break;
+            auto pos = cast(size_t) at;
+            from = pos + quoted.length;
+            CFn fn;
+            bool inside = false;
+            foreach (ref l; lib) if (l.src == si && l.fn.from < pos && pos < l.fn.to) { fn = l.fn; inside = true; }
+            if (!inside) continue;
+            // The call the name is an argument of.
+            size_t open = pos;
+            int depth = 0;
+            while (open > fn.from) {
+                open--;
+                if (s[open] == ')') depth++;
+                else if (s[open] == '(') { if (depth == 0) break; depth--; }
+            }
+            size_t e = open;
+            while (e > 0 && s[e - 1] == ' ') e--;
+            size_t b = e;
+            while (b > 0 && isIdent(s[b - 1])) b--;
+            auto callee = s[b .. e];
+            if (callee != "strcmp" && callee != "mcp_string_is") {
+                gather(lib, s, fn, s[fn.from .. fn.to], side);
+                bool past = false;
+                auto args = cArgs(s, open);
+                foreach (a; args.items[0 .. args.count]) {
+                    if (past) literalsIn(a, side.writes);
+                    if (literalOf(a) == method) past = true;
+                }
+                continue;
+            }
+            auto start = statementStart(s, pos, fn.from);
+            auto cond = ifAt(s, start);
+            if (cond >= 0 && cast(size_t) cond < pos) {
+                gather(lib, s, fn, s[cast(size_t) cond .. ifEnd(s, cast(size_t) cond)], side);
+                continue;
+            }
+            // A test kept in a name: every if in the function that names it.
+            size_t d = pos;
+            while (d > start && s[d] != '=') d--;
+            if (d == start) continue;
+            size_t ne = d;
+            while (ne > start && (s[ne - 1] == ' ')) ne--;
+            size_t nb = ne;
+            while (nb > start && isIdent(s[nb - 1])) nb--;
+            auto name = s[nb .. ne];
+            if (name.length == 0) continue;
+            size_t scan = fn.from;
+            while (true) {
+                auto i = named(s[0 .. fn.to], "if", scan);
+                if (i < 0) break;
+                scan = cast(size_t) i + 2;
+                auto p = indexIn(s, "(", cast(size_t) i);
+                if (p < 0 || cast(size_t) p >= fn.to) break;
+                auto condEnd = pastClose(s, cast(size_t) p);
+                if (named(s[cast(size_t) p .. condEnd], name) >= 0)
+                    gather(lib, s, fn, s[cast(size_t) p .. ifEnd(s, cast(size_t) p)], side);
+            }
+        }
+    }
+    return side;
+}
+
+// Every method libmcp names: each literal that is a protocol method's name.
+private bool methodLike(const(char)[] t) {
+    if (t == "initialize" || t == "ping") return true;
+    bool slash = false;
+    foreach (c; t) {
+        if (c == '/') slash = true;
+        else if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_')) return false;
+    }
+    return slash && t.length > 2 && t[0] != '/';
+}
+
+// What libmcp reads of every message before it tells one method from another,
+// as main.d's run() does of every hook event, and what it writes into every
+// request it sends or continues.
+private GroundSide mcpCommon()(const(LibFn)[] lib) {
+    GroundSide common;
+    foreach (ref l; lib) {
+        auto body_ = libmcpSources[l.src][l.fn.from .. l.fn.to];
+        if (l.fn.name == "mcp_dispatch") {
+            auto first = indexIn(body_, "strcmp(r->method");
+            cReads(first < 0 ? body_ : body_[0 .. cast(size_t) first], common.reads);
+        } else if (l.fn.name == "build_message" || l.fn.name == "mcp_request_resume")
+            cWrites(body_, common.writes);
+    }
+    return common;
+}
+
+private void addAll(K)(ref K to, const(char)[] list) {
+    size_t s = 0;
+    foreach (i; 0 .. list.length + 1)
+        if (i == list.length || list[i] == ',') {
+            to.add(list[s .. i]);
+            s = i + 1;
+        }
+}
+
+private struct McpSides { GroundSide[64] items; size_t count; }
+
+private McpSides buildMcpSides()() {
+    McpSides ms;
+    auto libFns = libmcpFns();
+    auto lib = libFns.items[0 .. libFns.count];
+    auto common = mcpCommon(lib);
+    foreach (s; libmcpSources) {
+        size_t i = 0;
+        while (i < s.length) {
+            if (s[i] != '"') {
+                auto j = pastC(s, i);
+                i = j == i ? i + 1 : j;
+                continue;
+            }
+            auto end = pastC(s, i);
+            auto t = s[i + 1 .. end - 1];
+            i = end;
+            if (!methodLike(t)) continue;
+            bool seen = false;
+            foreach (ref m; ms.items[0 .. ms.count]) if (m.event == t) seen = true;
+            if (seen) continue;
+            assert(ms.count < ms.items.length, "libmcp names more methods than parity holds");
+            auto side = mcpSide(lib, t);
+            addAll(side.reads, common.reads.slice());
+            addAll(side.writes, common.writes.slice());
+            ms.items[ms.count++] = side;
+        }
+    }
+    return ms;
+}
+
+private static immutable McpSides mcpSides = buildMcpSides();
+
 ref immutable(GroundSide) sideFor(const(char)[] agent, const(char)[] event) {
+    if (agent == "mcp") {
+        foreach (ref s; mcpSides.items[0 .. mcpSides.count]) if (s.event == event) return s;
+        return codeSide;
+    }
     if (agent != "acp") return sideOf(agent, event);
     foreach (ref s; codeSides.items[0 .. codeSides.count]) if (s.event == event) return s;
     return codeSide;
@@ -1037,6 +1540,7 @@ private void pathOf(ref const Pin pin, ref Measured m) {
     if (pin.agent == "claude") { add("/.local/share/claude/versions/"); add(pin.release); }
     // make install links the pinned schemas here from the store.
     else if (pin.agent == "acp") { add("/.local/lib/ground/acp/"); add(pin.release); add("/schema.json"); }
+    else if (pin.agent == "mcp") { add("/.local/lib/ground/mcp/"); add(pin.release); add("/schema.json"); }
     // where agy's installer puts it
     else if (pin.agent == "agy") add("/.local/bin/agy");
     else add("/.codex/packages/standalone/current/bin/codex");
@@ -1142,6 +1646,25 @@ private void readAcp(const(char)[] text) {
     }
 }
 
+// Every method a version names, from the unions that say who sends it.
+private void readMcp(const(char)[] text) {
+    foreach (ref u; mcpUnions) {
+        auto union_ = mcpDef(text, u[0]);
+        if (union_ is null) continue;
+        size_t from = 0;
+        while (true) {
+            auto r = indexIn(union_, mcpRef, from);
+            if (r < 0) break;
+            from = cast(size_t) r + mcpRef.length;
+            auto method = mcpMethodOf(mcpDef(text, mcpRefAt(union_, from)));
+            if (method is null || haveSpec(method)) continue;
+            Keys input, output;
+            mcpSpec(text, method, input, output);
+            addSpec(method, input, output);
+        }
+    }
+}
+
 private Measured measure(ref const Pin pin) {
     Measured m;
     specCount = 0;
@@ -1162,6 +1685,7 @@ private Measured measure(ref const Pin pin) {
     if (m.sha[] != pin.sha256) { m.access = Access.mismatch; return m; }
     if (pin.agent == "claude") readClaude(text);
     else if (pin.agent == "acp") readAcp(text);
+    else if (pin.agent == "mcp") readMcp(text);
     else if (pin.agent == "agy") readAgy(text);
     else readCodex(text);
     m.access = specCount > 0 ? Access.live : Access.empty;
@@ -1251,10 +1775,18 @@ private const(char)[] cstr(const(char)* p) {
 
 // --- the table ---
 
-private struct Row { char[64] event = 0; size_t len; int[8] cells = -1; }
-private __gshared Row[96] rows;
+private struct Row { char[64] event = 0; size_t len; int[maxPins] cells = -1; }
+private __gshared Row[192] rows;
 private __gshared size_t rowCount;
-private __gshared long[8] measuredAt;
+private __gshared long[maxPins] measuredAt;
+
+// The table a pin is set in: the hook harnesses', ACP's or MCP's.
+private const(char)[] tableOf(const(char)[] agent) {
+    return agent == "acp" || agent == "mcp" ? agent : "hooks";
+}
+
+// `ground parity tex mcp` sets MCP's table alone, for libMCP's section.
+private __gshared bool texMcp;
 
 private Row* rowFor(const(char)[] event) {
     foreach (i; 0 .. rowCount)
@@ -1282,6 +1814,15 @@ private void putName(const(char)[] s, size_t width) {
         if (c == '_' || c == '#' || c == '%' || c == '&' || c == '$' || c == '{' || c == '}') put("\\");
         put((&c)[0 .. 1]);
     }
+}
+
+// A release on the page: a dated one, as MCP's are, set as its year over the
+// rest, so five versions fit across the page.
+private void putRelease(const(char)[] release) {
+    auto dash = texOut ? indexIn(release, "-") : -1;
+    if (dash < 0) { put(release); return; }
+    put("\\shortstack{"); put(release[0 .. cast(size_t) dash]); put("\\\\");
+    put(release[cast(size_t) dash + 1 .. $]); put("}");
 }
 
 private void putPad(const(char)[] s, size_t width) {
@@ -1360,7 +1901,7 @@ private bool anyCell(ref const Row r) {
     return false;
 }
 
-private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
+private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] status) {
     rowCount = 0;
     static foreach (m; __traits(allMembers, HookEvent)) rowFor(m);
 
@@ -1397,10 +1938,13 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
     }
 
     // "and put acp in a separatae table separate page"
-    // One table over the pins it is asked for. The terminal gets every pin in
-    // one; the book gets the hook harnesses on one page and ACP on the next.
-    void table(bool wantAcp, bool split) {
-        bool shown(size_t pi) { return !split || (pins[pi].agent == "acp") == wantAcp; }
+    // One table over the group of pins it is asked for: hooks, acp or mcp.
+    void table(const(char)[] group) {
+        // An empty group is every table but MCP's, as the terminal shows it.
+        bool shown(size_t pi) {
+            auto t = tableOf(pins[pi].agent);
+            return group.length == 0 ? t != "mcp" : t == group;
+        }
         bool any(ref const Row r) {
             foreach (pi; 0 .. pins.length) if (shown(pi) && r.cells[pi] >= 0) return true;
             return false;
@@ -1412,11 +1956,20 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         foreach (i; 0 .. rowCount)
             if (any(rows[i]) && rows[i].len + 1 > eventWidth) eventWidth = rows[i].len + 1;
 
+        // One agent's mean is the overall: its column is set only beside another's.
+        size_t agentsShown = 0;
+        for (size_t pi = 0; pi < pins.length;) {
+            auto agent = pins[pi].agent;
+            if (shown(pi)) agentsShown++;
+            while (pi < pins.length && pins[pi].agent == agent) pi++;
+        }
+        bool several = agentsShown > 1;
+
         if (texOut) {
             put("\\begin{center}\\small\\begin{tabular}{l|r");
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
-                if (shown(pi)) put("|r");
+                if (several && shown(pi)) put("|r");
                 while (pi < pins.length && pins[pi].agent == agent) { if (shown(pi)) put("|r"); pi++; }
             }
             put("}\n");
@@ -1425,9 +1978,9 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         cell(); put("overall ");
         for (size_t pi = 0; pi < pins.length;) {
             auto agent = pins[pi].agent;
-            if (shown(pi)) { cell(); put(texOut ? "" : "## "); put(agent); put(" "); }
+            if (several && shown(pi)) { cell(); put(texOut ? "" : "## "); put(agent); put(" "); }
             while (pi < pins.length && pins[pi].agent == agent) {
-                if (shown(pi)) { cell(); put(pins[pi].release); put(" "); }
+                if (shown(pi)) { cell(); putRelease(pins[pi].release); put(" "); }
                 pi++;
             }
         }
@@ -1436,7 +1989,7 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
 
         foreach (i; 0 .. rowCount) {
             if (!any(rows[i])) continue;
-            int[8] agentMeans = -1;
+            int[maxPins] agentMeans = -1;
             size_t agents = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
@@ -1450,7 +2003,7 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
             size_t a = 0;
             for (size_t pi = 0; pi < pins.length;) {
                 auto agent = pins[pi].agent;
-                if (shown(pi)) { cell(); putPad(percentText(agentMeans[a++], pb), agent.length + 4); }
+                if (several && shown(pi)) { cell(); putPad(percentText(agentMeans[a++], pb), agent.length + 4); }
                 while (pi < pins.length && pins[pi].agent == agent) {
                     if (shown(pi)) { cell(); putPad(percentText(rows[i].cells[pi], pb), pins[pi].release.length + 1); }
                     pi++;
@@ -1461,11 +2014,20 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         if (texOut) put("\\end{tabular}\\end{center}\n\n");
     }
 
-    if (only.length == 0 && !texOut) table(false, false);
+    if (only.length == 0 && !texOut) {
+        table("");
+        put("\n");
+        table("mcp");
+    }
+
+    if (texMcp) {
+        table("mcp");
+        return;
+    }
 
     // The book carries no path from this machine, and the series is its own.
     if (texOut) {
-        table(false, true);
+        table("hooks");
         auto s = readSeries(db);
         Point[64] pts;
         foreach (i; 0 .. s.count) pts[i] = s.at(i);
@@ -1474,7 +2036,7 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
         foreach (ref pin; pins) if (pin.agent == "acp") anyAcp = true;
         if (anyAcp) {
             put("\\clearpage\n\\gsection{acp}\n");
-            table(true, true);
+            table("acp");
         }
         return;
     }
@@ -1492,11 +2054,11 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[8] status) {
                 put(", pinned "); put(pin.sha256[0 .. 12]);
                 break;
             case Access.empty:
-                put(pin.agent == "acp" ? "no methods read from " : "no hook schemas read from ");
+                put(tableOf(pin.agent) != "hooks" ? "no methods read from " : "no hook schemas read from ");
                 put(m.path[0 .. m.pathLen]);
                 break;
             case Access.absent:
-                put(pin.agent == "acp" ? "no schema at " : "no binary at ");
+                put(tableOf(pin.agent) != "hooks" ? "no schema at " : "no binary at ");
                 put(m.path[0 .. m.pathLen]);
                 break;
         }
@@ -1515,6 +2077,7 @@ int handleParity(int argc, const(char)** argv) {
     if (argc >= 3) only = cstr(argv[2]);
     texOut = only == "tex";
     if (texOut) only = "";
+    texMcp = texOut && argc >= 4 && cstr(argv[3]) == "mcp";
 
     auto db = openDb();
     if (db is null) {
@@ -1522,7 +2085,7 @@ int handleParity(int argc, const(char)** argv) {
         return 1;
     }
 
-    Measured[8] status;
+    Measured[maxPins] status;
     int rc = 0;
     // The book reads the store and measures nothing: a build is not a run.
     foreach (pi, ref pin; pins) {
@@ -1553,7 +2116,7 @@ int handleParity(int argc, const(char)** argv) {
         import db : formatTimestamp;
         auto ts = formatTimestamp();
         foreach (pi, ref pin; pins) {
-            int[96] cells;
+            int[192] cells;
             foreach (i; 0 .. rowCount) cells[i] = rows[i].cells[pi];
             auto t = total(cells[0 .. rowCount]);
             if (t < 0) continue;

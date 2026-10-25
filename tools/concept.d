@@ -80,6 +80,15 @@ immutable Reading[] readings = [
                        "apierror", "reap"]),
 ];
 
+// "and there should be a table in the book of ground under the libMCP subchapter in the Linking Chapter"
+// A module that is its chapter's section, under the title the book gives it.
+struct Section {
+    string mod;
+    string title;
+}
+
+immutable Section[] sections = [Section("libmcp", "libMCP")];
+
 // "so its deliberate which terms deserve a glossary entry"
 // Which chapter owns a module, and so which section its terms are set in. A
 // reading names proto twice; this names each module once, or not at all.

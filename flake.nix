@@ -18,7 +18,7 @@
       # with the json-c it is held to. Nothing to lock: it is this checkout's.
       libmcp = (import ./libmcp/flake.nix).outputs { self = { }; inherit nixpkgs; };
       # What the client and ground link: the library, and the json-c it patched.
-      mcp = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
+      mcpLibs = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
     in {
       packages = forAllSystems (system:
         let
@@ -32,7 +32,7 @@
             src = ./.;
 
             nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git pkgs.pkg-config ];
-            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ] ++ mcp system;
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ] ++ mcpLibs system;
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -124,6 +124,16 @@
             url = "https://github.com/agentclientprotocol/agent-client-protocol/releases/download/schema-v${version}/schema.json";
             sha256 = sha256.schema;
           };
+
+          # The protocol libmcp speaks as a client, at each released version it is
+          # measured against: github.com/modelcontextprotocol/modelcontextprotocol
+          # schema/<version>/schema.json, every version at the one spec commit.
+          mcpSpec = "dae694f61a31f7a3ec2af3aff709e11f70f61e48";
+          mcp = version: sha256: pkgs.fetchurl {
+            name = "mcp-${version}-schema.json";
+            url = "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/${mcpSpec}/schema/${version}/schema.json";
+            sha256 = sha256.schema;
+          };
         in {
           default = ground;
           inherit ground;
@@ -184,6 +194,22 @@
             schema = "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6";
           };
 
+          mcp-2024_11_05 = mcp "2024-11-05" {
+            schema = "61cea2392d4f284092d09bc84b9ac488c0d5618ac2b38a56942fc5b99fd960ce";
+          };
+          mcp-2025_03_26 = mcp "2025-03-26" {
+            schema = "e720669548c8100a4282c49e580efd6ddf7f28899ea786fc8db251dbdb356131";
+          };
+          mcp-2025_06_18 = mcp "2025-06-18" {
+            schema = "af845e7e5b9d27107d1690f0936022546177a1403e63ffb11470135b296a2e01";
+          };
+          mcp-2025_11_25 = mcp "2025-11-25" {
+            schema = "268a5f82ba70fd7e4b6dc4aa1e64f116f74b4d0edcb69dc046829c79dd4e97e7";
+          };
+          mcp-2026_07_28 = mcp "2026-07-28" {
+            schema = "ef70b61f99b6d2e5e3b46863822eab08dff6a45bedc7a08914e0e5b133f40203";
+          };
+
           # Every acp pin above, a directory per release, for make install to link
           # where ground parity reads them. A new pin joins without being named here.
           acp-schemas = pkgs.linkFarm "acp-schemas" (pkgs.lib.mapAttrsToList
@@ -192,6 +218,14 @@
               path = schema;
             })
             (pkgs.lib.filterAttrs (name: _: builtins.match "acp-[0-9_]+" name != null) self.packages.${system}));
+
+          # The same for MCP: a directory per version, where ground parity reads it.
+          mcp-schemas = pkgs.linkFarm "mcp-schemas" (pkgs.lib.mapAttrsToList
+            (name: schema: {
+              name = "${pkgs.lib.replaceStrings [ "mcp-" "_" ] [ "" "-" ] name}/schema.json";
+              path = schema;
+            })
+            (pkgs.lib.filterAttrs (name: _: builtins.match "mcp-[0-9_]+" name != null) self.packages.${system}));
         }
       );
 
@@ -201,7 +235,7 @@
           default = pkgs.mkShell {
             # dub asks pkg-config for each lib. Without the pinned one in the
             # shell it asked Homebrew's, which named an x86_64 libgit2.
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 ] ++ mcp system;
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 ] ++ mcpLibs system;
           };
         }
       );

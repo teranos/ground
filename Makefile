@@ -151,6 +151,7 @@ install: build install-ug
 # PREFIX elsewhere shows the schema as absent rather than measuring another.
 	mkdir -p $(PREFIX)/lib/ground
 	nix build .#acp-schemas --out-link $(PREFIX)/lib/ground/acp
+	nix build .#mcp-schemas --out-link $(PREFIX)/lib/ground/mcp
 	$(MAKE) prune-dub-cache
 	./ground attest
 # Every install is a run of parity, so the series has a point per ground built.
@@ -184,12 +185,13 @@ editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d d
 # second rendering of the same source.
 book: press binder build
 	mkdir -p doc/tex doc/measured
+# What this ground measured, read out of the store: the parity table as it
+# stands and the series of every run before it, and libMCP's against MCP.
+	./ground parity tex > doc/measured/parity.tex
+	./ground parity tex mcp > doc/measured/libmcp.tex
 # press clears doc/tex itself, once it has proved every example fits a page.
 # Clearing here meant a halt deleted the last good book on its way out.
 	./tools/press
-# What this ground measured, read out of the store: the parity table as it
-# stands and the series of every run before it.
-	./ground parity tex > doc/measured/parity.tex
 # What each build cost, as the node holds the bench:ctfe rows.
 	./ground ctfe tex > doc/measured/ctfe.tex
 	rm -f doc/html/*.html
