@@ -17,6 +17,21 @@ unittest {
     assert(withTrailers("git commit -m 'x'", two[0 .. 0]) == "git commit -m 'x'");
 }
 
+// #103: every commit of session 63ff387d began with `cd ~/…` and none carried
+// its trailer: ~ was joined onto the cwd as a directory named ~.
+unittest {
+    import sessiontrail : addsBefore;
+    auto r = addsBefore(`cd ~/ramen && git add a.d && git commit -m y`, "/home/kapteyn", "/home/kapteyn");
+    assert(r.tree == "/home/kapteyn/ramen", r.tree);
+    assert(r.adds[0].dir == "/home/kapteyn/ramen");
+    assert(addsBefore(`cd ~ && git commit -m y`, "/elsewhere", "/home/kapteyn").tree == "/home/kapteyn");
+    assert(addsBefore(`cd && git commit -m y`, "/elsewhere", "/home/kapteyn").tree == "/home/kapteyn",
+        "cd with no argument goes home");
+    // ~name is another user's home, which ground cannot know: it is left as written.
+    assert(addsBefore(`cd ~bob && git commit -m y`, "/cwd", "/home/kapteyn").tree == "/cwd/~bob");
+    assert(addsBefore(`git -C ~/ramen commit -m y`, "/cwd", "/home/kapteyn").tree == "/home/kapteyn/ramen");
+}
+
 // "3. sure"
 // What `git add` and `git commit -a` in the same command will stage, read off
 // the command as the shell runs it: each add from where it stands.
