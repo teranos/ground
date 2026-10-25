@@ -39,6 +39,17 @@ static assert(() {
         && e[5].key == "handler" && e[5].val == 4000 && e[6].key == "parse";
 }());
 
+// A write that waited names who held the lock, after lock, and the row still
+// parses back to the same numbers: the holder is no number and no phase.
+static assert(() {
+    Sink s;
+    outerPhases(s, Store(1200, 20000, 9000, 700, 1000, "ground_decay#4242"), 4000, "exit=none");
+    PhaseEntry[32] e;
+    auto n = parsePhases(s.slice(), e);
+    return s.slice() == "stdin=1200us open=20000us write=9000us lock=700us held_by=ground_decay#4242 close=1000us handler=4000us exit=none"
+        && n == 6 && e[3].key == "lock" && e[3].val == 700 && e[4].key == "close";
+}());
+
 // What the handler's share is taken after. lock is time inside write.
 static assert(Store(1200, 20000, 9000, 700, 1000).total == 31200);
 
