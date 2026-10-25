@@ -2,7 +2,15 @@ module permissionrequest;
 
 import core.stdc.stdio : stdout, fputs;
 import parse : extractToolName, extractCommand, extractFilePath, extractUrl, writeJsonString;
-import permission : evaluatePermission, Decision;
+import permission : evaluatePermission, Decision, PermissionResult, PermissionScope;
+
+// The rules' answer in the session's mode, as the event names it: a rule's
+// allow is granted by the mode, and an unknown mode grants nothing.
+PermissionResult permissionFor(const(PermissionScope)[] scopes, const(char)[] cwd,
+        const(char)[] toolName, const(char)[] command, const(char)[] modeWire) {
+    import sessionmode : parseSessionMode;
+    return evaluatePermission(scopes, cwd, toolName, command, parseSessionMode(modeWire));
+}
 
 int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     auto toolName = extractToolName(input);
@@ -14,7 +22,8 @@ int handlePermissionRequest(const(char)[] input, const(char)[] cwd, const(char)[
     if (command is null) command = "";
 
     import controls : permissionScopes;
-    auto result = evaluatePermission(permissionScopes, cwd, toolName, command);
+    import parse : extractPermissionMode;
+    auto result = permissionFor(permissionScopes, cwd, toolName, command, extractPermissionMode(input));
 
     if (result.decision == Decision.deny) {
         if (result.name.length > 0) {
