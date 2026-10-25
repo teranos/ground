@@ -63,6 +63,28 @@ const(char)[] addedText(const(char)[] patch, PatchFile f, char[] dest) {
     return dest[0 .. n];
 }
 
+// The patch a shell command hands apply_patch, quoted or as a heredoc, from
+// its Begin to its End line; null for a command that is not apply_patch.
+// codex runs that command itself, so it edits as the tool would.
+const(char)[] shellPatch(const(char)[] command) {
+    enum verb = "apply_patch";
+    enum begin = "*** Begin Patch";
+    enum end = "*** End Patch";
+    if (command.length <= verb.length || command[0 .. verb.length] != verb) return null;
+    auto c = command[verb.length];
+    if (c != ' ' && c != '\n' && c != '\t') return null;
+    size_t from = command.length;
+    foreach (i; verb.length .. command.length) {
+        if (i + begin.length <= command.length && command[i .. i + begin.length] == begin) { from = i; break; }
+    }
+    if (from == command.length) return null;
+    foreach (i; from .. command.length) {
+        if (i + end.length <= command.length && command[i .. i + end.length] == end)
+            return command[from .. i + end.length];
+    }
+    return null;
+}
+
 // Where an update moves the file, or null.
 const(char)[] movedTo(const(char)[] patch, PatchFile f) {
     auto pos = f.from;
