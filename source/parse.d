@@ -110,6 +110,12 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
     return extractJsonString(json, `"turn_id"`, &buf[0], buf.length) !is null;
 }
 
+// The model a codex event names, or null when codex did not send it.
+@Reads("model") const(char)[] codexModel(const(char)[] json, char[] buf) {
+    if (!fromCodex(json)) return null;
+    return extractJsonString(json, `"model"`, buf.ptr, buf.length);
+}
+
 // Returns the raw JSON region for "tool_input": { ... } — no parsing, just the brace-delimited slice.
 @Reads("tool_input") const(char)[] extractToolInputRegion(const(char)[] json) {
     auto idx = indexOf(json, `"tool_input"`);

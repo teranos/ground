@@ -151,6 +151,18 @@ static assert(() {
 
 // codex says which harness it is by its turn_id: every PreToolUse of codex's
 // carries one and none of Claude Code's does.
-import parse : fromCodex;
+import parse : fromCodex, codexModel;
+
+// ug records a Claude Code session's model from its statusline, and codex
+// runs no statusline, so its items reached sentry with no model. Its events
+// name the model themselves.
+static assert(() {
+    char[64] b;
+    return codexModel(`{"session_id":"s","turn_id":"t","model":"gpt-6.1-sol"}`, b[]) == "gpt-6.1-sol";
+}());
+static assert(() {
+    char[64] b;
+    return codexModel(`{"session_id":"s","model":"claude-opus-5-5","source":"startup"}`, b[]) is null;
+}());
 static assert(fromCodex(`{"session_id":"s","turn_id":"t","tool_name":"Bash"}`));
 static assert(!fromCodex(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"echo \"turn_id\""}}`));
