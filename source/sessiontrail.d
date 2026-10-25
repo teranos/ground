@@ -7,6 +7,7 @@ module sessiontrail;
 // file since that file was last committed. Ground writes them; nobody types one.
 
 import db : sqlite3;
+import matcher : shellHome;
 
 private struct Word {
     const(char)[] raw;    // as typed, quotes and all
@@ -71,8 +72,13 @@ private Found findCommit(const(char)[] cmd) {
 
 bool isCommit(const(char)[] cmd) { return findCommit(cmd).ok; }
 
-// Where `to` leads from `here`: an absolute path replaces it.
-private size_t joinDir(const(char)[] here, const(char)[] to, char[] into) {
+// Where `to` leads from `here`: an absolute path replaces it, and ~ and ~/…
+// are home as the shell expands them (matcher's tildeExpanded), as is a bare cd.
+private size_t joinDir(const(char)[] here, const(char)[] to, const(char)[] home, char[] into) {
+    import matcher : tildeExpanded;
+    char[1024] expanded = 0;
+    if (to.length == 0 && home.length > 0) to = home;
+    else to = tildeExpanded(to, home, expanded[]);
     size_t n;
     void put(const(char)[] s) { foreach (c; s) if (n < into.length) into[n++] = c; }
     if (to.length == 0 || to[0] != '/') {
@@ -111,7 +117,7 @@ struct AddsBefore {
 
 // The command walked as the shell walks it: `cd` moves, `git -C` names a tree
 // for one git, each `git add` before the commit is kept, `commit -a` is noted.
-AddsBefore addsBefore(const(char)[] cmd, const(char)[] cwd) {
+AddsBefore addsBefore(const(char)[] cmd, const(char)[] cwd, const(char)[] home = shellHome()) {
     AddsBefore r;
     char[1024] here = 0;
     size_t hereLen;
@@ -130,7 +136,7 @@ AddsBefore addsBefore(const(char)[] cmd, const(char)[] cwd) {
             auto to = nextWord(cmd, at);
             at = to.end;
             char[1024] moved = 0;
-            auto mn = joinDir(here[0 .. hereLen], to.value, moved[]);
+            auto mn = joinDir(here[0 .. hereLen], to.value, home, moved[]);
             foreach (i; 0 .. mn) here[i] = moved[i];
             hereLen = mn;
             continue;
@@ -153,7 +159,8 @@ AddsBefore addsBefore(const(char)[] cmd, const(char)[] cwd) {
                 at = arg.end;
                 if (o.value == "-C") {
                     char[1024] moved = 0;
-                    auto mn = joinDir(dir[0 .. dirLen], arg.value, moved[]);
+                    // An empty -C is where git stands, never home.
+                    auto mn = joinDir(dir[0 .. dirLen], arg.value, arg.value.length > 0 ? home : null, moved[]);
                     foreach (i; 0 .. mn) dir[i] = moved[i];
                     dirLen = mn;
                 }
