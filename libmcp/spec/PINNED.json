@@ -1,0 +1,9 @@
+{
+  "protocol_version": "2026-07-28",
+  "spec_repository": "https://github.com/modelcontextprotocol/modelcontextprotocol",
+  "spec_commit": "dae694f61a31f7a3ec2af3aff709e11f70f61e48",
+  "schema_path": "schema/2026-07-28/schema.json",
+  "schema_sha256": "ef70b61f99b6d2e5e3b46863822eab08dff6a45bedc7a08914e0e5b133f40203",
+  "sdk_repository": "https://github.com/modelcontextprotocol/python-sdk",
+  "sdk_commit": "2af9e3089ac66b35c1550c500aae86a82efb1e17"
+}

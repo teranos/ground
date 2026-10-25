@@ -1,0 +1,18 @@
+# Both systems ground links libmcp on. nix build runs the flake's checkPhase,
+# which is make test; the dev shell run is the same tests outside the sandbox.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v30
+      - run: nix build .#libmcp -L
+      - run: nix develop --command make test
