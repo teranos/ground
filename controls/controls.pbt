@@ -50,7 +50,7 @@ scope {
       cmd: "cat"
       # codex has no Read tool; its shell is how it reads a file.
       handler_params {
-        unless_model: "gpt"
+        unless_agent: "codex"
       }
       msg: "Use the Read tool instead of cat."
     }
