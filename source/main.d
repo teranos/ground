@@ -262,6 +262,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import mcpcmd : handleMcp;
             return handleMcp(argc, argv);
         }
+        if (cmd == "scrub") {
+            import scrubcmd : handleScrub;
+            return handleScrub();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;

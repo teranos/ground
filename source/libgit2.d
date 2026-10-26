@@ -1044,6 +1044,44 @@ struct Repo {
         return into[0 .. n];
     }
 
+    // What `git diff --cached --unified=0` prints: the index against HEAD, as
+    // a patch. Null when it could not be read whole, with the reason said.
+    const(char)[] stagedPatch(char[] into) return {
+        git_tree* head;
+        git_object* obj;
+        auto rc = git_revparse_single(&obj, repo, "HEAD^{tree}");
+        if (rc == 0) head = cast(git_tree*) obj;
+        else if (rc != GIT_ENOTFOUND && rc != GIT_EUNBORNBRANCH) { say("HEAD's tree would not read"); return null; }
+        scope (exit) if (head !is null) git_object_free(cast(git_object*) head);
+
+        git_index* index;
+        if (git_repository_index(&index, repo) < 0) { say("the index would not read"); return null; }
+        scope (exit) git_index_free(index);
+
+        git_diff_options opts;
+        if (!diffOptions(opts)) return null;
+        opts.context_lines = 0;
+        git_diff* diff;
+        if (git_diff_tree_to_index(&diff, repo, head, index, &opts) < 0) { say("the index would not diff"); return null; }
+        scope (exit) git_diff_free(diff);
+        if (findRenames(diff) < 0) { say("renames would not be found"); return null; }
+        overflowed = false;
+        size_t n;
+        foreach (i; 0 .. git_diff_num_deltas(diff)) {
+            git_patch* p;
+            if (git_patch_from_diff(&p, diff, i) < 0) { say("the patch would not print"); return null; }
+            scope (exit) git_patch_free(p);
+            git_buf buf;
+            scope (exit) git_buf_dispose(&buf);
+            if (git_patch_to_buf(&buf, p) < 0) { say("the patch would not print"); return null; }
+            foreach (k; 0 .. buf.size) {
+                if (n == into.length) { overflowed = true; return into[0 .. n]; }
+                into[n++] = buf.ptr[k];
+            }
+        }
+        return into[0 .. n];
+    }
+
     // The names a diff lists, one a line, appended at `n`, the renames already
     // found. A path both deleted and added, a file that became a symlink, is
     // named once, as --name-only names it. False when `into` is full.

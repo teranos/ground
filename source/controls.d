@@ -32,6 +32,8 @@ CheckFn resolveCheck(string name) {
         case "strikethrough": return &control_handlers.strikethroughCheck;
         case "unanalyzableBash": return &control_handlers.unanalyzableBash;
         case "deepAndChain": return &control_handlers.deepAndChain;
+        case "stagedNamesPerson": return &control_handlers.stagedNamesPerson;
+        case "pushNamesPerson": return &control_handlers.pushNamesPerson;
         default: return null;
     }
 }

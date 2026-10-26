@@ -146,6 +146,37 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
     // it is shared, and the whole payload below is still `input`.
     auto toolOutput = extractToolOutput(input);
 
+    // What the tool answered reaches the model as fixtures: the whole of
+    // tool_response, scrubbed (pii.d), handed back as updatedToolOutput.
+    updatedOutput = null;
+    updatedSaid = null;
+    {
+        import pii : scrub, jsonValue;
+        import pretooluse : standingScrub, scrubMessage;
+        import controls : parsedOnce;
+        import git : repoRoot;
+        import matcher : indexOf;
+        auto sc = standingScrub(parsedOnce, cwd, repoRoot(cwd));
+        auto at = indexOf(input, `"tool_response":`);
+        if (sc.on && at >= 0) {
+            size_t pos = cast(size_t) at + `"tool_response":`.length;
+            while (pos < input.length && (input[pos] == ' ' || input[pos] == '\n')) pos++;
+            auto value = jsonValue(input[pos .. $]);
+            if (value !is null) {
+                __gshared char[4194304] scrubbed = "";
+                auto r = scrub(value, scrubbed[], sc.allowed);
+                if (!r.fit) {
+                    import exec : emitError;
+                    updatedSaid = "ground could not make this output into fixtures: it is larger than ground reads; ask for less at a time.";
+                    emitError("fixtures.output", cast(string) updatedSaid, 0, 1, cast(string) sessionId, "fixtures-only", "", "", cast(string) toolName);
+                } else if (r.found > 0) {
+                    updatedOutput = scrubbed[0 .. r.len];
+                    updatedSaid = scrubMessage(sc.msg, r);
+                }
+            }
+        }
+    }
+
     // Blue is "the agent is doing something", so it is stamped where the agent
     // does something. Collet read this off the attestation table before, which
     // was accurate and cost 2s a frame against a 1s repaint.
@@ -638,10 +669,22 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
 // What a message control said this call, if one did, as PostToolUse's answer.
 private __gshared ZBuf controlSaid;
 
+// The tool's answer with fixtures in place of what names a person, and the
+// line that says so. Null when nothing in it did.
+private __gshared const(char)[] updatedOutput;
+private __gshared const(char)[] updatedSaid;
+
 private void emitControlSaid() {
-    if (controlSaid.len == 0) return;
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"`, stdout);
-    writeJsonString(controlSaid.slice());
+    if (controlSaid.len == 0 && updatedOutput.length == 0 && updatedSaid.length == 0) return;
+    fputs(`{"hookSpecificOutput":{"hookEventName":"PostToolUse"`, stdout);
+    if (updatedOutput.length > 0) {
+        fputs(`,"updatedToolOutput":`, stdout);
+        fwrite(updatedOutput.ptr, 1, updatedOutput.length, stdout);
+    }
+    fputs(`,"additionalContext":"`, stdout);
+    if (updatedSaid.length > 0) writeJsonString(updatedSaid);
+    if (updatedSaid.length > 0 && controlSaid.len > 0) fputs(" | ", stdout);
+    if (controlSaid.len > 0) writeJsonString(controlSaid.slice());
     fputs(`"}}`, stdout);
     fputs("\n", stdout);
 }
