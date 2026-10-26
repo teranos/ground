@@ -2,7 +2,7 @@ module pii;
 
 // A value with the shape of something that names a person is written as a
 // fixture instead: a mail address, an IPv4 address, a phone number, a Dutch
-// postal code. A street or a domain name has no shape and stays a list (rewrite:).
+// postal code, a Dutch street. A domain name has no shape and stays a list (rewrite:).
 
 enum Shape : ubyte { none, mail, ip, phone, postcode, street }
 
@@ -92,37 +92,12 @@ bool ipStays(const(char)[] ip) {
     return false;
 }
 
-// phone: +.. or 00.. with 9 to 15 digits, or a Dutch 0x.. of ten.
-private bool phoneSep(char c) { return c == ' ' || c == '-' || c == '(' || c == ')' || c == '.'; }
+// phone: what libphonenumber finds in the text (phone/phone.cc), a Dutch number
+// without its country code among them. No country code starts with 0, which is
+// what keeps a stand-in a stand-in.
+extern (C) size_t phone_find(const(char)* text, size_t len, size_t* starts, size_t* ends, size_t cap);
 
-private Span phoneAt(const(char)[] t, size_t i) {
-    if (i > 0 && (alnum(t[i - 1]) || t[i - 1] == '+')) return Span.init;
-    bool intl = false;
-    size_t p = i;
-    if (t[p] == '+') { intl = true; p++; }
-    else if (p + 1 < t.length && t[p] == '0' && t[p + 1] == '0') { intl = true; p += 2; }
-    else if (!(p + 1 < t.length && t[p] == '0' && t[p + 1] >= '1' && t[p + 1] <= '9')) return Span.init;
-    // No country code starts with 0, which is what keeps a stand-in a stand-in.
-    if (intl && p < t.length && t[p] == '0') return Span.init;
-    size_t digits = 0;
-    size_t end = p;
-    size_t lastDigit = p;
-    while (end < t.length) {
-        if (digit(t[end])) { digits++; lastDigit = end + 1; end++; continue; }
-        // People group digits with a bracket and a space together: at most two separators in a row.
-        size_t seps = 0;
-        while (end + seps < t.length && seps < 2 && phoneSep(t[end + seps])) seps++;
-        if (seps > 0 && end + seps < t.length && (digit(t[end + seps]) || t[end + seps] == '(')) { end += seps; continue; }
-        break;
-    }
-    if (intl) {
-        if (digits < 9 || digits > 15) return Span.init;
-    } else {
-        if (digits != 10) return Span.init;
-    }
-    if (lastDigit < t.length && alnum(t[lastDigit])) return Span.init;
-    return Span(i, lastDigit, Shape.phone);
-}
+enum PHONES = 256;
 
 // postcode: four digits, a space or none, two capitals; the first digit never zero.
 private Span postcodeAt(const(char)[] t, size_t i) {
@@ -177,8 +152,8 @@ private bool streetStays(const(char)[] v) {
     return v.length >= STREET_STANDIN.length && v[0 .. STREET_STANDIN.length] == STREET_STANDIN;
 }
 
-// The span starting at i, if the scanner recognises one. A phone is asked
-// after an IP, so 00.. never swallows an address.
+// The span starting at i, if the scanner recognises one. A phone is not asked
+// here: libphonenumber has found them all before the scan begins.
 Span spanAt(const(char)[] t, size_t i) {
     if (alpha(t[i])) return streetAt(t, i);
     if (digit(t[i])) {
@@ -186,10 +161,6 @@ Span spanAt(const(char)[] t, size_t i) {
         if (ip.ok) return ip;
         auto pc = postcodeAt(t, i);
         if (pc.ok) return pc;
-    }
-    if (digit(t[i]) || t[i] == '+') {
-        auto ph = phoneAt(t, i);
-        if (ph.ok) return ph;
     }
     return Span.init;
 }
@@ -254,11 +225,22 @@ Scrubbed scrub(const(char)[] text, char[] dest, const(string)[] allowed = null) 
     Shape[DISTINCT] seenShape;
     size_t seen;
 
+    // Every phone in the text, as libphonenumber finds them; at compile time no C runs.
+    size_t[PHONES] phoneStart, phoneEnd;
+    size_t phones = 0, nextPhone = 0;
+    if (!__ctfe && text.length > 0) {
+        phones = phone_find(text.ptr, text.length, phoneStart.ptr, phoneEnd.ptr, PHONES);
+        if (phones > PHONES) return none();
+    }
+
     size_t i = 0;
     while (i < text.length) {
         Span sp;
         if (text[i] == '@') sp = mailAround(text, i);
         else sp = spanAt(text, i);
+        while (nextPhone < phones && phoneStart[nextPhone] < i) nextPhone++;
+        if (!sp.ok && nextPhone < phones && phoneStart[nextPhone] == i)
+            sp = Span(i, phoneEnd[nextPhone], Shape.phone);
 
         if (!sp.ok) {
             if (o >= dest.length) return none();
