@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor
+.PHONY: build test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
 
 PREFIX ?= $(HOME)/.local
 
@@ -26,29 +26,26 @@ else
 wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
 	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d -L-lgit2
 
-# parity is its own binary, for whoever develops ground. It reads the pinned
-# agents' schemas and libmcp's C at compile time, which took the hook binary from
-# 42s to 94s when libMCP came in (bisected to 9e8dcbe, 2026-10-26) and with
-# parity left out of the build 38s. The hook binary does not carry that; the
-# cost is paid here, by the one who runs parity.
-# The list is the modules parity links. A new import shows as an undefined
-# reference at the link, naming the module to add.
-PARITY_SOURCES = tools/parity_main.d source/parity.d source/agy.d source/backend.d \
-	source/code/mcp.d source/code/prompt.d source/code/reply.d \
-	source/control_handlers.d source/controls.d source/count.d source/db.d \
-	source/git.d source/gitdir.d source/hooks.d source/lexer.d source/libjsonc.d \
-	source/libmcp.d source/lockholder.d source/matcher.d source/parse.d \
-	source/permission.d source/proto.d source/receiver.d source/rite.d \
-	source/sessionmode.d source/strop.d source/zbuf.d
+# "ground_hook as the hooks binary"
+# Each binary of its own is bin/<name>.d and what it imports: -i compiles the
+# modules the entry point reaches, so no list of them is kept by hand.
+BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
+BIN_LIBS = -L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl
 
-parity: wind $(PARITY_SOURCES)
-	ldc2 -betterC --lowmem -J=. -I=source -of=tools/parity $(PARITY_SOURCES) \
-	  -L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl
+# What make install puts beside ground; ground_parity is for whoever develops ground.
+BINS = ground_hook ground_code ground_sky ground_drive
 
-install-parity: parity
+$(BINS) ground_parity: wind
+	date -u +%Y-%m-%dT%H:%M:%SZ > .builddate
+	tools/wind
+	ldc2 $(BIN_FLAGS) -of=$@ bin/$@.d $(BIN_LIBS)
+
+# ground_parity is for whoever develops ground: it reads the pinned agents'
+# schemas and libmcp's C at compile time, a cost the hook binary does not carry.
+install-parity: ground_parity
 	mkdir -p $(PREFIX)/bin
-	cp tools/parity $(PREFIX)/bin/parity.new
-	mv -f $(PREFIX)/bin/parity.new $(PREFIX)/bin/parity
+	cp ground_parity $(PREFIX)/bin/ground_parity.new
+	mv -f $(PREFIX)/bin/ground_parity.new $(PREFIX)/bin/ground_parity
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
@@ -105,7 +102,7 @@ test: test-tools test-ug test-mcp
 LIBMCP_SRC ?= $(CURDIR)/libmcp
 MCP_LIBS = $(foreach f,$(shell pkg-config --libs libmcp json-c libcurl),-L$(f)) -L-lm -L-lpthread $(if $(filter Darwin,$(shell uname -s)),-L-liconv,-L-ldl)
 MCP_SERVER = LIBMCP_SERVER=$(LIBMCP_SRC)/tests/server.py
-test-mcp: build
+test-mcp: build ground_code
 	mkdir -p build
 	cc -c $(LIBMCP_SRC)/tests/abi.c $(shell pkg-config --cflags libmcp) -o build/abi.o
 	ldc2 -betterC -I=source -of=build/abi-test mcp/abi.d build/abi.o $(MCP_LIBS)
@@ -114,7 +111,7 @@ test-mcp: build
 	$(MCP_SERVER) python3 mcp/test_d.py build/mcp-client
 	ldc2 -betterC -I=source -of=build/mcp-harness mcp/harness.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	$(MCP_SERVER) python3 mcp/test_harness.py build/mcp-harness
-	$(MCP_SERVER) python3 mcp/test_ground.py ./ground
+	$(MCP_SERVER) python3 mcp/test_ground.py ./ground_code
 	ldc2 -betterC -I=source -of=build/checked-test mcp/checked.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	python3 mcp/test_checked.py build/checked-test
 	ldc2 -betterC -I=source -of=build/abort-test mcp/abort.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
@@ -168,10 +165,9 @@ install-ug: ug
 	cp ug/ug $(PREFIX)/bin/ug.new
 	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
 
-install: build install-ug
+install: build $(BINS) install-ug
 	mkdir -p $(PREFIX)/bin
-	cp ground $(PREFIX)/bin/ground.new
-	mv -f $(PREFIX)/bin/ground.new $(PREFIX)/bin/ground
+	for b in ground $(BINS); do cp $$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
 # The ACP schemas flake.nix pins, linked from the store; the link roots them
 # against a garbage collection. ground parity reads them under ~/.local, so a
 # PREFIX elsewhere shows the schema as absent rather than measuring another.
@@ -182,7 +178,7 @@ install: build install-ug
 	./ground attest
 # Every install by someone who has built parity is a run of it, so the series
 # has a point per ground built. Nobody else needs it, and install does not build it.
-	@if [ -x tools/parity ]; then tools/parity; else echo "install: parity not built, no point added to the series (make parity)"; fi
+	@if [ -x ground_parity ]; then ./ground_parity; else echo "install: ground_parity not built, no point added to the series (make ground_parity)"; fi
 	./ground decay
 
 # dub keys its cache by version and every commit is a version: 129 builds, 18G.
@@ -210,12 +206,12 @@ editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d d
 # One typesetter, and the web copy is bound from what it set. Page 12 on the
 # screen is the sheet carrying 12 on paper, because it is that sheet and not a
 # second rendering of the same source.
-book: press binder build parity
+book: press binder build ground_parity
 	mkdir -p doc/tex doc/measured
 # What this ground measured, read out of the store: the parity table as it
 # stands and the series of every run before it, and libMCP's against MCP.
-	tools/parity tex > doc/measured/parity.tex
-	tools/parity tex mcp > doc/measured/libmcp.tex
+	./ground_parity tex > doc/measured/parity.tex
+	./ground_parity tex mcp > doc/measured/libmcp.tex
 # press clears doc/tex itself, once it has proved every example fits a page.
 # Clearing here meant a halt deleted the last good book on its way out.
 	./tools/press

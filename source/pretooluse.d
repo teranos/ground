@@ -9,7 +9,7 @@ import db : ZBuf;
 import sessionmode : SessionMode;
 
 void emitProfile(ref ZBuf buf) {
-    import main : setPhases;
+    import hookrun : setPhases;
     setPhases(buf.slice());
     fputs(buf.ptr(), stderr);
     fputs("\n", stderr);
@@ -561,7 +561,7 @@ private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] se
 }
 
 int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
-    import main : usecNow;
+    import hookrun : usecNow;
     import parse : extractPermissionMode;
     auto t0 = usecNow();
     long tParse, tCorpus, tBinary, tTrail, tMatch, tDb, tPerm, tFilePerm, tFileControls;
@@ -1302,7 +1302,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                         g_paramKeys = c.paramKeys;
                         g_paramValues = c.paramValues;
                         g_paramCount = c.paramCount;
-                        import main : usecNow;
+                        import hookrun : usecNow;
                         auto checkAt = usecNow();
                         auto verdict = c.sessionstart.check(cwd, input);
                         auto took = usecNow() - checkAt;
@@ -1323,7 +1323,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 // not advice: dedup here means the second attempt succeeds,
                 // and a gate that opens after one refusal is not a gate.
                 if (sc.decision != "deny" && db !is null) {
-                    import main : usecNow;
+                    import hookrun : usecNow;
                     auto dedupAt = usecNow();
                     auto fired = attestationExists(db, "GroundedPreToolUse", c.name, sessionId);
                     dedupUs += usecNow() - dedupAt;

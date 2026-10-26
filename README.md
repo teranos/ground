@@ -80,13 +80,13 @@ cd ground
 make install
 ```
 
-Installs to `~/.local/bin/ground`. Override with `PREFIX=/usr/local make install`.
+Installs `ground`, `ground_hook`, `ground_code`, `ground_sky` and `ground_drive` to `~/.local/bin`. Override with `PREFIX=/usr/local make install`. `ground_hook` answers the hook events, `ground_sky` is the courier the hooks spawn, `ground_drive` keeps a ritual's performance moving, `ground_code` is the agent an ACP client runs, and `ground` is every other command.
 
-If you are developing ground, `make install-parity` also installs `parity`, which `ground parity` hands off to. It is its own binary because it reads the pinned agents' schemas and libmcp's C at compile time, which the hook binary does not need to carry; `make install` neither builds nor needs it.
+If you are developing ground, `make install-parity` also installs `ground_parity`. It is its own binary because it reads the pinned agents' schemas and libmcp's C at compile time, which the hook binary does not need to carry; `make install` neither builds nor needs it.
 
 ## How it works
 
-Runs as a Claude Code hook across all events. The contract it answers is the pinned agent binaries' own: `ground parity` shows how much of each version's ground covers. Every event is attested with its full payload, and goes to QNTX without its tool payloads. Actions for command controls:
+`ground_hook` runs as a Claude Code hook across all events. The contract it answers is the pinned agent binaries' own: `ground_parity` shows how much of each version's ground covers. Every event is attested with its full payload, and goes to QNTX without its tool payloads. Actions for command controls:
 
 - **arg** — insert missing arguments after the matched command
 - **omit** — strip unwanted flags from the command

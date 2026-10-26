@@ -10,7 +10,7 @@ module loud_test;
 // person noticed the dashboard had gone quiet. "fix both"
 
 enum sky  = import("source/sky.d");
-enum hook = import("source/main.d");
+enum hook = import("source/hookrun.d");
 
 static assert(!contains(sky, "claimTiming(db, pid) > 0"),
     "sky reads the claim's answer, not only its row count");

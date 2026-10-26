@@ -7,7 +7,7 @@ import sky : KIND, TREE_FILE, CLAIM_FILE, BOOK_COMMAND;
 static assert(KIND == "sky");
 static assert(TREE_FILE == "sky-tree-");
 static assert(CLAIM_FILE == "sky-claim-");
-static assert(contains(BOOK_COMMAND, "ground sky $PWD"));
+static assert(contains(BOOK_COMMAND, "ground_sky $PWD"));
 
 // The pid file is read to decide what to SIGTERM. Everything it can contain
 // that is not a live pid has to reach that decision as "signal nothing".

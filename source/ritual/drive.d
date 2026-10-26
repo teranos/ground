@@ -117,12 +117,12 @@ const(char)[] endingWord(RitualState s) {
     }
 }
 
-// ground drive <performance> — the loop that keeps a performance moving. The
+// ground_drive <performance> — the loop that keeps a performance moving. The
 // watcher cannot: delivery is `exit 2`, so it dies every time it speaks, and
 // an agent working a rite reaches neither a Stop nor a new watcher.
 enum BOOK_COMMAND = q"EOS
-# the driver ground ritual forks, one per performance, by the performance id:
-ground drive ground-coinflip-1786812152
+# the driver a ritual forks, one per performance, by the performance id:
+ground_drive ground-coinflip-1786812152
 EOS";
 
 int handleDrive(int argc, const(char)** argv) {
@@ -131,16 +131,16 @@ int handleDrive(int argc, const(char)** argv) {
     import controls : parsedOnce;
     import db : openDb, sqlite3_close, ZBuf;
     import immediate : writeNote;
-    import main : argLen;
+    import hookrun : argLen;
     import ritual.store : byPerformanceId;
 
-    if (argc < 3) {
-        fputs("usage: ground drive <performance>\n", stderr);
+    if (argc < 2) {
+        fputs("usage: ground_drive <performance>\n", stderr);
         return 1;
     }
     // The performance, not its tree: in place two of them share one checkout
     // and the tree cannot say which this drives.
-    auto perfId = argv[2][0 .. argLen(argv[2])];
+    auto perfId = argv[1][0 .. argLen(argv[1])];
 
     // "I dont know how to explain how serious this defect is"
     // Driver 75014 ended with nothing written anywhere. A signal this one can

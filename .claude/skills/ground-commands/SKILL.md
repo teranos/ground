@@ -4,9 +4,6 @@ description: Every ground subcommand with a working example. Written by press fr
 ---
 
 ```sh
-# run by Claude Code on every hook event, the event's JSON on stdin:
-ground < event.json
-
 # search past hook events by wildcard pattern
 # (see: ground events)
 ground shovel PostToolUse "*pr create*"
@@ -21,9 +18,6 @@ ground profile
 # one event, its phases and its worst runs:
 ground profile PreToolUse
 
-# the courier, with "timeout": 86400 on its hook entry
-ground sky $PWD
-
 # perform a ritual, by its name when that names one:
 ground ritual grove
 # or by project and ritual when it does not:
@@ -31,9 +25,6 @@ ground ritual q.sbvh.nl boxsurvival
 
 # end a live performance, by its ritual or by the handle on the status line:
 ground abort grove
-
-# the driver ground ritual forks, one per performance, by the performance id:
-ground drive ground-coinflip-1786812152
 
 # run by the script that starts a ritual's agent, what `claude --bg` printed on stdin:
 ground bind ground-coinflip-1786812152 < started.txt
@@ -51,30 +42,42 @@ ground author
 # how much of each rate limit is used, and how the week got there:
 ground usage
 
-# what ground covers of each pinned agent's hook contract, per event and version,
-# and what ground code covers of the pinned ACP schema, per method:
-ground parity
-# one event's keys per version, covered and missing:
-ground parity PostToolUse
-# one ACP method's, read and written by ground code:
-ground parity session/prompt
-
 # what each build of ground cost to compile, as the node holds it:
 ground ctfe
 # the same rows as the book draws them:
 ground ctfe tex
-
-# an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
-ground code
 
 # list tools from a stdio MCP server, in-process through libmcp:
 ground mcp tools/list '{}' -- /path/to/server arg
 # call a tool (no shell is used to start the server):
 ground mcp tools/call '{"name":"echo","arguments":{"text":"hello"}}' -- /path/to/server
 
+# a text with fixtures in place of what names a person, what was found on stderr:
+ground scrub < text
+
 # strip the bulk out of the db (make install does):
 ground decay
 
 # what a hooks.json entry has agy run, the event's JSON on stdin:
-ground hook agy PreToolUse
+ground_hook agy PreToolUse
+
+# an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
+ground_code
+
+# run by Claude Code and codex on every hook event, the event's JSON on stdin:
+ground_hook < event.json
+
+# what ground covers of each pinned agent's hook contract, per event and version,
+# and what ground code covers of the pinned ACP schema, per method:
+ground_parity
+# one event's keys per version, covered and missing:
+ground_parity PostToolUse
+# one ACP method's, read and written by ground code:
+ground_parity session/prompt
+
+# the driver a ritual forks, one per performance, by the performance id:
+ground_drive ground-coinflip-1786812152
+
+# the courier, with "timeout": 86400 on its hook entry
+ground_sky $PWD
 ```

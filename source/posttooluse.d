@@ -16,7 +16,7 @@ void putInt(ref ZBuf buf, long v) {
 }
 
 void emitProfile(ref ZBuf buf) {
-    import main : setPhases;
+    import hookrun : setPhases;
     setPhases(buf.slice());
     fputs(buf.ptr(), stderr);
     fputs("\n", stderr);
@@ -120,7 +120,7 @@ bool scopeCmdMatches(S)(auto ref const S sc, const(char)[] command) {
 }
 
 int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
-    import main : usecNow;
+    import hookrun : usecNow;
     auto t0 = usecNow();
 
     // A wrapper that died before delivering is found by sky's pass, not here.

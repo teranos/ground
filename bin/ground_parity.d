@@ -1,7 +1,8 @@
-module parity_main;
+module ground_parity;
 
-// ground parity, as its own binary: a developer's tool, so the hook binary does
-// not pay for its compile-time reading of the pinned agents' schemas.
+// "and ground parity can just be ground_parity"
+// A developer's tool, so the hook binary does not pay for its compile-time
+// reading of the pinned agents' schemas.
 import parity : handleParity;
 
 extern (C) int main(int argc, const(char)** argv) {

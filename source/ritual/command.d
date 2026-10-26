@@ -176,13 +176,19 @@ void spawnDriver(const Position p, const(char)[] root,
                  [], [], "", root, toolInput, toolOutput);
 }
 
-// The script that starts a performance's driver as the binary at self.
+// The script that starts a performance's driver: ground_drive, beside the binary at self.
 auto driverScript(const(char)[] self, const(char)[] perfId) {
     import ritual.run : SpawnScript, put, putQuoted;
+    size_t dir = self.length;
+    while (dir > 0 && self[dir - 1] != '/') dir--;
+    char[4096] path = 0;
+    size_t n = 0;
+    foreach (c; self[0 .. dir]) if (n < path.length) path[n++] = c;
+    foreach (c; "ground_drive") if (n < path.length) path[n++] = c;
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nexec ");
-    s.putQuoted(self);
-    s.put(" drive ");
+    s.putQuoted(path[0 .. n]);
+    s.put(" ");
     s.putQuoted(perfId);
     s.put("\n");
     return s;
@@ -294,7 +300,7 @@ int handleAbort(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fwrite;
     import controls : parsedOnce;
     import db : openDb, sqlite3_close;
-    import main : argLen;
+    import hookrun :argLen;
     import ritual.position : RitualState, abort;
     import ritual.store : readPosition;
 
@@ -382,7 +388,7 @@ int handleBind(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import db : openDb, sqlite3_close;
     import exec : emitError;
-    import main : argLen, readStdin;
+    import hookrun :argLen, readStdin;
     import ritual.position : RitualState;
     import ritual.run : agentIdFrom;
     import ritual.store : bindAgentId, bindAgent, sessionOfAgent, byPerformanceId;
@@ -450,7 +456,7 @@ int handleRitual(int argc, const(char)** argv) {
     import controls : parsedOnce;
     import db : openDb, sqlite3_close;
     import exec : dispatchExec;
-    import main : argLen;
+    import hookrun :argLen;
     import worktree : worktreePath, branchOf;
     import db : ZBuf;
 

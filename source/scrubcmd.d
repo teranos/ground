@@ -6,6 +6,11 @@ module scrubcmd;
 
 import core.stdc.stdio : stdin, stdout, stderr, fread, fwrite, fputs;
 
+enum BOOK_COMMAND = q"EOS
+# a text with fixtures in place of what names a person, what was found on stderr:
+ground scrub < text
+EOS";
+
 int handleScrub() {
     import pii : scrub, said;
     import control_handlers : fixtureMail;

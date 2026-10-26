@@ -2,7 +2,7 @@ module sky;
 
 // BOOK_GLOSSARY **Sky**: One courier per tree, spawned by the hooks: every five seconds it hands its session what is addressed to it, ships and streams what is pending, and computes nothing about any of it.
 //
-// ground sky <cwd>
+// ground_sky <cwd>
 // "sky whispers" / "sky doesnt compute"
 //
 // One courier per tree. Hooks spawn one at every PostToolUse, Stop and
@@ -28,7 +28,7 @@ module sky;
 // session there is, and a courier's trouble is not worth a turn of each.
 enum BOOK_COMMAND = q"EOS
 # the courier, with "timeout": 86400 on its hook entry
-ground sky $PWD
+ground_sky $PWD
 EOS";
 
 import db : sqlite3, sqlite3_close, openDb, ZBuf, SQLITE_DONE;
@@ -351,15 +351,15 @@ const(char)[] claimSession(const(char)[] cwd) {
 // signal is undelivered work — see immediate.countStaleExecForSession.
 
 int handleSky(int argc, const(char)** argv) {
-    if (argc < 3) {
-        fputs("usage: ground sky <cwd>\n", stderr);
+    if (argc < 2) {
+        fputs("usage: ground_sky <cwd>\n", stderr);
         return 1;
     }
 
-    import main : argLen;
+    import hookrun : argLen;
     import core.stdc.time : time;
     import lifecycle : processStarted, processSeen, processEnded;
-    auto cwd = argv[2][0 .. argLen(argv[2])];
+    auto cwd = argv[1][0 .. argLen(argv[1])];
     skyCwd = cwd;
     auto tree = treeKey(cwd);
     int myPid = getpid();
@@ -379,7 +379,7 @@ int handleSky(int argc, const(char)** argv) {
     size_t stdinBytes = 0;
     bool stopEvent = false;
     {
-        import main : readStdin;
+        import hookrun : readStdin;
         import parse : extractJsonString;
         auto input = readStdin();
         if (input !is null) {

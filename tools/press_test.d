@@ -109,7 +109,7 @@ static assert(renderGlossary(["scope"], ["hooks": [Entry("Control", "x")]]) == "
 // "this style: ground shovel PostToolUse "*pr create*" also tells you everything you need to know"
 // The chapter is the shell blocks, set as code, one after the other. No
 // note beside them: the example is the whole entry.
-import press : renderCommands, dispatched, verbsOf, inDispatchOrder, renderSkill;
+import press : renderCommands, dispatched, verbsOf, binariesOf, inDispatchOrder, renderSkill;
 enum blocks = ["# timing table:\nground profile\n", "# the watcher:\nground sky $PWD\n"];
 static assert(renderCommands(blocks) ==
     "\\chapter{commands}\n"
@@ -124,7 +124,14 @@ static assert(dispatched("if (cmd == \"shovel\")\n  return x;\nif (cmd == \"fmt\
 // The verbs a block runs: the word after ground on each command line. A
 // comment line names none, and a bare ground is the binary itself.
 static assert(verbsOf("# search\nground shovel PostToolUse \"*x*\"\n# or\nground shovel session s\n") == ["shovel", "shovel"]);
-static assert(verbsOf("ground < event.json\n") == [""]);
+static assert(verbsOf("ground\n") == [""]);
+
+// "ground_hook as the hooks binary"
+// A line that starts with ground_ runs a binary of its own, built from
+// bin/<name>.d, and names no verb that main.d answers to.
+static assert(verbsOf("# every hook event:\nground_hook < event.json\n") == []);
+static assert(binariesOf("# every hook event:\nground_hook < event.json\nground_hook agy Stop\n") == ["ground_hook", "ground_hook"]);
+static assert(binariesOf("ground shovel a b\nground\n") == []);
 
 // The page lists the blocks in the order main.d answers to their verbs,
 // the binary itself first, whatever order the files were read in.

@@ -42,7 +42,7 @@ void writeStopContinue(const(char)[] reason) {
     fputs("\n", stdout);
 }
 
-// `continue`, `stopReason`: Stop's output schema in the pinned binaries, `ground parity Stop`.
+// `continue`, `stopReason`: Stop's output schema in the pinned binaries, `ground_parity Stop`.
 void writeStopEnded(V)(const(char)[] ritual, V state) {
     import ritual : RitualState;
     fputs(`{"continue":false,"stopReason":"Ritual `, stdout);
@@ -484,7 +484,7 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // Build phases string for persistence and stderr
     {
-        import main : setPhases;
+        import hookrun : setPhases;
         __gshared ZBuf prof;
         prof.reset();
         prof.put("parse="); putInt(prof, t1-t0);

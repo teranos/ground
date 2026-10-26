@@ -2,7 +2,7 @@ module messagedisplay;
 
 // "i need to see it in the transcript without me having to press ctrl-o"
 // "i want MessageDisplay and displayContent"
-// displayContent: MessageDisplay's output schema in the pinned claude binary, `ground parity MessageDisplay`.
+// displayContent: MessageDisplay's output schema in the pinned claude binary, `ground_parity MessageDisplay`.
 
 import db : openDb, sqlite3_close, ZBuf;
 import immediate : readImmediateMessage, markImmediateDelivered;

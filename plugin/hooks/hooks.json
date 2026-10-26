@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground || echo '{\"systemMessage\": \"The ground plugin is installed but not yet functional. Help the user get it working — figure out what is needed and ask questions if anything is unclear.\"}'"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook || echo '{\"systemMessage\": \"The ground plugin is installed but not yet functional. Help the user get it working — figure out what is needed and ask questions if anything is unclear.\"}'"
           }
         ]
       }
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook"
           }
         ]
       }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook"
           }
         ]
       }
@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v ground >/dev/null && exec ground"
+            "command": "command -v ground_hook >/dev/null && exec ground_hook"
           }
         ]
       }
