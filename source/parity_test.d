@@ -313,11 +313,14 @@ static assert(has(sideFor("acp", "session/new").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/resume").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/set_config_option").reads, "configId"));
 static assert(has(sideFor("acp", "session/set_config_option").writes, "configOptions"));
-// initialize writes protocolVersion and agentInfo, and reads nothing: there is
-// one version to answer whatever the client asked for.
+// initialize writes protocolVersion and agentInfo, and reads the client's
+// capabilities, not its protocolVersion: there is one version to answer
+// whatever the client asked for.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
 static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
-static assert(sideFor("acp", "initialize").reads.slice() == "");
+static assert(has(sideFor("acp", "initialize").reads, "clientCapabilities"));
+static assert(!has(sideFor("acp", "initialize").reads, "protocolVersion"));
+static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
 
 // "i want it"
 // MCP's pins are each released schema.json at one spec commit, the version as

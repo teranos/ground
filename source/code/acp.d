@@ -10,7 +10,7 @@ enum BOOK_COMMAND = q"EOS
 ground code
 EOS";
 
-import parse : extractJsonString;
+import parse : extractJsonString, extractBool;
 import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
@@ -28,6 +28,20 @@ extern (C) int getpid();
 
 // The value at a key as it stands in the line: a number, a quoted string with
 // its quotes, or null. An id is echoed, never interpreted.
+// The object a key names, braces and all, however it is spaced; null when
+// the key is absent or names no object.
+const(char)[] objectValue(const(char)[] json, const(char)[] key) {
+    auto at = indexOf(json, key);
+    if (at < 0) return null;
+    size_t p = cast(size_t) at + key.length;
+    while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++;
+    if (p >= json.length || json[p] != ':') return null;
+    p++;
+    while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++;
+    if (p >= json.length || json[p] != '{') return null;
+    return json[p .. skipValue(json, p)];
+}
+
 const(char)[] rawValue(const(char)[] json, const(char)[] key) {
     auto at = indexOf(json, key);
     if (at < 0) return null;
@@ -76,7 +90,8 @@ struct Sessions {
     bool settingsEffort; // a new session starts at the effort Claude Code's settings name
     ParsedQntx node; // the node a prompt goes through: its gateway, its token file, its model
     long clock;      // the time, when one is given; otherwise the system's
-    uint asked;      // the permissions ground code has asked the client for, for the next one's id
+    uint asked;      // the questions ground code has asked the client, for the next one's id
+    bool clientReadsFiles; // initialize said the client answers fs/read_text_file
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
 }
 
@@ -143,6 +158,57 @@ private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref con
     }
 }
 
+// The client's answer to the request ground code sent it as pid, into
+// answered, the turn waiting on it and still on a cancel: 1 answered, 2 the
+// turn was called off, -1 the client's input ended first.
+private int awaitAnswer(ref Turn turn, const(char)[] pid, ref Reply answered) {
+    bool calledOff = false;
+    bool mine(const(char)[] line) {
+        if (cancels(line, turn.sid, turn.id)) { calledOff = true; return true; }
+        char[64] mb;
+        if (extractJsonString(line, `"method"`, &mb[0], mb.length) !is null) return false;
+        if (rawValue(line, `"id"`) != pid) return false;
+        answered.add(line);
+        return true;
+    }
+    while (!take(*turn.input, &mine)) {
+        if (!more(*turn.input)) return -1;
+    }
+    if (calledOff) { turn.cancelled = true; return 2; }
+    return 1;
+}
+
+// "Request to read content from a text file", asked of the client for path.
+// 1 and the file's text in content; 2 the turn was called off; -1 no text,
+// why the reason, the client's own answer when it gave one.
+private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
+        const(char)[] path, ref Reply content, ref Reply why) {
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    sessions.asked++;
+    Reply pid;
+    scope(exit) pid.dispose();
+    pid.add(`"read-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    Reply n;
+    scope(exit) n.dispose();
+    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
+    n.add(`,"method":"fs/read_text_file","params":{"sessionId":"`); putEscaped(n, sid);
+    n.add(`","path":"`); putEscaped(n, path); n.add(`"}}` ~ "\n");
+    if (n.full) { why.add(`"could not allocate fs/read_text_file"`); return -1; }
+    auto out_ = n.slice();
+    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+        why.add(`"could not write fs/read_text_file"`);
+        return -1;
+    }
+    Reply answered;
+    scope(exit) answered.dispose();
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on the file"`); return -1; }
+    if (waited == 2) return 2;
+    if (readTextContent(answered.slice(), content) == 1) return 1;
+    why.add(answered.slice());
+    return -1;
+}
+
 // "Request for user permission to execute a tool call." Asked of the client,
 // the turn waiting on its answer, and still on a cancel: 1 allowed, 0
 // rejected, 2 the turn was called off, -1 no answer ground code can read,
@@ -173,19 +239,9 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     }
     Reply answered;
     scope(exit) answered.dispose();
-    bool calledOff = false;
-    bool mine(const(char)[] line) {
-        if (cancels(line, turn.sid, turn.id)) { calledOff = true; return true; }
-        char[64] mb;
-        if (extractJsonString(line, `"method"`, &mb[0], mb.length) !is null) return false;
-        if (rawValue(line, `"id"`) != pid.slice()) return false;
-        answered.add(line);
-        return true;
-    }
-    while (!take(*turn.input, &mine)) {
-        if (!more(*turn.input)) { why.add(`"the client's input ended while ground code waited on its permission"`); return -1; }
-    }
-    if (calledOff) { turn.cancelled = true; return 2; }
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on its permission"`); return -1; }
+    if (waited == 2) return 2;
     Reply option;
     scope(exit) option.dispose();
     auto outcome = permissionOutcome(answered.slice(), option);
@@ -506,6 +562,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // ACP's version is 1 for all of v1, and there is no other to offer: the
     // client's is answered with it whatever it asked for.
     if (method == "initialize") {
+        // "Whether the Client supports fs/read_text_file requests."
+        auto caps = objectValue(line, `"clientCapabilities"`);
+        auto fs = caps is null ? null : objectValue(caps, `"fs"`);
+        sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
         put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
@@ -938,13 +998,34 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
         // ground code reads text only: a block it cannot read is refused by its
         // type, not dropped from what the model is told.
-        Reply text, other;
-        scope(exit) { text.dispose(); other.dispose(); }
-        if (!promptText(line, text, other)) {
-            put(`,"error":{"code":-32602,"message":"ground code reads only text blocks, and the prompt holds a block `);
+        Reply text, other, links;
+        scope(exit) { text.dispose(); other.dispose(); links.dispose(); }
+        if (!promptText(line, text, other, links)) {
+            put(`,"error":{"code":-32602,"message":"ground code reads only text blocks and resource links, and the prompt holds a block `);
             if (other.len == 0) put(`that names no type"}}`);
             else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }
             return true;
+        }
+        // A resource_link is read through the client, "Only available if the
+        // client supports the fs.readTextFile capability", and only one on this
+        // machine has the "Absolute path" that asks for.
+        if (links.len > 0 && !sessions.clientReadsFiles) {
+            put(`,"error":{"code":-32602,"message":"ground code reads a resource_link through the client's fs/read_text_file, and the client offers none"}}`);
+            return true;
+        }
+        for (size_t at_ = 0, field = 0, from = 0; at_ < links.len; at_++) {
+            if (links.slice()[at_] != '\0') continue;
+            if (field++ % 2 == 1) {
+                auto uri = links.slice()[from .. at_];
+                Reply path;
+                scope(exit) path.dispose();
+                if (!fileUriPath(uri, path)) {
+                    put(`,"error":{"code":-32602,"message":"ground code reads only file:// resource links on this machine, and the prompt links `);
+                    putEscaped(r, uri); put(`"}}`);
+                    return true;
+                }
+            }
+            from = at_ + 1;
         }
         // The model is the qntx block's, the token the one every attestation carries.
         if (qntxNode.model.length == 0) {
@@ -975,6 +1056,30 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
             Reply tools, detail, url;
             scope(exit) { tools.dispose(); detail.dispose(); url.dispose(); }
+            Turn turn = Turn(sessions.input, sid, id);
+            // "the Agent MUST respond to the original session/prompt request
+            // with the cancelled stop reason"; the history keeps what happened.
+            void stopCancelled() { put(`,"result":{"stopReason":"cancelled"}}`); }
+            // Each linked file is read before the model is asked, and its text
+            // is the user's, after what they typed, under the link's name.
+            for (size_t at_ = 0, from = 0, field = 0, nameFrom = 0, nameTo = 0; at_ < links.len; at_++) {
+                if (links.slice()[at_] != '\0') continue;
+                if (field++ % 2 == 0) { nameFrom = from; nameTo = at_; from = at_ + 1; continue; }
+                auto uri = links.slice()[from .. at_];
+                from = at_ + 1;
+                Reply path, content, why;
+                scope(exit) { path.dispose(); content.dispose(); why.dispose(); }
+                fileUriPath(uri, path);
+                auto got = readThroughClient(sessions, turn, sid, path.slice(), content, why);
+                if (got == 2) { stopCancelled(); return true; }
+                if (got < 0) {
+                    put(`,"error":{"code":-32603,"message":"ground code could not read `); putEscaped(r, uri);
+                    put(` through the client","data":`); put(why.slice()); put(`}}`);
+                    return true;
+                }
+                text.add("\n\n"); text.add(links.slice()[nameFrom .. nameTo]);
+                text.add(" ("); text.add(uri); text.add("):\n"); text.add(content.slice());
+            }
             userMessage(*o.history, text.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
@@ -988,10 +1093,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // The history and the tools go to the gateway; a tool_calls answer is
             // run through the session's own MCP server and handed back, until the
             // model answers in words, or the client calls the turn off.
-            Turn turn = Turn(sessions.input, sid, id);
-            // "the Agent MUST respond to the original session/prompt request
-            // with the cancelled stop reason"; the history keeps what happened.
-            void stopCancelled() { put(`,"result":{"stopReason":"cancelled"}}`); }
             while (true) {
                 if (cancelAsked(turn)) { stopCancelled(); return true; }
                 Reply body_;

@@ -4,7 +4,7 @@ module prompt_test;
 // "as the endpoint"
 // A prompt is one turn through the node's gateway, and its tools are libmcp's.
 
-import code.prompt : putToolName, serverOf, toolOf, promptText, userMessage, requestBody;
+import code.prompt : putToolName, serverOf, toolOf, promptText, userMessage, requestBody, fileUriPath;
 import code.reply : Reply;
 
 // A tool is named to the model as its server and itself, so two servers'
@@ -20,23 +20,48 @@ static assert(toolOf("test__echo") == "echo");
 static assert(serverOf("echo") == "");
 static assert(toolOf("echo") == "echo");
 
-// The prompt's text blocks, in order, one line each; a block of another kind
-// has no text to give, and its type is said instead of dropped.
+// The prompt's text blocks, in order, one line each; a resource_link is handed
+// back to be read, a name and a uri each; a block of another kind has no text
+// to give, and its type is said instead of dropped.
 private string textOf()(string line) {
-    Reply r, other;
-    promptText(line, r, other);
+    Reply r, other, links;
+    promptText(line, r, other, links);
     return r.slice().idup;
 }
 private string otherOf()(string line) {
-    Reply r, other;
-    return promptText(line, r, other) ? "all text" : other.slice().idup;
+    Reply r, other, links;
+    return promptText(line, r, other, links) ? "all text" : other.slice().idup;
+}
+private string linksOf()(string line) {
+    Reply r, other, links;
+    promptText(line, r, other, links);
+    return links.slice().idup;
 }
 static assert(textOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"text","text":"b"}]}`) == "a\nb");
 static assert(otherOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"resource_link","uri":"file:///a"}]}`) == "image");
-static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`) == "resource_link");
+static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`) == "all text");
+static assert(linksOf(`{"prompt":[{"type":"text","text":"see"},{"type":"resource_link","uri":"file:///a","name":"a"},{"type":"resource_link","name":"b","uri":"file:///b"}]}`)
+    == "a\0file:///a\0b\0file:///b\0");
+// "required": name and uri. A link missing one is no link to read.
+static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a"}]}`) == "resource_link");
 static assert(otherOf(`{"prompt":[{"text":"a"}]}`) == "");
 static assert(otherOf(`{"prompt":[{"type":"text","text":"a"}]}`) == "all text");
 static assert(otherOf(`{"prompt":[]}`) == "all text");
+
+// fs/read_text_file takes an "Absolute path to the file to read": a file://
+// uri on this machine is one, percent-decoded; any other is not.
+private string pathOf()(string uri) {
+    Reply r;
+    return fileUriPath(uri, r) ? r.slice().idup : "none";
+}
+static assert(pathOf("file:///tmp/a") == "/tmp/a");
+static assert(pathOf("file:///tmp/a%20b%2Fc") == "/tmp/a b/c");
+static assert(pathOf("file://localhost/etc/x") == "/etc/x");
+static assert(pathOf("file://elsewhere/etc/x") == "none");
+static assert(pathOf("https://example.com/a") == "none");
+static assert(pathOf("file://") == "none");
+static assert(pathOf("file:///a%00b") == "none");
+static assert(pathOf("file:///a%zz") == "none");
 static assert(textOf(`{"prompt":[{"type":"text","text":"say \"hi\""}]}`) == `say "hi"`);
 static assert(textOf(`{"prompt":[]}`) == "");
 

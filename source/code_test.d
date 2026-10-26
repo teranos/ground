@@ -397,14 +397,45 @@ private string promptWithLink()() {
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
 }
 static assert(promptWithLink()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only text blocks, and the prompt holds a block of type resource_link"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a resource_link through the client's fs/read_text_file, and the client offers none"}}`);
+// "Only available if the client supports the fs.readTextFile capability", which
+// initialize reads from clientCapabilities. Offered, a file:// link goes on to
+// the turn; any other is refused by its uri.
+private string promptWithLinkFor()(string link) {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":false}}}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"` ~ link ~ `","name":"a"}]}}`, s);
+}
+// As a client writes it, spaced: the capability is read from the object, not
+// from where its first space falls.
+private string promptWithSpacedCaps()() {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    answerWith(`{"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"terminal": false, "fs": {"writeTextFile": false, "readTextFile": true}}}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
+}
+static assert(promptWithSpacedCaps()
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+static assert(promptWithLinkFor("file:///tmp/a")
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+static assert(promptWithLinkFor("https://example.com/a")
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only file:// resource links on this machine, and the prompt links https://example.com/a"}}`);
+private string promptLinkNotOffered()() {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`, s);
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
+}
+static assert(promptLinkNotOffered()
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a resource_link through the client's fs/read_text_file, and the client offers none"}}`);
 private string promptUntyped()() {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`, s);
 }
 static assert(promptUntyped()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only text blocks, and the prompt holds a block that names no type"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only text blocks and resource links, and the prompt holds a block that names no type"}}`);
 static assert(promptWithoutModel()
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 
@@ -815,4 +846,112 @@ version (Posix) unittest {
             ~ `{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"maybe\"}}}"}}}`, s, input, p));
         end(input, p, s);
     }
+}
+
+// A file:// link is read through the client as the turn starts: ground code
+// asks fs/read_text_file for its path, waits on the answer as it waits on a
+// permission, and the file's text joins what the user said. An error answer
+// ends the turn carrying it; a cancel stops it before anything is asked of
+// the model.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+
+    enum done = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    enum prompt = `{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[`
+        ~ `{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a%20b","name":"a b"}]}}`;
+    __gshared char[32] urlBuf;
+    __gshared char[65536] said;
+    __gshared size_t saidLen;
+    __gshared char[4096] gotBuf;
+    __gshared size_t gotLen;
+
+    // A turn whose client has already answered with queued, against a gateway
+    // that answers done when it is asked at all.
+    void turn(string queued, ref Sessions s, ref Input input, ref int[2] p) {
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 1) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            auto c = accept(fd, null, null);
+            char[65536] got;
+            read(c, got.ptr, got.length);
+            write(c, done.ptr, done.length);
+            close(c);
+            _exit(0);
+        }
+        close(fd);
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        assert(pipe(p) == 0);
+        input = Input(p[0]);
+        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        assert(write(p[1], queued.ptr, queued.length) == queued.length);
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        Reply r;
+        answer(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}}`, r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+        answer(prompt, r, s);
+        gotLen = r.len < gotBuf.length ? r.len : gotBuf.length;
+        foreach (i; 0 .. gotLen) gotBuf[i] = r.slice()[i];
+        r.dispose();
+        fflush(stdout);
+        dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        kill(child, SIGKILL);
+        waitpid(child, null, 0);
+    }
+    void end(ref Input input, ref int[2] p, ref Sessions s) {
+        input.dispose(); close(p[0]); close(p[1]);
+        foreach (i; 0 .. s.openLen) if (s.open[i].history !is null) s.open[i].history.dispose();
+    }
+    Sessions s;
+    Input input;
+    int[2] p;
+
+    // Read: asked by its path, and its text is the user's, after what they typed.
+    turn(`{"jsonrpc":"2.0","id":"read-1","result":{"content":"line one\nline \"two\""}}` ~ "\n", s, input, p);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"read-1","method":"fs/read_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b"}}`) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"user","content":"read this\n\na b (file:///tmp/a%20b):\nline one\nline \"two\""}`) >= 0);
+    end(input, p, s);
+
+    // The client could not read it: the turn ends with the client's own error, and the model is not asked.
+    turn(`{"jsonrpc":"2.0","id":"read-1","error":{"code":-32002,"message":"no such file"}}` ~ "\n", s, input, p);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"ground code could not read file:///tmp/a%20b through the client","data":`
+        ~ `{"jsonrpc":"2.0","id":"read-1","error":{"code":-32002,"message":"no such file"}}}}`);
+    assert(s.open[0].history is null || indexOf(s.open[0].history.slice(), `read this`) < 0);
+    end(input, p, s);
+
+    // Called off while waiting on the file.
+    turn(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n", s, input, p);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`);
+    end(input, p, s);
 }
