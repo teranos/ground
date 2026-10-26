@@ -102,7 +102,7 @@ ug: $(UG_SOURCES)
 # "make test should be the fast version"
 # "and ci does slower shit"
 # What a change against origin/main can reach runs here, compiled once; CI runs every suite.
-test: wind
+test: wind build/libgroundc.a
 	@git diff --quiet origin/main -- ug || $(MAKE) test-ug
 	@tests=`sh tools/touched.sh origin/main`; \
 	if [ -z "$$tests" ]; then echo "test: no module or control changed against origin/main"; exit 0; fi; \
