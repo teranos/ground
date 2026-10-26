@@ -99,8 +99,17 @@ UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
 ug: $(UG_SOURCES)
 	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2
 
-test: test-tools test-ug test-mcp
-	dub test
+# "make test should be the fast version"
+# "and ci does slower shit"
+# What a change against origin/main can reach runs here, compiled once; CI runs every suite.
+test: wind
+	@git diff --quiet origin/main -- ug || $(MAKE) test-ug
+	@tests=`sh tools/touched.sh origin/main`; \
+	if [ -z "$$tests" ]; then echo "test: no module or control changed against origin/main"; exit 0; fi; \
+	echo "test: $$tests"; \
+	date -u +%Y-%m-%dT%H:%M:%SZ > .builddate; tools/wind; \
+	mkdir -p build; \
+	ldc2 --lowmem -J=. -I=source -i -unittest -main -of=build/touched-test $$tests $(BIN_LIBS) && build/touched-test
 
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
