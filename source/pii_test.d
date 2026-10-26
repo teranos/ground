@@ -15,6 +15,7 @@ enum ME = "me" ~ AT ~ "abcd.nl";
 enum FAR = "93.184." ~ "216.34";
 enum DNS1 = "8.8." ~ "8.8";
 enum DNS2 = "1.1." ~ "1.1";
+enum PAST_PRIVATE = "172.32." ~ "0.1";
 enum MOBILE = "+31 6 " ~ "12345678";
 enum MOBILE_NL = "06-" ~ "12345678";
 enum LANDLINE = "020 123 " ~ "4567";
@@ -68,7 +69,7 @@ static assert(r("scp a deploy" ~ AT ~ "host.example.com:/srv").found == 0);
 // An IPv4 address on the internet becomes a documentation one; one that names no host stays.
 static assert(is_!("curl http://203.0.113.9/ and " ~ FAR, "curl http://203.0.113.9/ and 192.0.2.1"));
 static assert(is_!("127.0.0.1 10.0.0.5 192.168.1.1 0.0.0.0", "127.0.0.1 10.0.0.5 192.168.1.1 0.0.0.0"));
-static assert(ipStays("172.16.0.1") && !ipStays("172.32.0.1"));
+static assert(ipStays("172.16.0.1") && !ipStays(PAST_PRIVATE));
 static assert(is_!(DNS1 ~ " and " ~ DNS2 ~ " and " ~ DNS1, "192.0.2.1 and 192.0.2.2 and 192.0.2.1"));
 
 // A version is not an address: three groups, a fifth one, an octet past 255.
