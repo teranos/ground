@@ -30,12 +30,20 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
 # modules the entry point reaches, so no list of them is kept by hand.
 BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
-BIN_LIBS = -L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl
+# The C++ shim is an archive, so a binary takes it only where it calls it.
+BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
+	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl \
+	$(if $(filter Darwin,$(shell uname -s)),-L-lc++,-L-lstdc++)
 
 # What make install puts beside ground; ground_parity is for whoever develops ground.
 BINS = ground_hook ground_code ground_sky ground_drive
 
-$(BINS) ground_parity: wind
+build/libgroundc.a: phone/phone.cc
+	mkdir -p build
+	c++ -std=c++17 -O2 -c phone/phone.cc -o build/phone.o
+	ar rcs $@ build/phone.o
+
+$(BINS) ground_parity: wind build/libgroundc.a
 	date -u +%Y-%m-%dT%H:%M:%SZ > .builddate
 	tools/wind
 	ldc2 $(BIN_FLAGS) -of=$@ bin/$@.d $(BIN_LIBS)
