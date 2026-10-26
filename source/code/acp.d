@@ -2,12 +2,12 @@ module code.acp;
 
 // Ground code: the agent ground runs itself, behind an ACP client. One
 // JSON-RPC message a line on stdin, one answer a line on stdout. The protocol
-// is the schema flake.nix pins, and `ground parity` counts what each method's
+// is the schema flake.nix pins, and `ground_parity` counts what each method's
 // block here reads and writes against it.
 
 enum BOOK_COMMAND = q"EOS
 # an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
-ground code
+ground_code
 EOS";
 
 import parse : extractJsonString, extractBool;

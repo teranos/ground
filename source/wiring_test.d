@@ -83,7 +83,7 @@ static assert(calls(sessionStartSource, "placeOf("), "a session's project is res
 static assert(calls(sessionStartSource, "originOf("), "and the repo it is a checkout of");
 
 // "hook timing should go to both"
-private enum mainSource = import("source/main.d");
+private enum mainSource = import("source/hookrun.d");
 static assert(calls(mainSource, "attestCost("), "a hook's cost is attested as well as timed");
 // A store that would not open dropped the hook's timing row, and only a
 // corrupt one was ever said.

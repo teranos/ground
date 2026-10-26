@@ -112,7 +112,7 @@ void attestTypes() {
 // TODO (CC .152): reloadSkills: true on SessionStart when a control has just
 //   installed skills into the skills dir — makes them usable in the same session.
 int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId) {
-    import main : usecNow;
+    import hookrun : usecNow;
     auto t0 = usecNow();
 
     // Write claim file so the first asyncRewake watcher knows its session.
@@ -294,7 +294,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     }
 
     void emitSessionProfile() {
-        import main : setPhases;
+        import hookrun : setPhases;
         import posttooluse : putInt;
         __gshared ZBuf prof;
         prof.reset();

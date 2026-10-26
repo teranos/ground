@@ -13,11 +13,11 @@ static import parse;
 enum BOOK_COMMAND = q"EOS
 # what ground covers of each pinned agent's hook contract, per event and version,
 # and what ground code covers of the pinned ACP schema, per method:
-ground parity
+ground_parity
 # one event's keys per version, covered and missing:
-ground parity PostToolUse
+ground_parity PostToolUse
 # one ACP method's, read and written by ground code:
-ground parity session/prompt
+ground_parity session/prompt
 EOS";
 
 // --- sha256: a binary is the pinned one or it is not measured ---
@@ -689,7 +689,7 @@ private static immutable string[3][6] agyEvents = [
 
 // --- ground's side, read out of its own source at compile time ---
 
-private enum mainSource = import("source/main.d");
+private enum mainSource = import("source/hookrun.d");
 
 private string between()(string text, string from, string to) {
     auto s = indexIn(text, from);
@@ -1618,7 +1618,7 @@ private void readAgy(const(char)[] text) {
 }
 
 private void unread(const(char)[] message) {
-    say("ground parity: agy's hooks.proto has no message ");
+    say("ground_parity:agy's hooks.proto has no message ");
     say(message);
     say("\n");
 }
@@ -1785,7 +1785,7 @@ private const(char)[] tableOf(const(char)[] agent) {
     return agent == "acp" || agent == "mcp" ? agent : "hooks";
 }
 
-// `ground parity tex mcp` sets MCP's table alone, for libMCP's section.
+// `ground_parity tex mcp` sets MCP's table alone, for libMCP's section.
 private __gshared bool texMcp;
 
 private Row* rowFor(const(char)[] event) {
@@ -1801,7 +1801,7 @@ private Row* rowFor(const(char)[] event) {
 
 private void put(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); }
 
-// `ground parity tex` sets the same table for the book: cells parted by &,
+// `ground_parity tex` sets the same table for the book: cells parted by &,
 // rows ended by \\, and the characters TeX reads as instructions escaped.
 private __gshared bool texOut;
 
@@ -2081,7 +2081,7 @@ int handleParity(int argc, const(char)** argv) {
 
     auto db = openDb();
     if (db is null) {
-        fputs("ground parity: the store would not open\n", stderr);
+        fputs("ground_parity:the store would not open\n", stderr);
         return 1;
     }
 
@@ -2095,14 +2095,14 @@ int handleParity(int argc, const(char)** argv) {
         bool overflow = specsFull;
         foreach (i; 0 .. specCount) if (specs[i].input.full || specs[i].output.full) overflow = true;
         if (overflow) {
-            say("ground parity: "); say(pin.agent); say(" "); say(pin.release);
+            say("ground_parity:"); say(pin.agent); say(" "); say(pin.release);
             say(" names more than parity holds; nothing stored for it\n");
             status[pi].access = Access.empty;
             rc = 1;
             continue;
         }
         if (!storeSpecs(db, pin.agent, pin.release, status[pi].sha[], cast(long) time(null))) {
-            say("ground parity: the store refused "); say(pin.agent); say(" "); say(pin.release);
+            say("ground_parity:the store refused "); say(pin.agent); say(" "); say(pin.release);
             say("'s contract; the stored one stands\n");
             status[pi].access = Access.empty;
             rc = 1;
@@ -2121,7 +2121,7 @@ int handleParity(int argc, const(char)** argv) {
             auto t = total(cells[0 .. rowCount]);
             if (t < 0) continue;
             if (!attestParity(db, pin.agent, pin.release, pin.sha256, t, ts)) {
-                say("ground parity: the store refused the run's row for "); say(pin.agent); say(" "); say(pin.release); say("\n");
+                say("ground_parity:the store refused the run's row for "); say(pin.agent); say(" "); say(pin.release); say("\n");
                 rc = 1;
             }
         }

@@ -47,11 +47,12 @@
               # source/*_test.d, whose static asserts are CTFE work the release
               # binary has no reason to do.
               ${pkgs.dub}/bin/dub build --build=release --config=production
+              make ground_hook ground_code ground_sky ground_drive
             '';
 
             installPhase = ''
               mkdir -p $out/bin
-              cp ground $out/bin/
+              cp ground ground_hook ground_code ground_sky ground_drive $out/bin/
             '';
           };
           # The agents ground answers, at the versions it is held to: the vendor's

@@ -7,7 +7,7 @@
 import std.file : dirEntries, readText, SpanMode, mkdirRecurse, exists, write, remove;
 import std.algorithm : sort, SwapStrategy;
 import std.array : array;
-import std.path : baseName;
+import std.path : baseName, stripExtension;
 import std.stdio : stderr;
 
 import cases : extractCases, Case, splitLines, unmark, flow,
@@ -167,6 +167,20 @@ int main(string[] argv) {
         foreach (a; answers)
             if (!contains(shown, a))
                 refused ~= Refused("source/main.d", "answers to " ~ a ~ " and no module shows ground " ~ a);
+
+        // The same for the binaries of their own: each is built from bin/<name>.d.
+        string[] binaries;
+        foreach (i, b; commands)
+            foreach (n; binariesOf(b)) {
+                binaries ~= n;
+                if (!exists("bin/" ~ n ~ ".d"))
+                    refused ~= Refused(commandFiles[i], "runs " ~ n ~ ", which no bin/" ~ n ~ ".d builds");
+            }
+        foreach (e; dirEntries("bin", "*.d", SpanMode.shallow)) {
+            auto n = stripExtension(baseName(e.name));
+            if (!contains(binaries, n))
+                refused ~= Refused(e.name, "builds " ~ n ~ " and no module shows " ~ n);
+        }
     }
 
     // Nothing is written while an example does not fit. A reader takes an
@@ -376,6 +390,7 @@ string[] verbsOf(string block) {
         if (line.length == 0 || line[0] == '#') continue;
         if (line.length < 6 || line[0 .. 6] != "ground") continue;
         auto rest = line[6 .. $];
+        if (rest.length > 0 && rest[0] == '_') continue;
         if (rest.length == 0 || rest[0] != ' ') { out_ ~= ""; continue; }
         size_t a = 1;
         while (a < rest.length && rest[a] == ' ') a++;
@@ -385,6 +400,18 @@ string[] verbsOf(string block) {
         auto c = w.length > 0 ? w[0] : ' ';
         bool named = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
         out_ ~= named ? w : "";
+    }
+    return out_;
+}
+
+// The binaries of their own a block runs: ground_hook, built from bin/ground_hook.d.
+string[] binariesOf(string block) {
+    string[] out_;
+    foreach (line; splitLines(block)) {
+        if (line.length < 7 || line[0 .. 7] != "ground_") continue;
+        size_t e = 7;
+        while (e < line.length && line[e] != ' ') e++;
+        out_ ~= line[0 .. e];
     }
     return out_;
 }

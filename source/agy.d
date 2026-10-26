@@ -1,14 +1,14 @@
 module agy;
 
-// agy runs `ground hook agy <Event>` from a hooks.json entry: the event's JSON
+// agy runs `ground_hook agy <Event>` from a hooks.json entry: the event's JSON
 // on stdin, the answer read back from stdout. What each event sends and reads,
-// per pinned version, is the binary's own hooks.proto: `ground parity <Event>`.
+// per pinned version, is the binary's own hooks.proto: `ground_parity <Event>`.
 
 import core.stdc.stdio : stdin, stdout, stderr, fread, fwrite, fputs;
 
 enum BOOK_COMMAND = q"EOS
 # what a hooks.json entry has agy run, the event's JSON on stdin:
-ground hook agy PreToolUse
+ground_hook agy PreToolUse
 EOS";
 
 // What ground answers an event. An empty decision is not agy's own: agy 1.4.4
@@ -39,11 +39,11 @@ int handleAgyHook(int argc, const(char)** argv) {
     import matcher : indexOf;
     import parse : extractJsonString;
 
-    if (argc < 4 || argv[2][0 .. cLen(argv[2])] != "agy") {
-        fputs("ground hook: usage: ground hook agy <Event>\n", stderr);
+    if (argc < 3 || argv[1][0 .. cLen(argv[1])] != "agy") {
+        fputs("ground_hook: usage: ground_hook agy <Event>\n", stderr);
         return 1;
     }
-    auto event = argv[3][0 .. cLen(argv[3])];
+    auto event = argv[2][0 .. cLen(argv[2])];
 
     __gshared char[262144] buf = "";
     size_t total = 0;

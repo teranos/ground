@@ -9,7 +9,7 @@ import sys
 import tempfile
 import threading
 
-GROUND = str(Path(sys.argv[1]).resolve())
+GROUND_CODE = str(Path(sys.argv[1]).resolve())
 SERVER = os.environ["LIBMCP_SERVER"]  # the library's test server, from its source
 
 
@@ -70,7 +70,7 @@ def http(name, url, headers):
 
 with tempfile.TemporaryDirectory() as tmp:
     tmp = Path(tmp).resolve()  # the server reports getcwd, and macOS's temp dir is a link
-    proc = subprocess.Popen([GROUND, "code"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([GROUND_CODE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         init = request(proc, 1, "initialize", {"protocolVersion": 1})
         # "Agent supports McpServer::Http": libmcp's Streamable HTTP client.
@@ -161,7 +161,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert result["error"]["data"]["failure"]["server"] == "missing", result
         assert not dead(c[0]["pid"])
         # A session found in the store, by another process, is given its servers there.
-        other = subprocess.Popen([GROUND, "code"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        other = subprocess.Popen([GROUND_CODE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             log4 = tmp / "d.jsonl"
             result = request(other, 1, "session/resume", {"sessionId": sid2, "cwd": str(tmp), "mcpServers": [server("elsewhere", log4)]})
@@ -187,7 +187,7 @@ with tempfile.TemporaryDirectory() as tmp:
     rfd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
     wfd = os.open(fifo, os.O_WRONLY)
     os.set_blocking(rfd, True)
-    named = subprocess.Popen([GROUND, "code"], stdin=rfd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    named = subprocess.Popen([GROUND_CODE], stdin=rfd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(rfd)
     try:
         os.write(wfd, (json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}) + "\n").encode())
