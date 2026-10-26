@@ -692,6 +692,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                 const(Control)* amendment = null;
                 const(Control)* fallback = null;
                 const(Control)* denyCtrl = null;
+                const(char)[] amendObserved, fallbackObserved, denyObserved;
                 const(char)[] decision;
 
                 foreach (ref sc; allScopes) {
@@ -724,13 +725,17 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                             }
                             continue;
                         }
-                        if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0))
+                        if (amendment is null && (c.arg.value.length > 0 || c.omit.value.length > 0)) {
                             amendment = &c;
-                        if (fallback is null)
+                            amendObserved = observed;
+                        }
+                        if (fallback is null) {
                             fallback = &c;
+                            fallbackObserved = observed;
+                        }
                         if (sc.decision == "deny") {
                             decision = "deny";
-                            if (denyCtrl is null) denyCtrl = &c;
+                            if (denyCtrl is null) { denyCtrl = &c; denyObserved = observed; }
                         }
                         else if (sc.decision == "ask" && decision != "deny")
                             decision = "ask";
@@ -739,11 +744,14 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                     }
                 }
 
-                // Deny control takes priority over amendment/fallback
+                // Deny control takes priority over amendment/fallback, and
+                // what its check observed goes with it.
                 auto matched = denyCtrl !is null ? denyCtrl :
                     amendment !is null ? amendment : fallback;
+                auto matchedObserved = denyCtrl !is null ? denyObserved :
+                    amendment !is null ? amendObserved : fallbackObserved;
                 if (matched !is null && result.count < result.matches.length) {
-                    result.matches[result.count] = Match(matched, segment, decision);
+                    result.matches[result.count] = Match(matched, segment, decision, matchedObserved);
                     result.count++;
                 }
             }

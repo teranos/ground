@@ -59,6 +59,11 @@ struct ParsedControl {
     // Written as they are, whichever of the rewrites above would change them.
     string[8] keeps;
     ubyte keepCount;
+    // A value shaped like what names a person is written as a fixture (pii.d),
+    // and these mail addresses are the fixtures.
+    bool scrub;
+    string[32] allowed;
+    ubyte allowedCount;
     bool bg;
     int tmo;
     string checkHandler, delayHandler, deliverHandler;
@@ -1693,6 +1698,22 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
                     }
                 } else {
                     c.keeps[0] = val; c.keepCount = 1;
+                }
+                break;
+            case "scrub":           c.scrub = (val == "true"); break;
+            case "allowed":
+                if (val is null) {
+                    while (pos < input.length) {
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ']') { pos++; break; }
+                        auto item = readValue(input, pos);
+                        assert(c.allowedCount < 32, "Control allowed list overflow");
+                        c.allowed[c.allowedCount++] = item;
+                        skipWS(input, pos);
+                        if (pos < input.length && input[pos] == ',') pos++;
+                    }
+                } else {
+                    c.allowed[0] = val; c.allowedCount = 1;
                 }
                 break;
             case "substitute_for_read":

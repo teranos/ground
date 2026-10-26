@@ -25,7 +25,7 @@ enum HookEvent {
                         // TODO: tool-name filtering — restrict controls to specific tools (e.g. Edit only, not Read)
                         // TODO: decision:block with reason — corrective feedback after tool runs
                         // TODO: exit 2 — stderr fed back to Claude as feedback
-                        // TODO: suppressOutput:true hides stdout; updatedToolOutput rewrites the result
+                        // TODO: suppressOutput:true hides stdout. updatedToolOutput: pii.d
     PostToolUseFailure, // trigger-matched hints on failure (e.g. wrong directory)
     Notification,       // a halted performance, said once per session. No decision control:
                         //   exit 2 shows stderr to the user and is the only reply it accepts

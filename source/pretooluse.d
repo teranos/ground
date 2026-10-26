@@ -69,6 +69,8 @@ __gshared const(char)[] shellWriteSaid;
 __gshared bool collecting;
 __gshared bool collectedDeny;
 __gshared Buf collected;
+// Collecting for an apply_patch, as against a file a shell command writes.
+__gshared bool patching;
 
 private void collect(const(char)[] said) {
     if (said.length == 0) return;
@@ -90,6 +92,52 @@ const(char)[] codexDecision(const(char)[] decision, bool rewrites) {
 // reached, and in auto mode that was every write.
 __gshared const(char)[] pendingRewrite;
 __gshared const(char)[] pendingWhy;
+
+// A write the floor could not make into fixtures is not made at all: the
+// reason, when there is one, and the call is refused with it.
+__gshared const(char)[] pendingDeny;
+
+// What the fixtures-only control did to a Bash command, carried on its answer.
+__gshared const(char)[] scrubSaid;
+
+import pii : Scrubbed;
+
+// The fixtures-only control standing at a path: whether one does, the mail
+// addresses it allows, and what it says.
+struct StandingScrub {
+    bool on;
+    const(string)[] allowed;
+    const(char)[] msg;
+}
+
+StandingScrub standingScrub(P)(const ref P parsed, const(char)[] cwd, const(char)[] root) {
+    import hooks : scopeMatchesIn;
+    foreach (si; 0 .. parsed.scopeCount) {
+        auto sc = parsed.scopes[si];
+        if (!scopeMatchesIn(sc, cwd, root)) continue;
+        foreach (ci; sc.controlStart .. sc.controlEnd) {
+            auto c = &parsed.ctrlPool[ci];
+            if (!c.scrub) continue;
+            return StandingScrub(true, c.allowed[0 .. c.allowedCount], c.msg);
+        }
+    }
+    return StandingScrub.init;
+}
+
+// The control's line and what the scrub counted, as one message.
+const(char)[] scrubMessage(const(char)[] msg, const ref Scrubbed r) {
+    import pii : said;
+    __gshared char[1024] buf = 0;
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < buf.length) buf[n++] = c; }
+    put(msg);
+    put(" (");
+    char[128] counted = 0;
+    put(counted[0 .. said(r, counted[])]);
+    put(")");
+    return buf[0 .. n];
+}
+
 
 // Appends a JSON string with the same escaping writeJsonString prints.
 private void putJsonString(ref char[] dest, ref size_t n, const(char)[] s) {
@@ -160,9 +208,10 @@ void writeContextResponse(const(char)[] context, const(char)[] decision) {
     // only advisory does not turn into a prompt for it.
     if (collecting) {
         if (decision == "deny") collectedDeny = true;
-        collect(said[0 .. sn]);
+        // A shell write's amendment is made on the command, which says so itself.
+        collect(patching ? said[0 .. sn] : context);
         // A patch carries no updatedInput: the amendment is said instead.
-        if (pendingRewrite.length > 0) collect("apply_patch cannot take ground's amendment of this file; make it in the patch.");
+        if (patching && pendingRewrite.length > 0) collect("apply_patch cannot take ground's amendment of this file; make it in the patch.");
         return;
     }
     auto verdict = decision;
@@ -239,9 +288,10 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
 {
     __gshared char[262144] out_ = "";
     __gshared Buf said;
-    if (shellWriteSaid.length > 0) {
+    if (shellWriteSaid.length > 0 || scrubSaid.length > 0) {
         said = Buf.init;
-        said.put(shellWriteSaid);
+        if (scrubSaid.length > 0) said.put(scrubSaid);
+        if (shellWriteSaid.length > 0) { if (said.len > 0) said.put(" | "); said.put(shellWriteSaid); }
         if (context.length > 0) { said.put(" | "); said.put(context); }
         context = said.slice();
     }
@@ -325,16 +375,34 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     import parse : extractToolInputRegion;
     import db : getenv;
 
-    if (toolName != "Write" && toolName != "Edit") return false;
+    bool mcpTool = toolName.length > 4 && toolName[0 .. 4] == "mcp_";
+    if (toolName != "Write" && toolName != "Edit" && !mcpTool) return false;
 
-    // Nobody sees it, nothing to protect: scratch, a file outside any
-    // repository, a private one.
+    // The named strings are kept from the internet: scratch, a file outside
+    // any repository, a private one, nobody sees. The shapes are kept from
+    // everywhere.
     auto target = extractFilePath(input);
     auto where = target.length > 0 ? target : cwd;
-    if (!internetSees(audienceOf(where, false))) return false;
+    auto seen = internetSees(audienceOf(where, false));
 
     auto region = extractToolInputRegion(input);
     if (region is null) return false;
+
+    import git : repoRoot;
+    import pii : scrub, scrubField;
+
+    // An MCP tool's whole input leaves the machine: all of it is scrubbed.
+    if (mcpTool) {
+        auto sc = standingScrub(parsedOnce, where, repoRoot(where));
+        if (!sc.on) return false;
+        __gshared char[131072] mcpBuf = "";
+        auto r = scrub(region, mcpBuf[], sc.allowed);
+        if (!r.fit) { pendingDeny = "the call is larger than ground reads, so it could not be made into fixtures; make it smaller."; return false; }
+        if (r.found == 0) return false;
+        pendingRewrite = mcpBuf[0 .. r.len];
+        pendingWhy = scrubMessage(sc.msg, r);
+        return true;
+    }
 
     auto h = getenv("HOME\0".ptr);
     size_t hl = 0;
@@ -356,10 +424,12 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
     // The scope is asked about the file being changed, not about where the
     // session stands. A session in a public repo writing into a private one
     // was scrubbing the private file for being in the wrong company.
-    import git : repoRoot;
     auto root = repoRoot(where);
 
-    for (size_t i = 0;; i++) {
+    // "gitignored files should be excempt from the golem rewrite rule"
+    bool named = seen && audienceOf(where, true) != Audience.Ignored;
+
+    for (size_t i = 0; named; i++) {
         auto sp = standingRewrite(parsed, where, root, i);
         if (sp.done) break;
 
@@ -382,11 +452,22 @@ bool computeRewrite(const(char)[] input, const(char)[] toolName, const(char)[] c
         }
     }
 
-    if (found == 0) return false;
+    // After the named strings, the shapes: what names a person is a fixture.
+    auto sc = standingScrub(parsed, where, root);
+    if (sc.on) {
+        foreach (key; WRITTEN_FIELDS) {
+            auto dest = inA ? bufA[] : bufB[];
+            auto r = scrubField(current, key, dest, sc.allowed);
+            if (!r.fit) { pendingDeny = "the write is larger than ground reads, so it could not be made into fixtures; write it in parts."; return false; }
+            if (r.found == 0) continue;
+            found += r.found;
+            current = dest[0 .. r.len];
+            inA = !inA;
+            why = scrubMessage(sc.msg, r);
+        }
+    }
 
-    // "gitignored files should be excempt from the golem rewrite rule"
-    // Asked here and not earlier, so a write nothing would rewrite never forks git.
-    if (audienceOf(where, true) == Audience.Ignored) return false;
+    if (found == 0) return false;
 
     // current is a slice of one of the two __gshared buffers, which outlive
     // this call, so the handler reads it whenever it answers.
@@ -461,6 +542,7 @@ private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] se
     }
 
     collecting = true;
+    patching = true;
     collectedDeny = false;
     collected = Buf.init;
     size_t pos;
@@ -472,6 +554,7 @@ private int answerPatch(const(char)[] input, const(char)[] cwd, const(char)[] se
         if (moved !is null) ask("Write", moved, text);
     }
     collecting = false;
+    patching = false;
     if (collectedDeny) writeDenyResponse(collected.slice());
     else writeContextResponse(collected.slice(), "");
     return 0;
@@ -547,12 +630,45 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     // rule is asked, so no rule's answer can leave the original in place.
     pendingRewrite = null;
     pendingWhy = null;
+    pendingDeny = null;
+    scrubSaid = null;
     if (computeRewrite(input, toolName, cwd)) {
         import fired : noteFiredNow;
         noteFiredNow(sessionId, "PreToolUse", "rewrite", "rewrite", "rewrite", cwd);
     }
+    if (pendingDeny.length > 0) {
+        exitLabel = "fixtures-deny";
+        writeDenyResponse(pendingDeny);
+        return 0;
+    }
 
     auto command = extractCommand(input);
+
+    // A command's text leaves with it: a commit message, a PR body, a heredoc,
+    // a request. What names a person in one is a fixture before it runs.
+    bool commandScrubbed = false;
+    if (command !is null) {
+        import git : repoRoot;
+        import pii : scrub;
+        import controls : parsedOnce;
+        auto sc = standingScrub(parsedOnce, cwd, repoRoot(cwd));
+        if (sc.on) {
+            __gshared char[131072] scrubbedCmd = "";
+            auto r = scrub(command, scrubbedCmd[], sc.allowed);
+            if (!r.fit) {
+                exitLabel = "fixtures-deny";
+                writeDenyResponse("the command is longer than ground reads, so it could not be made into fixtures; make it shorter.");
+                return 0;
+            }
+            if (r.found > 0) {
+                command = scrubbedCmd[0 .. r.len];
+                scrubSaid = scrubMessage(sc.msg, r);
+                commandScrubbed = true;
+                import fired : noteFiredNow;
+                noteFiredNow(sessionId, "PreToolUse", "rewrite", "fixtures-only", "rewrite", cwd);
+            }
+        }
+    }
 
     tParse = usecNow();
 
@@ -991,7 +1107,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             return 0;
         }
         // The commit with its sessions is the command, whoever else spoke.
-        if (provenanced || shellWriteSaid.length > 0) writeResponse(command, "", "");
+        if (provenanced || shellWriteSaid.length > 0 || commandScrubbed) writeResponse(command, "", "");
         return 0;
     }
 

@@ -1116,6 +1116,103 @@ CheckResult deepAndChain(const(char)[] cwd, const(char)[] input) {
     return countAndChains(command) >= depth ? fires() : passes();
 }
 
+// The mail addresses the fixtures-only control allows, from the pbt.
+const(string)[] fixtureMail() {
+    import controls : parsedOnce;
+    foreach (ci; 0 .. parsedOnce.ctrlPoolLen) {
+        auto c = &parsedOnce.ctrlPool[ci];
+        if (c.scrub) return c.allowed[0 .. c.allowedCount];
+    }
+    return null;
+}
+
+// Whether a line a patch adds names a person (pii.d). What was found, in a
+// line, is left in `saidInto`; null when nothing was.
+const(char)[] addedNamesPerson(const(char)[] patch, char[] saidInto) {
+    import pii : scrub, said;
+    __gshared char[1048576] added = 0;
+    __gshared char[1048576] out_ = 0;
+    size_t n;
+    size_t start = 0;
+    foreach (i; 0 .. patch.length + 1) {
+        if (i < patch.length && patch[i] != '\n') continue;
+        auto line = patch[start .. i];
+        start = i + 1;
+        if (line.length == 0 || line[0] != '+') continue;
+        if (line.length >= 3 && line[0 .. 3] == "+++") continue;
+        foreach (c; line[1 .. $]) if (n < added.length) added[n++] = c;
+        if (n < added.length) added[n++] = '\n';
+    }
+    auto r = scrub(added[0 .. n], out_[], fixtureMail());
+    if (!r.fit) {
+        size_t m;
+        foreach (c; "more added lines than ground reads") if (m < saidInto.length) saidInto[m++] = c;
+        return saidInto[0 .. m];
+    }
+    if (r.found == 0) return null;
+    return saidInto[0 .. said(r, saidInto)];
+}
+
+// The verdict on a patch: fires when an added line names a person, or when
+// the patch could not be read, which is said instead of the authored msg.
+private CheckResult patchVerdict(const(char)[] patch, const(char)[] unreadable, const(char)[] what) {
+    __gshared char[1024] found = 0;
+    __gshared ZBuf observed;
+    observed.reset();
+    if (patch is null) {
+        observed.put(what);
+        observed.put(" refused: ground could not read the patch (");
+        observed.put(unreadable);
+        observed.put("), so it could not check that it names nobody.");
+        return CheckResult(true, cast(string) observed.slice());
+    }
+    auto named = addedNamesPerson(patch, found[]);
+    if (named is null) return passes();
+    observed.put(what);
+    observed.put(" refused: an added line carries ");
+    observed.put(named);
+    observed.put("; write the fixture instead (controls/fixtures.pbt).");
+    return CheckResult(true, cast(string) observed.slice());
+}
+
+// Whether what is staged adds a line that names a person.
+CheckResult stagedNamesPerson(const(char)[] cwd, const(char)[] input) {
+    import libgit2 : Repo;
+    __gshared Repo g;
+    __gshared char[1048576] patch = 0;
+    if (!g.open(cwd)) return passes();
+    scope (exit) g.close();
+    auto p = g.stagedPatch(patch[]);
+    if (p !is null && g.overflowed) return patchVerdict(null, "larger than ground reads", "commit");
+    return patchVerdict(p, g.why(), "commit");
+}
+
+// Whether the commits a push would carry add a line that names a person:
+// HEAD against its remote branch, or HEAD alone when the branch is new.
+CheckResult pushNamesPerson(const(char)[] cwd, const(char)[] input) {
+    import libgit2 : Repo, Shown;
+    import git : getBranch;
+    __gshared Repo g;
+    __gshared char[1048576] patch = 0;
+    __gshared char[512] remote = 0;
+    if (!g.open(cwd)) return passes();
+    scope (exit) g.close();
+    auto branch = getBranch(cwd);
+    const(char)[] p;
+    if (branch.length > 0 && branch.length + 21 < remote.length) {
+        size_t n;
+        foreach (c; "refs/remotes/origin/") remote[n++] = c;
+        foreach (c; branch) remote[n++] = c;
+        p = g.between(remote[0 .. n], "HEAD", 0, Shown.patch, patch[]);
+    }
+    // A branch the remote has not seen is read against its main, and a
+    // repository with neither against the commit alone.
+    if (p is null) p = g.between("refs/remotes/origin/main", "HEAD", 0, Shown.patch, patch[]);
+    if (p is null) p = g.show("HEAD", patch[]);
+    if (p !is null && g.overflowed) return patchVerdict(null, "larger than ground reads", "push");
+    return patchVerdict(p, g.why(), "push");
+}
+
 // Cached file list from the last few commits in `cwd`.
 // Shared across all `pushed_paths:` matchers in one PostToolUse invocation.
 __gshared char[8192] g_pushedFilesBuf = 0;
