@@ -96,6 +96,18 @@ static assert(r("AS-" ~ POST).found == 1);
 static assert(r("a" ~ POST).found == 0);
 static assert(r(YEAR_POST).count[Shape.postcode] == 1);
 
+// A Dutch street with its house number becomes the example street; the second street is number two.
+enum KERK = "Kerk" ~ "straat 12";
+enum PRINSEN = "Prinsen" ~ "gracht 263";
+static assert(is_!(KERK ~ ", " ~ POST ~ " Amsterdam", "Voorbeeldstraat 1, 0000 AA Amsterdam"));
+static assert(is_!(KERK ~ " en " ~ PRINSEN ~ " en " ~ KERK, "Voorbeeldstraat 1 en Voorbeeldstraat 2 en Voorbeeldstraat 1"));
+static assert(r("Voorbeeldstraat 1").found == 0);
+
+// Not a street: the word alone, a number glued to letters, a word too short to carry a name.
+static assert(r("de straat 12").found == 0);
+static assert(r("Kerk" ~ "straat12a").found == 0);
+static assert(r("onderweg naar 3").found == 0);
+
 // Everything else is bytes in, bytes out.
 static assert(is_!("", ""));
 static assert(is_!("plain text, no shapes", "plain text, no shapes"));

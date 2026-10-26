@@ -25,6 +25,26 @@ scope {
   }
 }
 
+# A body read from a file passes no hook: it is given inline, where it does.
+scope {
+  event: "PreToolUse"
+  decision: "deny"
+
+  control {
+    name: "body-is-inline"
+    cmd: ["gh pr", "gh issue", "gh release", "gh gist"]
+    content: ["--body-file", " -F "]
+    msg: "give the body inline with --body; a body read from a file is not seen on its way out."
+  }
+
+  control {
+    name: "api-body-is-inline"
+    cmd: "gh api"
+    content: "=@"
+    msg: "give the field inline; a value read from a file is not seen on its way out."
+  }
+}
+
 # What a tool ground never saw put in a file still does not leave: a commit
 # with such a line staged, or a push carrying one, is refused by name.
 scope {

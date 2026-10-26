@@ -4,14 +4,14 @@ module pii;
 // fixture instead: a mail address, an IPv4 address, a phone number, a Dutch
 // postal code. A street or a domain name has no shape and stays a list (rewrite:).
 
-enum Shape : ubyte { none, mail, ip, phone, postcode }
+enum Shape : ubyte { none, mail, ip, phone, postcode, street }
 
 // What the scrub found, by shape, and where the whole went.
 struct Scrubbed {
     size_t len;
     bool fit = true;
-    size_t[5] count;   // by Shape
-    size_t found() const { return count[1] + count[2] + count[3] + count[4]; }
+    size_t[6] count;   // by Shape
+    size_t found() const { return count[1] + count[2] + count[3] + count[4] + count[5]; }
 }
 
 // One span the scanner recognised.
@@ -27,7 +27,7 @@ private bool alnum(char c) { return digit(c) || alpha(c); }
 private bool mailLocal(char c) { return alnum(c) || c == '.' || c == '_' || c == '%' || c == '+' || c == '-'; }
 private bool mailDomain(char c) { return alnum(c) || c == '-' || c == '.'; }
 
-// mail: local@label.label, the last label letters, two or more.
+// mail: a local part, the at sign, dotted labels, the last of them letters, two or more.
 private Span mailAround(const(char)[] t, size_t at) {
     size_t s = at;
     while (s > 0 && mailLocal(t[s - 1])) s--;
@@ -124,7 +124,7 @@ private Span phoneAt(const(char)[] t, size_t i) {
     return Span(i, lastDigit, Shape.phone);
 }
 
-// postcode: 1234 AB, the first digit never zero.
+// postcode: four digits, a space or none, two capitals; the first digit never zero.
 private Span postcodeAt(const(char)[] t, size_t i) {
     if (i > 0 && alnum(t[i - 1])) return Span.init;
     if (i + 6 > t.length) return Span.init;
@@ -138,9 +138,49 @@ private Span postcodeAt(const(char)[] t, size_t i) {
     return Span(i, p + 2, Shape.postcode);
 }
 
+// street: a Dutch street name, by the word it ends on, and its house number.
+private static immutable string[10] STREET_ENDS = [
+    "straat", "laan", "weg", "plein", "gracht", "kade", "singel", "dijk", "steeg", "markt",
+];
+
+// The stand-in's own name, kept so a second pass changes nothing.
+private enum STREET_STANDIN = "Voorbeeldstraat";
+
+private bool endsWithCI(const(char)[] word, const(char)[] end) {
+    if (word.length < end.length) return false;
+    foreach (i, c; end) {
+        char w = word[word.length - end.length + i];
+        if (w >= 'A' && w <= 'Z') w += 32;
+        if (w != c) return false;
+    }
+    return true;
+}
+
+private Span streetAt(const(char)[] t, size_t i) {
+    if (i > 0 && alnum(t[i - 1])) return Span.init;
+    size_t e = i;
+    while (e < t.length && alpha(t[e])) e++;
+    auto word = t[i .. e];
+    bool named = false;
+    foreach (end; STREET_ENDS) if (word.length >= end.length + 2 && endsWithCI(word, end)) named = true;
+    if (!named) return Span.init;
+    size_t p = e;
+    if (p < t.length && t[p] == ' ') p++;
+    size_t d = p;
+    while (d < t.length && d - p < 4 && digit(t[d])) d++;
+    if (d == p) return Span.init;
+    if (d < t.length && alnum(t[d])) return Span.init;
+    return Span(i, d, Shape.street);
+}
+
+private bool streetStays(const(char)[] v) {
+    return v.length >= STREET_STANDIN.length && v[0 .. STREET_STANDIN.length] == STREET_STANDIN;
+}
+
 // The span starting at i, if the scanner recognises one. A phone is asked
 // after an IP, so 00.. never swallows an address.
 Span spanAt(const(char)[] t, size_t i) {
+    if (alpha(t[i])) return streetAt(t, i);
     if (digit(t[i])) {
         auto ip = ipAt(t, i);
         if (ip.ok) return ip;
@@ -164,7 +204,7 @@ private bool standIn(Shape shape, size_t n, const(string)[] allowedMail, scope b
     bool num() { while (k > 0) { k--; if (!put(d[k .. k + 1])) return false; } return true; }
     final switch (shape) {
         case Shape.mail:
-            if (allowedMail.length == 0) return put("someone@example.com");
+            if (allowedMail.length == 0) return put("tim@example.com");
             return put(allowedMail[n % allowedMail.length]);
         case Shape.ip:
             if (!put("192.0.2.")) return false;
@@ -174,6 +214,10 @@ private bool standIn(Shape shape, size_t n, const(string)[] allowedMail, scope b
             return num();
         case Shape.postcode:
             return put("0000 AA");
+        case Shape.street:
+            if (!put(STREET_STANDIN)) return false;
+            if (!put(" ")) return false;
+            return num();
         case Shape.none:
             return true;
     }
@@ -228,7 +272,8 @@ Scrubbed scrub(const(char)[] text, char[] dest, const(string)[] allowed = null) 
         auto value = text[sp.start .. sp.end];
 
         bool stays = (sp.shape == Shape.mail && listed(value, allowed))
-                  || (sp.shape == Shape.ip && ipStays(value));
+                  || (sp.shape == Shape.ip && ipStays(value))
+                  || (sp.shape == Shape.street && streetStays(value));
         if (stays) {
             if (!put(value)) return none();
             i = sp.end;
@@ -359,5 +404,6 @@ size_t said(const ref Scrubbed r, char[] into) {
     one(r.count[Shape.ip], "IP address", "IP addresses");
     one(r.count[Shape.phone], "phone number", "phone numbers");
     one(r.count[Shape.postcode], "postal code", "postal codes");
+    one(r.count[Shape.street], "street address", "street addresses");
     return n;
 }
