@@ -60,7 +60,12 @@ unittest {
     auto n = snprintf(pidText.ptr, pidText.length, "#%d", child);
     assert(said.length > cast(size_t) n && said[$ - n .. $] == pidText[0 .. n]);
     assert(said[0] < '0' || said[0] > '9', "a phase value that starts with a digit is read as a number");
-    // The child runs the test binary itself: named by its own file, not an argument.
-    assert(said.length > 23 && said[0 .. 23] == "ground-test-application", said);
+    // The child runs the test binary itself, so it is named as this process is,
+    // whichever build named the binary.
+    char[128] mine;
+    auto own = holderName(getpid(), mine[]);
+    size_t stem;
+    while (stem < own.length && own[stem] != '#') stem++;
+    assert(stem > 0 && said.length > stem && said[0 .. stem + 1] == own[0 .. stem + 1], said);
     foreach (c; said) assert(c != ' ', "a space ends a phase pair");
 }
