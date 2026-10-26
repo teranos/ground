@@ -26,6 +26,30 @@ else
 wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
 	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d -L-lgit2
 
+# parity is its own binary, for whoever develops ground. It reads the pinned
+# agents' schemas and libmcp's C at compile time, which took the hook binary from
+# 42s to 94s when libMCP came in (bisected to 9e8dcbe, 2026-10-26) and with
+# parity left out of the build 38s. The hook binary does not carry that; the
+# cost is paid here, by the one who runs parity.
+# The list is the modules parity links. A new import shows as an undefined
+# reference at the link, naming the module to add.
+PARITY_SOURCES = tools/parity_main.d source/parity.d source/agy.d source/backend.d \
+	source/code/mcp.d source/code/prompt.d source/code/reply.d \
+	source/control_handlers.d source/controls.d source/count.d source/db.d \
+	source/git.d source/gitdir.d source/hooks.d source/lexer.d source/libjsonc.d \
+	source/libmcp.d source/lockholder.d source/matcher.d source/parse.d \
+	source/permission.d source/proto.d source/receiver.d source/rite.d \
+	source/sessionmode.d source/strop.d source/zbuf.d
+
+parity: wind $(PARITY_SOURCES)
+	ldc2 -betterC --lowmem -J=. -I=source -of=tools/parity $(PARITY_SOURCES) \
+	  -L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl
+
+install-parity: parity
+	mkdir -p $(PREFIX)/bin
+	cp tools/parity $(PREFIX)/bin/parity.new
+	mv -f $(PREFIX)/bin/parity.new $(PREFIX)/bin/parity
+
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
 # build including release. Measured 2026-07-28 with ldc2 -ftime-trace: semantic
@@ -154,8 +178,9 @@ install: build install-ug
 	nix build .#mcp-schemas --out-link $(PREFIX)/lib/ground/mcp
 	$(MAKE) prune-dub-cache
 	./ground attest
-# Every install is a run of parity, so the series has a point per ground built.
-	./ground parity
+# Every install by someone who has built parity is a run of it, so the series
+# has a point per ground built. Nobody else needs it, and install does not build it.
+	@if [ -x tools/parity ]; then tools/parity; else echo "install: parity not built, no point added to the series (make parity)"; fi
 	./ground decay
 
 # dub keys its cache by version and every commit is a version: 129 builds, 18G.
@@ -183,12 +208,12 @@ editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d d
 # One typesetter, and the web copy is bound from what it set. Page 12 on the
 # screen is the sheet carrying 12 on paper, because it is that sheet and not a
 # second rendering of the same source.
-book: press binder build
+book: press binder build parity
 	mkdir -p doc/tex doc/measured
 # What this ground measured, read out of the store: the parity table as it
 # stands and the series of every run before it, and libMCP's against MCP.
-	./ground parity tex > doc/measured/parity.tex
-	./ground parity tex mcp > doc/measured/libmcp.tex
+	tools/parity tex > doc/measured/parity.tex
+	tools/parity tex mcp > doc/measured/libmcp.tex
 # press clears doc/tex itself, once it has proved every example fits a page.
 # Clearing here meant a halt deleted the last good book on its way out.
 	./tools/press
