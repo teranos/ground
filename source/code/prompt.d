@@ -293,6 +293,63 @@ int permissionOutcome(const(char)[] line, ref Reply optionId) {
     return 1;
 }
 
+// A conversation told back to the client, a session/update a step, as the
+// turns that made it told them live: what the user said, what the model said,
+// each call it asked for, and how each one came out. A call came out completed
+// when its answer is an MCP response's result, and failed otherwise, as live.
+// false when the history is not one ground code wrote, or send failed.
+bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send) {
+    Reply all;
+    scope(exit) all.dispose();
+    all.add("["); all.add(history); all.add("]");
+    if (all.full) return false;
+    auto root = parseJson(all.slice());
+    scope(exit) json_object_put(root);
+    if (json_object_get_type(root) != json_type.array) return false;
+    bool told(ref Reply u) { bool ok = !u.full && send(u.slice()); u.dispose(); return ok; }
+    foreach (i; 0 .. json_object_array_length(root)) {
+        auto m = json_object_array_get_idx(root, i);
+        auto role = text(jsonField(m, "role"));
+        auto content = text(jsonField(m, "content"));
+        if (role == "user" || (role == "assistant" && content.length > 0)) {
+            Reply u;
+            u.add(role == "user" ? `{"sessionUpdate":"user_message_chunk"` : `{"sessionUpdate":"agent_message_chunk"`);
+            u.add(`,"content":{"type":"text","text":"`); putEscaped(u, content); u.add(`"}}`);
+            if (!told(u)) return false;
+        }
+        if (role == "assistant") {
+            auto calls = jsonField(m, "tool_calls");
+            foreach (j; 0 .. json_object_get_type(calls) == json_type.array ? json_object_array_length(calls) : 0) {
+                auto call = json_object_array_get_idx(calls, j);
+                auto fn = jsonField(call, "function");
+                auto id = text(jsonField(call, "id")), name = text(jsonField(fn, "name")), args = text(jsonField(fn, "arguments"));
+                if (id is null || name is null || args is null) return false;
+                Reply u;
+                u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, id);
+                u.add(`","title":"`); putEscaped(u, name);
+                u.add(`","rawInput":`); u.add(args); u.add(`}`);
+                if (!told(u)) return false;
+            }
+        }
+        else if (role == "tool") {
+            auto id = text(jsonField(m, "tool_call_id"));
+            if (id is null || content is null) return false;
+            auto answer = parseJson(content);
+            scope(exit) json_object_put(answer);
+            bool completed = jsonField(answer, "result") !is null;
+            Reply u;
+            u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, id);
+            u.add(completed ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`);
+            if (answer !is null) u.add(content);
+            else { u.add(`"`); putEscaped(u, content); u.add(`"`); }
+            u.add(`}`);
+            if (!told(u)) return false;
+        }
+        else if (role != "user" && role != "assistant") return false;
+    }
+    return true;
+}
+
 struct Call { const(char)[] id; const(char)[] name; const(char)[] arguments; }
 
 // What the model answered: its text, or the calls it wants made. The slices
