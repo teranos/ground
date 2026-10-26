@@ -28,7 +28,24 @@ extern(C) int main(int argc, const(char)** argv) {
     assert(response.json !is null && validation.json !is null);
     assert(strstr(validation.json, "output") !is null);
     mcp_response_free(&response); mcp_response_free(&validation);
+    // The same three through the path a turn takes, polled and stoppable:
+    // validation is reported the same way.
+    bool never() { return false; }
+    status = callMcpTool(group, "test", "echo", `{"text":42}`, response, validation, error, &never);
+    assert(status == mcp_status.MCP_VALIDATION_ERROR);
+    assert(response.json is null);
+    assert(validation.json !is null && strstr(validation.json, "/text") !is null);
+    mcp_response_free(&validation);
+    status = callMcpTool(group, "test", "echo", `{"text":"polled"}`, response, validation, error, &never);
+    assert(status == mcp_status.MCP_OK);
+    assert(strstr(response.json, "polled") !is null);
+    mcp_response_free(&response);
+    status = callMcpTool(group, "test", "bad-output", `{"text":"bad"}`, response, validation, error, &never);
+    assert(status == mcp_status.MCP_VALIDATION_ERROR);
+    assert(response.json !is null && validation.json !is null);
+    assert(strstr(validation.json, "output") !is null);
+    mcp_response_free(&response); mcp_response_free(&validation);
     assert(closeMcp(group, detail));
-    puts("Ground checked dispatch: invalid input, corrected call, invalid output, cleanup passed");
+    puts("Ground checked dispatch: invalid input, corrected call, invalid output, cleanup passed, waited and polled");
     return 0;
 }

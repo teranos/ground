@@ -1251,7 +1251,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     mcp_response response, validation;
                     mcp_error error;
                     scope(exit) { mcp_response_free(&response); mcp_response_free(&validation); }
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error);
+                    // "Abort all tool call invocations in progress": a cancel
+                    // that arrives while the call runs cancels it at the server.
+                    bool stopCall() { return cancelAsked(turn); }
+                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall);
                     bool ok = status == mcp_status.MCP_OK;
                     if (ok) result.add(response.json[0 .. response.length]);
                     else {
@@ -1268,6 +1271,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
                     u.add(ok ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`); u.add(result.slice()); u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    // Cancelled in the call: the calls after it are not run,
+                    // and the turn answers cancelled now.
+                    if (turn.cancelled) {
+                        foreach (j; i + 1 .. c.callCount)
+                            toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"the client cancelled the turn"}`);
+                        stopCancelled();
+                        return true;
+                    }
                 }
             }
         }
