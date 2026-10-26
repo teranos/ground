@@ -19,6 +19,7 @@ struct McpServer {
     mcp_client* client;
     McpContract* contracts;
     McpPage* tools; // all tools/list pages, kept whole for the harness
+    int timeoutMs;  // the per-request deadline its client was opened with
 }
 struct McpGroup { McpServer* servers; size_t count; }
 
@@ -155,6 +156,7 @@ private const(char)* bearerOf(json_object* config) {
 private mcp_status startHttp(json_object* config, ref McpServer server, ref mcp_response response, ref mcp_error error) {
     mcp_options options;
     mcp_options_init(&options);
+    server.timeoutMs = options.timeout_ms;
     options.client_name = "ground";
     options.on_message = &ground_mcp_log; options.context = server.name;
     return mcp_client_open_http(&options, null, stringAt(jsonField(config, "url")), bearerOf(config),
@@ -203,6 +205,7 @@ private mcp_status startServer(json_object* config, const(char)* cwd,
     foreach (i; 0 .. envc) envp[used++] = values[i];
     mcp_options options;
     mcp_options_init(&options);
+    server.timeoutMs = options.timeout_ms;
     options.command = argv[0]; options.argv = cast(const(char*)*) argv;
     options.envp = cast(const(char*)*) envp; options.cwd = cwd;
     options.client_name = "ground";
@@ -341,17 +344,62 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
 
 // This is the harness dispatch boundary. Names stay a (server, tool) pair,
 // so two servers exposing "search" never overwrite or masquerade as each other.
+// stop, when given, is asked between polls while the call runs, and a yes
+// cancels it at the server: MCP_CANCELLED, and no response.
 mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
-                       const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error) {
+                       const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error,
+                       scope bool delegate() stop = null) {
     if (serverName is null || toolName is null) return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool dispatch needs server and tool names");
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
         if (strcmp(server.name, serverName) == 0) {
             for (auto contract = server.contracts; contract !is null; contract = contract.next)
                 if (strcmp(mcp_tool_name(contract.tool), toolName) == 0)
-                    return mcp_tool_call(server.client, contract.tool, arguments, &response, &validation, &error);
+                    return stop is null
+                        ? mcp_tool_call(server.client, contract.tool, arguments, &response, &validation, &error)
+                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop);
             return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool is not in the session server catalog");
         }
     }
     return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "session has no MCP server with that name");
+}
+
+// How long a poll waits before stop is asked again.
+enum POLL_MS = 100;
+
+// mcp_tool_call, as libmcp writes it: submit, poll until the request is done,
+// take, and the validation report moved out. Between polls, stop is asked;
+// a yes cancels the request, which libmcp says to the server as
+// notifications/cancelled with this reason.
+private mcp_status stoppableCall(ref McpServer server, const(mcp_tool)* tool, const(char)* arguments,
+                                 ref mcp_response response, ref mcp_response validation, ref mcp_error error,
+                                 scope bool delegate() stop) {
+    mcp_request* request;
+    auto status = mcp_tool_submit(server.client, tool, arguments, server.timeoutMs, &request, &error);
+    if (status != mcp_status.MCP_OK) return status;
+    scope(exit) mcp_request_destroy(request, null);
+    while (mcp_request_status(request) == mcp_status.MCP_PENDING) {
+        if (stop()) {
+            status = mcp_request_cancel(request, "the client cancelled the turn", &error);
+            if (status != mcp_status.MCP_OK) return status;
+            return localError(error, mcp_status.MCP_CANCELLED, "the client cancelled the turn");
+        }
+        status = mcp_client_poll(server.client, POLL_MS, &error);
+        // A poll that failed leaves the request pending: it is the call's failure.
+        if (status != mcp_status.MCP_OK && mcp_request_status(request) == mcp_status.MCP_PENDING) {
+            mcp_error ignored;
+            mcp_request_cancel(request, "ground's poll of the server failed", &ignored);
+            return status;
+        }
+    }
+    status = mcp_request_take(request, &response, &error);
+    auto report = mcp_request_validation_json(request);
+    if (report !is null) {
+        mcp_error copied;
+        if (mcp_response_set(&validation, report, &copied) != mcp_status.MCP_OK && status == mcp_status.MCP_OK) {
+            error = copied;
+            return copied.code;
+        }
+    }
+    return status;
 }

@@ -816,3 +816,112 @@ version (Posix) unittest {
         end(input, p, s);
     }
 }
+
+// "Upon receiving this notification, the Agent SHOULD: ... Abort all tool call
+// invocations in progress". A cancel that arrives while a session's tool runs
+// cancels it at the server, and the turn answers cancelled without waiting
+// the call out; the history answers the call, and the calls after it.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, sleep, dup, dup2, getcwd;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.sys.posix.fcntl : open, O_WRONLY;
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.stdc.stdio : fflush, stdout, FILE, fopen, fread, fclose;
+    import core.stdc.time : time;
+    import matcher : indexOf;
+
+    enum calls = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+        ~ `{"id":"c1","type":"function","function":{"name":"test__wait","arguments":"{}"}},`
+        ~ `{"id":"c2","type":"function","function":{"name":"test__quick","arguments":"{}"}}]}}]}`;
+    enum cancel = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n";
+
+    __gshared char[4096] cwd;
+    __gshared char[64] dir = "/tmp/ground-abort-XXXXXX\0";
+    assert(getcwd(cwd.ptr, cwd.length) !is null && mkdtemp(dir.ptr) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    size_t dirLen = 0; while (dir[dirLen]) dirLen++;
+
+    int[2] p;
+    assert(pipe(p) == 0);
+    auto fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a;
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 1) == 0);
+    socklen_t n = a.sizeof;
+    assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+    auto child = fork();
+    if (child == 0) {
+        auto c = accept(fd, null, null);
+        char[65536] got;
+        read(c, got.ptr, got.length);
+        write(c, calls.ptr, calls.length);
+        close(c);
+        sleep(1); // the turn is in its first call by now, which never answers
+        write(p[1], cancel.ptr, cancel.length);
+        sleep(30);
+        _exit(0);
+    }
+    close(fd);
+    __gshared char[32] urlBuf;
+    ushort port = htons(a.sin_port);
+    size_t len = 0;
+    foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+    char[8] d; size_t k = 0;
+    do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+    while (k) urlBuf[len++] = d[--k];
+
+    Input input = Input(p[0]);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+    s.input = &input;
+    scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+
+    Reply req;
+    scope(exit) req.dispose();
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(cwd[0 .. cwdLen]); req.add(`/mcp/abort_server.py"],"env":[{"name":"ABORT_LOG","value":"`);
+    req.add(dir[0 .. dirLen]); req.add(`/wire.jsonl"}]}]}}`);
+    fflush(stdout);
+    auto saved = dup(1);
+    auto devnull = open("/dev/null", O_WRONLY);
+    dup2(devnull, 1);
+    Reply r;
+    answer(req.slice(), r, s);
+    bool opened = indexOf(r.slice(), `"sessionId":"code-100-7-1"`) >= 0;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"bypassPermissions"}}`, r, s);
+    r.len = 0;
+    auto began = time(null);
+    answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"wait"}]}}`, r, s);
+    auto took = time(null) - began;
+    fflush(stdout); dup2(saved, 1); close(saved); close(devnull);
+    assert(opened);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    r.dispose();
+    assert(took < 10);
+    auto history = s.open[0].history.slice();
+    assert(indexOf(history, `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\"`) >= 0);
+    assert(indexOf(history, `{"role":"tool","tool_call_id":"c2","content":"{\"status\":\"not run\",\"why\":\"the client cancelled the turn\"}"}`) >= 0);
+    // The server was told, by the call's id: closed first, so it has read
+    // everything sent to it before its log is.
+    Reply closed;
+    import code.mcp : closeMcp;
+    assert(closeMcp(s.open[0].mcp, closed));
+    closed.dispose();
+    __gshared char[65536] wire;
+    Reply path;
+    scope(exit) path.dispose();
+    path.add(dir[0 .. dirLen]); path.add("/wire.jsonl\0");
+    auto f = fopen(path.slice().ptr, "r");
+    assert(f !is null);
+    auto got = fread(wire.ptr, 1, wire.length, f);
+    fclose(f);
+    assert(indexOf(wire[0 .. got], `"method": "notifications/cancelled"`) >= 0);
+    assert(indexOf(wire[0 .. got], `"reason": "the client cancelled the turn"`) >= 0);
+    s.open[0].history.dispose();
+}

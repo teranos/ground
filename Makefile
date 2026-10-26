@@ -93,6 +93,8 @@ test-mcp: build
 	$(MCP_SERVER) python3 mcp/test_ground.py ./ground
 	ldc2 -betterC -I=source -of=build/checked-test mcp/checked.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	python3 mcp/test_checked.py build/checked-test
+	ldc2 -betterC -I=source -of=build/abort-test mcp/abort.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
+	python3 mcp/test_abort.py build/abort-test
 
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:
