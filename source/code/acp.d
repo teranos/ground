@@ -94,6 +94,7 @@ struct Sessions {
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
+    ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
 }
 
@@ -592,6 +593,8 @@ enum GATEWAY_BODY = 4 << 20;
 // "assume you always run it with a strong model"
 // A turn ends when the model answers in words; ground code counts no rounds.
 enum GATEWAY_SECONDS = 600;
+// How long the gateway's models list may take: a list, not a model's answer.
+enum MODELS_SECONDS = 30;
 
 private void putSessionId(ref Reply r, ref const Sessions s, uint n) {
     r.add("code-"); putNumber(r, s.started); r.add("-"); putNumber(r, s.pid); r.add("-"); putNumber(r, n);
@@ -1276,6 +1279,31 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             auto dest = cast(char*) malloc(GATEWAY_BODY);
             if (dest is null) { put(`,"error":{"code":-32603,"message":"could not allocate the gateway's answer"}}`); return true; }
             scope(exit) free(dest);
+            // usage_update's size, "Total context window size in tokens", is
+            // the model's context_length in the gateway's models list, asked
+            // once a process. A model it does not size is said before the
+            // model is asked.
+            if (sessions.contextSize == 0) {
+                import http : httpGet;
+                Reply models;
+                scope(exit) models.dispose();
+                models.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); models.add(MODELS_PATH);
+                auto listed = httpGet(models.slice(), token, dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
+                if (listed.code != 0 || listed.overran || listed.status != 200) {
+                    put(`,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
+                    putEscaped(r, models.slice());
+                    put(`","status":`); putNumber(r, cast(uint) listed.status);
+                    put(`,"curl":`); putNumber(r, cast(uint) listed.code);
+                    put(`,"why":"`); putEscaped(r, listed.why());
+                    put(`","body":"`); putEscaped(r, dest[0 .. listed.len]); put(`"}}}`);
+                    return true;
+                }
+                if (!contextLengthOf(dest[0 .. listed.len], qntxNode.model, sessions.contextSize)) {
+                    put(`,"error":{"code":-32603,"message":"the gateway's models list gives no context_length for `);
+                    putEscaped(r, qntxNode.model); put(`","data":{"url":"`); putEscaped(r, models.slice()); put(`"}}}`);
+                    return true;
+                }
+            }
             // The history and the tools go to the gateway; a tool_calls answer is
             // run through the session's own MCP server and handed back, until the
             // model answers in words, or the client calls the turn off.
@@ -1320,6 +1348,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     scope(exit) u.dispose();
                     u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
                     putEscaped(u, c.content); u.add(`"}}`);
+                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                }
+                // "Context window and cost update for a session": what the
+                // conversation holds now, of the model's window.
+                if (c.hasUsage) {
+                    Reply u;
+                    scope(exit) u.dispose();
+                    u.add(`{"sessionUpdate":"usage_update","used":`); putNumber(u, c.used);
+                    u.add(`,"size":`); putNumber(u, sessions.contextSize); u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 // "max_tokens": the answer was cut off at the model's token
