@@ -385,7 +385,56 @@ int readTextContent(const(char)[] line, ref Reply content) {
 // each call it asked for, and how each one came out. A call came out completed
 // when its answer is an MCP response's result, and failed otherwise, as live.
 // false when the history is not one ground code wrote, or send failed.
-bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send) {
+// --- what a tool call shows the user ---
+
+// ToolCall content, "Content produced by the tool call", from what a call
+// answered as the history keeps it: its MCP content blocks as they came, since
+// ContentBlock is "compatible with the Model Context Protocol (MCP), enabling
+// agents to seamlessly forward content from MCP tool outputs without
+// transformation"; or what failed it as text: the server's error, a tool's
+// error content, ground code's message, or why it was not run. Nothing to
+// show adds nothing.
+void putToolContent(ref Reply u, const(char)[] output) {
+    auto root = parseJson(output);
+    scope(exit) json_object_put(root);
+    json_object* inner;
+    scope(exit) json_object_put(inner);
+    json_object* blocks;
+    const(char)[] said;
+    if (root is null) said = output;
+    else if (jsonField(root, "result") !is null) blocks = jsonField(jsonField(root, "result"), "content");
+    else if (jsonField(root, "error") !is null) said = text(jsonField(jsonField(root, "error"), "message"));
+    else {
+        // ground code's own: the response it failed on, when there was one.
+        auto response = text(jsonField(root, "response"));
+        if (response.length > 0) inner = parseJson(response);
+        if (jsonField(inner, "result") !is null) blocks = jsonField(jsonField(inner, "result"), "content");
+        else if (jsonField(inner, "error") !is null) said = text(jsonField(jsonField(inner, "error"), "message"));
+        if (blocks is null && said.length == 0) {
+            said = text(jsonField(root, "why"));
+            if (said.length == 0) said = text(jsonField(root, "message"));
+        }
+    }
+    if (json_object_get_type(blocks) == json_type.array && json_object_array_length(blocks) > 0) {
+        u.add(`,"content":[`);
+        foreach (i; 0 .. json_object_array_length(blocks)) {
+            if (i > 0) u.add(",");
+            u.add(`{"type":"content","content":`);
+            auto block = json_object_to_json_string_ext(json_object_array_get_idx(blocks, i),
+                JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+            u.add(block[0 .. strlen(block)]);
+            u.add(`}`);
+        }
+        u.add(`]`);
+    } else if (said.length > 0) {
+        u.add(`,"content":[{"type":"content","content":{"type":"text","text":"`); putEscaped(u, said); u.add(`"}}]`);
+    }
+}
+
+// The history, told again. readOnly, when given, says which of the calls'
+// tools are read-only, so their replayed calls say kind read as they did live.
+bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
+        scope bool delegate(const(char)[] tool) readOnly = null) {
     Reply all;
     scope(exit) all.dispose();
     all.add("["); all.add(history); all.add("]");
@@ -422,6 +471,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, id);
                 u.add(`","title":"`); putEscaped(u, name);
                 u.add(`","name":"`); putEscaped(u, name);
+                if (readOnly !is null && readOnly(name)) u.add(`","kind":"read`);
                 u.add(`","rawInput":`); u.add(args); u.add(`}`);
                 if (!told(u)) return false;
             }
@@ -437,6 +487,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             u.add(completed ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`);
             if (answer !is null) u.add(content);
             else { u.add(`"`); putEscaped(u, content); u.add(`"`); }
+            putToolContent(u, content);
             u.add(`}`);
             if (!told(u)) return false;
         }
