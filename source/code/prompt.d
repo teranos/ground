@@ -91,7 +91,7 @@ private size_t copyString(const(char)[] json, size_t pos, ref Reply r) {
 }
 
 // The position after the value that starts at pos, strings and nesting honoured.
-private size_t skipValue(const(char)[] json, size_t pos) {
+size_t skipValue(const(char)[] json, size_t pos) {
     if (pos >= json.length) return pos;
     if (json[pos] == '"') { Reply none; return copyString(json, pos, none); }
     if (json[pos] != '{' && json[pos] != '[') {
@@ -114,10 +114,11 @@ private size_t blanks(const(char)[] json, size_t pos) {
     return pos;
 }
 
-// The prompt's text blocks, in order, one line each. A block of another kind
-// has no text to give the model, and is not pretended to: false, and other
-// gets the type of the first such block, empty when it names none.
-@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other) {
+// The prompt's text blocks, in order, one line each. A resource_link goes into
+// links to be read, its name and its uri each ended by a NUL. A block of
+// another kind has no text to give the model, and is not pretended to: false,
+// and other gets the type of the first such block, empty when it names none.
+@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links) {
     auto at = indexOf(line, `"prompt"`);
     if (at < 0) return true;
     size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
@@ -130,7 +131,9 @@ private size_t blanks(const(char)[] json, size_t pos) {
         auto end = skipValue(line, pos);
         auto block = line[pos .. end];
         bool text;
-        Reply value, kind;
+        Reply value, kind, name, uri;
+        scope(exit) { value.dispose(); kind.dispose(); name.dispose(); uri.dispose(); }
+        bool named, located;
         size_t p = 1;
         while (p < block.length) {
             p = blanks(block, p);
@@ -145,11 +148,16 @@ private size_t blanks(const(char)[] json, size_t pos) {
                 text = kind.slice() == "text";
             }
             if (key.slice() == "text" && p < block.length && block[p] == '"') { value.len = 0; copyString(block, p, value); }
+            if (key.slice() == "name" && p < block.length && block[p] == '"') { name.len = 0; copyString(block, p, name); named = true; }
+            if (key.slice() == "uri" && p < block.length && block[p] == '"') { uri.len = 0; copyString(block, p, uri); located = true; }
             p = skipValue(block, p);
             p = blanks(block, p);
             if (p < block.length && block[p] == ',') p++;
         }
-        if (!text && all) { all = false; other.add(kind.slice()); }
+        // "required": name and uri. A link missing one is no link to read.
+        bool link = kind.slice() == "resource_link" && named && located;
+        if (link) { links.add(name.slice()); links.add("\0"); links.add(uri.slice()); links.add("\0"); }
+        if (!text && !link && all) { all = false; other.add(kind.slice()); }
         if (text) {
             if (!first) r.add("\n");
             first = false;
@@ -159,6 +167,38 @@ private size_t blanks(const(char)[] json, size_t pos) {
         if (pos < line.length && line[pos] == ',') pos = blanks(line, pos + 1);
     }
     return all;
+}
+
+// "Absolute path to the file to read": a file:// uri on this machine, its
+// authority empty or localhost, percent-decoded into path. false for any
+// other uri, a path that is not absolute, or an escape that is no byte or is
+// NUL.
+bool fileUriPath(const(char)[] uri, ref Reply path) {
+    enum scheme = "file://";
+    if (uri.length < scheme.length || uri[0 .. scheme.length] != scheme) return false;
+    auto rest = uri[scheme.length .. $];
+    size_t slash = 0;
+    while (slash < rest.length && rest[slash] != '/') slash++;
+    auto authority = rest[0 .. slash];
+    if (authority.length > 0 && authority != "localhost") return false;
+    rest = rest[slash .. $];
+    if (rest.length == 0) return false;
+    static int hex(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    }
+    for (size_t i = 0; i < rest.length; i++) {
+        if (rest[i] != '%') { char[1] c = [rest[i]]; path.add(c[]); continue; }
+        if (i + 2 >= rest.length) return false;
+        auto hi = hex(rest[i + 1]), lo = hex(rest[i + 2]);
+        if (hi < 0 || lo < 0 || (hi == 0 && lo == 0)) return false;
+        char[1] c = [cast(char)(hi * 16 + lo)];
+        path.add(c[]);
+        i += 2;
+    }
+    return true;
 }
 
 // --- the history: the messages array's inside, grown a message at a time ---
@@ -291,6 +331,17 @@ int permissionOutcome(const(char)[] line, ref Reply optionId) {
     if (id is null) return -1;
     optionId.add(id);
     return 1;
+}
+
+// The client's answer to fs/read_text_file: 1 and the file's text in content,
+// or -1 for an answer of any other kind, an error among them.
+int readTextContent(const(char)[] line, ref Reply content) {
+    auto root = parseJson(line);
+    scope(exit) json_object_put(root);
+    auto text_ = jsonField(jsonField(root, "result"), "content");
+    if (json_object_get_type(text_) != json_type.string_) return -1;
+    content.add(text(text_));
+    return content.full ? -1 : 1;
 }
 
 // A conversation told back to the client, a session/update a step, as the
