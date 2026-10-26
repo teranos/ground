@@ -19,6 +19,7 @@ struct McpServer {
     mcp_client* client;
     McpContract* contracts;
     McpPage* tools; // all tools/list pages, kept whole for the harness
+    McpPage* prompts; // all prompts/list pages, kept whole: the session's commands
     int timeoutMs;  // the per-request deadline its client was opened with
 }
 struct McpGroup { McpServer* servers; size_t count; }
@@ -82,10 +83,13 @@ bool closeMcp(ref McpGroup group, ref Reply detail) {
             auto next = contract.next;
             mcp_tool_destroy(contract.tool); free(contract); contract = next;
         }
-        auto page = server.tools;
-        while (page !is null) {
-            auto next = page.next;
-            mcp_response_free(&page.response); free(page); page = next;
+        McpPage*[2] kept = [server.tools, server.prompts];
+        foreach (pages; kept) {
+            auto page = pages;
+            while (page !is null) {
+                auto next = page.next;
+                mcp_response_free(&page.response); free(page); page = next;
+            }
         }
         mcp_error error;
         if (mcp_client_close(server.client, &error) != mcp_status.MCP_OK) {
@@ -266,6 +270,56 @@ private mcp_status discoverTools(ref McpServer server, ref mcp_response response
     return localError(error, mcp_status.MCP_MESSAGE_TOO_LARGE, "tools/list exceeded 128 pages");
 }
 
+// Every prompts/list page, kept as it came. A server that offers no prompts
+// has none, and that is not a failure.
+private mcp_status discoverPrompts(ref McpServer server, ref mcp_response response, ref mcp_error error) {
+    const(char)* cursor;
+    json_object* parsed;
+    scope(exit) json_object_put(parsed);
+    McpPage** tail = &server.prompts;
+    foreach (_; 0 .. 128) {
+        auto status = mcp_prompts_list(server.client, cursor, &response, &error);
+        if (status == mcp_status.MCP_UNSUPPORTED) return mcp_status.MCP_OK;
+        if (status != mcp_status.MCP_OK) return status;
+        auto nextParsed = parseJson(response.json[0 .. response.length]);
+        auto result = jsonField(nextParsed, "result");
+        if (json_object_get_type(jsonField(result, "prompts")) != json_type.array) {
+            json_object_put(nextParsed);
+            return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "prompts/list result has no prompts array");
+        }
+        auto next = jsonField(result, "nextCursor");
+        auto nextCursor = next is null ? null : stringAt(next);
+        if (next !is null && nextCursor is null) {
+            json_object_put(nextParsed);
+            return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "prompts/list nextCursor is not a string");
+        }
+        if (cursor !is null && nextCursor !is null && strcmp(cursor, nextCursor) == 0) {
+            json_object_put(nextParsed);
+            return localError(error, mcp_status.MCP_PROTOCOL_ERROR, "prompts/list repeated its cursor");
+        }
+        auto page = cast(McpPage*) calloc(1, McpPage.sizeof);
+        if (page is null) { json_object_put(nextParsed); return localError(error, mcp_status.MCP_NO_MEMORY, "allocate prompt catalog page"); }
+        page.response = response; response = mcp_response.init;
+        *tail = page; tail = &page.next;
+        json_object_put(parsed); parsed = nextParsed;
+        cursor = nextCursor;
+        if (cursor is null) return mcp_status.MCP_OK;
+    }
+    return localError(error, mcp_status.MCP_MESSAGE_TOO_LARGE, "prompts/list exceeded 128 pages");
+}
+
+// A prompt of one of the session's servers, as prompts/get gives it, with
+// arguments, a JSON object.
+mcp_status getMcpPrompt(ref McpGroup group, const(char)* serverName, const(char)* promptName,
+                        const(char)* arguments, ref mcp_response response, ref mcp_error error) {
+    foreach (i; 0 .. group.count) {
+        auto server = &group.servers[i];
+        if (strcmp(server.name, serverName) == 0)
+            return mcp_prompts_get(server.client, promptName, arguments, &response, &error);
+    }
+    return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "session has no MCP server with that name");
+}
+
 // Validate the entire configuration before launching any process. A failure
 // after launching rolls every connection back before session/new answers.
 bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Reply detail) {
@@ -327,6 +381,10 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
                 if (status == mcp_status.MCP_OK) {
                     mcp_response_free(&response);
                     status = discoverTools(*server, response, validation, error);
+                }
+                if (status == mcp_status.MCP_OK) {
+                    mcp_response_free(&response);
+                    status = discoverPrompts(*server, response, error);
                 }
                 if (status != mcp_status.MCP_OK) break;
                 if (i + 1 == count) return true;
