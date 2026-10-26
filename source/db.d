@@ -580,6 +580,8 @@ bool applySchema(sqlite3* db) {
     // Its conversation, as the model's messages: the inside of the messages
     // array a turn sends, empty before the first.
     ensureColumn(db, "code_session", "history", "TEXT NOT NULL DEFAULT ''");
+    // Its title, from the first prompt that typed something; empty before.
+    ensureColumn(db, "code_session", "title", "TEXT NOT NULL DEFAULT ''");
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

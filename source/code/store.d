@@ -159,17 +159,31 @@ int storeTouch(sqlite3* db, const(char)[] id, long now) {
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
+// Names an open session that has no title yet. 1 named, 0 no open session by
+// that id without one, -1 the store refused.
+int storeTitle(sqlite3* db, const(char)[] id, const(char)[] title) {
+    sqlite3_stmt* st;
+    enum sql = "UPDATE code_session SET title = ?2 WHERE id = ?1 AND closed_at = 0 AND title = ''\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    bind(st, 2, title);
+    auto rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+    return sqlite3_changes(db) > 0 ? 1 : 0;
+}
+
 // Every open session, oldest first, or those in one cwd. False when the store
 // refused, whatever was handed over before it did.
 bool storeList(sqlite3* db, const(char)[] cwd,
-        scope void delegate(const(char)[] id, const(char)[] cwd, const(char)[] dirs, long updatedAt) each) {
+        scope void delegate(const(char)[] id, const(char)[] cwd, const(char)[] dirs, const(char)[] title, long updatedAt) each) {
     sqlite3_stmt* st;
-    enum all = "SELECT id, cwd, dirs, updated_at FROM code_session WHERE closed_at = 0 ORDER BY opened_at, rowid\0";
-    enum one = "SELECT id, cwd, dirs, updated_at FROM code_session WHERE closed_at = 0 AND cwd = ?1 ORDER BY opened_at, rowid\0";
+    enum all = "SELECT id, cwd, dirs, title, updated_at FROM code_session WHERE closed_at = 0 ORDER BY opened_at, rowid\0";
+    enum one = "SELECT id, cwd, dirs, title, updated_at FROM code_session WHERE closed_at = 0 AND cwd = ?1 ORDER BY opened_at, rowid\0";
     if (sqlite3_prepare_v2(db, (cwd is null ? all : one).ptr, -1, &st, null) != SQLITE_OK) return false;
     if (cwd !is null) bind(st, 1, cwd);
     int rc;
-    while ((rc = sqlite3_step(st)) == SQLITE_ROW) each(text(st, 0), text(st, 1), text(st, 2), sqlite3_column_int64(st, 3));
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) each(text(st, 0), text(st, 1), text(st, 2), text(st, 3), sqlite3_column_int64(st, 4));
     sqlite3_finalize(st);
     return rc == SQLITE_DONE;
 }
