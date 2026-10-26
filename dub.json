@@ -21,7 +21,7 @@
         },
         {
             "name": "production",
-            "excludedSourceFiles": ["source/*_test.d"]
+            "excludedSourceFiles": ["source/*_test.d", "source/parity.d"]
         }
     ]
 }
