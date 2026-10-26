@@ -1484,7 +1484,7 @@ version (Posix) unittest {
     while (k) urlBuf[len++] = d[--k];
 
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
