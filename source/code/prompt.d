@@ -362,6 +362,13 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
         auto m = json_object_array_get_idx(root, i);
         auto role = text(jsonField(m, "role"));
         auto content = text(jsonField(m, "content"));
+        // The model's reasoning before its words, as the turn told it.
+        auto reasoning = role == "assistant" ? text(jsonField(m, "reasoning")) : null;
+        if (reasoning.length > 0) {
+            Reply u;
+            u.add(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`); putEscaped(u, reasoning); u.add(`"}}`);
+            if (!told(u)) return false;
+        }
         if (role == "user" || (role == "assistant" && content.length > 0)) {
             Reply u;
             u.add(role == "user" ? `{"sessionUpdate":"user_message_chunk"` : `{"sessionUpdate":"agent_message_chunk"`);
@@ -410,13 +417,14 @@ struct Completion {
     json_object* root;
     const(char)[] message;  // choices[0].message, as the gateway wrote it
     const(char)[] content;
+    const(char)[] reasoning; // "Reasoning tokens will appear in the reasoning field of each message"
     const(char)[] finish;   // choices[0].finish_reason: why the model stopped, when the gateway says
     Call* calls;
     size_t callCount;
     void dispose() {
         json_object_put(root); root = null;
         free(calls); calls = null; callCount = 0;
-        message = null; content = null; finish = null;
+        message = null; content = null; reasoning = null; finish = null;
     }
 }
 
@@ -430,6 +438,7 @@ bool completionOf(const(char)[] json, ref Completion c) {
     c.finish = text(jsonField(choice, "finish_reason"));
     c.message = raw(message);
     c.content = text(jsonField(message, "content"));
+    c.reasoning = text(jsonField(message, "reasoning"));
     auto calls = jsonField(message, "tool_calls");
     if (calls is null) return true;
     if (json_object_get_type(calls) != json_type.array) return false;

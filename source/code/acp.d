@@ -1202,6 +1202,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     return true;
                 }
                 assistantMessage(*o.history, c.message);
+                // "A chunk of the agent's internal reasoning being streamed": what
+                // the model reasoned, which the effort asked for, before its words.
+                if (c.reasoning.length > 0) {
+                    Reply u;
+                    scope(exit) u.dispose();
+                    u.add(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`);
+                    putEscaped(u, c.reasoning); u.add(`"}}`);
+                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                }
                 if (c.content.length > 0) {
                     Reply u;
                     scope(exit) u.dispose();

@@ -97,6 +97,13 @@ unittest {
     assert(c.content == "earth");
     assert(c.callCount == 0);
     c.dispose();
+    // "Reasoning tokens will appear in the reasoning field of each message"
+    assert(completionOf(`{"choices":[{"message":{"role":"assistant","content":"earth","reasoning":"it is round"}}]}`, c));
+    assert(c.reasoning == "it is round" && c.content == "earth");
+    c.dispose();
+    assert(completionOf(`{"choices":[{"message":{"role":"assistant","content":"earth"}}]}`, c));
+    assert(c.reasoning is null);
+    c.dispose();
 
     assert(completionOf(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[`
         ~ `{"id":"c1","type":"function","function":{"name":"test__echo","arguments":"{\"text\":\"hi\"}"}}]}}]}`, c));

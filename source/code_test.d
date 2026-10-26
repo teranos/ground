@@ -912,7 +912,7 @@ version (Posix) unittest {
         ~ `{"id":"c2","type":"function","function":{"name":"x__z","arguments":"{}"}}]},`
         ~ `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"content\":[]}}"},`
         ~ `{"role":"tool","tool_call_id":"c2","content":"{\"status\":\"not run\",\"why\":\"the user rejected it\"}"},`
-        ~ `{"role":"assistant","content":"done"}`;
+        ~ `{"role":"assistant","content":"done","reasoning":"both came back"}`;
 
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
@@ -964,6 +964,7 @@ version (Posix) unittest {
         ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","name":"x__z","rawInput":{}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"both came back"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
     assert(c.open[0].history !is null && c.open[0].history.slice() == history);
     // Loaded where it is live: its conversation is the one this process holds.
@@ -994,7 +995,7 @@ version (Posix) unittest {
     scope (exit) sqlite3_close(db);
 
     enum reply = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
-        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done","reasoning":"hi is a greeting"}}]}`;
     auto fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in a;
     a.sin_family = AF_INET;
@@ -1028,19 +1029,34 @@ version (Posix) unittest {
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+    int[2] o;
+    assert(pipe(o) == 0);
     fflush(stdout);
     auto saved = dup(1);
-    auto devnull = open("/dev/null", O_WRONLY);
-    dup2(devnull, 1);
+    dup2(o[1], 1);
     Reply r;
     answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
     answer(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, r, s);
-    fflush(stdout); dup2(saved, 1); close(saved); close(devnull);
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+    __gshared char[65536] said;
+    size_t saidLen = 0;
+    while (true) {
+        auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+        if (got <= 0) break;
+        saidLen += cast(size_t) got;
+    }
+    close(o[0]);
     assert(r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
     r.dispose();
+    // "A chunk of the agent's internal reasoning being streamed": the
+    // reasoning the gateway gave back is told before the words.
+    enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
+    assert(said[0 .. saidLen] ==
+          up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
     Reply kept;
     assert(storeHistoryOf(db, "code-100-7-1", kept) == 1);
-    assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done"}`);
+    assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done","reasoning":"hi is a greeting"}`);
     assert(kept.slice() == s.open[0].history.slice());
     kept.dispose();
     s.open[0].history.dispose();
