@@ -227,6 +227,7 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     n.add(`,"method":"session/request_permission","params":{"sessionId":"`); putEscaped(n, sid);
     n.add(`","toolCall":{"toolCallId":"`); putEscaped(n, callId);
     n.add(`","title":"`); putEscaped(n, tool);
+    n.add(`","name":"`); putEscaped(n, tool);
     n.add(`","status":"pending","rawInput":`); n.add(arguments);
     n.add(`},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`);
     n.add(`{"optionId":"allow_always","name":"Always allow `); putEscaped(n, tool); n.add(`","kind":"allow_always"},`);
@@ -1202,6 +1203,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), why);
                     u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, call.id);
                     u.add(`","title":"`); putEscaped(u, call.name);
+                    // "Agents SHOULD include it in the first report when available
+                    // and SHOULD NOT change it later": the name the model called,
+                    // here and in no update after.
+                    u.add(`","name":"`); putEscaped(u, call.name);
                     u.add(verdict == Verdict.run ? `","status":"in_progress","rawInput":` : `","status":"pending","rawInput":`);
                     u.add(call.arguments); u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }

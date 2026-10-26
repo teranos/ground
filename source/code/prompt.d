@@ -378,6 +378,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 Reply u;
                 u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, id);
                 u.add(`","title":"`); putEscaped(u, name);
+                u.add(`","name":"`); putEscaped(u, name);
                 u.add(`","rawInput":`); u.add(args); u.add(`}`);
                 if (!told(u)) return false;
             }

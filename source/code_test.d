@@ -773,14 +773,18 @@ version (Posix) unittest {
         auto out_ = said[0 .. saidLen];
         assert(count(out_, `"method":"session/request_permission"`) == 1);
         assert(indexOf(out_, `{"jsonrpc":"2.0","id":"perm-1","method":"session/request_permission","params":{"sessionId":"code-100-7-1",`
-            ~ `"toolCall":{"toolCallId":"c1","title":"x__y","status":"pending","rawInput":{}},"options":[`
+            ~ `"toolCall":{"toolCallId":"c1","title":"x__y","name":"x__y","status":"pending","rawInput":{}},"options":[`
             ~ `{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`
             ~ `{"optionId":"allow_always","name":"Always allow x__y","kind":"allow_always"},`
             ~ `{"optionId":"reject_once","name":"Reject once","kind":"reject_once"},`
             ~ `{"optionId":"reject_always","name":"Always reject x__y","kind":"reject_always"}]}}`) >= 0);
-        assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","status":"pending","rawInput":{}}`) >= 0);
+        assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","name":"x__y","status":"pending","rawInput":{}}`) >= 0);
         assert(indexOf(out_, `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress"}`) >= 0);
         assert(indexOf(s.open[0].history.slice(), `not run`) < 0);
+        // "Agents SHOULD include it in the first report when available and
+        // SHOULD NOT change it later": no update names the tool again.
+        assert(indexOf(out_, `{"sessionUpdate":"tool_call_update","toolCallId":"c1","name"`) < 0);
+        assert(count(out_, `"name":"x__y","status"`) == 2);
         end(input, p, s);
     }
     // Rejected: not run, and the model is told.
@@ -828,7 +832,7 @@ version (Posix) unittest {
         const string[2] answers = [oneCall, done];
         assert(turn("bypassPermissions", "", answers[], endTurn, s, input, p));
         assert(count(said[0 .. saidLen], `request_permission`) == 0);
-        assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","status":"in_progress","rawInput":{}}`) >= 0);
+        assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","name":"x__y","status":"in_progress","rawInput":{}}`) >= 0);
         assert(indexOf(s.open[0].history.slice(), `not run`) < 0);
         end(input, p, s);
     }
@@ -927,8 +931,8 @@ version (Posix) unittest {
     enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
     assert(said[0 .. saidLen] ==
           up ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi \"you\""}}}}` ~ "\n"
-        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","rawInput":{"a":1}}}}` ~ "\n"
-        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","rawInput":{}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","name":"x__y","rawInput":{"a":1}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","name":"x__z","rawInput":{}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
