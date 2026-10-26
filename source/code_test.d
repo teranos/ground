@@ -608,7 +608,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent";
+        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         auto began = time(null);
@@ -625,7 +625,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); }
         Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-        s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
@@ -642,7 +642,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent";
+        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
@@ -660,7 +660,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent";
+        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"max_tokens"}}`));
@@ -744,7 +744,7 @@ version (Posix) unittest {
         assert(pipe(p) == 0);
         input = Input(p[0]);
         s = Sessions(100, 7); s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
 
@@ -1026,7 +1026,7 @@ version (Posix) unittest {
     Input input = Input(p[0]);
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     s.db = db;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
     int[2] o;
@@ -1125,7 +1125,7 @@ version (Posix) unittest {
         assert(pipe(p) == 0);
         input = Input(p[0]);
         s = Sessions(100, 7); s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
         int[2] o;
@@ -1240,7 +1240,7 @@ version (Posix) unittest {
 
     Input input = Input(p[0]);
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
 
@@ -1287,6 +1287,131 @@ version (Posix) unittest {
     assert(indexOf(wire[0 .. got], `"method": "notifications/cancelled"`) >= 0);
     assert(indexOf(wire[0 .. got], `"reason": "the client cancelled the turn"`) >= 0);
     s.open[0].history.dispose();
+}
+
+// usage_update: "Context window and cost update for a session." used,
+// "Tokens currently in context", is what the gateway's answer says the
+// conversation now holds; size, "Total context window size in tokens", is
+// the model's context_length in the gateway's models list, asked once a
+// process, as the first turn starts. A model the list does not carry is no
+// size to report, and the turn says so before the model is asked.
+version (Posix) unittest {
+    import core.sys.posix.unistd : write, close, fork, _exit, read, dup, dup2, pipe;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+    enum ok = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    enum models = ok ~ `{"data":[{"id":"other","context_length":8192},{"id":"m","context_length":200000,"top_provider":{"context_length":100000}}]}`;
+    enum answer_ = ok ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}],`
+        ~ `"usage":{"prompt_tokens":194,"completion_tokens":2,"total_tokens":196,"cost":0.95}}`;
+    __gshared char[4096] asked;
+
+    // A gateway that answers each connection in turn, and writes down the
+    // first line of each request into asked, one a line.
+    int gateway(string[] replies, ref ushort port) {
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 4) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        port = htons(a.sin_port);
+        int[2] lines;
+        assert(pipe(lines) == 0);
+        auto child = fork();
+        if (child == 0) {
+            close(lines[0]);
+            foreach (reply; replies) {
+                auto c = accept(fd, null, null);
+                char[65536] got;
+                auto len = read(c, got.ptr, got.length);
+                size_t end = 0;
+                while (end < cast(size_t) len && got[end] != '\r') end++;
+                write(lines[1], got.ptr, end); write(lines[1], "\n".ptr, 1);
+                write(c, reply.ptr, reply.length);
+                close(c);
+            }
+            _exit(0);
+        }
+        close(fd); close(lines[1]);
+        return lines[0] | (child << 16);
+    }
+    string urlOf(ushort port) {
+        __gshared char[32] urlBuf;
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        return cast(string) urlBuf[0 .. len];
+    }
+    __gshared char[65536] said;
+    size_t saidLen;
+    void prompt(ref Sessions s, ref Reply r) {
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, r, s);
+        fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+    }
+    size_t askedOf(int lines) {
+        size_t len = 0;
+        while (true) {
+            auto got = read(lines, asked.ptr + len, asked.length - len);
+            if (got <= 0) break;
+            len += cast(size_t) got;
+        }
+        close(lines);
+        return len;
+    }
+
+    // The list, then the turn: the model's size, and what the answer says it used.
+    ushort port;
+    string[2] listAndTurn = [models, answer_];
+    auto both = gateway(listAndTurn[], port);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.url = urlOf(port); s.node.model = "m"; s.node.token = "/nonexistent";
+    Reply r;
+    prompt(s, r);
+    auto lines = askedOf(both & 0xFFFF);
+    waitpid(both >> 16, null, 0);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    assert(asked[0 .. lines] == "GET /api/openrouter-qntx/v1/models HTTP/1.1\nPOST /api/openrouter-qntx/v1/chat/completions HTTP/1.1\n");
+    enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
+    assert(said[0 .. saidLen] ==
+          up ~ `{"sessionUpdate":"session_info_update","title":"hi"}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"usage_update","used":196,"size":200000}}}` ~ "\n");
+    assert(s.contextSize == 200_000);
+    s.open[0].history.dispose();
+    r.dispose();
+
+    // A list without the model: the turn ends there, the model never asked.
+    string[1] listOnly = [ok ~ `{"data":[{"id":"other","context_length":8192}]}`];
+    auto none = gateway(listOnly[], port);
+    Sessions t = Sessions(100, 7); t.clock = 1_700_000_000;
+    t.node.url = urlOf(port); t.node.model = "m"; t.node.token = "/nonexistent";
+    prompt(t, r);
+    lines = askedOf(none & 0xFFFF);
+    waitpid(none >> 16, null, 0);
+    assert(asked[0 .. lines] == "GET /api/openrouter-qntx/v1/models HTTP/1.1\n");
+    assert(indexOf(r.slice(), `"error":{"code":-32603,"message":"the gateway's models list gives no context_length for m"`) >= 0);
+    if (t.open[0].history !is null) t.open[0].history.dispose();
+    r.dispose();
 }
 
 // A session is titled once: the first prompt that types something names it,

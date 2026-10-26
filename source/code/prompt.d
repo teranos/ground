@@ -10,6 +10,8 @@ import code.reply : Reply, putEscaped, putNumber;
 
 // The path on the node that the openrouter-qntx plugin answers at.
 enum GATEWAY_PATH = "/api/openrouter-qntx/v1/chat/completions";
+// The gateway's models list, where a model's context_length is.
+enum MODELS_PATH = "/api/openrouter-qntx/v1/models";
 
 // A tool is named to the model as its server and itself, so two servers'
 // "search" stay two tools; the name comes apart at the same mark.
@@ -199,6 +201,27 @@ bool fileUriPath(const(char)[] uri, ref Reply path) {
         i += 2;
     }
     return true;
+}
+
+// --- the model's context window ---
+
+// A model's context_length, "Maximum context length in tokens", from the
+// gateway's models list, by its id. false when the list is not one, or names
+// no such model, or gives it no length.
+bool contextLengthOf(const(char)[] models, const(char)[] model, ref ulong size) {
+    auto root = parseJson(models);
+    scope(exit) json_object_put(root);
+    auto data = jsonField(root, "data");
+    if (json_object_get_type(data) != json_type.array) return false;
+    foreach (i; 0 .. json_object_array_length(data)) {
+        auto entry = json_object_array_get_idx(data, i);
+        if (text(jsonField(entry, "id")) != model) continue;
+        auto length = jsonField(entry, "context_length");
+        if (json_object_get_type(length) != json_type.int_ || json_object_get_int64(length) <= 0) return false;
+        size = cast(ulong) json_object_get_int64(length);
+        return true;
+    }
+    return false;
 }
 
 // --- a session's title ---
@@ -591,10 +614,13 @@ struct Completion {
     const(char)[] finish;   // choices[0].finish_reason: why the model stopped, when the gateway says
     Call* calls;
     size_t callCount;
+    bool hasUsage;  // the answer says what the conversation holds now
+    ulong used;     // usage.total_tokens: "Tokens currently in context"
     void dispose() {
         json_object_put(root); root = null;
         free(calls); calls = null; callCount = 0;
         message = null; content = null; reasoning = null; finish = null;
+        hasUsage = false; used = 0;
     }
 }
 
@@ -609,6 +635,13 @@ bool completionOf(const(char)[] json, ref Completion c) {
     c.message = raw(message);
     c.content = text(jsonField(message, "content"));
     c.reasoning = text(jsonField(message, "reasoning"));
+    // "Full usage details are now always included automatically in every
+    // response": what was asked and answered, together what the context holds.
+    auto total = jsonField(jsonField(c.root, "usage"), "total_tokens");
+    if (json_object_get_type(total) == json_type.int_ && json_object_get_int64(total) >= 0) {
+        c.hasUsage = true;
+        c.used = cast(ulong) json_object_get_int64(total);
+    }
     auto calls = jsonField(message, "tool_calls");
     if (calls is null) return true;
     if (json_object_get_type(calls) != json_type.array) return false;
