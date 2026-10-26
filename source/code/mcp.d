@@ -64,10 +64,69 @@ private void failure(ref Reply r, const(char)* server, ref const mcp_error e,
     r.add(`}`);
 }
 
+// What a server asks of ground code while one of its calls runs, asked of
+// whoever is running the call: 1 answered, the result object in answer; 0
+// refused, the asker's error object in answer; 2 the turn was called off; -1
+// it could not ask, why in answer as a JSON string. A notification is passed
+// to it as well, method and params, and its answer is not read.
+alias Ask = int delegate(const(char)[] method, const(char)[] params, ref Reply answer);
+private __gshared Ask asking; // the call under way's, while one is
+
 private extern(C) void ground_mcp_log(void* context, const(char)* json, size_t length) nothrow @nogc {
     fputs("ground MCP [", stderr);
     if (context !is null) fputs(cast(const(char)*) context, stderr);
     fputs("]: ", stderr); fwrite(json, 1, length, stderr); fputs("\n", stderr);
+}
+
+// A server's message, written down, and a notification the asker is waiting
+// on passed to it: "notifications/elicitation/complete" says a url
+// elicitation it asked for is done.
+private extern(C) void ground_mcp_message(void* context, const(char)* json, size_t length) {
+    ground_mcp_log(context, json, length);
+    if (asking is null) return;
+    auto message = parseJson(json[0 .. length]);
+    scope(exit) json_object_put(message);
+    auto method = stringAt(jsonField(message, "method"));
+    if (method is null || jsonField(message, "id") !is null || strcmp(method, "notifications/elicitation/complete") != 0) return;
+    auto params = jsonField(message, "params");
+    if (json_object_get_type(params) != json_type.object) return;
+    auto text = json_object_to_json_string_ext(params, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+    Reply ignored;
+    scope(exit) ignored.dispose();
+    asking(method[0 .. strlen(method)], text[0 .. strlen(text)], ignored);
+}
+
+// libmcp's handler for what ground code declared a session's servers may ask,
+// its elicitation: the asker's answer is the server's. A turn called off is
+// the user's cancel; one ground code could not ask is an error the server reads.
+private extern(C) mcp_status ground_mcp_ask(void*, const(char)* method, const(char)* params,
+                                            mcp_response* result, mcp_error* error) {
+    Reply answer;
+    scope(exit) answer.dispose();
+    auto got = asking is null ? -1 : asking(method[0 .. strlen(method)], params[0 .. strlen(params)], answer);
+    if (asking is null) answer.add(`"no call of ground code's is under way to ask for"`);
+    if (got == 2) { answer.len = 0; answer.add(`{"action":"cancel"}`); got = 1; }
+    if (got < 0) {
+        Reply why;
+        scope(exit) why.dispose();
+        why.add(`{"code":-32603,"message":`); why.add(answer.slice()); why.add(`}`);
+        answer.len = 0; answer.add(why.slice());
+    }
+    answer.add("\0");
+    if (answer.full) return localError(*error, mcp_status.MCP_NO_MEMORY, "the answer to the server outgrew memory");
+    auto set = mcp_response_set(result, answer.slice().ptr, error);
+    if (set != mcp_status.MCP_OK) return set;
+    return got == 1 ? mcp_status.MCP_OK : mcp_status.MCP_REMOTE_ERROR;
+}
+
+// What a session's servers are told they may ask and how, when there is
+// anything to declare.
+private bool featuresOf(const(char)* capabilities, ref mcp_features features) {
+    if (capabilities is null) return false;
+    mcp_features_init(&features);
+    features.capabilities_json = capabilities;
+    features.on_request = cast(mcp_handler_fn) &ground_mcp_ask;
+    return true;
 }
 
 // Always attempts every close. Each failure reaches stderr and the ACP reply;
@@ -153,19 +212,21 @@ private const(char)* bearerOf(json_object* config) {
 
 // Streamable HTTP, through libmcp: it holds TLS verification mandatory and
 // plain HTTP to loopback only, and its refusal is the session's failure.
-private mcp_status startHttp(json_object* config, ref McpServer server, ref mcp_response response, ref mcp_error error) {
+private mcp_status startHttp(json_object* config, const(char)* capabilities, ref McpServer server,
+                              ref mcp_response response, ref mcp_error error) {
     mcp_options options;
     mcp_options_init(&options);
     server.timeoutMs = options.timeout_ms;
     options.client_name = "ground";
-    options.on_message = &ground_mcp_log; options.context = server.name;
-    return mcp_client_open_http(&options, null, stringAt(jsonField(config, "url")), bearerOf(config),
-        &server.client, &response, &error);
+    options.on_message = cast(typeof(options.on_message)) &ground_mcp_message; options.context = server.name;
+    mcp_features features;
+    return mcp_client_open_http(&options, featuresOf(capabilities, features) ? &features : null,
+        stringAt(jsonField(config, "url")), bearerOf(config), &server.client, &response, &error);
 }
 
 // argv/env use the parsed JSON's strings only until spawn returns. ACP's env
 // entries override inherited keys; the library receives a complete environment.
-private mcp_status startServer(json_object* config, const(char)* cwd,
+private mcp_status startServer(json_object* config, const(char)* cwd, const(char)* capabilities,
                                ref McpServer server, ref mcp_response response, ref mcp_error error) {
     auto args = jsonField(config, "args"), env = jsonField(config, "env");
     auto argc = json_object_array_length(args), envc = json_object_array_length(env);
@@ -209,8 +270,10 @@ private mcp_status startServer(json_object* config, const(char)* cwd,
     options.command = argv[0]; options.argv = cast(const(char*)*) argv;
     options.envp = cast(const(char*)*) envp; options.cwd = cwd;
     options.client_name = "ground";
-    options.on_message = &ground_mcp_log; options.context = server.name;
-    return mcp_client_open(&options, &server.client, &response, &error);
+    options.on_message = cast(typeof(options.on_message)) &ground_mcp_message; options.context = server.name;
+    mcp_features features;
+    return mcp_client_open_ex(&options, featuresOf(capabilities, features) ? &features : null,
+        &server.client, &response, &error);
 }
 
 private mcp_status discoverTools(ref McpServer server, ref mcp_response response, ref mcp_response validation, ref mcp_error error) {
@@ -268,7 +331,10 @@ private mcp_status discoverTools(ref McpServer server, ref mcp_response response
 
 // Validate the entire configuration before launching any process. A failure
 // after launching rolls every connection back before session/new answers.
-bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Reply detail) {
+// capabilities, when given, is what the servers are told they may ask, as
+// MCP's client capabilities: what the call under way's asker answers.
+bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Reply detail,
+             const(char)* capabilities = null) {
     auto root = parseJson(line);
     scope(exit) json_object_put(root);
     auto configs = jsonField(jsonField(root, "params"), "mcpServers");
@@ -322,8 +388,8 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
                 server.name = copy(stringAt(jsonField(config, "name"))); failedName = server.name;
                 if (server.name is null) { localError(error, mcp_status.MCP_NO_MEMORY, "copy MCP server name"); break; }
                 auto status = jsonField(config, "type") !is null
-                    ? startHttp(config, *server, response, error)
-                    : startServer(config, dir, *server, response, error);
+                    ? startHttp(config, capabilities, *server, response, error)
+                    : startServer(config, dir, capabilities, *server, response, error);
                 if (status == mcp_status.MCP_OK) {
                     mcp_response_free(&response);
                     status = discoverTools(*server, response, validation, error);
@@ -345,10 +411,11 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
 // This is the harness dispatch boundary. Names stay a (server, tool) pair,
 // so two servers exposing "search" never overwrite or masquerade as each other.
 // stop, when given, is asked between polls while the call runs, and a yes
-// cancels it at the server: MCP_CANCELLED, and no response.
+// cancels it at the server: MCP_CANCELLED, and no response. ask, when given,
+// answers what the server asks of ground code while the call runs.
 mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
                        const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error,
-                       scope bool delegate() stop = null) {
+                       scope bool delegate() stop = null, scope Ask ask = null) {
     if (serverName is null || toolName is null) return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool dispatch needs server and tool names");
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
@@ -357,7 +424,7 @@ mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)*
                 if (strcmp(mcp_tool_name(contract.tool), toolName) == 0)
                     return stop is null
                         ? mcp_tool_call(server.client, contract.tool, arguments, &response, &validation, &error)
-                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop);
+                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop, ask);
             return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool is not in the session server catalog");
         }
     }
@@ -370,27 +437,38 @@ enum POLL_MS = 100;
 // mcp_tool_call, as libmcp writes it: submit, poll until the request is done,
 // take, and the validation report moved out. Between polls, stop is asked;
 // a yes cancels the request, which libmcp says to the server as
-// notifications/cancelled with this reason.
+// notifications/cancelled with this reason. What the server asks while it
+// runs is ask's to answer: a legacy server's own request, through libmcp's
+// handler, and a 2026-07-28 server's input_required, each input asked and the
+// call continued with the answers.
 private mcp_status stoppableCall(ref McpServer server, const(mcp_tool)* tool, const(char)* arguments,
                                  ref mcp_response response, ref mcp_response validation, ref mcp_error error,
-                                 scope bool delegate() stop) {
+                                 scope bool delegate() stop, scope Ask ask) {
     mcp_request* request;
+    auto was = asking;
+    asking = ask;
+    scope(exit) asking = was;
     auto status = mcp_tool_submit(server.client, tool, arguments, server.timeoutMs, &request, &error);
     if (status != mcp_status.MCP_OK) return status;
     scope(exit) mcp_request_destroy(request, null);
-    while (mcp_request_status(request) == mcp_status.MCP_PENDING) {
-        if (stop()) {
-            status = mcp_request_cancel(request, "the client cancelled the turn", &error);
-            if (status != mcp_status.MCP_OK) return status;
-            return localError(error, mcp_status.MCP_CANCELLED, "the client cancelled the turn");
+    while (true) {
+        while (mcp_request_status(request) == mcp_status.MCP_PENDING) {
+            if (stop()) {
+                status = mcp_request_cancel(request, "the client cancelled the turn", &error);
+                if (status != mcp_status.MCP_OK) return status;
+                return localError(error, mcp_status.MCP_CANCELLED, "the client cancelled the turn");
+            }
+            status = mcp_client_poll(server.client, POLL_MS, &error);
+            // A poll that failed leaves the request pending: it is the call's failure.
+            if (status != mcp_status.MCP_OK && mcp_request_status(request) == mcp_status.MCP_PENDING) {
+                mcp_error ignored;
+                mcp_request_cancel(request, "ground's poll of the server failed", &ignored);
+                return status;
+            }
         }
-        status = mcp_client_poll(server.client, POLL_MS, &error);
-        // A poll that failed leaves the request pending: it is the call's failure.
-        if (status != mcp_status.MCP_OK && mcp_request_status(request) == mcp_status.MCP_PENDING) {
-            mcp_error ignored;
-            mcp_request_cancel(request, "ground's poll of the server failed", &ignored);
-            return status;
-        }
+        if (mcp_request_status(request) != mcp_status.MCP_INPUT_REQUIRED || ask is null) break;
+        status = continued(request, response, error, stop, ask);
+        if (status != mcp_status.MCP_OK) return status;
     }
     status = mcp_request_take(request, &response, &error);
     auto report = mcp_request_validation_json(request);
@@ -402,4 +480,51 @@ private mcp_status stoppableCall(ref McpServer server, const(mcp_tool)* tool, co
         }
     }
     return status;
+}
+
+// "input_required": each of the result's inputRequests asked, by its method
+// and params, and the request continued with the answers by their keys. An
+// input refused or not asked ends the call: the asker's error, or why it
+// could not ask, is the response; the turn called off is MCP_CANCELLED.
+private mcp_status continued(mcp_request* request, ref mcp_response response, ref mcp_error error,
+                             scope bool delegate() stop, scope Ask ask) {
+    mcp_response asked;
+    scope(exit) mcp_response_free(&asked);
+    mcp_request_take(request, &asked, &error);
+    auto message = parseJson(asked.json[0 .. asked.length]);
+    scope(exit) json_object_put(message);
+    auto inputs = jsonField(jsonField(message, "result"), "inputRequests");
+    Reply answers;
+    scope(exit) answers.dispose();
+    answers.add("{");
+    if (json_object_get_type(inputs) == json_type.object) {
+        bool first = true;
+        auto end = json_object_iter_end(inputs);
+        for (auto it = json_object_iter_begin(inputs); !json_object_iter_equal(&it, &end); json_object_iter_next(&it)) {
+            auto key = json_object_iter_peek_name(&it);
+            auto input = json_object_iter_peek_value(&it);
+            auto method = stringAt(jsonField(input, "method"));
+            auto params = jsonField(input, "params");
+            auto text = params is null ? "{}" : json_object_to_json_string_ext(params, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+            Reply answer;
+            scope(exit) answer.dispose();
+            auto got = ask(method[0 .. strlen(method)], text[0 .. strlen(text)], answer);
+            if (got == 2) return localError(error, mcp_status.MCP_CANCELLED, "the client cancelled the turn");
+            if (got != 1) {
+                answer.add("\0");
+                mcp_response_set(&response, answer.slice().ptr, null);
+                return localError(error, mcp_status.MCP_REMOTE_ERROR, got == 0
+                    ? "the client refused what the server asked"
+                    : "ground code could not ask the client what the server asked");
+            }
+            if (!first) answers.add(",");
+            first = false;
+            answers.add(`"`); putEscaped(answers, key[0 .. strlen(key)]); answers.add(`":`);
+            answers.add(answer.slice());
+        }
+    }
+    answers.add("}\0");
+    if (answers.full) return localError(error, mcp_status.MCP_NO_MEMORY, "the answers to the server outgrew memory");
+    if (stop()) return localError(error, mcp_status.MCP_CANCELLED, "the client cancelled the turn");
+    return mcp_request_resume(request, answers.slice().ptr, &error);
 }

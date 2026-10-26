@@ -203,6 +203,40 @@ bool fileUriPath(const(char)[] uri, ref Reply path) {
     return true;
 }
 
+// --- elicitation: what a session's MCP server asks the user ---
+
+// What a server's elicitation/create asked, as ACP's elicitation/create asks
+// it of the client: "Elicitations are tied to a session (optionally a tool
+// call)", so the session and the call it came in lead; then its mode, "form"
+// when the server names none, as a legacy one may; then everything else it
+// asked, in its order. 1 form, 2 url, 0 another mode, -1 not an object.
+int elicitationParams(const(char)[] params, const(char)[] sid, const(char)[] callId, ref Reply asked) {
+    auto root = parseJson(params);
+    scope(exit) json_object_put(root);
+    if (json_object_get_type(root) != json_type.object) return -1;
+    auto named = jsonField(root, "mode");
+    const(char)[] mode = "form";
+    if (named !is null) {
+        if (json_object_get_type(named) != json_type.string_) return -1;
+        auto m = json_object_get_string(named);
+        mode = m[0 .. strlen(m)];
+    }
+    asked.add(`{"sessionId":"`); putEscaped(asked, sid);
+    asked.add(`","toolCallId":"`); putEscaped(asked, callId);
+    asked.add(`","mode":"`); putEscaped(asked, mode); asked.add(`"`);
+    auto end = json_object_iter_end(root);
+    for (auto it = json_object_iter_begin(root); !json_object_iter_equal(&it, &end); json_object_iter_next(&it)) {
+        auto key = json_object_iter_peek_name(&it);
+        auto k = key[0 .. strlen(key)];
+        if (k == "mode" || k == "sessionId" || k == "toolCallId") continue;
+        auto value = json_object_to_json_string_ext(json_object_iter_peek_value(&it),
+            JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+        asked.add(`,"`); putEscaped(asked, k); asked.add(`":`); asked.add(value[0 .. strlen(value)]);
+    }
+    asked.add("}");
+    return mode == "form" ? 1 : mode == "url" ? 2 : 0;
+}
+
 // --- the model's context window ---
 
 // A model's context_length, "Maximum context length in tokens", from the
