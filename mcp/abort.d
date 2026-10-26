@@ -6,12 +6,12 @@ import code.reply : Reply;
 import libmcp;
 import core.stdc.string : strlen, strstr;
 import core.stdc.stdio : puts, fwrite, stderr;
-import core.sys.posix.time : clock_gettime, timespec, CLOCK_MONOTONIC;
+import core.sys.posix.sys.time : gettimeofday, timeval; // druntime declares it on Darwin, clock_gettime it does not
 
 private long ms() {
-    timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    return t.tv_sec * 1000 + t.tv_nsec / 1_000_000;
+    timeval t;
+    gettimeofday(&t, null);
+    return cast(long) t.tv_sec * 1000 + t.tv_usec / 1000;
 }
 
 extern(C) int main(int argc, const(char)** argv) {
