@@ -309,9 +309,19 @@ string effortDefault()(const(char)[] settings) {
     return efforts[at < efforts.length ? at : MEDIUM];
 }
 
-// The configOptions a session answers with: effort, at the level it is at.
-private void putConfig(ref Reply r, size_t effort) {
-    r.add(`[{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`);
+// The configOptions a session answers with: its mode, then its effort.
+// "Agents that provide mode-like configuration SHOULD send both": configOptions
+// with a category mode option, and modes, kept in sync by being one value.
+// "Agents SHOULD place higher-priority options first in the list."
+private void putConfig(ref Reply r, SessionMode mode, size_t effort) {
+    r.add(`[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"`);
+    r.add(nameOf(mode)); r.add(`","options":[`);
+    foreach (i, m; offered) {
+        if (i > 0) r.add(",");
+        r.add(`{"value":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
+        r.add(`","description":"`); putModeDescription(r, m); r.add(`"}`);
+    }
+    r.add(`]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`);
     r.add(efforts[effort]); r.add(`","options":[`);
     foreach (i, e; efforts) {
         if (i > 0) r.add(",");
@@ -466,16 +476,20 @@ private string shownAs(SessionMode m) {
 }
 
 // A SessionModeState: the mode the session is in, and the six it offers.
+// What a mode is, said the same in modes and in the mode config option.
+private void putModeDescription(ref Reply r, SessionMode m) {
+    char[1] letter = [letterOf(m)];
+    r.add(letter[]); r.add(` in a permission block`);
+    // Neither has a meaning of its own for ground code's tool calls yet.
+    if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
+}
+
 private void putModes(ref Reply r, SessionMode current) {
     r.add(`{"currentModeId":"`); r.add(nameOf(current)); r.add(`","availableModes":[`);
     foreach (i, m; offered) {
         if (i > 0) r.add(",");
-        char[1] letter = [letterOf(m)];
         r.add(`{"id":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
-        r.add(`","description":"`); r.add(letter[]); r.add(` in a permission block`);
-        // Neither has a meaning of its own for ground code's tool calls yet.
-        if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
-        r.add(`"}`);
+        r.add(`","description":"`); putModeDescription(r, m); r.add(`"}`);
     }
     r.add("]}");
 }
@@ -672,7 +686,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         sessions.openLen++;
         put(`,"result":{"sessionId":"`); put(sid.slice());
         put(`","modes":`); putModes(r, SessionMode.manual);
-        put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
+        put(`,"configOptions":`); putConfig(r, SessionMode.manual, effort); put(`}}`);
         return true;
     }
 
@@ -894,7 +908,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
         }
         put(`,"result":{"modes":`); putModes(r, mode);
-        put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
+        put(`,"configOptions":`); putConfig(r, mode, effort); put(`}}`);
         return true;
     }
 
@@ -949,7 +963,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`); return true; }
         if (config is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`); return true; }
         if (value is null) {
-            put(`,"error":{"code":-32602,"message":"session/set_config_option needs a value: effort is a select, not a boolean"}}`);
+            put(`,"error":{"code":-32602,"message":"session/set_config_option needs a value: mode and effort are selects, not booleans"}}`);
             return true;
         }
         auto at = openAt(sessions, sid);
@@ -958,9 +972,29 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
+        auto o = &sessions.open[cast(size_t) at];
+        // The mode by its config option is the mode set_mode sets: one value,
+        // stored once, so modes and configOptions cannot disagree.
+        if (config == "mode") {
+            auto mode = parseSessionMode(value);
+            if (mode == SessionMode.unknown) {
+                put(`,"error":{"code":-32602,"message":"no mode `); putEscaped(r, value);
+                put(`; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}`);
+                return true;
+            }
+            if (sessions.db !is null && storeSetMode(sessions.db, sid, mode, now(sessions)) != 1) {
+                put(`,"error":{"code":-32603,"message":"the store refused the mode of `);
+                putEscaped(r, sid); put(`"}}`);
+                return true;
+            }
+            o.mode = mode;
+            o.updatedAt = now(sessions);
+            put(`,"result":{"configOptions":`); putConfig(r, o.mode, o.effort); put(`}}`);
+            return true;
+        }
         if (config != "effort") {
             put(`,"error":{"code":-32602,"message":"no config option `); putEscaped(r, config);
-            put(`; a session offers effort"}}`);
+            put(`; a session offers mode and effort"}}`);
             return true;
         }
         auto effort = effortAt(value);
@@ -974,9 +1008,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
-        sessions.open[cast(size_t) at].effort = effort;
-        sessions.open[cast(size_t) at].updatedAt = now(sessions);
-        put(`,"result":{"configOptions":`); putConfig(r, effort); put(`}}`);
+        o.effort = effort;
+        o.updatedAt = now(sessions);
+        put(`,"result":{"configOptions":`); putConfig(r, o.mode, effort); put(`}}`);
         return true;
     }
 

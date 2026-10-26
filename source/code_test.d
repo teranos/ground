@@ -9,8 +9,18 @@ enum modesOf(string current) = modes(current); // folded at compile time: better
 
 // The one config option a session offers: effort, a thought_level select over
 // the levels effort.d already names, current the level the session is at.
-enum effortOf(string current) = `[{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`
-    ~ current ~ `","options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"},`
+// "Agents that provide mode-like configuration SHOULD send both": the mode is
+// the first config option too, a select over the same six modes, and effort
+// follows it, "higher-priority options first".
+enum configOf(string mode, string effort) = `[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"`
+    ~ mode ~ `","options":[{"value":"default","name":"Manual","description":"m in a permission block"},`
+    ~ `{"value":"plan","name":"Plan","description":"p in a permission block"},`
+    ~ `{"value":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code asks, as Manual does"},`
+    ~ `{"value":"auto","name":"Auto","description":"a in a permission block; ground code asks, as Manual does"},`
+    ~ `{"value":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
+    ~ `{"value":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]},`
+    ~ `{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`
+    ~ effort ~ `","options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"},`
     ~ `{"value":"high","name":"High"},{"value":"xhigh","name":"Extra high"},{"value":"max","name":"Max"}]}]`;
 
 private string modes()(string current) {
@@ -88,8 +98,8 @@ private string twoSessions()() {
     return answerWith(req, s) ~ "\n" ~ answerWith(req, s);
 }
 static assert(twoSessions()
-    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`);
+    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
 
 // "The working directory for this session. Must be an absolute path."
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`)
@@ -175,7 +185,7 @@ unittest {
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // The next one lists it, and resumes it. A session's cwd is its own for
     // its life: a resume names the same one, or is refused.
@@ -186,7 +196,7 @@ unittest {
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work2"}}`,
         `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"code-100-7-1 is in /work, not /work2"}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":4,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
 
@@ -226,9 +236,9 @@ unittest {
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     enum open = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`;
-    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
-    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
-    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // Another process deletes one; no process lists it or resumes it after.
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
@@ -266,10 +276,10 @@ private string setThen()(string set) {
 }
 static assert(setThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"plan"}}`)
     == `{"jsonrpc":"2.0","id":2,"result":{}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`);
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ configOf!("plan", "medium") ~ `}}`);
 static assert(setThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"yolo"}}`)
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no mode yolo; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`);
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`)
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`)
@@ -288,13 +298,13 @@ unittest {
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"acceptEdits"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`));
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"acceptEdits" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"acceptEdits" ~ `,"configOptions":` ~ configOf!("acceptEdits", "medium") ~ `}}`));
 }
 
 // additionalDirectories: "Additional workspace roots for this session. Each
@@ -311,7 +321,7 @@ unittest {
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","additionalDirectories":["/lib/b","/lib/a"],"mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/lib/b","/lib/a"],"updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"cwd":"/work","additionalDirectories":["/lib","rel"],"mcpServers":[]}}`,
@@ -323,11 +333,11 @@ unittest {
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/srv"]}}`,
-        `{"jsonrpc":"2.0","id":5,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":5,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":6,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":6,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/srv"],"updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":7,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":7,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":8,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":8,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
 }
@@ -341,14 +351,14 @@ private string effortThen()(string set) {
     return answerWith(set, s) ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, s);
 }
 static assert(effortThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`)
-    == `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ effortOf!"high" ~ `}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"high" ~ `}}`);
+    == `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("default", "high") ~ `}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "high") ~ `}}`);
 static assert(effortThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"ultra"}}`)
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no effort ultra; effort is low, medium, high, xhigh or max"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`);
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
 static assert(effortThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no config option model; a session offers effort"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}` ~ "\n"
+     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":"high"}}`)
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"configId":"effort","value":"high"}}`)
@@ -356,7 +366,7 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_opt
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","value":"high"}}`)
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":true}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs a value: effort is a select, not a boolean"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs a value: mode and effort are selects, not booleans"}}`);
 
 // A new session starts at the effort Claude Code's settings name, when it is
 // one of the five; with none, or one ground does not know, at medium.
@@ -377,13 +387,13 @@ unittest {
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"xhigh"}}`,
-        `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ effortOf!"xhigh" ~ `}}`));
+        `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("default", "xhigh") ~ `}}`));
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"xhigh" ~ `}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "xhigh") ~ `}}`));
 }
 // "we use the qntx openrouter plugin"
 // session/prompt is a turn through the node's gateway. It needs a live session
@@ -448,6 +458,25 @@ static assert(promptUntyped()
 static assert(promptWithoutModel()
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 
+// The mode is set through either door, and both say the same: set by config
+// option, the modes a session reports follow; set by set_mode, the config
+// option does.
+private string modeBothWays()() {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
+    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"plan"}}`, s)
+        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"sometimes"}}`, s)
+        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"dontAsk"}}`, s)
+        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`, s)
+        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`, s);
+}
+static assert(modeBothWays() ==
+      `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("plan", "medium") ~ `}}` ~ "\n"
+    ~ `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"no mode sometimes; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}` ~ "\n"
+    ~ `{"jsonrpc":"2.0","id":4,"result":{}}` ~ "\n"
+    ~ `{"jsonrpc":"2.0","id":5,"result":{"configOptions":` ~ configOf!("dontAsk", "high") ~ `}}` ~ "\n"
+    ~ `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}`);
+
 // updatedAt: "ISO 8601 timestamp of last activity". A session's activity is
 // its opening, a resume, and a change to its mode or effort; each one is the
 // time the list then reports.
@@ -467,7 +496,7 @@ unittest {
     a.db = db;
     a.clock = 1_700_000_000;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     a.clock = 1_700_000_060;
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"plan"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`));
@@ -475,7 +504,7 @@ unittest {
         `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:14:20Z"}]}}`));
     a.clock = 1_700_000_120;
     assert(says(a, `{"jsonrpc":"2.0","id":4,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"low"}}`,
-        `{"jsonrpc":"2.0","id":4,"result":{"configOptions":` ~ effortOf!"low" ~ `}}`));
+        `{"jsonrpc":"2.0","id":4,"result":{"configOptions":` ~ configOf!("plan", "low") ~ `}}`));
     Sessions b = Sessions(200, 8);
     b.db = db;
     b.clock = 1_700_000_180;
@@ -483,7 +512,7 @@ unittest {
         `{"jsonrpc":"2.0","id":5,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:15:20Z"}]}}`));
     b.clock = 1_700_000_240;
     assert(says(b, `{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":6,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ effortOf!"low" ~ `}}`));
+        `{"jsonrpc":"2.0","id":6,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ configOf!("plan", "low") ~ `}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":7,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:17:20Z"}]}}`));
 }
@@ -884,7 +913,7 @@ version (Posix) unittest {
     Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(storeHistory(db, "code-100-7-1", history) == 1);
     Reply kept;
     assert(storeHistoryOf(db, "code-100-7-1", kept) == 1 && kept.slice() == history);
@@ -915,7 +944,7 @@ version (Posix) unittest {
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
     b.db = db;
     assert(capture(b, `{"jsonrpc":"2.0","id":2,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":2,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":2,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(saidLen == 0);
     assert(b.open[0].history !is null && b.open[0].history.slice() == history);
 
@@ -923,7 +952,7 @@ version (Posix) unittest {
     Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
     c.db = db;
     assert(capture(c, `{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
     assert(said[0 .. saidLen] ==
           up ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi \"you\""}}}}` ~ "\n"
@@ -935,7 +964,7 @@ version (Posix) unittest {
     assert(c.open[0].history !is null && c.open[0].history.slice() == history);
     // Loaded where it is live: its conversation is the one this process holds.
     assert(capture(c, `{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/work","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":4,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ effortOf!"medium" ~ `}}`));
+        `{"jsonrpc":"2.0","id":4,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(indexOf(said[0 .. saidLen], `"text":"done"`) >= 0);
     // Its cwd is still its own for life.
     assert(says(c, `{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/else","mcpServers":[]}}`,
