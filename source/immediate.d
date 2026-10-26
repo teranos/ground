@@ -77,7 +77,10 @@ bool spoken(const(char)[] name) {
 
 // The rows waiting for one reader, picked by address in the index. Reading
 // every queued row of every session cost MessageDisplay up to 3.6s.
-enum PENDING_SQL = "SELECT a.id, a.predicates, a.attributes, a.contexts FROM attestations a INDEXED BY idx_attestations_pred_session WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND json_extract(a.contexts, '$[0]') IN (SELECT value FROM json_each(?3)) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
+// The detail and the gate are read by sqlite, which reads JSON however it was
+// spaced and unescapes the detail. A scan for the bytes of the key passed over
+// any row spaced otherwise.
+enum PENDING_SQL = "SELECT a.id, a.predicates, a.attributes, a.contexts, json_extract(a.attributes, '$.detail'), COALESCE(json_extract(a.attributes, '$.after'), 0) FROM attestations a INDEXED BY idx_attestations_pred_session WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND json_extract(a.contexts, '$[0]') IN (SELECT value FROM json_each(?3)) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
 
 // ?3 is every address this reader answers to: session:<id>, then project:<p>
 // for cwd and each tail of it that starts after a '/'.
@@ -187,61 +190,32 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
 
         // Delivery check is handled by the NOT EXISTS in the outer query (session-scoped).
 
-        // Check "after" timestamp
+        import db : sqlite3_column_int64;
+        if (now < sqlite3_column_int64(stmt, 5)) continue;
+
         size_t attrLen = 0;
         while (attrText[attrLen] != 0) attrLen++;
         auto attrs = (cast(const(char)*) attrText)[0 .. attrLen];
 
-        auto afterIdx = indexOf(attrs, `"after":`);
-        if (afterIdx < 0) continue;
-        size_t aPos = cast(size_t) afterIdx + 8;
-        long afterVal = 0;
-        while (aPos < attrLen && attrs[aPos] >= '0' && attrs[aPos] <= '9') {
-            afterVal = afterVal * 10 + (attrs[aPos] - '0');
-            aPos++;
-        }
-        if (now < afterVal) continue;
+        size_t idLen = 0;
+        while (idText[idLen] != 0) idLen++;
+        if (idLen > idBuf.length) idLen = idBuf.length;
+        foreach (i; 0 .. idLen) idBuf[i] = idText[i];
 
-        // Extract "detail" from attributes
-        auto detIdx = indexOf(attrs, `"detail":"`);
-        if (detIdx < 0) continue;
-        size_t mPos = cast(size_t) detIdx + 10;
+        // A row with no detail is delivered as one, by its id: skipped, it
+        // stayed queued and nobody was told why.
         size_t mLen = 0;
-        // The closing quote is the first one that is not part of an escape.
-        // Stopping at the `"` inside `\"` cut every message at the first quote
-        // its command contained, and took the reason after it with them.
-        while (mPos + mLen < attrLen && mLen < msgBuf.length) {
-            if (attrs[mPos + mLen] == '\\' && mPos + mLen + 1 < attrLen) {
-                mLen += 2;
-                continue;
-            }
-            if (attrs[mPos + mLen] == '"') break;
-            mLen++;
+        auto detText = sqlite3_column_text(stmt, 4);
+        if (detText !is null) {
+            while (detText[mLen] != 0 && mLen < msgBuf.length) { msgBuf[mLen] = detText[mLen]; mLen++; }
+        } else {
+            foreach (s; ["immediate row ", cast(string) idBuf[0 .. idLen], " carries no detail to deliver"])
+                foreach (c; s) if (mLen < msgBuf.length) msgBuf[mLen++] = c;
         }
 
-        // Copy into static buffers
         size_t nLen = nameEnd - nameStart;
         if (nLen > nameBuf.length) nLen = nameBuf.length;
         foreach (i; 0 .. nLen) nameBuf[i] = name[i];
-
-        // Unescape JSON string escapes while copying — the JSON stored in
-        // attributes has \n / \t / \" as literal two-char sequences; watch
-        // delivers via fwrite which needs actual bytes, not escape text.
-        size_t outLen = 0;
-        size_t j = 0;
-        while (j < mLen && outLen < msgBuf.length) {
-            if (j + 1 < mLen && attrs[mPos + j] == '\\') {
-                char nx = attrs[mPos + j + 1];
-                if (nx == 'n')  { msgBuf[outLen++] = '\n'; j += 2; continue; }
-                if (nx == 't')  { msgBuf[outLen++] = '\t'; j += 2; continue; }
-                if (nx == 'r')  { msgBuf[outLen++] = '\r'; j += 2; continue; }
-                if (nx == '"')  { msgBuf[outLen++] = '"';  j += 2; continue; }
-                if (nx == '\\') { msgBuf[outLen++] = '\\'; j += 2; continue; }
-            }
-            msgBuf[outLen++] = attrs[mPos + j];
-            j++;
-        }
-        mLen = outLen;
 
         // Project context for delivery receipt — only set when project-matched.
         // Session-matched rows leave it empty; the session itself is recorded
@@ -252,12 +226,6 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
             if (pcLen > ctxBuf.length) pcLen = ctxBuf.length;
             foreach (i; 0 .. pcLen) ctxBuf[i] = ctxs[cast(size_t) projIdx + i];
         }
-
-        // Copy message ID into buffer
-        size_t idLen = 0;
-        while (idText[idLen] != 0) idLen++;
-        if (idLen > idBuf.length) idLen = idBuf.length;
-        foreach (i; 0 .. idLen) idBuf[i] = idText[i];
 
         // Extract optional repo + branch + sha from attributes (set by writeCIStatus
         // so watch.d's late-binding hits the exact CI run regardless of cwd).
@@ -733,6 +701,34 @@ unittest {
     assert(writeNote(db, "sess-q", "inline-not-address", "show the code instead", 0));
     auto now = readImmediateMessage(db, "/tmp", "sess-q");
     assert(now.message == "show the code instead", "no delay is now");
+    sqlite3_close(db);
+}
+
+unittest {
+    // A writer's JSON is JSON whichever way it is spaced. A row written
+    // `"detail": "..."` was matched by the query and then passed over, said
+    // to nobody, on q on 2026-10-26.
+    import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    enum spaced = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES ('spaced-1', '[\"ground\"]', '[\"immediate:note\"]', '[\"session:sess-s\"]', '[\"x\"]', "
+        ~ "'2026-10-26T21:49:58Z', 'x', '{\"detail\": \"say \\\"this\\\"\\nwhole\", \"after\": 0}')\0";
+    assert(sqlite3_exec(db, spaced.ptr, null, null, null) == SQLITE_OK);
+    auto got = readImmediateMessage(db, "/tmp", "sess-s");
+    assert(got.msgId == "spaced-1");
+    assert(got.message == "say \"this\"\nwhole", got.message);
+    assert(markImmediateDelivered(db, got.msgId, got.projectContext, "sess-s"));
+
+    // A row with nothing to say is said to be one, by its id, not skipped.
+    enum bare = "INSERT INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) "
+        ~ "VALUES ('bare-1', '[\"ground\"]', '[\"immediate:note\"]', '[\"session:sess-s\"]', '[\"x\"]', "
+        ~ "'2026-10-26T21:50:00Z', 'x', '{\"after\":0}')\0";
+    assert(sqlite3_exec(db, bare.ptr, null, null, null) == SQLITE_OK);
+    auto none = readImmediateMessage(db, "/tmp", "sess-s");
+    assert(none.msgId == "bare-1");
+    assert(none.message == "immediate row bare-1 carries no detail to deliver", none.message);
     sqlite3_close(db);
 }
 
