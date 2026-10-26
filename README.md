@@ -1,6 +1,6 @@
 # ground
 
-Ground Control for Agentic AI. CLAUDE.md is advisory — ground is the control.
+Ground Control for Agentic AI.
 
 ## Problem
 
@@ -8,7 +8,7 @@ You tell an agent "use `make test`", it runs `go test` without build tags, tests
 
 ## What happens
 
-Claude tries to commit with `--no-verify`:
+Agent tries to commit with `--no-verify`:
 ```
 git commit --no-verify -m "fix tests"
 ```
@@ -16,17 +16,17 @@ Ground strips the flag and lets the command through:
 ```
 git commit -m "fix tests"
 ```
-Claude receives: *"Git hooks must not be bypassed, ever."*
+Agent receives: *"Git hooks must not be bypassed, ever."*
 
-Claude tries `go test ./...` in a project that needs build tags:
+Agent tries `go test ./...` in a project that needs build tags:
 ```
 go test ./...
 ```
-Ground inserts the missing arguments:
+Agent inserts the missing arguments:
 ```
-go test -tags "rustsqlite,qntxwasm" -short ./...
+go test -tags "rustsqlite,myapiwasm" -short ./...
 ```
-Claude receives: *"Build tags and -short are required for go test in QNTX."*
+Agent receives: *"Build tags and -short are required for go test in myapi."*
 
 The user mentions "ground" in a prompt:
 ```
@@ -36,13 +36,13 @@ scope {
   control {
     name: "ground-reminder"
     userprompt: "ground"
-    msg: "Ground Control — a hook that fires on every hook event..."
+    msg: "ground_hook fires on every hook event..."
   }
 }
 ```
-Claude receives the context before it starts responding.
+Agent receives the context before it starts responding.
 
-Claude says "each conversation starts fresh":
+Agent says "each conversation starts fresh":
 ```
 scope {
   event: "Stop"
@@ -61,9 +61,9 @@ scope {
   }
 }
 ```
-Claude corrects itself and checks the transcripts.
+Agent corrects itself and checks the transcripts.
 
-## Install
+## Install as a plugin for Claude Code. 
 
 ```
 claude /plugin marketplace add teranos/ground
@@ -105,22 +105,4 @@ A control that only one machine should run is declared in that machine's `contro
 
 Ground stops rather than degrades. Its attestation store is a hard dependency: a damaged SQLite database returns zero rows to every read, which is indistinguishable from a database that is merely empty, so continuing would report an all-clear it cannot have verified. On detecting corruption ground reports on every hook and denies none of them — it refuses to operate, never to let you work, since blocking your own tool calls would take away what you need to repair it.
 
-## Why D
-
-D with `-betterC`, compiled with LDC. The binary's size is its controls. Controls are evaluated at compile time and baked in, which is where the size goes: the binary is the config, so there is no file to find, open or parse at hook time. Linked against libsqlite3 for attestation storage, libcurl for HTTP and libgit2 for git: ground itself starts no git process; a rite or control command an author writes runs as written.
-
-Latency is per event, not a single figure. Run `ground profile` to see it for your own install; the numbers below are one machine over 30 days.
-
-```
-event               samples   avg   med   p95   p99   max
-PostToolUse            1494    85ms    50ms    90ms  1600ms  5304ms
-Stop                    500    69ms    61ms   107ms   202ms   627ms
-PreToolUse             1584     5ms     4ms    11ms    36ms   288ms
-```
-
-`PreToolUse` gates every command and is the one that has to be invisible. `PostToolUse` carries the tool result, so it grows with payload size. `ground profile <event>` breaks a single event down by project and by phase. The budgets ground holds itself to are in `source/stop.d`.
-
-The breach is reported only where a control asks for it. Performance work is ground's own, not something to interrupt a stranger's session with, so the notice is opt-in: a `Stop` scope carrying `timing: "true"` turns it on for the paths that scope names, and an install that declares none never sees it. A scope with no `path:` names every project, so the default is expressible — it is simply not the shipped one.
-
-## [Countdown](COUNTDOWN.md)
    
