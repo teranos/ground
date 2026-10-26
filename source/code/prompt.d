@@ -201,6 +201,42 @@ bool fileUriPath(const(char)[] uri, ref Reply path) {
     return true;
 }
 
+// --- a session's title ---
+
+// How long a title runs before it is cut, in bytes, not counting the ellipsis.
+enum TITLE_BYTES = 80;
+
+// A session's title from what the user typed: "May be auto-generated from the
+// first prompt." The first line with words in it, its runs of spaces made one;
+// longer than TITLE_BYTES, it is cut after the last word that ends within them,
+// or where a character ends when one word is longer, and an ellipsis says so.
+// Nothing typed adds nothing.
+void titleOf(const(char)[] typed, ref Reply title) {
+    size_t p = 0;
+    while (p < typed.length && (typed[p] == ' ' || typed[p] == '\t' || typed[p] == '\r' || typed[p] == '\n')) p++;
+    // One byte past TITLE_BYTES is enough to know the line runs past them.
+    char[TITLE_BYTES + 1] line;
+    size_t n = 0;
+    bool space = false;
+    for (; p < typed.length && typed[p] != '\n' && n < line.length; p++) {
+        auto c = typed[p];
+        if (c == ' ' || c == '\t' || c == '\r') { space = true; continue; }
+        if (space) { line[n++] = ' '; space = false; if (n == line.length) break; }
+        line[n++] = c;
+    }
+    if (n <= TITLE_BYTES) { title.add(line[0 .. n]); return; }
+    size_t cut = TITLE_BYTES;
+    if (line[cut] != ' ') {
+        while (cut > 0 && line[cut] != ' ') cut--;
+        if (cut == 0) {
+            cut = TITLE_BYTES;
+            while (cut > 0 && (line[cut] & 0xC0) == 0x80) cut--;
+        }
+    }
+    title.add(line[0 .. cut]);
+    title.add("…");
+}
+
 // --- the history: the messages array's inside, grown a message at a time ---
 
 private void comma(ref Reply h) { if (h.len > 0) h.add(","); }

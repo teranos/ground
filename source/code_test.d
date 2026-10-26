@@ -1051,14 +1051,24 @@ version (Posix) unittest {
     // "A chunk of the agent's internal reasoning being streamed": the
     // reasoning the gateway gave back is told before the words.
     enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
+    // "Agents can update session metadata in real-time by sending a
+    // session_info_update notification": the title the first prompt gave, as
+    // the turn starts.
     assert(said[0 .. saidLen] ==
-          up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
+          up ~ `{"sessionUpdate":"session_info_update","title":"hi"}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
     Reply kept;
     assert(storeHistoryOf(db, "code-100-7-1", kept) == 1);
     assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done","reasoning":"hi is a greeting"}`);
     assert(kept.slice() == s.open[0].history.slice());
     kept.dispose();
+    // SessionInfo's title, "Human-readable title for the session", is the
+    // store's, so every process lists it.
+    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    b.db = db;
+    assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     s.open[0].history.dispose();
 }
 
@@ -1277,4 +1287,26 @@ version (Posix) unittest {
     assert(indexOf(wire[0 .. got], `"method": "notifications/cancelled"`) >= 0);
     assert(indexOf(wire[0 .. got], `"reason": "the client cancelled the turn"`) >= 0);
     s.open[0].history.dispose();
+}
+
+// A session is titled once: the first prompt that types something names it,
+// and a later one, in this process or another, leaves the name as it is.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import code.store : storeOpen, storeTitle, storeList;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+    assert(storeOpen(db, "s1", "/work", "[]", "medium", 1));
+    assert(storeTitle(db, "s1", "first") == 1);
+    assert(storeTitle(db, "s1", "second") == 0);
+    assert(storeTitle(db, "nope", "x") == 0);
+    __gshared char[16] got;
+    size_t gotLen;
+    assert(storeList(db, null, (const(char)[] id, const(char)[] cwd, const(char)[] dirs, const(char)[] title, long at) {
+        foreach (i, c; title) got[i] = c;
+        gotLen = title.length;
+    }));
+    assert(got[0 .. gotLen] == "first");
 }
