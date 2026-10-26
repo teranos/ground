@@ -76,18 +76,38 @@ static assert(r("version 1.29.0").found == 0);
 static assert(r("2.11.4.1.0").found == 0);
 static assert(r("256.1.1.1").found == 0);
 
-// A phone number, written as people write them, becomes one no network assigns.
-static assert(is_!("bel " ~ MOBILE, "bel +000 0000 0001"));
-static assert(is_!(MOBILE_NL ~ " of " ~ LANDLINE, "+000 0000 0001 of +000 0000 0002"));
-static assert(is_!(INTL00, "+000 0000 0001"));
-static assert(is_!(US, "+000 0000 0001"));
-
-// Not a phone: a timestamp, an id, a short number, a hash.
+// Not a phone, at compile time or after: a timestamp, an id, a short number, a hash.
 static assert(r("2026-10-08 21:41:54").found == 0);
 static assert(r("0100019a-ses").found == 0);
 static assert(r("0612345").found == 0);
 static assert(r("0dcb90b4").found == 0);
 static assert(r("+1").found == 0);
+
+// "Let's use it."
+// A phone is what libphonenumber finds in the text, so it is asked at run time, not here.
+bool isNow(const(char)[] text, const(char)[] want) {
+    char[1024] buf = 0;
+    auto s = scrub(text, buf[], ALLOWED[]);
+    return s.fit && buf[0 .. s.len] == want;
+}
+
+version (Posix) unittest {
+    // Written as people write them, each becomes one no network assigns.
+    assert(isNow("bel " ~ MOBILE, "bel +000 0000 0001"));
+    assert(isNow(MOBILE_NL ~ " of " ~ LANDLINE, "+000 0000 0001 of +000 0000 0002"));
+    assert(isNow(INTL00, "+000 0000 0001"));
+    assert(isNow("call " ~ US, "call +000 0000 0001"));
+    // The same number twice is the same stand-in.
+    assert(isNow(MOBILE ~ " / " ~ MOBILE, "+000 0000 0001 / +000 0000 0001"));
+    // A letter before the number takes more than one byte, and the number still lands where it is.
+    assert(isNow("é " ~ MOBILE_NL ~ " é", "é +000 0000 0001 é"));
+    // Still not a phone.
+    assert(r("2026-10-08 21:41:54").found == 0);
+    assert(r("0612345").found == 0);
+    assert(r("+1").found == 0);
+    // A second pass over the stand-ins changes nothing.
+    assert(r("+000 0000 0001 and +000 0000 0002").found == 0);
+}
 
 // A Dutch postal code becomes one that is not one.
 static assert(is_!(POST ~ " Amsterdam", "0000 AA Amsterdam"));
