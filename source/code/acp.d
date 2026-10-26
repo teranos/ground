@@ -15,7 +15,8 @@ import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
 import proto : ParsedQntx;
-import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch;
+import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch,
+    storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
@@ -567,7 +568,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto fs = caps is null ? null : objectValue(caps, `"fs"`);
         sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
+        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
         return true;
     }
@@ -762,20 +763,26 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // from any previously used or reported list as long as the request `cwd`
     // matches the session's `cwd`". One the store does not have open was
     // closed or never opened, and is not there to resume.
-    if (method == "session/resume") {
+    // session/load is session/resume that also tells the conversation back:
+    // "Unlike session/load, the Agent MUST NOT replay the conversation history
+    // via session/update notifications before responding."
+    if (method == "session/resume" || method == "session/load") {
+        bool load = method == "session/load";
+        auto verb = load ? "load" : "resume";
         char[256] sb;
         char[4096] cb;
         auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
         auto cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
         auto mcp = emptyArray(line, `"mcpServers"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`); return true; }
-        if (cwd is null) { put(`,"error":{"code":-32602,"message":"session/resume needs cwd"}}`); return true; }
+        if (sid is null) { put(`,"error":{"code":-32602,"message":"`); put(method); put(` needs sessionId"}}`); return true; }
+        if (cwd is null) { put(`,"error":{"code":-32602,"message":"`); put(method); put(` needs cwd"}}`); return true; }
         if (cwd[0] != '/') {
             put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
             putEscaped(r, cwd); put(`"}}`);
             return true;
         }
+        if (load && mcp < 0) { put(`,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`); return true; }
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
@@ -784,6 +791,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         scope(exit) { dirs.dispose(); bad.dispose(); }
         if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
         auto at = openAt(sessions, sid);
+        bool live = at >= 0;
         if (at < 0 && sessions.openLen == sessions.open.length) {
             put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
             return true;
@@ -830,14 +838,30 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         if (stored < 0) {
-            put(`,"error":{"code":-32603,"message":"the store refused to resume `);
+            put(`,"error":{"code":-32603,"message":"the store refused to `); put(verb); put(` `);
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
         if (stored == 0 || sid.length > sessions.open[0].id.length) {
-            put(`,"error":{"code":-32002,"message":"no session to resume: `);
+            put(`,"error":{"code":-32002,"message":"no session to `); put(verb); put(`: `);
             putEscaped(r, sid); put(`"}}`);
             return true;
+        }
+        // "it restores the session context": a session not live here gets its
+        // conversation back from the store, so its next turn goes on from it.
+        Reply* restored = null;
+        if (!live && sessions.db !is null && !__ctfe) {
+            import core.stdc.stdlib : malloc;
+            restored = cast(Reply*) malloc(Reply.sizeof);
+            if (restored is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
+            *restored = Reply.init;
+            if (storeHistoryOf(sessions.db, sid, *restored) != 1) {
+                restored.dispose(); free(restored);
+                put(`,"error":{"code":-32603,"message":"the store refused the conversation of `);
+                putEscaped(r, sid); put(`"}}`);
+                return true;
+            }
+            if (restored.len == 0) { restored.dispose(); free(restored); restored = null; }
         }
         if (at < 0) {
             at = cast(ptrdiff_t) sessions.openLen;
@@ -851,12 +875,23 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         scope(exit) shutdown.dispose();
         if (!__ctfe && o.mcp.count > 0) ended = closeMcp(o.mcp, shutdown);
         o.mcp = fresh;
+        if (!live) o.history = restored;
         keep(*o, sid, cwd, mode, dirs.slice(), effort);
         o.updatedAt = now(sessions);
         if (!ended) {
             put(`,"error":{"code":-32603,"message":"session resumed on its new MCP servers, but its old ones failed to shut down","data":`);
             put(shutdown.slice()); put(`}}`);
             return true;
+        }
+        // "When all the conversation entries have been streamed to the Client,
+        // the Agent MUST respond to the original session/load request."
+        if (load && !__ctfe && o.history !is null) {
+            bool tell(const(char)[] update) { return notify(sid, update); }
+            if (!replayHistory(o.history.slice(), &tell)) {
+                put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
+                putEscaped(r, sid); put(` back"}}`);
+                return true;
+            }
         }
         put(`,"result":{"modes":`); putModes(r, mode);
         put(`,"configOptions":`); putConfig(r, effort); put(`}}`);
@@ -1053,6 +1088,18 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 o.history = cast(Reply*) malloc(Reply.sizeof);
                 if (o.history is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
                 *o.history = Reply.init;
+            }
+            // The conversation is the store's as the turn ends, however it
+            // ends; a store that refuses it makes the turn's answer an error
+            // carrying the answer it would have been.
+            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice()) != 1) {
+                Reply would;
+                would.add(r.slice());
+                r.len = 0;
+                put(`{"jsonrpc":"2.0","id":`); put(id);
+                put(`,"error":{"code":-32603,"message":"the store refused the conversation of `); putEscaped(r, sid);
+                put(`","data":`); put(would.slice()); put(`}}`);
+                would.dispose();
             }
             Reply tools, detail, url;
             scope(exit) { tools.dispose(); detail.dispose(); url.dispose(); }

@@ -241,8 +241,14 @@ extern (C) int main(int argc, const(char)** argv) {
             return handleUsage();
         }
         if (cmd == "parity") {
-            import parity : handleParity;
-            return handleParity(argc, argv);
+            // parity is a developer's tool and its own binary (make parity): its
+            // tables are read out of the pinned agents' schemas and libmcp's C at
+            // compile time, and a hook does not carry that. argv + 1 is already
+            // "parity" followed by what the caller passed.
+            import core.sys.posix.unistd : execvp;
+            execvp("parity", argv + 1);
+            fputs("ground parity: no parity binary on PATH. parity is built by whoever develops ground: make parity, make install-parity\n", stderr);
+            return 127;
         }
         if (cmd == "ctfe") {
             import ctfe : handleCtfe;
