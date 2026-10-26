@@ -93,6 +93,7 @@ struct Sessions {
     long clock;      // the time, when one is given; otherwise the system's
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
+    bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
 }
 
@@ -255,6 +256,74 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     if (outcome == 1 && chosen == "reject_always") { o.never.add(tool); o.never.add("\n"); return 0; }
     why.add(`{"message":"the client's answer to session/request_permission is not one ground code offered","answer":"`);
     putEscaped(why, answered.slice()); why.add(`"}`);
+    return -1;
+}
+
+// What a session's MCP servers are told they may ask, as MCP's client
+// capabilities: the elicitation the client offers, and nothing when it offers none.
+private const(char)* serverAsks(ref const Sessions sessions) {
+    if (sessions.elicitsForms && sessions.elicitsUrls) return `{"elicitation":{"form":{},"url":{}}}`;
+    if (sessions.elicitsForms) return `{"elicitation":{"form":{}}}`;
+    if (sessions.elicitsUrls) return `{"elicitation":{"url":{}}}`;
+    return null;
+}
+
+// What a session's MCP server asks while the call callId runs, asked of the
+// client: "This is useful when an agent receives an elicitation from an MCP
+// server during a tool call and needs to redirect it to the user." The
+// client's answer is the server's: 1 its result in answer, 0 its error in
+// answer, 2 the turn was called off, -1 it could not be asked, why in answer.
+// A url elicitation's completion is passed on to the client as it comes.
+private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] callId,
+        const(char)[] method, const(char)[] params, ref Reply answer) {
+    if (method == "notifications/elicitation/complete") {
+        // "Notification sent by the agent when a URL-based elicitation is complete."
+        Reply n;
+        scope(exit) n.dispose();
+        n.add(`{"jsonrpc":"2.0","method":"elicitation/complete","params":`); n.add(params); n.add("}\n");
+        auto out_ = n.slice();
+        if (!n.full && fwrite(out_.ptr, 1, out_.length, stdout) == out_.length && fflush(stdout) == 0) return 1;
+        fputs("ground code: could not write elicitation/complete\n", stderr);
+        return -1;
+    }
+    if (method != "elicitation/create") {
+        answer.add(`{"code":-32601,"message":"ground code answers a server's elicitation/create, and nothing else it asks"}`);
+        return 0;
+    }
+    Reply asked;
+    scope(exit) asked.dispose();
+    auto mode = elicitationParams(params, sid, callId, asked);
+    if (mode < 0) { answer.add(`"the server's elicitation/create names no object to ask"`); return -1; }
+    if ((mode == 1 && !sessions.elicitsForms) || (mode == 2 && !sessions.elicitsUrls) || mode == 0) {
+        answer.add(`{"code":-32602,"message":"the client offers no elicitation in the mode the server asked"}`);
+        return 0;
+    }
+    if (turn.input is null) { answer.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    sessions.asked++;
+    Reply pid;
+    scope(exit) pid.dispose();
+    pid.add(`"elicit-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    Reply n;
+    scope(exit) n.dispose();
+    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
+    n.add(`,"method":"elicitation/create","params":`); n.add(asked.slice()); n.add("}\n");
+    if (n.full || asked.full) { answer.add(`"could not allocate elicitation/create"`); return -1; }
+    auto out_ = n.slice();
+    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+        answer.add(`"could not write elicitation/create"`);
+        return -1;
+    }
+    Reply answered;
+    scope(exit) answered.dispose();
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) { answer.add(`"the client's input ended while ground code waited on its elicitation"`); return -1; }
+    if (waited == 2) return 2;
+    auto result = objectValue(answered.slice(), `"result"`);
+    if (result !is null) { answer.add(result); return 1; }
+    auto error = objectValue(answered.slice(), `"error"`);
+    if (error !is null) { answer.add(error); return 0; }
+    answer.add(`"the client's answer to elicitation/create is neither a result nor an error: `);
+    putEscaped(answer, answered.slice()); answer.add(`"`);
     return -1;
 }
 
@@ -582,6 +651,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto caps = objectValue(line, `"clientCapabilities"`);
         auto fs = caps is null ? null : objectValue(caps, `"fs"`);
         sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
+        // "Supplying {} explicitly advertises form support", and url's the same.
+        auto elicits = caps is null ? null : objectValue(caps, `"elicitation"`);
+        sessions.elicitsForms = elicits !is null && objectValue(elicits, `"form"`) !is null;
+        sessions.elicitsUrls = elicits !is null && objectValue(elicits, `"url"`) !is null;
         put(`{"jsonrpc":"2.0","id":`); put(id);
         put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
@@ -660,7 +733,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (!__ctfe) {
             Reply detail;
             scope(exit) detail.dispose();
-            if (!openMcp(line, cwd, o.mcp, detail)) {
+            if (!openMcp(line, cwd, o.mcp, detail, serverAsks(sessions))) {
                 put(`,"error":{"code":-32603,"message":"session MCP setup failed","data":`);
                 put(detail.slice()); put(`}}`);
                 return true;
@@ -819,7 +892,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         scope(exit) setup.dispose();
         bool up() {
             if (__ctfe) { if (mcp == 0) assert(0, "MCP processes are tested at runtime"); return true; }
-            return mcp != 0 || openMcp(line, cwd, fresh, setup);
+            return mcp != 0 || openMcp(line, cwd, fresh, setup, serverAsks(sessions));
         }
         auto mode = at < 0 ? SessionMode.manual : sessions.open[cast(size_t) at].mode;
         size_t effort = at < 0 ? MEDIUM : sessions.open[cast(size_t) at].effort;
@@ -1302,7 +1375,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // "Abort all tool call invocations in progress": a cancel
                     // that arrives while the call runs cancels it at the server.
                     bool stopCall() { return cancelAsked(turn); }
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall);
+                    // What the server asks while it runs is asked of the client, tied to this call.
+                    int askClient(const(char)[] method, const(char)[] params, ref Reply answer) {
+                        return elicit(sessions, turn, sid, call.id, method, params, answer);
+                    }
+                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient);
                     bool ok = status == mcp_status.MCP_OK;
                     if (ok) result.add(response.json[0 .. response.length]);
                     else {

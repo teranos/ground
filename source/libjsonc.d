@@ -22,9 +22,18 @@ extern(C) nothrow @nogc {
     void json_tokener_free(json_tokener*);
     // A value's own JSON, kept by the value until it is put.
     const(char)* json_object_to_json_string_ext(json_object*, int);
+    // An object's members, in the order they came.
+    struct json_object_iterator { const(void)* opaque_; }
+    json_object_iterator json_object_iter_begin(json_object*);
+    json_object_iterator json_object_iter_end(const(json_object)*);
+    void json_object_iter_next(json_object_iterator*);
+    const(char)* json_object_iter_peek_name(const(json_object_iterator)*);
+    json_object* json_object_iter_peek_value(const(json_object_iterator)*);
+    int json_object_iter_equal(const(json_object_iterator)*, const(json_object_iterator)*);
 }
 
 enum JSON_C_TO_STRING_PLAIN = 0;
+enum JSON_C_TO_STRING_NOSLASHESCAPE = 1 << 4; // a url's slashes as they are
 
 json_object* jsonField(json_object* object, const(char)* name) nothrow @nogc {
     json_object* value;

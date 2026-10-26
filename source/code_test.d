@@ -1278,3 +1278,161 @@ version (Posix) unittest {
     assert(indexOf(wire[0 .. got], `"reason": "the client cancelled the turn"`) >= 0);
     s.open[0].history.dispose();
 }
+
+// "This is useful when an agent receives an elicitation from an MCP server
+// during a tool call and needs to redirect it to the user." A session's MCP
+// servers are told the elicitation the client offers, and one that asks while
+// its call runs is asked of the client as elicitation/create, tied to the call;
+// the client's answer is the server's. A legacy server asks with a request of
+// its own, a 2026-07-28 one with input_required; a url elicitation's
+// completion is passed on as elicitation/complete. A client that offers none
+// has none declared for it, and the server's ask is refused by libmcp.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, getcwd;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.stdc.stdio : fflush, stdout, fopen, fread, fclose;
+    import matcher : indexOf;
+    import code.mcp : closeMcp;
+
+    __gshared char[4096] cwd;
+    assert(getcwd(cwd.ptr, cwd.length) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    __gshared char[65536] said;
+    __gshared char[65536] wire;
+    size_t saidLen, wireLen;
+
+    // One turn: the model calls tools, each runs on the elicit server, then
+    // the model is done. The client's answers wait in its input already.
+    const(char)[] turn(string protocol, string caps, string tools, string answers, ref Reply r) {
+        __gshared char[64] dir;
+        foreach (i, ch; "/tmp/ground-elicit-XXXXXX\0") dir[i] = ch;
+        assert(mkdtemp(dir.ptr) !is null);
+        size_t dirLen = 0; while (dir[dirLen]) dirLen++;
+        Reply calls;
+        scope(exit) calls.dispose();
+        calls.add("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n");
+        calls.add(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`);
+        calls.add(tools); calls.add(`]}}]}`);
+        enum done = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+            ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            char[65536] got;
+            auto c = accept(fd, null, null);
+            read(c, got.ptr, got.length);
+            write(c, calls.slice().ptr, calls.len);
+            close(c);
+            c = accept(fd, null, null);
+            read(c, got.ptr, got.length);
+            write(c, done.ptr, done.length);
+            close(c);
+            _exit(0);
+        }
+        close(fd);
+        __gshared char[32] urlBuf;
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+
+        int[2] p;
+        assert(pipe(p) == 0);
+        write(p[1], answers.ptr, answers.length);
+        Input input = Input(p[0]);
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent";
+        s.input = &input;
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        Reply init, req;
+        scope(exit) { init.dispose(); req.dispose(); }
+        init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":`);
+        init.add(caps); init.add(`}}`);
+        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+        req.add(cwd[0 .. cwdLen]); req.add(`/mcp/elicit_server.py"],"env":[{"name":"ELICIT_PROTOCOL","value":"`);
+        req.add(protocol); req.add(`"},{"name":"ELICIT_LOG","value":"`);
+        req.add(dir[0 .. dirLen]); req.add(`/wire.jsonl"}]}]}}`);
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        answer(init.slice(), r, s); r.len = 0;
+        answer(req.slice(), r, s);
+        bool opened = indexOf(r.slice(), `"sessionId":"code-100-7-1"`) >= 0;
+        r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"bypassPermissions"}}`, r, s);
+        r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"go"}]}}`, r, s);
+        fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+        // Closed first: the server holds what it inherited of the pipe until
+        // it ends, and has read everything sent to it before its log is.
+        Reply closed;
+        bool shut = closeMcp(s.open[0].mcp, closed);
+        closed.dispose();
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        assert(opened && shut);
+        s.open[0].history.dispose();
+        Reply path;
+        scope(exit) path.dispose();
+        path.add(dir[0 .. dirLen]); path.add("/wire.jsonl\0");
+        auto f = fopen(path.slice().ptr, "r");
+        assert(f !is null);
+        wireLen = fread(wire.ptr, 1, wire.length, f);
+        fclose(f);
+        return said[0 .. saidLen];
+    }
+
+    enum both = `{"elicitation":{"form":{},"url":{}}}`;
+    enum ask = `{"id":"c1","type":"function","function":{"name":"test__ask","arguments":"{}"}}`;
+    enum link = `{"id":"c2","type":"function","function":{"name":"test__link","arguments":"{}"}}`;
+    enum accepted = `{"jsonrpc":"2.0","id":"elicit-1","result":{"action":"accept","content":{"branch":"main"}}}` ~ "\n";
+    enum opened = `{"jsonrpc":"2.0","id":"elicit-2","result":{"action":"accept"}}` ~ "\n";
+    enum asked = `{"jsonrpc":"2.0","id":"elicit-1","method":"elicitation/create","params":{"sessionId":"code-100-7-1","toolCallId":"c1",`
+        ~ `"mode":"form","message":"Which branch?","requestedSchema":{"type":"object","properties":{"branch":{"type":"string"}},"required":["branch"]}}}` ~ "\n";
+    Reply r;
+    scope(exit) r.dispose();
+
+    // Legacy: the server's own request, answered on the wire.
+    auto out_ = turn("legacy", both, ask ~ "," ~ link, accepted ~ opened, r);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(out_, asked) >= 0);
+    assert(indexOf(out_, `{"jsonrpc":"2.0","id":"elicit-2","method":"elicitation/create","params":{"sessionId":"code-100-7-1","toolCallId":"c2",`
+        ~ `"mode":"url","message":"Sign in","elicitationId":"x1","url":"https://example.com/sign-in"}}` ~ "\n") >= 0);
+    assert(indexOf(out_, `{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"x1"}}` ~ "\n") >= 0);
+    assert(indexOf(wire[0 .. wireLen], `{"capabilities": {"elicitation": {"form": {}, "url": {}}}}`) >= 0);
+    assert(indexOf(wire[0 .. wireLen], `{"answer": {"jsonrpc": "2.0", "id": "e1", "result": {"action": "accept", "content": {"branch": "main"}}}}`) >= 0);
+    assert(indexOf(wire[0 .. wireLen], `{"answer": {"jsonrpc": "2.0", "id": "e2", "result": {"action": "accept"}}}`) >= 0);
+
+    // 2026-07-28: input_required, answered by the call's continuation.
+    out_ = turn("modern", `{"elicitation":{"form":{}}}`, ask, accepted, r);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(out_, asked) >= 0);
+    assert(indexOf(wire[0 .. wireLen], `{"capabilities": {"elicitation": {"form": {}}}}`) >= 0);
+    assert(indexOf(wire[0 .. wireLen], `{"answer": {"action": "accept", "content": {"branch": "main"}}, "state": "s1"}`) >= 0);
+
+    // A client that offers no elicitation: none is declared, and nothing is asked of it.
+    out_ = turn("legacy", `{}`, ask, "", r);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(out_, `elicitation/create`) < 0);
+    assert(indexOf(wire[0 .. wireLen], `{"capabilities": {}}`) >= 0);
+    assert(indexOf(wire[0 .. wireLen], `"error": {"code": -32601`) >= 0);
+}
