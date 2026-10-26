@@ -139,3 +139,27 @@ unittest {
     assert(!readOnlyTool(group, "fs__missing"));
     assert(!readOnlyTool(group, "other__look"));
 }
+
+// "Tokens currently in context": what the gateway's answer says the
+// conversation holds now, its total_tokens. An answer without usage has none.
+unittest {
+    import code.prompt : Completion, completionOf, contextLengthOf;
+    Completion c;
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"prompt_tokens":194,"completion_tokens":2,"total_tokens":196}}`, c));
+    assert(c.hasUsage && c.used == 196);
+    c.dispose();
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}]}`, c));
+    assert(!c.hasUsage);
+    c.dispose();
+
+    // "context_length": "Maximum context length in tokens", the model's own,
+    // by its id in the list. Absent, null, or not the model's: none.
+    ulong size;
+    enum list = `{"data":[{"id":"a","context_length":8192},{"id":"m","context_length":200000,"top_provider":{"context_length":100000}},{"id":"n","context_length":null}]}`;
+    assert(contextLengthOf(list, "m", size) && size == 200_000);
+    assert(contextLengthOf(list, "a", size) && size == 8192);
+    assert(!contextLengthOf(list, "n", size));
+    assert(!contextLengthOf(list, "z", size));
+    assert(!contextLengthOf(`{"error":{"message":"not found"}}`, "m", size));
+    assert(!contextLengthOf(`not json`, "m", size));
+}
