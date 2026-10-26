@@ -15,7 +15,7 @@ import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
 import proto : ParsedQntx;
-import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch,
+import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
     storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
@@ -346,6 +346,9 @@ struct Open {
     char[2048] dirs; // the JSON array a client is answered with
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
+    char[TITLE_BYTES + 4] title; // what the first prompt named it, ellipsis and all
+    size_t titleLen;
+    bool titled;    // named, here or by the store, so no later prompt renames it
     Reply always;   // the tools the user said to always allow here, a name a line
     Reply never;    // and to always reject
 }
@@ -749,12 +752,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "Omitted and empty values are equivalent", so a session with no
         // additional roots lists none.
         // updatedAt is "ISO 8601 timestamp of last activity".
-        void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs, long updatedAt) {
+        // title: "Human-readable title for the session. May be auto-generated
+        // from the first prompt." One not named yet lists none.
+        void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs, const(char)[] title, long updatedAt) {
             if (!first) put(",");
             first = false;
             put(`{"sessionId":"`); putEscaped(r, sid);
             put(`","cwd":"`); putEscaped(r, at); put(`"`);
             if (dirs != "[]") { put(`,"additionalDirectories":`); put(dirs); }
+            if (title.length > 0) { put(`,"title":"`); putEscaped(r, title); put(`"`); }
             put(`,"updatedAt":"`); putIso(r, updatedAt); put(`"}`);
         }
         if (sessions.db !is null) {
@@ -768,7 +774,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             foreach (i; 0 .. sessions.openLen) {
                 auto o = &sessions.open[i];
                 auto at = o.cwd[0 .. o.cwdLen];
-                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen], o.updatedAt);
+                if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen], o.title[0 .. o.titleLen], o.updatedAt);
             }
         }
         put(`]}}`);
@@ -1145,6 +1151,31 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // "the Agent MUST respond to the original session/prompt request
             // with the cancelled stop reason"; the history keeps what happened.
             void stopCancelled() { put(`,"result":{"stopReason":"cancelled"}}`); }
+            // "Agents typically send this notification after the first meaningful
+            // exchange to auto-generate a title": the first prompt that types
+            // something names the session, in the store and to the client.
+            if (!o.titled) {
+                Reply title;
+                scope(exit) title.dispose();
+                titleOf(text.slice(), title);
+                if (title.len > 0) {
+                    auto named = sessions.db is null ? 1 : storeTitle(sessions.db, sid, title.slice());
+                    if (named < 0) {
+                        put(`,"error":{"code":-32603,"message":"the store refused the title of `);
+                        putEscaped(r, sid); put(`"}}`);
+                        return true;
+                    }
+                    o.titled = true;
+                    if (named == 1) {
+                        o.titleLen = 0;
+                        foreach (c; title.slice()) if (o.titleLen < o.title.length) o.title[o.titleLen++] = c;
+                        Reply u;
+                        scope(exit) u.dispose();
+                        u.add(`{"sessionUpdate":"session_info_update","title":"`); putEscaped(u, title.slice()); u.add(`"}`);
+                        if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    }
+                }
+            }
             // Each linked file is read before the model is asked, and its text
             // is the user's, after what they typed, under the link's name.
             for (size_t at_ = 0, from = 0, field = 0, nameFrom = 0, nameTo = 0; at_ < links.len; at_++) {

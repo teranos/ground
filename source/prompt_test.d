@@ -163,3 +163,29 @@ unittest {
     assert(!contextLengthOf(`{"error":{"message":"not found"}}`, "m", size));
     assert(!contextLengthOf(`not json`, "m", size));
 }
+
+// A session's title: "May be auto-generated from the first prompt." The first
+// line the user typed, its spaces run together, cut after the last word that
+// ends within TITLE_BYTES, with an ellipsis; nothing typed is no title yet.
+unittest {
+    import code.prompt : titleOf, TITLE_BYTES;
+    import code.reply : Reply;
+    bool gives(const(char)[] typed, const(char)[] want) {
+        Reply t;
+        scope(exit) t.dispose();
+        titleOf(typed, t);
+        return t.slice() == want;
+    }
+    assert(gives("hi", "hi"));
+    assert(gives("  fix   the\tbuild \r\n then the rest", "fix the build"));
+    assert(gives("\n \n  the second line leads", "the second line leads"));
+    assert(gives("", ""));
+    assert(gives(" \n\t\n", ""));
+    enum words = "the quick brown fox jumps over the lazy dog and keeps running past the fence into the field";
+    static assert(words.length > TITLE_BYTES);
+    assert(gives(words, "the quick brown fox jumps over the lazy dog and keeps running past the fence…"));
+    // One word longer than the title is cut where a character ends, not inside one.
+    enum long_ = "ééééééééééééééééééééééééééééééééééééééééééééééééé";
+    static assert(long_.length > TITLE_BYTES);
+    assert(gives(long_, "éééééééééééééééééééééééééééééééééééééééé…"));
+}
