@@ -25,6 +25,7 @@ extern(C) nothrow @nogc {
 }
 
 enum JSON_C_TO_STRING_PLAIN = 0;
+enum JSON_C_TO_STRING_NOSLASHESCAPE = 1 << 4; // a url's slashes as they are
 
 json_object* jsonField(json_object* object, const(char)* name) nothrow @nogc {
     json_object* value;

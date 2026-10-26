@@ -93,6 +93,7 @@ struct Sessions {
     long clock;      // the time, when one is given; otherwise the system's
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
+    bool clientTakesNotices; // initialize said the client presents notice session updates
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
 }
 
@@ -256,6 +257,49 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     why.add(`{"message":"the client's answer to session/request_permission is not one ground code offered","answer":"`);
     putEscaped(why, answered.slice()); why.add(`"}`);
     return -1;
+}
+
+// What the user should know of a session, as it happens: "Fire-and-forget
+// information for the user", a notice, when the client "advertised
+// ClientSessionCapabilities::notices. Otherwise, Agents may use an agent
+// message when the information should still be surfaced to the user." stderr
+// has it too. false when it could not be written.
+private bool tellUser(ref Sessions sessions, const(char)[] sid, const(char)[] severity,
+        const(char)[] title, const(char)[] description) {
+    if (!__ctfe) {
+        fputs("ground code: ", stderr); fwrite(title.ptr, 1, title.length, stderr);
+        fputs(": ", stderr); fwrite(description.ptr, 1, description.length, stderr); fputs("\n", stderr);
+    }
+    Reply u;
+    scope(exit) u.dispose();
+    if (sessions.clientTakesNotices) {
+        u.add(`{"sessionUpdate":"notice","severity":"`); u.add(severity);
+        u.add(`","title":"`); putEscaped(u, title);
+        u.add(`","description":"`); putEscaped(u, description); u.add(`"}`);
+    } else {
+        u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
+        putEscaped(u, title); u.add(": "); putEscaped(u, description); u.add(`\n"}}`);
+    }
+    return notify(sid, u.slice());
+}
+
+// A notification ground code does not handle: said on stderr, and to the
+// session it names when that one is open here.
+void unhandled(const(char)[] line, ref Sessions sessions) {
+    char[256] mb, sb;
+    auto method = extractJsonString(line, `"method"`, &mb[0], mb.length);
+    auto params = objectValue(line, `"params"`);
+    auto sid = params is null ? null : extractJsonString(params, `"sessionId"`, &sb[0], sb.length);
+    if (sid !is null && method !is null && openAt(sessions, sid) >= 0) {
+        Reply title;
+        scope(exit) title.dispose();
+        title.add("ground code does not handle "); title.add(method);
+        tellUser(sessions, sid, "warning", title.slice(), line);
+        return;
+    }
+    fputs("ground code: a notification it does not handle: ", stderr);
+    fwrite(line.ptr, 1, line.length, stderr);
+    fputs("\n", stderr);
 }
 
 // libcurl asks this while the gateway is answering: a cancel cuts the request off.
@@ -585,6 +629,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto caps = objectValue(line, `"clientCapabilities"`);
         auto fs = caps is null ? null : objectValue(caps, `"fs"`);
         sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
+        // "Supplying {} means the client can present notices to the user."
+        auto session = caps is null ? null : objectValue(caps, `"session"`);
+        sessions.clientTakesNotices = session !is null && objectValue(session, `"notices"`) !is null;
         put(`{"jsonrpc":"2.0","id":`); put(id);
         put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
@@ -1333,7 +1380,16 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // "Abort all tool call invocations in progress": a cancel
                     // that arrives while the call runs cancels it at the server.
                     bool stopCall() { return cancelAsked(turn); }
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall);
+                    // What the server logs at warning or above while it runs, the user is told.
+                    void hearServer(const(char)[] name, const(char)[] level, const(char)[] data) {
+                        Reply title;
+                        scope(exit) title.dispose();
+                        title.add("MCP server "); title.add(name); title.add(" logged ");
+                        title.add(level == "warning" ? "a warning" : level == "error" ? "an error"
+                            : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
+                        tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
+                    }
+                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &hearServer);
                     bool ok = status == mcp_status.MCP_OK;
                     if (ok) result.add(response.json[0 .. response.length]);
                     else {
@@ -1404,9 +1460,7 @@ int handleCode() {
         Reply r;
         scope(exit) r.dispose();
         if (!answer(line, r, sessions)) {
-            fputs("ground code: a notification it does not handle: ", stderr);
-            fwrite(line.ptr, 1, line.length, stderr);
-            fputs("\n", stderr);
+            unhandled(line, sessions);
             continue;
         }
         // A notification it handled has no answer to write.
