@@ -549,17 +549,17 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
 
 // The client's answer to session/request_permission: 1 an option was selected,
 // its optionId in optionId; 0 "The prompt turn was cancelled before the user
-// responded"; -1 an answer of neither kind, or an error.
+// responded"; -1 an answer of neither kind, or an error. libacp reads it.
 int permissionOutcome(const(char)[] line, ref Reply optionId) {
-    auto root = parseJson(line);
-    scope(exit) json_object_put(root);
-    auto outcome = jsonField(jsonField(root, "result"), "outcome");
-    auto kind = text(jsonField(outcome, "outcome"));
-    if (kind == "cancelled") return 0;
-    if (kind != "selected") return -1;
-    auto id = text(jsonField(outcome, "optionId"));
-    if (id is null) return -1;
-    optionId.add(id);
+    import libacp : acp_permission_outcome, acp_permission_outcome_read, acp_permission_outcome_free,
+        acp_permission_kind, acp_status;
+    import core.stdc.string : strlen;
+    acp_permission_outcome o;
+    scope(exit) acp_permission_outcome_free(&o);
+    if (acp_permission_outcome_read(line.ptr, line.length, &o) != acp_status.ACP_OK) return -1;
+    if (o.kind == acp_permission_kind.ACP_PERMISSION_CANCELLED) return 0;
+    if (o.kind != acp_permission_kind.ACP_PERMISSION_SELECTED) return -1;
+    optionId.add(o.option_id[0 .. strlen(o.option_id)]);
     return 1;
 }
 

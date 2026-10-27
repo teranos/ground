@@ -227,22 +227,32 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     Reply pid;
     scope(exit) pid.dispose();
     pid.add(`"perm-`); putNumber(pid, sessions.asked); pid.add(`"`);
-    Reply n;
-    scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
-    n.add(`,"method":"session/request_permission","params":{"sessionId":"`); putEscaped(n, sid);
-    n.add(`","toolCall":{"toolCallId":"`); putEscaped(n, callId);
-    n.add(`","title":"`); putEscaped(n, tool);
-    n.add(`","name":"`); putEscaped(n, tool);
-    if (readOnlyTool(o.mcp, tool)) n.add(`","kind":"read`);
-    n.add(`","status":"pending","rawInput":`); n.add(arguments);
-    n.add(`},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`);
-    n.add(`{"optionId":"allow_always","name":"Always allow `); putEscaped(n, tool); n.add(`","kind":"allow_always"},`);
-    n.add(`{"optionId":"reject_once","name":"Reject once","kind":"reject_once"},`);
-    n.add(`{"optionId":"reject_always","name":"Always reject `); putEscaped(n, tool); n.add(`","kind":"reject_always"}]}}` ~ "\n");
-    if (n.full) { why.add(`"could not allocate the permission request"`); return -1; }
-    auto out_ = n.slice();
-    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+    // libacp writes the request from these, each its own bytes and a NUL.
+    import libacp : acp_permission_option, acp_permission_request, acp_permission_request_write, acp_buffer,
+        acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), callAt = at(callId), toolAt = at(tool), inputAt = at(arguments);
+    auto allowAt = text.len; text.add("Always allow "); text.add(tool); text.add("\0");
+    auto rejectAt = text.len; text.add("Always reject "); text.add(tool); text.add("\0");
+    if (text.full) { why.add(`"could not allocate the permission request"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_permission_option[4] options = [
+        acp_permission_option("allow_once", "Allow once", "allow_once"),
+        acp_permission_option("allow_always", t + allowAt, "allow_always"),
+        acp_permission_option("reject_once", "Reject once", "reject_once"),
+        acp_permission_option("reject_always", t + rejectAt, "reject_always"),
+    ];
+    auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + toolAt, t + toolAt,
+        readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_permission_request_write(&asked, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write session/request_permission"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
         why.add(`"could not write session/request_permission"`);
         return -1;
     }

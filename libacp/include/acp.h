@@ -160,6 +160,46 @@ typedef struct acp_cancel {
 acp_status acp_cancel_read(const char *message_json, size_t length, acp_cancel *out);
 void acp_cancel_free(acp_cancel *cancel);
 
+// A permission option ground offers: its id, its name, and its kind.
+typedef struct acp_permission_option {
+    const char *option_id;
+    const char *name;
+    const char *kind;
+} acp_permission_option;
+
+// session/request_permission, whole. request_id and raw_input are JSON text; raw_input that is
+// not JSON is written as a string. name and kind are not written when NULL.
+typedef struct acp_permission_request {
+    const char *request_id;
+    const char *session_id;
+    const char *tool_call_id;
+    const char *title;
+    const char *name;
+    const char *kind;
+    const char *status;
+    const char *raw_input;
+    const acp_permission_option *options;
+    size_t count;
+} acp_permission_request;
+
+acp_status acp_permission_request_write(const acp_permission_request *request, acp_buffer *message_json);
+
+// The client's answer: an option selected, the turn cancelled, or neither, UNREAD.
+typedef enum acp_permission_kind {
+    ACP_PERMISSION_UNREAD,
+    ACP_PERMISSION_SELECTED,
+    ACP_PERMISSION_CANCELLED
+} acp_permission_kind;
+
+typedef struct acp_permission_outcome {
+    acp_permission_kind kind;
+    char *option_id;
+} acp_permission_outcome;
+
+// Reads a whole message. libacp owns option_id until acp_permission_outcome_free.
+acp_status acp_permission_outcome_read(const char *message_json, size_t length, acp_permission_outcome *out);
+void acp_permission_outcome_free(acp_permission_outcome *outcome);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;
