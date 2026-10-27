@@ -35,6 +35,11 @@ json_object *acp_parse(const char *json, size_t length) {
     json_object *value = json_tokener_parse_ex(tokener, json, (int) length);
     int whole = json_tokener_get_error(tokener) == json_tokener_success
         && (size_t) json_tokener_get_parse_end(tokener) == length;
+    // A number at the end of the text may yet go on: a NUL ends it, as it ends a C string.
+    if (value == NULL && json_tokener_get_error(tokener) == json_tokener_continue) {
+        value = json_tokener_parse_ex(tokener, "", 1);
+        whole = json_tokener_get_error(tokener) == json_tokener_success;
+    }
     json_tokener_free(tokener);
     if (!whole) {
         json_object_put(value);

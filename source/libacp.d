@@ -72,6 +72,32 @@ extern (C) nothrow @nogc {
         char* request_id;
     }
 
+    struct acp_permission_option {
+        const(char)* option_id;
+        const(char)* name;
+        const(char)* kind;
+    }
+
+    struct acp_permission_request {
+        const(char)* request_id;
+        const(char)* session_id;
+        const(char)* tool_call_id;
+        const(char)* title;
+        const(char)* name;
+        const(char)* kind;
+        const(char)* status;
+        const(char)* raw_input;
+        const(acp_permission_option)* options;
+        size_t count;
+    }
+
+    enum acp_permission_kind : int { ACP_PERMISSION_UNREAD, ACP_PERMISSION_SELECTED, ACP_PERMISSION_CANCELLED }
+
+    struct acp_permission_outcome {
+        acp_permission_kind kind;
+        char* option_id;
+    }
+
     struct acp_set_mode {
         char* session_id;
         char* mode_id;
@@ -125,6 +151,9 @@ extern (C) nothrow @nogc {
     void acp_prompt_free(acp_prompt*);
     acp_status acp_cancel_read(const(char)*, size_t, acp_cancel*);
     void acp_cancel_free(acp_cancel*);
+    acp_status acp_permission_request_write(const(acp_permission_request)*, acp_buffer*);
+    acp_status acp_permission_outcome_read(const(char)*, size_t, acp_permission_outcome*);
+    void acp_permission_outcome_free(acp_permission_outcome*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);
