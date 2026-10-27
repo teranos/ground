@@ -81,6 +81,9 @@ typedef struct acp_session_resume {
 // On ACP_INVALID_PARAMS, error_json is the JSON-RPC error to answer.
 acp_status acp_session_resume_read(const char *params_json, size_t length,
                                    acp_session_resume *out, acp_buffer *error_json);
+// session/load's request: resume's, with mcpServers required, a list. Freed as resume's is.
+acp_status acp_session_load_read(const char *params_json, size_t length,
+                                 acp_session_resume *out, acp_buffer *error_json);
 void acp_session_resume_free(acp_session_resume *resume);
 
 // The session a request names in its own sessionId, as session/delete's does; a request
