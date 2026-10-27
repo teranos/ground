@@ -1,0 +1,19 @@
+# A prompt's blocks: text goes to the model; a block ground code cannot read is refused by its type; no prompt is refused.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Answer with exactly one word: what colour is the sky on a clear day?"}]}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"see"},{"type":"resource_link","name":"a","uri":"file:///etc/hosts"}]}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"see"},{"type":"image","data":"AAAA","mimeType":"image/png"}]}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"resource","resource":{"uri":"file:///a.png","blob":"AAAA"}}]}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"text":"hi"}]}}
+wait 6
+{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"$SID"}}
+wait 7
+{"jsonrpc":"2.0","id":8,"method":"session/prompt","params":{"sessionId":"$SID","_meta":{"prompt":[{"type":"text","text":"hi"}]}}}
+wait 8
