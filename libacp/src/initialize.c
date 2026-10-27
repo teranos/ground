@@ -126,3 +126,21 @@ acp_status acp_initialize_result(unsigned selected_version,
     }
     return acp_finish(result, result_json);
 }
+
+acp_status acp_authenticate_read(const char *params_json, size_t length, char **method_id, acp_buffer *error_json) {
+    if (params_json == NULL || method_id == NULL || error_json == NULL) return ACP_INVALID_ARGUMENT;
+    *method_id = NULL;
+    error_json->data = NULL;
+    error_json->length = 0;
+    json_object *params = acp_parse(params_json, length);
+    acp_status status = ACP_OK;
+    if ((*method_id = acp_string(params, "methodId")) == NULL) status = acp_invalid(error_json, "authenticate needs methodId");
+    json_object_put(params);
+    return status;
+}
+
+void acp_authenticate_free(char **method_id) {
+    if (method_id == NULL) return;
+    free(*method_id);
+    *method_id = NULL;
+}

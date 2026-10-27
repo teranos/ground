@@ -760,10 +760,24 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // initialize advertises none: the model is reached through the QNTX node,
     // whose credentials ground code never holds.
     if (method == "authenticate") {
-        char[256] ab;
-        auto mid = extractJsonString(line, `"methodId"`, &ab[0], ab.length);
+        // libacp reads the methodId, and refuses a request with none in its words.
+        import libacp : acp_authenticate_read, acp_authenticate_free, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        char* named;
+        scope(exit) acp_authenticate_free(&named);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (mid is null) { put(`,"error":{"code":-32602,"message":"authenticate needs methodId"}}`); return true; }
+        if (acp_authenticate_read(params.ptr, params.length, &named, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read authenticate"}`);
+            put(`}`);
+            return true;
+        }
+        auto mid = named[0 .. strlen(named)];
         put(`,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named `);
         putEscaped(r, mid); put(`"}}`);
         return true;

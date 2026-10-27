@@ -84,10 +84,16 @@ unittest {
 
 // authenticate: "Must be one of the methods advertised in the initialize
 // response." ground code advertises none, so no methodId is one of them.
-static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"agent"}}`)
-    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named agent"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{}}`)
-    == `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"authenticate needs methodId"}}`);
+// libacp reads the methodId; one only in _meta is not the request's.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"agent"}}`,
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named agent"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"authenticate needs methodId"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":7,"method":"authenticate","params":{"_meta":{"methodId":"agent"}}}`,
+        `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"authenticate needs methodId"}}`));
+}
 
 // A method ground code does not handle is said to the client, by name.
 static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"logout","params":{}}`)
