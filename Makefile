@@ -31,6 +31,9 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.
 # modules the entry point reaches, so no list of them is kept by hand.
 # -d-version=Floor: an engine is built from ground's tracked controls alone (source/sand/text.d).
 BIN_FLAGS = -betterC --lowmem -O -release -d-version=Floor -J=. -I=source -i
+# -betterC is for the hooks, started once an event. ground code runs a whole client session,
+# so it starts the D runtime once and keeps it.
+ground_code: BIN_FLAGS = --lowmem -O -release -d-version=Floor -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
 	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lm -L-lpthread -L-ldl \
