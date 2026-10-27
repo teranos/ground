@@ -97,6 +97,24 @@ static void results(void) {
     acp_buffer_free(&out);
 }
 
+// authenticate, as #131 answers it: the methodId it names is required, and a string.
+static void authenticate(void) {
+    char *method_id = NULL;
+    acp_buffer error = {0};
+    const char *named = "{\"methodId\":\"agent\"}";
+    CHECK(acp_authenticate_read(named, strlen(named), &method_id, &error) == ACP_OK);
+    CHECK(method_id && strcmp(method_id, "agent") == 0);
+    acp_authenticate_free(&method_id);
+    CHECK(method_id == NULL);
+    const char *unnamed[] = {"{}", "{\"methodId\":7}", "{\"_meta\":{\"methodId\":\"agent\"}}"};
+    for (size_t i = 0; i < sizeof unnamed / sizeof *unnamed; i++) {
+        CHECK(acp_authenticate_read(unnamed[i], strlen(unnamed[i]), &method_id, &error) == ACP_INVALID_PARAMS);
+        CHECK(error.data && strcmp(error.data, "{\"code\":-32602,\"message\":\"authenticate needs methodId\"}") == 0);
+        CHECK(method_id == NULL);
+        acp_buffer_free(&error);
+    }
+}
+
 int main(void) {
     v1_shape();
     v2_shape_to_a_v1_agent();
@@ -104,10 +122,11 @@ int main(void) {
     none_fits();
     malformed();
     results();
+    authenticate();
     if (failures) {
         fprintf(stderr, "initialize: %d failed\n", failures);
         return 1;
     }
-    printf("initialize: version selection, both request shapes, -32022 and both result shapes passed\n");
+    printf("initialize: version selection, both request shapes, -32022, both result shapes and authenticate passed\n");
     return 0;
 }
