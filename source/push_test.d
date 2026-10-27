@@ -70,3 +70,14 @@ static assert(hasPathStartingWith("relayer/src/main.rs\n", "relayer/"));
 static assert(hasPathStartingWith("ccg/src/lib.rs\n", "ccg/"));
 static assert(hasPathStartingWith("roam/src/lib.rs\n", "roam/"));
 static assert(hasPathStartingWith("universe/src/lib.rs\n", "universe/"));
+
+// --- deletesOnly: a push that removes refs carries no line to check ---
+import push : deletesOnly;
+static assert(deletesOnly("git push origin --delete old-branch"));
+static assert(deletesOnly("git -C /srv/app push -q origin --delete a b"));
+static assert(deletesOnly("git push origin -d old-branch"));
+static assert(deletesOnly("git push origin :old-branch"));
+static assert(!deletesOnly("git push origin main"));
+static assert(!deletesOnly("git push -u origin feature"));
+static assert(!deletesOnly("git push origin main :old-branch"));
+static assert(!deletesOnly("git status"));
