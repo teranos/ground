@@ -110,14 +110,16 @@ private struct Turn {
 }
 
 // session/cancel for this turn's session, or $/cancel_request naming the
-// request that asked for it.
+// request that asked for it, as libacp reads the line.
 private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
-    char[64] mb;
-    auto method = extractJsonString(line, `"method"`, &mb[0], mb.length);
-    if (method == "$/cancel_request") return rawValue(line, `"requestId"`) == id;
-    if (method != "session/cancel") return false;
-    char[256] sb;
-    return extractJsonString(line, `"sessionId"`, &sb[0], sb.length) == sid;
+    import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_cancel_kind, acp_status;
+    import core.stdc.string : strlen;
+    acp_cancel c;
+    scope(exit) acp_cancel_free(&c);
+    if (acp_cancel_read(line.ptr, line.length, &c) != acp_status.ACP_OK) return false;
+    if (c.kind == acp_cancel_kind.ACP_CANCEL_REQUEST) return c.request_id !is null && c.request_id[0 .. strlen(c.request_id)] == id;
+    if (c.kind == acp_cancel_kind.ACP_CANCEL_SESSION) return c.session_id !is null && c.session_id[0 .. strlen(c.session_id)] == sid;
+    return false;
 }
 
 // Whether the client has called the turn off, taking the line that did.
@@ -734,25 +736,22 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // session/cancel notification". A turn takes its own cancel while it runs;
     // one read here found no turn running, and has nothing to stop. A
     // notification is answered with nothing, so it is said on stderr.
-    if (method == "session/cancel") {
-        char[256] sb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        if (!__ctfe) {
-            fputs("ground code: session/cancel for ", stderr);
-            if (sid is null) fputs("no sessionId", stderr); else fwrite(sid.ptr, 1, sid.length, stderr);
-            fputs(", with no turn running\n", stderr);
-        }
-        return true;
-    }
     // "Notification to cancel an ongoing request." Every request but a turn is
     // answered before the next line is read, so only a turn's can be ongoing.
-    if (method == "$/cancel_request") {
-        auto rid = rawValue(line, `"requestId"`);
-        if (!__ctfe) {
-            fputs("ground code: $/cancel_request for ", stderr);
-            if (rid is null) fputs("no requestId", stderr); else fwrite(rid.ptr, 1, rid.length, stderr);
-            fputs(", which no turn is answering\n", stderr);
-        }
+    // libacp reads either cancel's id.
+    if (method == "session/cancel" || method == "$/cancel_request") {
+        import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_status;
+        import core.stdc.string : strlen;
+        acp_cancel c;
+        scope(exit) acp_cancel_free(&c);
+        bool read = acp_cancel_read(line.ptr, line.length, &c) == acp_status.ACP_OK;
+        bool session = method == "session/cancel";
+        auto named = session ? c.session_id : c.request_id;
+        fputs(session ? "ground code: session/cancel for " : "ground code: $/cancel_request for ", stderr);
+        if (!read) fputs("a message libacp could not read", stderr);
+        else if (named is null) fputs(session ? "no sessionId" : "no requestId", stderr);
+        else fwrite(named, 1, strlen(named), stderr);
+        fputs(session ? ", with no turn running\n" : ", which no turn is answering\n", stderr);
         return true;
     }
 
