@@ -73,7 +73,9 @@ failures in `error.cleanup_*`. Error message pointers have static lifetime.
 Defaults: 30 seconds per call, 500 ms for discovery probing, one second per
 shutdown grace interval, and 1 MiB per frame. Timeouts/limits must be positive;
 zero is rejected. An absolute monotonic deadline covers writing, reading and
-interleaved notifications. A timeout cancels only its request. Stdio transport, framing and incoming size
+interleaved notifications. Time spent waiting on the host does not count: a
+feature handler's run, and the wait between `input_required` and resume, move
+the deadline past them. A timeout cancels only its request. Stdio transport, framing and incoming size
 failures make the connection unusable. HTTP transfer failures are isolated to
 their request. There is no silent retry
 of a possibly side-effecting tool call.

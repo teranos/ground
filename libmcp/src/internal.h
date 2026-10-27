@@ -23,7 +23,7 @@ typedef struct mcp_frame {
 struct mcp_request {
   mcp_client *client;
   struct mcp_request *next;
-  int64_t id, deadline;
+  int64_t id, deadline, paused_at;
   int timeout_ms;
   char *method;
   json *params, *input_result, *progress_token, *filter, *ack_filter;
@@ -71,6 +71,7 @@ struct mcp_client {
 
 mcp_status mcp_fail(mcp_error *, mcp_status, int, const char *);
 int64_t mcp_now(void);
+int64_t mcp_later(int64_t deadline, int64_t waited);
 bool mcp_has(json *, const char *);
 json *mcp_field(json *, const char *);
 bool mcp_string_is(json *, const char *);

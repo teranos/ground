@@ -228,14 +228,58 @@ class Runtime(unittest.TestCase):
         self.assertEqual(self.finish(self.submit("test/echo")), 0)
         self.assertEqual(lib.mcp_request_cancel(sub, b"done", C.byref(self.error)), 0)
 
-    def test_expired_mrtr_cannot_be_sent(self):
-        req = self.submit("tools/call", {"name": "interactive", "arguments": {}}, ms=30)
+    def test_waiting_on_the_host_does_not_count(self):
+        req = self.submit("tools/call", {"name": "interactive", "arguments": {}}, ms=200)
         self.assertEqual(self.finish(req), 10)
-        time.sleep(0.05)
+        time.sleep(0.3)
         self.assertEqual(
-            lib.mcp_request_resume(req, b'{"question":{}}', C.byref(self.error)), 4
+            lib.mcp_request_resume(
+                req,
+                b'{"question":{"action":"accept","content":{"value":"yes"}}}',
+                C.byref(self.error),
+            ),
+            0,
+            self.error.message,
         )
-        self.assertEqual(lib.mcp_request_status(req), 4)
+        self.assertEqual(self.finish(req), 0)
+        self.assertEqual(self.take(req)[1]["result"]["content"][0]["text"], "yes")
+
+    def test_slow_mrtr_handler_does_not_count(self):
+        def handler(_, method, params, response, error):
+            time.sleep(0.3)
+            return lib.mcp_response_set(
+                response, b'{"action":"accept","content":{"value":"yes"}}', error
+            )
+
+        self.handler = HANDLER(handler)
+        self.features.on_request = self.handler
+        lib.mcp_client_close(self.client, C.byref(self.error))
+        self.client = C.c_void_p()
+        self.opts.timeout_ms = 200
+        self.assertEqual(
+            lib.mcp_client_open_ex(
+                C.byref(self.opts),
+                C.byref(self.features),
+                C.byref(self.client),
+                C.byref(self.response),
+                C.byref(self.error),
+            ),
+            0,
+            self.error.message,
+        )
+        lib.mcp_response_free(C.byref(self.response))
+        self.assertEqual(
+            lib.mcp_client_call(
+                self.client,
+                b"tools/call",
+                b'{"name":"interactive","arguments":{}}',
+                C.byref(self.response),
+                C.byref(self.error),
+            ),
+            0,
+            self.error.message,
+        )
+        self.assertEqual(self.response.value()["result"]["content"][0]["text"], "yes")
 
     def test_mrtr_handler_cannot_reenter_client(self):
         attempts = []
