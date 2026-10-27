@@ -321,9 +321,16 @@ private void announceCommands(ref Sessions sessions, const(char)[] sid, ref McpG
     scope(exit) commands.dispose();
     commandsOf(group, commands);
     if (commands.slice() == "[]") return;
-    sessions.after.add(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`); putEscaped(sessions.after, sid);
-    sessions.after.add(`","update":{"sessionUpdate":"available_commands_update","availableCommands":`);
-    sessions.after.add(commands.slice()); sessions.after.add("}}}\n");
+    import libacp : acp_available_commands_update_write, acp_buffer, acp_buffer_free, acp_status;
+    commands.add("\0");
+    acp_buffer update;
+    scope(exit) acp_buffer_free(&update);
+    if (commands.full || acp_available_commands_update_write(commands.slice().ptr, &update) != acp_status.ACP_OK
+        || !sessionUpdate(sessions.after, sid, update.data[0 .. update.length])) {
+        fputs("ground code: libacp could not write available_commands_update\n", stderr);
+        return;
+    }
+    sessions.after.add("\n");
 }
 
 // What a session's MCP servers are told they may ask, as MCP's client
@@ -354,12 +361,14 @@ private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, cons
             fputs("\n", stderr);
             return -1;
         }
-        Reply n;
-        scope(exit) n.dispose();
-        n.add(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"`);
-        putEscaped(n, elicitationId); n.add(`"}}` ~ "\n");
-        auto out_ = n.slice();
-        if (!n.full && fwrite(out_.ptr, 1, out_.length, stdout) == out_.length && fflush(stdout) == 0) return 1;
+        import libacp : acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
+        Reply id;
+        scope(exit) id.dispose();
+        id.add(elicitationId); id.add("\0");
+        acp_buffer n;
+        scope(exit) acp_buffer_free(&n);
+        if (!id.full && acp_elicitation_complete_write(id.slice().ptr, &n) == acp_status.ACP_OK
+            && fwrite(n.data, 1, n.length, stdout) == n.length && fputs("\n", stdout) >= 0 && fflush(stdout) == 0) return 1;
         fputs("ground code: could not write elicitation/complete\n", stderr);
         return -1;
     }
@@ -367,26 +376,32 @@ private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, cons
         answer.add(`{"code":-32601,"message":"ground code answers a server's elicitation/create, and nothing else it asks"}`);
         return 0;
     }
-    Reply asked;
-    scope(exit) asked.dispose();
-    auto mode = elicitationParams(params, sid, callId, asked);
-    if (mode < 0) { answer.add(`"the server's elicitation/create names no object to ask"`); return -1; }
-    if ((mode == 1 && !sessions.elicitsForms) || (mode == 2 && !sessions.elicitsUrls) || mode == 0) {
+    // libacp writes the client's elicitation/create from what the server asked: the session and
+    // the call lead, then its mode, form when it names none, then everything else it asked.
+    import libacp : acp_elicitation_create_write, acp_elicit_mode, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    pid.add(`"elicit-`); putNumber(pid, sessions.asked + 1); pid.add(`"`);
+    auto idAt = text.len; text.add(pid.slice()); text.add("\0");
+    auto sidAt = text.len; text.add(sid); text.add("\0");
+    auto callAt = text.len; text.add(callId); text.add("\0");
+    if (text.full) { answer.add(`"could not allocate elicitation/create"`); return -1; }
+    auto t = text.slice().ptr;
+    int mode;
+    acp_buffer n;
+    scope(exit) acp_buffer_free(&n);
+    if (acp_elicitation_create_write(t + idAt, t + sidAt, t + callAt, params.ptr, params.length, &mode, &n) != acp_status.ACP_OK) {
+        answer.add(`"the server's elicitation/create names no object to ask"`);
+        return -1;
+    }
+    if ((mode == acp_elicit_mode.ACP_ELICIT_FORM && !sessions.elicitsForms) || (mode == acp_elicit_mode.ACP_ELICIT_URL && !sessions.elicitsUrls)
+        || mode == acp_elicit_mode.ACP_ELICIT_OTHER) {
         answer.add(`{"code":-32602,"message":"the client offers no elicitation in the mode the server asked"}`);
         return 0;
     }
     if (turn.input is null) { answer.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
     sessions.asked++;
-    Reply pid;
-    scope(exit) pid.dispose();
-    pid.add(`"elicit-`); putNumber(pid, sessions.asked); pid.add(`"`);
-    Reply n;
-    scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
-    n.add(`,"method":"elicitation/create","params":`); n.add(asked.slice()); n.add("}\n");
-    if (n.full || asked.full) { answer.add(`"could not allocate elicitation/create"`); return -1; }
-    auto out_ = n.slice();
-    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+    if (fwrite(n.data, 1, n.length, stdout) != n.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
         answer.add(`"could not write elicitation/create"`);
         return -1;
     }
@@ -415,15 +430,22 @@ private bool tellUser(ref Sessions sessions, const(char)[] sid, const(char)[] se
         fputs("ground code: ", stderr); fwrite(title.ptr, 1, title.length, stderr);
         fputs(": ", stderr); fwrite(description.ptr, 1, description.length, stderr); fputs("\n", stderr);
     }
-    Reply u;
-    scope(exit) u.dispose();
+    Reply u, text;
+    scope(exit) { u.dispose(); text.dispose(); }
     if (sessions.clientTakesNotices) {
-        u.add(`{"sessionUpdate":"notice","severity":"`); u.add(severity);
-        u.add(`","title":"`); putEscaped(u, title);
-        u.add(`","description":"`); putEscaped(u, description); u.add(`"}`);
+        import libacp : acp_notice_write, acp_buffer, acp_buffer_free, acp_status;
+        auto severityAt = text.len; text.add(severity); text.add("\0");
+        auto titleAt = text.len; text.add(title); text.add("\0");
+        auto descriptionAt = text.len; text.add(description); text.add("\0");
+        if (text.full) return false;
+        auto t = text.slice().ptr;
+        acp_buffer notice;
+        scope(exit) acp_buffer_free(&notice);
+        if (acp_notice_write(t + severityAt, t + titleAt, t + descriptionAt, &notice) != acp_status.ACP_OK) return false;
+        u.add(notice.data[0 .. notice.length]);
     } else {
-        u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
-        putEscaped(u, title); u.add(": "); putEscaped(u, description); u.add(`\n"}}`);
+        text.add(title); text.add(": "); text.add(description); text.add("\n");
+        if (text.full || !putChunk(u, 0, text.slice())) return false;
     }
     return notify(sid, u.slice());
 }
@@ -676,15 +698,62 @@ private void forget(ref Open o) {
 }
 
 // A session/update to the client, written as it happens: a turn's steps are
-// not held until the turn ends.
+// not held until the turn ends. libacp writes the notification around update.
 private bool notify(const(char)[] sid, const(char)[] update) {
     Reply n;
     scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`); putEscaped(n, sid);
-    n.add(`","update":`); n.add(update); n.add(`}}` ~ "\n");
+    if (!sessionUpdate(n, sid, update)) return false;
+    n.add("\n");
     if (n.full) return false;
     auto s = n.slice();
     return fwrite(s.ptr, 1, s.length, stdout) == s.length && fflush(stdout) == 0;
+}
+
+// session_info_update, as libacp writes it, into u: the title when one is given, and updatedAt.
+private bool sessionInfo(ref Reply u, const(char)[] title, long updatedAt) {
+    import libacp : acp_session_info_update_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    auto titleAt = text.len; if (title !is null) { text.add(title); text.add("\0"); }
+    auto isoAt = text.len; putIso(text, updatedAt); text.add("\0");
+    if (text.full) return false;
+    auto t = text.slice().ptr;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_session_info_update_write(title is null ? null : t + titleAt, t + isoAt, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// usage_update, as libacp writes it, into u: the cost when amount, a decimal, is given, in dollars.
+private bool usageUpdate(ref Reply u, ulong used, ulong size, const(char)[] amount) {
+    import libacp : acp_usage_update_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    if (amount !is null) { text.add(amount); text.add("\0"); }
+    if (text.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_usage_update_write(used, size, amount is null ? null : text.slice().ptr, amount is null ? null : "USD".ptr, &written)
+        != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// The session/update notification around update, as libacp writes it, into n.
+private bool sessionUpdate(ref Reply n, const(char)[] sid, const(char)[] update) {
+    import libacp : acp_session_update_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    auto sidAt = text.len; text.add(sid); text.add("\0");
+    auto updateAt = text.len; text.add(update); text.add("\0");
+    if (text.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    auto t = text.slice().ptr;
+    if (acp_session_update_write(t + sidAt, t + updateAt, &written) != acp_status.ACP_OK) return false;
+    n.add(written.data[0 .. written.length]);
+    return !n.full;
 }
 
 // The gateway's answer, kept whole: a completion that did not fit is not the
@@ -1470,9 +1539,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // something names the session, in the store and to the client.
             // updatedAt, "ISO 8601 timestamp of last activity", is told with
             // every turn, so a client's list keeps "in sync without polling".
-            Reply info;
-            scope(exit) info.dispose();
-            info.add(`{"sessionUpdate":"session_info_update"`);
+            Reply newTitle, info;
+            scope(exit) { newTitle.dispose(); info.dispose(); }
             if (!o.titled) {
                 Reply title;
                 scope(exit) title.dispose();
@@ -1488,12 +1556,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (named == 1) {
                         o.titleLen = 0;
                         foreach (c; title.slice()) if (o.titleLen < o.title.length) o.title[o.titleLen++] = c;
-                        info.add(`,"title":"`); putEscaped(info, title.slice()); info.add(`"`);
+                        newTitle.add(title.slice());
                     }
                 }
             }
-            info.add(`,"updatedAt":"`); putIso(info, o.updatedAt); info.add(`"}`);
-            if (!notify(sid, info.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+            if (!sessionInfo(info, newTitle.len > 0 ? newTitle.slice() : null, o.updatedAt) || !notify(sid, info.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
             // What was typed, before any linked file joins it: what a command is read from.
             auto typedLen = text.len;
             // Each linked file is read before the model is asked, and its text
@@ -1661,24 +1728,18 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 if (c.reasoning.length > 0) {
                     Reply u;
                     scope(exit) u.dispose();
-                    u.add(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`);
-                    putEscaped(u, c.reasoning); u.add(`"}}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!putChunk(u, 1, c.reasoning) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 if (c.content.length > 0) {
                     Reply u;
                     scope(exit) u.dispose();
-                    u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
-                    putEscaped(u, c.content); u.add(`"}}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!putChunk(u, 0, c.content) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 // "Context window and cost update for a session": what the
                 // conversation holds now, of the model's window.
                 if (c.hasUsage) {
-                    Reply u;
-                    scope(exit) u.dispose();
-                    u.add(`{"sessionUpdate":"usage_update","used":`); putNumber(u, c.used);
-                    u.add(`,"size":`); putNumber(u, sessions.contextSize);
+                    Reply u, amount;
+                    scope(exit) { u.dispose(); amount.dispose(); }
                     // cost: "Cumulative session cost (optional)", every answer's
                     // added to the session's; OpenRouter's credits are dollars.
                     if (c.hasCost) {
@@ -1689,10 +1750,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                             return true;
                         }
                         o.costNano = total;
-                        u.add(`,"cost":{"amount":`); putAmount(u, total); u.add(`,"currency":"USD"}`);
+                        putAmount(amount, total);
                     }
-                    u.add(`}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!usageUpdate(u, c.used, sessions.contextSize, c.hasCost ? amount.slice() : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 // "max_tokens": the answer was cut off at the model's token
                 // limit. The calls it asked for are not run, and the history
@@ -1720,18 +1780,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // Manual asks the client. "pending": "awaiting approval".
                     const(char)[] why;
                     auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), why);
-                    u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, call.id);
-                    u.add(`","title":"`); putEscaped(u, call.name);
                     // "Agents SHOULD include it in the first report when available
                     // and SHOULD NOT change it later": the name the model called,
                     // here and in no update after.
-                    u.add(`","name":"`); putEscaped(u, call.name);
                     // "Helps clients choose appropriate icons and UI
                     // treatment": read, when the tool's annotations say it only reads.
-                    if (readOnlyTool(o.mcp, call.name)) u.add(`","kind":"read`);
-                    u.add(verdict == Verdict.run ? `","status":"in_progress","rawInput":` : `","status":"pending","rawInput":`);
-                    u.add(call.arguments); u.add(`}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    auto kind = readOnlyTool(o.mcp, call.name) ? "read" : null;
+                    auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
+                    if (!putToolCall(u, false, call.id, call.name, call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
                         Reply asking;
                         scope(exit) asking.dispose();
@@ -1753,9 +1809,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         verdict = got == 1 ? Verdict.run : Verdict.refuse;
                         if (verdict == Verdict.run) {
                             u.len = 0;
-                            u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                            u.add(`","status":"in_progress"}`);
-                            if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                            if (!putToolCall(u, true, call.id, null, null, null, "in_progress", null, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         }
                     }
                     // Not run: the model is told why, and so is the client.
@@ -1765,10 +1819,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         refused.add(`{"status":"not run","why":"`); putEscaped(refused, why); refused.add(`"}`);
                         toolMessage(*o.history, call.id, refused.slice());
                         u.len = 0;
-                        u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                        u.add(`","status":"failed","rawOutput":`); u.add(refused.slice());
-                        putToolContent(u, refused.slice()); u.add(`}`);
-                        if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                        if (!putToolCall(u, true, call.id, null, null, null, "failed", null, refused.slice()) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         continue;
                     }
                     server.add(serverOf(call.name)); server.add("\0");
@@ -1809,11 +1860,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     }
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
-                    u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                    u.add(ok ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`); u.add(result.slice());
-                    // "Content produced by the tool call", as MCP gave it.
-                    putToolContent(u, result.slice()); u.add(`}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    // What the tool call produced, as MCP gave it, is its content.
+                    if (!putToolCall(u, true, call.id, null, null, null, ok ? "completed" : "failed", null, result.slice()) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     // Cancelled in the call: the calls after it are not run,
                     // and the turn answers cancelled now.
                     if (turn.cancelled) {

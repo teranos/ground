@@ -193,38 +193,6 @@ bool fileUriPath(const(char)[] uri, ref Reply path) {
 
 // --- elicitation: what a session's MCP server asks the user ---
 
-// What a server's elicitation/create asked, as ACP's elicitation/create asks
-// it of the client: "Elicitations are tied to a session (optionally a tool
-// call)", so the session and the call it came in lead; then its mode, "form"
-// when the server names none, as a legacy one may; then everything else it
-// asked, in its order. 1 form, 2 url, 0 another mode, -1 not an object.
-int elicitationParams(const(char)[] params, const(char)[] sid, const(char)[] callId, ref Reply asked) {
-    auto root = parseJson(params);
-    scope(exit) json_object_put(root);
-    if (json_object_get_type(root) != json_type.object) return -1;
-    auto named = jsonField(root, "mode");
-    const(char)[] mode = "form";
-    if (named !is null) {
-        if (json_object_get_type(named) != json_type.string_) return -1;
-        auto m = json_object_get_string(named);
-        mode = m[0 .. strlen(m)];
-    }
-    asked.add(`{"sessionId":"`); putEscaped(asked, sid);
-    asked.add(`","toolCallId":"`); putEscaped(asked, callId);
-    asked.add(`","mode":"`); putEscaped(asked, mode); asked.add(`"`);
-    auto end = json_object_iter_end(root);
-    for (auto it = json_object_iter_begin(root); !json_object_iter_equal(&it, &end); json_object_iter_next(&it)) {
-        auto key = json_object_iter_peek_name(&it);
-        auto k = key[0 .. strlen(key)];
-        if (k == "mode" || k == "sessionId" || k == "toolCallId") continue;
-        auto value = json_object_to_json_string_ext(json_object_iter_peek_value(&it),
-            JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
-        asked.add(`,"`); putEscaped(asked, k); asked.add(`":`); asked.add(value[0 .. strlen(value)]);
-    }
-    asked.add("}");
-    return mode == "form" ? 1 : mode == "url" ? 2 : 0;
-}
-
 // --- cost ---
 
 // An amount in billionths of a dollar as Cost's amount, a decimal: as few
@@ -554,48 +522,72 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
 // false when the history is not one ground code wrote, or send failed.
 // --- what a tool call shows the user ---
 
-// ToolCall content, "Content produced by the tool call", from what a call
-// answered as the history keeps it: its MCP content blocks as they came, since
-// ContentBlock is "compatible with the Model Context Protocol (MCP), enabling
-// agents to seamlessly forward content from MCP tool outputs without
-// transformation"; or what failed it as text: the server's error, a tool's
-// error content, ground code's message, or why it was not run. Nothing to
-// show adds nothing.
-void putToolContent(ref Reply u, const(char)[] output) {
+// What a call shows, from what it answered as the history keeps it, MCP's content blocks as they came:
+// "enabling agents to seamlessly forward content from MCP tool outputs without transformation"
+// Or what failed it, as text. Blocks go into blocks as their array, the text into said.
+void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
     auto root = parseJson(output);
     scope(exit) json_object_put(root);
     json_object* inner;
     scope(exit) json_object_put(inner);
-    json_object* blocks;
-    const(char)[] said;
-    if (root is null) said = output;
-    else if (jsonField(root, "result") !is null) blocks = jsonField(jsonField(root, "result"), "content");
-    else if (jsonField(root, "error") !is null) said = text(jsonField(jsonField(root, "error"), "message"));
+    json_object* found;
+    const(char)[] text_;
+    if (root is null) text_ = output;
+    else if (jsonField(root, "result") !is null) found = jsonField(jsonField(root, "result"), "content");
+    else if (jsonField(root, "error") !is null) text_ = text(jsonField(jsonField(root, "error"), "message"));
     else {
         // ground code's own: the response it failed on, when there was one.
         auto response = text(jsonField(root, "response"));
         if (response.length > 0) inner = parseJson(response);
-        if (jsonField(inner, "result") !is null) blocks = jsonField(jsonField(inner, "result"), "content");
-        else if (jsonField(inner, "error") !is null) said = text(jsonField(jsonField(inner, "error"), "message"));
-        if (blocks is null && said.length == 0) {
-            said = text(jsonField(root, "why"));
-            if (said.length == 0) said = text(jsonField(root, "message"));
+        if (jsonField(inner, "result") !is null) found = jsonField(jsonField(inner, "result"), "content");
+        else if (jsonField(inner, "error") !is null) text_ = text(jsonField(jsonField(inner, "error"), "message"));
+        if (found is null && text_.length == 0) {
+            text_ = text(jsonField(root, "why"));
+            if (text_.length == 0) text_ = text(jsonField(root, "message"));
         }
     }
-    if (json_object_get_type(blocks) == json_type.array && json_object_array_length(blocks) > 0) {
-        u.add(`,"content":[`);
-        foreach (i; 0 .. json_object_array_length(blocks)) {
-            if (i > 0) u.add(",");
-            u.add(`{"type":"content","content":`);
-            auto block = json_object_to_json_string_ext(json_object_array_get_idx(blocks, i),
-                JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
-            u.add(block[0 .. strlen(block)]);
-            u.add(`}`);
-        }
-        u.add(`]`);
-    } else if (said.length > 0) {
-        u.add(`,"content":[{"type":"content","content":{"type":"text","text":"`); putEscaped(u, said); u.add(`"}}]`);
+    if (json_object_get_type(found) == json_type.array && json_object_array_length(found) > 0) {
+        auto array = json_object_to_json_string_ext(found, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+        blocks.add(array[0 .. strlen(array)]);
+    } else said.add(text_);
+}
+
+// A tool_call, or a tool_call_update when update, as libacp writes it, into u. A field that is
+// null is not written; rawOutput, when given, also gives what the call shows. false when libacp
+// could not write it.
+bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title, const(char)[] name,
+        const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput) {
+    import libacp : acp_tool_call, acp_tool_call_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply blocks, said, text_;
+    scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
+    if (rawOutput !is null) toolContentOf(rawOutput, blocks, said);
+    // Each field as C reads it, its own bytes and a NUL; size_t.max is one not given.
+    size_t at(const(char)[] s) {
+        if (s is null) return size_t.max;
+        auto from = text_.len; text_.add(s); text_.add("\0"); return from;
     }
+    auto idAt = at(id), titleAt = at(title), nameAt = at(name), kindAt = at(kind), statusAt = at(status);
+    auto inputAt = at(rawInput), outputAt = at(rawOutput);
+    auto blocksAt = at(blocks.len > 0 ? blocks.slice() : null), saidAt = at(said.len > 0 ? said.slice() : null);
+    if (text_.full || blocks.full || said.full) return false;
+    const(char)* c(size_t from) { return from == size_t.max ? null : text_.slice().ptr + from; }
+    auto call = acp_tool_call(update, c(idAt), c(titleAt), c(nameAt), c(kindAt), c(statusAt), c(inputAt), c(outputAt),
+        c(blocksAt), c(saidAt));
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_tool_call_write(&call, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// A text chunk, the agent's message, its thought or the user's, as libacp writes it, into u.
+bool putChunk(ref Reply u, int kind, const(char)[] text_) {
+    import libacp : acp_chunk_kind, acp_text_chunk_write, acp_buffer, acp_buffer_free, acp_status;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_text_chunk_write(cast(acp_chunk_kind) kind, text_.ptr, text_.length, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
 }
 
 // The history, told again. readOnly, when given, says which of the calls'
@@ -618,14 +610,13 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
         auto reasoning = role == "assistant" ? text(jsonField(m, "reasoning")) : null;
         if (reasoning.length > 0) {
             Reply u;
-            u.add(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`); putEscaped(u, reasoning); u.add(`"}}`);
-            if (!told(u)) return false;
+            scope(exit) u.dispose();
+            if (!putChunk(u, 1, reasoning) || !told(u)) return false;
         }
         if (role == "user" || (role == "assistant" && content.length > 0)) {
             Reply u;
-            u.add(role == "user" ? `{"sessionUpdate":"user_message_chunk"` : `{"sessionUpdate":"agent_message_chunk"`);
-            u.add(`,"content":{"type":"text","text":"`); putEscaped(u, content); u.add(`"}}`);
-            if (!told(u)) return false;
+            scope(exit) u.dispose();
+            if (!putChunk(u, role == "user" ? 2 : 0, content) || !told(u)) return false;
         }
         if (role == "assistant") {
             auto calls = jsonField(m, "tool_calls");
@@ -635,12 +626,9 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 auto id = text(jsonField(call, "id")), name = text(jsonField(fn, "name")), args = text(jsonField(fn, "arguments"));
                 if (id is null || name is null || args is null) return false;
                 Reply u;
-                u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, id);
-                u.add(`","title":"`); putEscaped(u, name);
-                u.add(`","name":"`); putEscaped(u, name);
-                if (readOnly !is null && readOnly(name)) u.add(`","kind":"read`);
-                u.add(`","rawInput":`); u.add(args); u.add(`}`);
-                if (!told(u)) return false;
+                scope(exit) u.dispose();
+                auto kind = readOnly !is null && readOnly(name) ? "read" : null;
+                if (!putToolCall(u, false, id, name, name, kind, null, args, null) || !told(u)) return false;
             }
         }
         else if (role == "tool") {
@@ -650,13 +638,8 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             scope(exit) json_object_put(answer);
             bool completed = jsonField(answer, "result") !is null;
             Reply u;
-            u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, id);
-            u.add(completed ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`);
-            if (answer !is null) u.add(content);
-            else { u.add(`"`); putEscaped(u, content); u.add(`"`); }
-            putToolContent(u, content);
-            u.add(`}`);
-            if (!told(u)) return false;
+            scope(exit) u.dispose();
+            if (!putToolCall(u, true, id, null, null, null, completed ? "completed" : "failed", null, content) || !told(u)) return false;
         }
         else if (role != "user" && role != "assistant") return false;
     }

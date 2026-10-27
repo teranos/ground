@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <json-c/printbuf.h>
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,4 +99,32 @@ acp_status acp_finish(json_object *object, acp_buffer *out) {
     }
     json_object_put(object);
     return copy ? ACP_OK : ACP_NO_MEMORY;
+}
+
+// A raw value's serializer: the text it was made from, every byte as the caller gave it.
+static int raw_text(json_object *object, struct printbuf *buffer, int level, int flags) {
+    (void) level;
+    (void) flags;
+    const char *text = json_object_get_userdata(object);
+    return printbuf_memappend(buffer, text, (int) strlen(text));
+}
+
+static void raw_free(json_object *object, void *userdata) {
+    (void) object;
+    free(userdata);
+}
+
+json_object *acp_raw(const char *text) {
+    if (text == NULL || strlen(text) > INT32_MAX) return NULL;
+    json_object *value = acp_parse(text, strlen(text));
+    if (value == NULL) return json_object_new_string(text);
+    size_t n = strlen(text) + 1;
+    char *copy = malloc(n);
+    if (copy == NULL) {
+        json_object_put(value);
+        return NULL;
+    }
+    memcpy(copy, text, n);
+    json_object_set_serializer(value, raw_text, copy, raw_free);
+    return value;
 }

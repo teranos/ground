@@ -107,6 +107,23 @@ extern (C) nothrow @nogc {
         ACP_STOP_END_TURN, ACP_STOP_MAX_TOKENS, ACP_STOP_MAX_TURN_REQUESTS, ACP_STOP_REFUSAL, ACP_STOP_CANCELLED
     }
 
+    enum acp_chunk_kind : int { ACP_CHUNK_AGENT_MESSAGE, ACP_CHUNK_AGENT_THOUGHT, ACP_CHUNK_USER_MESSAGE }
+
+    struct acp_tool_call {
+        int update;
+        const(char)* tool_call_id;
+        const(char)* title;
+        const(char)* name;
+        const(char)* kind;
+        const(char)* status;
+        const(char)* raw_input;
+        const(char)* raw_output;
+        const(char)* content_blocks;
+        const(char)* content_text;
+    }
+
+    enum acp_elicit_mode : int { ACP_ELICIT_FORM, ACP_ELICIT_URL, ACP_ELICIT_OTHER }
+
     struct acp_set_mode {
         char* session_id;
         char* mode_id;
@@ -168,6 +185,15 @@ extern (C) nothrow @nogc {
     acp_status acp_read_text_file_result_read(const(char)*, size_t, acp_text_file*);
     void acp_text_file_free(acp_text_file*);
     acp_status acp_prompt_result_write(acp_stop_reason, acp_buffer*);
+    acp_status acp_session_update_write(const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_text_chunk_write(acp_chunk_kind, const(char)*, size_t, acp_buffer*);
+    acp_status acp_tool_call_write(const(acp_tool_call)*, acp_buffer*);
+    acp_status acp_usage_update_write(ulong, ulong, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_session_info_update_write(const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_available_commands_update_write(const(char)*, acp_buffer*);
+    acp_status acp_notice_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_elicitation_create_write(const(char)*, const(char)*, const(char)*, const(char)*, size_t, int*, acp_buffer*);
+    acp_status acp_elicitation_complete_write(const(char)*, acp_buffer*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);

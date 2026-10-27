@@ -262,13 +262,17 @@ unittest {
 // outputs without transformation", each as {"type":"content"}. A call that
 // failed shows what failed it as text; one not run, why.
 unittest {
-    import code.prompt : putToolContent;
+    import code.prompt : putToolCall;
     import code.reply : Reply;
+    import matcher : indexOf;
+    // The update libacp writes for a call that answered output: its content, or none.
     bool shows(const(char)[] output, const(char)[] want) {
         Reply u;
         scope(exit) u.dispose();
-        putToolContent(u, output);
-        return u.slice() == want;
+        if (!putToolCall(u, true, "c1", null, null, null, "failed", null, output)) return false;
+        auto s = u.slice();
+        if (want.length == 0) return indexOf(s, `,"content":[{"type":"content"`) < 0;
+        return s.length > want.length && s[$ - 1] == '}' && s[$ - 1 - want.length .. $ - 1] == want;
     }
     // Completed: its blocks, as they came.
     assert(shows(`{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"hi"},{"type":"image","data":"AAAA","mimeType":"image/png"}]}}`,
