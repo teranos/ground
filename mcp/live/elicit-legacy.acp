@@ -1,0 +1,15 @@
+# #167, #178: what a session's MCP server elicits, at legacy, is asked of the client, and the answer reaches the server.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"elicitation":{"form":{},"url":{}}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[{"name":"elicit","command":"$LIVE/elicit_server","args":[],"env":[{"name":"ELICIT_PROTOCOL","value":"legacy"},{"name":"ELICIT_LOG","value":"$CWD/elicit.log"}]}]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"bypassPermissions"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call the elicit tool `ask`, then the elicit tool `link`, each with no arguments. Then reply with only: done"}]}}
+expect "method":"elicitation/create"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"action":"accept","content":{"branch":"main"}}}
+expect "method":"elicitation/create"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"action":"accept"}}
+wait 3
+# What the server read: the capabilities ground code declared, and each answer.
+cat $CWD/elicit.log
