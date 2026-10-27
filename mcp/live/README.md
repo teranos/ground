@@ -54,6 +54,7 @@ five minutes, or ground code ending first, prints `# FAILED` and exits 1.
 | `list.acp` | session/list's entries, filtered by cwd, and its refusals | #128 (part 6) |
 | `blocks.acp` | a prompt's blocks: text to the model, the kinds it cannot read refused by type, no prompt refused | #135 (part 8) |
 | `cancel.acp` | a turn cancelled while it runs, by request id, a `_meta`-only cancel that is none, and cancels with no turn | #137 (part 9) |
+| `permission.acp` | session/request_permission in Manual: allowed, rejected, cancelled, and an option not offered | #138 (part 10) |
 | `title.acp` | a session titled by its first prompt, kept across a resume, listed | #166 |
 | `elicit-legacy.acp` | elicitation from a legacy server, form then url, and the url's completion | #167 |
 | `elicit-modern.acp` | elicitation from a 2026-07-28 server, answered late | #167, #178 |
