@@ -13,8 +13,9 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      # A consumer that holds its own json-c builds libacp against that one.
-      libacpWith = pkgs: jsonC: pkgs.stdenv.mkDerivation {
+      # A consumer that holds its own json-c builds libacp against that one. Clang 22.1.3 and later:
+      # an older compiler-rt deadlocks ASan at start on macOS 26.4 and later (llvm/llvm-project#182943).
+      libacpWith = pkgs: jsonC: pkgs.llvmPackages_22.stdenv.mkDerivation {
         pname = "libacp";
         version = self.shortRev or "dirty";
         src = ./.;
@@ -38,7 +39,7 @@
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system};
         in {
-          default = pkgs.mkShell {
+          default = pkgs.mkShell.override { stdenv = pkgs.llvmPackages_22.stdenv; } {
             packages = [ pkgs.pkg-config pkgs.json_c ];
           };
         });

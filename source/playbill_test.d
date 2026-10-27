@@ -48,7 +48,7 @@ scope {
 }
 `;
 enum parsed = parsePbt(src);
-enum bill = cuesOf(parsed);
+static immutable bill = cuesOf(parsed);
 
 // One control names one ritual, so there is one cue.
 static assert(bill.len == 1);
@@ -106,7 +106,7 @@ scope {
   }
 }
 `;
-enum eventBill = cuesOf(parsePbt(eventOnly));
+static immutable eventBill = cuesOf(parsePbt(eventOnly));
 
 size_t eventLen(const(char)[] cwd)() {
     char[512] buf = '.';
@@ -147,7 +147,7 @@ project {
   }
 }
 `;
-enum controlBill = cuesOf(parsePbt(onControl));
+static immutable controlBill = cuesOf(parsePbt(onControl));
 
 static assert(controlBill.cues[0].cmdCount == 1);
 static assert(controlBill.cues[0].cmds[0] == "git push");
