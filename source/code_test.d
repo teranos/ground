@@ -1709,3 +1709,125 @@ version (Posix) unittest {
     assert(indexOf(said3[0 .. len3], `"error":{"code":-32603,"message":"mem://logo holds no text to give the model"`) >= 0);
     s.open[0].history.dispose();
 }
+
+// notice: "Fire-and-forget information for the user", sent only "when the
+// Client advertised ClientSessionCapabilities::notices. Otherwise, Agents may
+// use an agent message when the information should still be surfaced to the
+// user." What a session's MCP server logs at warning or above while its call
+// runs is surfaced, and info is not; a notification ground code does not
+// handle is, to the session it names.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, getcwd;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+    import code.mcp : closeMcp;
+
+    __gshared char[4096] cwd;
+    assert(getcwd(cwd.ptr, cwd.length) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    __gshared char[65536] said;
+    size_t saidLen;
+
+    // What ground code writes while run does its work, the session's servers closed first.
+    const(char)[] capture(ref Sessions s, scope void delegate() run) {
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        run();
+        fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+        foreach (i; 0 .. s.openLen) { Reply closed; closeMcp(s.open[i].mcp, closed); closed.dispose(); }
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        return said[0 .. saidLen];
+    }
+
+    // A turn whose model calls the noisy tool once, then is done.
+    const(char)[] noisyTurn(string caps, ref Reply r) {
+        enum ok = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+        enum calls = ok ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+            ~ `{"id":"c1","type":"function","function":{"name":"test__noisy","arguments":"{}"}}]}}]}`;
+        enum done = ok ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            char[65536] got;
+            auto c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, calls.ptr, calls.length); close(c);
+            c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, done.ptr, done.length); close(c);
+            _exit(0);
+        }
+        close(fd);
+        __gshared char[32] urlBuf;
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        int[2] p;
+        assert(pipe(p) == 0);
+        Input input = Input(p[0]);
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.input = &input;
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        Reply init, req;
+        scope(exit) { init.dispose(); req.dispose(); }
+        init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":`);
+        init.add(caps); init.add(`}}`);
+        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+        req.add(cwd[0 .. cwdLen]); req.add(`/mcp/log_server.py"],"env":[]}]}}`);
+        auto out_ = capture(s, () {
+            answer(init.slice(), r, s); r.len = 0;
+            answer(req.slice(), r, s); r.len = 0;
+            answer(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"bypassPermissions"}}`, r, s);
+            r.len = 0;
+            answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"go"}]}}`, r, s);
+        });
+        s.open[0].history.dispose();
+        return out_;
+    }
+
+    enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
+    Reply r;
+    scope(exit) r.dispose();
+
+    // Offered: a notice for each line at warning or above, its data said as it came.
+    auto out_ = noisyTurn(`{"session":{"notices":{}}}`, r);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(out_, up ~ `{"sessionUpdate":"notice","severity":"warning","title":"MCP server test logged a warning","description":"disk is filling up"}}}` ~ "\n") >= 0);
+    assert(indexOf(out_, up ~ `{"sessionUpdate":"notice","severity":"error","title":"MCP server test logged an error","description":"{\"errno\":28,\"path\":\"/var\"}"}}}` ~ "\n") >= 0);
+    assert(indexOf(out_, `starting`) < 0);
+
+    // Not offered: an agent message says the same.
+    out_ = noisyTurn(`{}`, r);
+    assert(indexOf(out_, `"sessionUpdate":"notice"`) < 0);
+    assert(indexOf(out_, up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"MCP server test logged a warning: disk is filling up\n"}}}}` ~ "\n") >= 0);
+
+    // A notification ground code does not handle, to the open session it names; one naming none is stderr's alone.
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    out_ = capture(s, () {
+        answer(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"session":{"notices":{}}}}}`, r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+        unhandled(`{"jsonrpc":"2.0","method":"session/wiggle","params":{"sessionId":"code-100-7-1"}}`, s);
+        unhandled(`{"jsonrpc":"2.0","method":"session/wiggle","params":{"sessionId":"code-9-9-9"}}`, s);
+    });
+    assert(out_ == up ~ `{"sessionUpdate":"notice","severity":"warning","title":"ground code does not handle session/wiggle","description":`
+        ~ `"{\"jsonrpc\":\"2.0\",\"method\":\"session/wiggle\",\"params\":{\"sessionId\":\"code-100-7-1\"}}"}}}` ~ "\n");
+}
