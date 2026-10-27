@@ -3,22 +3,15 @@
 
 #include "acp.h"
 
-#include <stdarg.h>
+#include <json-c/json.h>
 
-// A growing string, the shape every buffer libacp hands out is written in.
-typedef struct acp_text {
-    char *data;
-    size_t length;
-    size_t capacity;
-    int failed; // an allocation did not land; everything after it is dropped
-} acp_text;
-
-void acp_text_add(acp_text *t, const char *s, size_t n);
-void acp_text_puts(acp_text *t, const char *s);
-void acp_text_printf(acp_text *t, const char *format, ...);
-// s as a JSON string, quotes included.
-void acp_text_json_string(acp_text *t, const char *s);
-// Hands t to out; ACP_NO_MEMORY when an allocation failed along the way.
-acp_status acp_text_finish(acp_text *t, acp_buffer *out);
+// Every key libacp reads goes through acp_field, acp_offered or acp_flag, and
+// every key it writes through json_object_object_add: parity reads both out of this source.
+json_object *acp_parse(const char *json, size_t length);
+json_object *acp_field(json_object *object, const char *key);
+int acp_offered(json_object *object, const char *key);
+int acp_flag(json_object *object, const char *key);
+// Hands object's JSON to out and puts object; ACP_NO_MEMORY when it could not be written.
+acp_status acp_finish(json_object *object, acp_buffer *out);
 
 #endif
