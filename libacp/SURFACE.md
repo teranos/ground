@@ -14,3 +14,4 @@ what v2 (schema-v2.0.0-alpha.9) says of the same method, so v2 needs no second p
 | `modes` in `session/new` and `session/resume` | 3 | #121 | writes `currentModeId`, `availableModes` (`id`, `name`, `description`) | absent: v2's results carry `configOptions` alone |
 | `session/set_config_option` | 5 | #124 | reads `sessionId`, `configId`, and `value` as a value id, or `type` boolean and a boolean | the same keys; a value id carries `type` id, and an `other` shape carries custom values |
 | `configOptions` in `session/new`, `session/resume`, `session/set_config_option` | 5 | #124 | writes selects: `id`, `name`, `category`, `type`, `currentValue`, `options` (`value`, `name`, `description`) | an option's `id` is `configId` |
+| `session/list` | 6 | #128 | reads `cwd` (absolute) and `cursor`, each optional; writes each `SessionInfo`: `sessionId`, `cwd`, `additionalDirectories`, `title`, `updatedAt` | the same keys in the request, the result and `SessionInfo` |
