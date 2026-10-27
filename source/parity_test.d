@@ -325,6 +325,7 @@ static assert(has(sideFor("acp", "initialize").reads, "clientCapabilities"));
 static assert(has(sideFor("acp", "initialize").reads, "capabilities"));
 static assert(has(sideFor("acp", "initialize").reads, "protocolVersion"));
 static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
+static assert(has(sideFor("acp", "fs/read_text_file").reads, "content"));
 // A request libacp writes for ground code is measured through the helper that
 // sends it: the method's own fields, and those of the answer it reads.
 static assert(has(sideFor("acp", "session/request_permission").writes, "toolCall"));

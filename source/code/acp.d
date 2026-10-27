@@ -185,6 +185,18 @@ private int awaitAnswer(ref Turn turn, const(char)[] pid, ref Reply answered) {
     return 1;
 }
 
+// The client's answer to fs/read_text_file: 1 and the file's text in content,
+// every byte of it, or -1 for an answer of any other kind, an error among
+// them. libacp reads it.
+private int readTextContent(const(char)[] line, ref Reply content) {
+    import libacp : acp_text_file, acp_read_text_file_result_read, acp_text_file_free, acp_status;
+    acp_text_file file;
+    scope(exit) acp_text_file_free(&file);
+    if (acp_read_text_file_result_read(line.ptr, line.length, &file) != acp_status.ACP_OK || file.content is null) return -1;
+    content.add(file.content[0 .. file.length]);
+    return content.full ? -1 : 1;
+}
+
 // "Request to read content from a text file", asked of the client for path.
 // 1 and the file's text in content; 2 the turn was called off; -1 no text,
 // why the reason, the client's own answer when it gave one.
@@ -195,14 +207,21 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     Reply pid;
     scope(exit) pid.dispose();
     pid.add(`"read-`); putNumber(pid, sessions.asked); pid.add(`"`);
-    Reply n;
-    scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
-    n.add(`,"method":"fs/read_text_file","params":{"sessionId":"`); putEscaped(n, sid);
-    n.add(`","path":"`); putEscaped(n, path); n.add(`"}}` ~ "\n");
-    if (n.full) { why.add(`"could not allocate fs/read_text_file"`); return -1; }
-    auto out_ = n.slice();
-    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+    // libacp writes the request from these, each its own bytes and a NUL.
+    import libacp : acp_read_text_file_request_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), pathAt = at(path);
+    if (text.full) { why.add(`"could not allocate fs/read_text_file"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_read_text_file_request_write(t + idAt, t + sidAt, t + pathAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write fs/read_text_file"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
         why.add(`"could not write fs/read_text_file"`);
         return -1;
     }
