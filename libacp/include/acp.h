@@ -115,6 +115,33 @@ typedef struct acp_session_info {
 
 acp_status acp_session_info_write(const acp_session_info *info, acp_buffer *out_json);
 
+// A session/prompt block, by what it gives: text, a resource link to read, a resource
+// holding text, or another kind, told by its type.
+typedef enum acp_block_kind {
+    ACP_BLOCK_TEXT,
+    ACP_BLOCK_RESOURCE_LINK,
+    ACP_BLOCK_RESOURCE,
+    ACP_BLOCK_OTHER
+} acp_block_kind;
+
+typedef struct acp_prompt_block {
+    acp_block_kind kind;
+    char *type;     // the type the block names; NULL when it names none
+    char *text;     // TEXT's text, or RESOURCE's
+    char *name;     // RESOURCE_LINK's
+    char *uri;      // RESOURCE_LINK's, or RESOURCE's
+    int holds_blob; // OTHER: a resource holding a blob, not text
+} acp_prompt_block;
+
+// session/prompt's prompt, in order. libacp owns the blocks until acp_prompt_free.
+typedef struct acp_prompt {
+    acp_prompt_block *blocks;
+    size_t count;
+} acp_prompt;
+
+acp_status acp_prompt_read(const char *params_json, size_t length, acp_prompt *out, acp_buffer *error_json);
+void acp_prompt_free(acp_prompt *prompt);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;
