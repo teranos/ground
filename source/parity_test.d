@@ -328,6 +328,9 @@ static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
 static assert(has(sideFor("acp", "fs/read_text_file").reads, "content"));
 // A turn's answer is libacp's, through putStop: still measured as session/prompt's.
 static assert(has(sideFor("acp", "session/prompt").writes, "stopReason"));
+// What libacp writes for a session's MCP server: elicitation/create's message, and the update's own fields.
+static assert(has(sideFor("acp", "elicitation/create").writes, "message"));
+static assert(has(sideFor("acp", "session/update").writes, "update"));
 // A request libacp writes for ground code is measured through the helper that
 // sends it: the method's own fields, and those of the answer it reads.
 static assert(has(sideFor("acp", "session/request_permission").writes, "toolCall"));
