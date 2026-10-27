@@ -1,0 +1,16 @@
+# #177: usage_update carries the session's cumulative cost, kept across a resume in another process.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only: ok"}]}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only: again"}]}}
+wait 3
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"$SID","cwd":"$CWD"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only: third"}]}}
+wait 5

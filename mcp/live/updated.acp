@@ -1,0 +1,13 @@
+# #176: each turn's session_info_update carries updatedAt, the first with the title; session/list reports the same time.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Plan the release notes. Reply with only: ok"}]}}
+wait 2
+sleep 2000
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only: again"}]}}
+wait 3
+sleep 2000
+{"jsonrpc":"2.0","id":4,"method":"session/list","params":{"cwd":"$CWD"}}
+wait 4
