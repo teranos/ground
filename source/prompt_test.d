@@ -189,3 +189,26 @@ unittest {
     static assert(long_.length > TITLE_BYTES);
     assert(gives(long_, "éééééééééééééééééééééééééééééééééééééééé…"));
 }
+
+// usage.cost, "The total amount charged to your account", in billionths of a
+// dollar, so a session's sum is exact; and said back as a decimal amount.
+unittest {
+    import code.prompt : Completion, completionOf, putAmount;
+    import code.reply : Reply;
+    Completion c;
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":196,"cost":0.95}}`, c));
+    assert(c.hasCost && c.costNano == 950_000_000);
+    c.dispose();
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":196,"cost":0}}`, c));
+    assert(c.hasCost && c.costNano == 0);
+    c.dispose();
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":196}}`, c));
+    assert(!c.hasCost);
+    c.dispose();
+    bool says(long nano, string want) { Reply r; scope(exit) r.dispose(); putAmount(r, nano); return r.slice() == want; }
+    assert(says(950_000_000, "0.95"));
+    assert(says(123_000, "0.000123"));
+    assert(says(0, "0"));
+    assert(says(12_500_000_000, "12.5"));
+    assert(says(1, "0.000000001"));
+}

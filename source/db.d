@@ -582,6 +582,8 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "code_session", "history", "TEXT NOT NULL DEFAULT ''");
     // Its title, from the first prompt that typed something; empty before.
     ensureColumn(db, "code_session", "title", "TEXT NOT NULL DEFAULT ''");
+    // What the session has cost so far, in billionths of a US dollar.
+    ensureColumn(db, "code_session", "cost_nano", "INTEGER NOT NULL DEFAULT 0");
 
     enum idxPredicate = "CREATE INDEX IF NOT EXISTS idx_attestations_predicate ON attestations(json_extract(predicates, '$[0]'))\0";
     enum idxControl = "CREATE INDEX IF NOT EXISTS idx_attestations_control ON attestations(json_extract(attributes, '$.control'))\0";

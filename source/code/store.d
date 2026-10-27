@@ -173,6 +173,28 @@ int storeTitle(sqlite3* db, const(char)[] id, const(char)[] title) {
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
+// Adds an answer's cost, in billionths of a dollar, to what an open session
+// has cost so far, into total. 1 added, 0 no open session by that id, -1 the
+// store refused.
+int storeAddCost(sqlite3* db, const(char)[] id, long nano, ref long total) {
+    sqlite3_stmt* st;
+    enum add = "UPDATE code_session SET cost_nano = cost_nano + ?2 WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, add.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    sqlite3_bind_int64(st, 2, nano);
+    auto rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+    if (sqlite3_changes(db) == 0) return 0;
+    enum read = "SELECT cost_nano FROM code_session WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, read.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_ROW) total = sqlite3_column_int64(st, 0);
+    sqlite3_finalize(st);
+    return rc == SQLITE_ROW ? 1 : -1;
+}
+
 // Every open session, oldest first, or those in one cwd. False when the store
 // refused, whatever was handed over before it did.
 bool storeList(sqlite3* db, const(char)[] cwd,
