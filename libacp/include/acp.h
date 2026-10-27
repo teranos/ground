@@ -67,6 +67,18 @@ acp_status acp_initialize_result(unsigned selected_version,
                                  const char *auth_methods_json,
                                  acp_buffer *result_json);
 
+// session/resume's request: the session, and the absolute cwd it is resumed in.
+// libacp owns both strings until acp_session_resume_free.
+typedef struct acp_session_resume {
+    char *session_id;
+    char *cwd;
+} acp_session_resume;
+
+// On ACP_INVALID_PARAMS, error_json is the JSON-RPC error to answer.
+acp_status acp_session_resume_read(const char *params_json, size_t length,
+                                   acp_session_resume *out, acp_buffer *error_json);
+void acp_session_resume_free(acp_session_resume *resume);
+
 #ifdef __cplusplus
 }
 #endif
