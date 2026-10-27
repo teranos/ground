@@ -135,6 +135,12 @@ test-mcp: build ground_code
 	ldc2 -betterC -I=source -of=build/abort-test mcp/abort.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	python3 mcp/test_abort.py build/abort-test
 
+# The live checks' driver: C11 and POSIX, under libacp's warnings.
+build/acp_live: mcp/live/acp_live.c
+	mkdir -p build
+	cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes \
+		-Wmissing-prototypes -Wcast-qual -Wformat=2 -Wundef -Wvla -Wnull-dereference -Wimplicit-fallthrough $< -o $@
+
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/filelist.d tools/filelist_test.d

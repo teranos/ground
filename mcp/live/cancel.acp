@@ -1,0 +1,17 @@
+# A turn cancelled while it runs: a sessionId only in _meta cancels nothing, $/cancel_request by the prompt's id does.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Count from 1 to 400, one number per line, no other text."}]}}
+sleep 1000
+{"jsonrpc":"2.0","method":"session/cancel","params":{"_meta":{"sessionId":"$SID"}}}
+# The turn still runs: no answer to id 2 in this second.
+sleep 1000
+{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":2}}
+wait 2
+# No turn runs now: each cancel is answered with nothing, and said on stderr.
+{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"$SID"}}
+{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":"p/1"}}
+{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"$SID"}}
+wait 3

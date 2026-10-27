@@ -1,0 +1,17 @@
+# session/delete: a session one process opened is deleted by another, and gone for both.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":2,"method":"session/delete","params":{"sessionId":"$SID"}}
+wait 2
+# The list no longer names it.
+{"jsonrpc":"2.0","id":3,"method":"session/list","params":{"cwd":"$CWD"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/delete","params":{"sessionId":"$SID"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/delete","params":{"_meta":{"sessionId":"$SID"}}}
+wait 5
