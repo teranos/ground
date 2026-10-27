@@ -1,0 +1,14 @@
+# fs/read_text_file: a file:// resource_link is read through the client, its every byte the user's; an error answer ends the turn carrying it.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only the word the file holds, nothing else."},{"type":"resource_link","name":"word","uri":"file:///tmp/a%20word.txt"}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"ground\u0000code"}}
+wait 2
+# The client cannot read it: the turn ends with the client's own error.
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Read this."},{"type":"resource_link","name":"gone","uri":"file:///tmp/gone"}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"error":{"code":-32002,"message":"no such file"}}
+wait 3

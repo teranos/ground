@@ -1276,6 +1276,12 @@ version (Posix) unittest {
     assert(indexOf(s.open[0].history.slice(), `{"role":"user","content":"read this\n\na b (file:///tmp/a%20b):\nline one\nline \"two\""}`) >= 0);
     end(input, p, s);
 
+    // Every byte of the text is the user's, a NUL among them, as libacp reads its length.
+    turn(`{"jsonrpc":"2.0","id":"read-1","result":{"content":"a\u0000b"}}` ~ "\n", s, input, p);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(s.open[0].history.slice(), `(file:///tmp/a%20b):\na\u0000b"}`) >= 0);
+    end(input, p, s);
+
     // The client could not read it: the turn ends with the client's own error, and the model is not asked.
     turn(`{"jsonrpc":"2.0","id":"read-1","error":{"code":-32002,"message":"no such file"}}` ~ "\n", s, input, p);
     assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"ground code could not read file:///tmp/a%20b through the client","data":`

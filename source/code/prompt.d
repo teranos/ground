@@ -547,17 +547,6 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
     return false;
 }
 
-// The client's answer to fs/read_text_file: 1 and the file's text in content,
-// or -1 for an answer of any other kind, an error among them.
-int readTextContent(const(char)[] line, ref Reply content) {
-    auto root = parseJson(line);
-    scope(exit) json_object_put(root);
-    auto text_ = jsonField(jsonField(root, "result"), "content");
-    if (json_object_get_type(text_) != json_type.string_) return -1;
-    content.add(text(text_));
-    return content.full ? -1 : 1;
-}
-
 // A conversation told back to the client, a session/update a step, as the
 // turns that made it told them live: what the user said, what the model said,
 // each call it asked for, and how each one came out. A call came out completed
