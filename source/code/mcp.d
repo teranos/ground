@@ -224,6 +224,14 @@ private mcp_status startHttp(json_object* config, const(char)* capabilities, ref
         stringAt(jsonField(config, "url")), bearerOf(config), &server.client, &response, &error);
 }
 
+// How long a starting server has to answer libmcp's server/discover before
+// it is taken for a legacy one and asked initialize. libmcp's own is 500ms; a
+// server launched through npx or uvx takes seconds to start, and one that
+// speaks 2026-07-28 alone refuses initialize. A legacy server answers
+// server/discover at once, with method not found, so only one that never
+// answers it waits this long.
+enum MCP_PROBE_MS = 10_000;
+
 // argv/env use the parsed JSON's strings only until spawn returns. ACP's env
 // entries override inherited keys; the library receives a complete environment.
 private mcp_status startServer(json_object* config, const(char)* cwd, const(char)* capabilities,
@@ -267,6 +275,7 @@ private mcp_status startServer(json_object* config, const(char)* cwd, const(char
     mcp_options options;
     mcp_options_init(&options);
     server.timeoutMs = options.timeout_ms;
+    options.probe_timeout_ms = MCP_PROBE_MS;
     options.command = argv[0]; options.argv = cast(const(char*)*) argv;
     options.envp = cast(const(char*)*) envp; options.cwd = cwd;
     options.client_name = "ground";
