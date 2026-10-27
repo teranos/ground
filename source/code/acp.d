@@ -494,109 +494,23 @@ struct Open {
     Reply never;    // and to always reject
 }
 
-// The additionalDirectories a request names, into list as the JSON array a
-// client is answered with: in order, each path re-escaped, [] when it names
-// none or null. 1 read; -1 not a list of strings; -2 a path not absolute,
-// written into bad; -3 a path longer than ground code reads.
-private int dirsOf(const(char)[] json, const(char)[] key, ref Reply list, ref Reply bad) {
-    auto at = indexOf(json, key);
-    if (at < 0) { list.add("[]"); return 1; }
-    size_t p = cast(size_t) at + key.length;
-    void ws() { while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++; }
-    ws();
-    if (p >= json.length || json[p] != ':') return -1;
-    p++;
-    ws();
-    if (p + 4 <= json.length && json[p .. p + 4] == "null") { list.add("[]"); return 1; }
-    if (p >= json.length || json[p] != '[') return -1;
-    p++;
-    ws();
-    list.add("[");
-    if (p < json.length && json[p] == ']') { list.add("]"); return 1; }
-    for (bool first = true;; first = false) {
-        if (p >= json.length || json[p] != '"') return -1;
-        p++;
-        char[4096] buf;
-        size_t n = 0;
-        bool put1(char c) { if (n >= buf.length) return false; buf[n++] = c; return true; }
-        while (true) {
-            if (p >= json.length) return -1;
-            char c = json[p++];
-            if (c == '"') break;
-            if (c != '\\') { if (!put1(c)) return -3; continue; }
-            if (p >= json.length) return -1;
-            char e = json[p++];
-            char o;
-            switch (e) {
-                case '"': o = '"'; break;
-                case '\\': o = '\\'; break;
-                case '/': o = '/'; break;
-                case 'n': o = '\n'; break;
-                case 't': o = '\t'; break;
-                case 'r': o = '\r'; break;
-                case 'b': o = '\b'; break;
-                case 'f': o = '\f'; break;
-                case 'u': {
-                    uint cp;
-                    if (!hex4(json, p, cp)) return -1;
-                    if (cp >= 0xD800 && cp < 0xDC00) {
-                        uint lo;
-                        if (p + 2 > json.length || json[p] != '\\' || json[p + 1] != 'u') return -1;
-                        p += 2;
-                        if (!hex4(json, p, lo) || lo < 0xDC00 || lo >= 0xE000) return -1;
-                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                    } else if (cp >= 0xDC00 && cp < 0xE000) return -1;
-                    if (cp < 0x80) { if (!put1(cast(char) cp)) return -3; }
-                    else if (cp < 0x800) {
-                        if (!put1(cast(char)(0xC0 | (cp >> 6))) || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
-                    } else if (cp < 0x10000) {
-                        if (!put1(cast(char)(0xE0 | (cp >> 12))) || !put1(cast(char)(0x80 | ((cp >> 6) & 0x3F)))
-                            || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
-                    } else {
-                        if (!put1(cast(char)(0xF0 | (cp >> 18))) || !put1(cast(char)(0x80 | ((cp >> 12) & 0x3F)))
-                            || !put1(cast(char)(0x80 | ((cp >> 6) & 0x3F))) || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
-                    }
-                    continue;
-                }
-                default: return -1;
-            }
-            if (!put1(o)) return -3;
-        }
-        auto path = buf[0 .. n];
-        if (n == 0 || path[0] != '/') { bad.add(path); return -2; }
-        if (!first) list.add(",");
-        list.add(`"`); putEscaped(list, path); list.add(`"`);
-        ws();
-        if (p < json.length && json[p] == ',') { p++; ws(); continue; }
-        if (p < json.length && json[p] == ']') { list.add("]"); return 1; }
-        return -1;
-    }
-}
-
-private bool hex4(const(char)[] json, ref size_t p, ref uint cp) {
-    if (p + 4 > json.length) return false;
-    cp = 0;
-    foreach (c; json[p .. p + 4]) {
-        cp <<= 4;
-        if (c >= '0' && c <= '9') cp |= c - '0';
-        else if (c >= 'a' && c <= 'f') cp |= c - 'a' + 10;
-        else if (c >= 'A' && c <= 'F') cp |= c - 'A' + 10;
-        else return false;
-    }
-    p += 4;
-    return true;
-}
-
-// The error a dirsOf refusal is said to the client as, or false when it read.
-private bool refuseDirs(int got, ref Reply bad, ref Reply r, const(char)[] kept) {
-    if (got == -1) { r.add(`,"error":{"code":-32602,"message":"additionalDirectories must be a list of paths"}}`); return true; }
-    if (got == -2) {
-        r.add(`,"error":{"code":-32602,"message":"additionalDirectories must be absolute paths: `);
-        putEscaped(r, bad.slice()); r.add(`"}}`);
+// The additionalDirectories a request names, read by libacp into dirs as the JSON array
+// a client is answered with; true when it was refused, the refusal said in r.
+private bool readDirs(const(char)[] line, ref Reply dirs, ref Reply r) {
+    import libacp : acp_directories_read, acp_buffer, acp_buffer_free, acp_status;
+    auto params = objectValue(line, `"params"`);
+    if (params is null) params = "{}";
+    acp_buffer list, said;
+    scope(exit) { acp_buffer_free(&list); acp_buffer_free(&said); }
+    if (acp_directories_read(params.ptr, params.length, &list, &said) != acp_status.ACP_OK) {
+        r.add(`,"error":`);
+        if (said.data !is null) r.add(said.data[0 .. said.length]);
+        else r.add(`{"code":-32603,"message":"libacp could not read additionalDirectories"}`);
+        r.add(`}`);
         return true;
     }
-    if (got == -3) { r.add(`,"error":{"code":-32602,"message":"a path in additionalDirectories is longer than the 4096 bytes ground code reads"}}`); return true; }
-    if (kept.length > Open.init.dirs.length) {
+    dirs.add(list.data[0 .. list.length]);
+    if (dirs.len > Open.init.dirs.length) {
         r.add(`,"error":{"code":-32602,"message":"additionalDirectories are longer than the 2048 bytes ground code keeps"}}`);
         return true;
     }
@@ -839,9 +753,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
-        Reply dirs, bad;
-        scope(exit) { dirs.dispose(); bad.dispose(); }
-        if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
+        Reply dirs;
+        scope(exit) dirs.dispose();
+        if (readDirs(line, dirs, r)) return true;
         if (sessions.openLen == sessions.open.length) {
             put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
             return true;
@@ -1027,9 +941,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
-        Reply dirs, bad;
-        scope(exit) { dirs.dispose(); bad.dispose(); }
-        if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
+        Reply dirs;
+        scope(exit) dirs.dispose();
+        if (readDirs(line, dirs, r)) return true;
         auto at = openAt(sessions, sid);
         bool live = at >= 0;
         if (at < 0 && sessions.openLen == sessions.open.length) {
