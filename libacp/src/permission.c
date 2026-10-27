@@ -14,8 +14,11 @@ acp_status acp_permission_request_write(const acp_permission_request *request, a
     json_object *id = acp_parse(request->request_id, strlen(request->request_id));
     if (id == NULL) return ACP_INVALID_ARGUMENT;
     // The model's arguments as it gave them: JSON as JSON, anything else as the text it is.
-    json_object *input = acp_parse(request->raw_input, strlen(request->raw_input));
-    if (input == NULL) input = json_object_new_string(request->raw_input);
+    json_object *input = acp_raw(request->raw_input);
+    if (input == NULL) {
+        json_object_put(id);
+        return ACP_NO_MEMORY;
+    }
     json_object *call = json_object_new_object();
     json_object_object_add(call, "toolCallId", json_object_new_string(request->tool_call_id));
     json_object_object_add(call, "title", json_object_new_string(request->title));

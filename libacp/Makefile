@@ -26,7 +26,7 @@ all: $(BUILD)/libacp.a $(SHARED)
 $(BUILD):
 	mkdir -p $@
 
-OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o session.o modes.o config.o prompt.o permission.o fs.o)
+OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o session.o modes.o config.o prompt.o permission.o fs.o updates.o)
 
 $(BUILD)/%.o: src/%.c src/internal.h include/acp.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
@@ -37,7 +37,7 @@ $(BUILD)/libacp.a: $(OBJECTS)
 $(SHARED): $(OBJECTS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_FLAGS) -o $@ $^ $(LDLIBS)
 
-TESTS = initialize session modes config prompt permission fs
+TESTS = initialize session modes config prompt permission fs updates
 
 test: all
 	for t in $(TESTS); do \
