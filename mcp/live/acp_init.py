@@ -1,4 +1,4 @@
-"""libacp live: initialize in both shapes and a version none fits, then a v2-shaped client's elicitation honoured.
+"""libacp live: initialize in both shapes and a version none fits, authenticate refused, then a v2-shaped client's elicitation honoured.
 
 acp_init.py GROUND_CODE CWD ELICIT_SERVER_PY LOG
 """
@@ -31,6 +31,16 @@ for label, params in [
     p.wait()
     shown = answer.get("error") or {k: answer["result"][k] for k in ("protocolVersion",) if k in answer["result"]}
     print(f"{label}: {json.dumps(shown)}")
+
+# authenticate, after an initialize advertising no auth methods.
+p = start()
+send(p, {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": 1}})
+print("authMethods:", json.dumps(json.loads(p.stdout.readline())["result"]["authMethods"]))
+for i, params in enumerate([{"methodId": "openrouter"}, {}, {"_meta": {"methodId": "openrouter"}}], 1):
+    send(p, {"jsonrpc": "2.0", "id": i, "method": "authenticate", "params": params})
+    print(f"authenticate {json.dumps(params)}:", json.dumps(json.loads(p.stdout.readline())["error"]))
+p.stdin.close()
+p.wait()
 
 # A v2-shaped client offering form elicitation, whose session's server elicits.
 p = start()

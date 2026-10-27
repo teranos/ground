@@ -10,7 +10,7 @@ Every script takes the `ground_code` to drive and a working directory first.
 | Script | Checks | First run for |
 |---|---|---|
 | `acp_drive.py` | any session: one stdio MCP server, a list of prompts, every update shown | #171, #172, #173, #175 |
-| `acp_init.py` | initialize in both shapes, a version none fits, a v2-shaped client's elicitation | #179 |
+| `acp_init.py` | initialize in both shapes, a version none fits, a v2-shaped client's elicitation, authenticate refused | #179, #131 (part 7) |
 | `acp_delete.py` | a session one process opened, deleted by another, and the refusals | #120 (part 2) |
 | `acp_dirs.py` | a session's additionalDirectories kept and decoded, a relative one refused, replaced by a resume | #123 (part 4) |
 | `acp_effort.py` | a session's effort set, refused when unknown or boolean, kept across a resume | #124 (part 5) |
