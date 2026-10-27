@@ -229,6 +229,64 @@ typedef enum acp_stop_reason {
 // session/prompt's result: {"stopReason":...}.
 acp_status acp_prompt_result_write(acp_stop_reason reason, acp_buffer *result_json);
 
+// session/update, whole: update_json is one SessionUpdate, as the writers below write it.
+acp_status acp_session_update_write(const char *session_id, const char *update_json, acp_buffer *message_json);
+
+// A text chunk: the agent's message, its thought, or the user's message, every byte of text.
+typedef enum acp_chunk_kind {
+    ACP_CHUNK_AGENT_MESSAGE,
+    ACP_CHUNK_AGENT_THOUGHT,
+    ACP_CHUNK_USER_MESSAGE
+} acp_chunk_kind;
+
+acp_status acp_text_chunk_write(acp_chunk_kind kind, const char *text, size_t length, acp_buffer *update_json);
+
+// tool_call, or tool_call_update when update is set; a NULL field is not written. Raw input and
+// output are JSON text, or a string when not JSON. content_blocks is a ContentBlock array, each
+// written as content; content_text, with no blocks, is one text block.
+typedef struct acp_tool_call {
+    int update;
+    const char *tool_call_id;
+    const char *title;
+    const char *name;
+    const char *kind;
+    const char *status;
+    const char *raw_input;
+    const char *raw_output;
+    const char *content_blocks;
+    const char *content_text;
+} acp_tool_call;
+
+acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json);
+
+// usage_update: used and size, and the cost when cost_amount, a JSON number as text, is given.
+acp_status acp_usage_update_write(unsigned long long used, unsigned long long size, const char *cost_amount,
+    const char *currency, acp_buffer *update_json);
+
+// session_info_update: the title when one is given, and updatedAt.
+acp_status acp_session_info_update_write(const char *title, const char *updated_at, acp_buffer *update_json);
+
+// available_commands_update: commands_json is the AvailableCommand array.
+acp_status acp_available_commands_update_write(const char *commands_json, acp_buffer *update_json);
+
+// notice: what the user should know of a session.
+acp_status acp_notice_write(const char *severity, const char *title, const char *description, acp_buffer *update_json);
+
+// The mode a server's elicitation asks in: form when it names none.
+typedef enum acp_elicit_mode {
+    ACP_ELICIT_FORM,
+    ACP_ELICIT_URL,
+    ACP_ELICIT_OTHER
+} acp_elicit_mode;
+
+// elicitation/create, whole, from what a session's MCP server asked: the session and the call
+// lead, then its mode, then everything else server_params, an object, asked, in its order.
+acp_status acp_elicitation_create_write(const char *request_id, const char *session_id, const char *tool_call_id,
+    const char *server_params, size_t length, int *mode, acp_buffer *message_json);
+
+// elicitation/complete, whole.
+acp_status acp_elicitation_complete_write(const char *elicitation_id, acp_buffer *message_json);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;
