@@ -32,7 +32,8 @@ in
       steps = [
         checkout
         installNix
-        { run = "nix build .#ground"; }
+        # -L: each derivation's build log as it runs, so a build that hangs shows where.
+        { run = "nix build -L .#ground"; }
         # ground's side of libmcp, against the input's library and test server.
         { run = "nix develop .#default --command make test-mcp"; }
         # The Makefile's wind rule is the one list of wind's files. A copy of
@@ -64,7 +65,7 @@ in
       steps = [
         checkout
         installNix
-        { run = "nix build .#ground"; }
+        { run = "nix build -L .#ground"; }
         { run = "cp result/bin/ground ground-\${{ matrix.target }}"; }
         {
           uses = "actions/upload-artifact@v7";
