@@ -231,6 +231,7 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     n.add(`","toolCall":{"toolCallId":"`); putEscaped(n, callId);
     n.add(`","title":"`); putEscaped(n, tool);
     n.add(`","name":"`); putEscaped(n, tool);
+    if (readOnlyTool(o.mcp, tool)) n.add(`","kind":"read`);
     n.add(`","status":"pending","rawInput":`); n.add(arguments);
     n.add(`},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`);
     n.add(`{"optionId":"allow_always","name":"Always allow `); putEscaped(n, tool); n.add(`","kind":"allow_always"},`);
@@ -1031,7 +1032,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // the Agent MUST respond to the original session/load request."
         if (load && !__ctfe && o.history !is null) {
             bool tell(const(char)[] update) { return notify(sid, update); }
-            if (!replayHistory(o.history.slice(), &tell)) {
+            bool readOnly(const(char)[] tool) { return readOnlyTool(o.mcp, tool); }
+            if (!replayHistory(o.history.slice(), &tell, &readOnly)) {
                 put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
                 putEscaped(r, sid); put(` back"}}`);
                 return true;
@@ -1438,6 +1440,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // and SHOULD NOT change it later": the name the model called,
                     // here and in no update after.
                     u.add(`","name":"`); putEscaped(u, call.name);
+                    // "Helps clients choose appropriate icons and UI
+                    // treatment": read, when the tool's annotations say it only reads.
+                    if (readOnlyTool(o.mcp, call.name)) u.add(`","kind":"read`);
                     u.add(verdict == Verdict.run ? `","status":"in_progress","rawInput":` : `","status":"pending","rawInput":`);
                     u.add(call.arguments); u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
@@ -1475,7 +1480,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         toolMessage(*o.history, call.id, refused.slice());
                         u.len = 0;
                         u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                        u.add(`","status":"failed","rawOutput":`); u.add(refused.slice()); u.add(`}`);
+                        u.add(`","status":"failed","rawOutput":`); u.add(refused.slice());
+                        putToolContent(u, refused.slice()); u.add(`}`);
                         if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         continue;
                     }
@@ -1518,7 +1524,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
                     u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                    u.add(ok ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`); u.add(result.slice()); u.add(`}`);
+                    u.add(ok ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`); u.add(result.slice());
+                    // "Content produced by the tool call", as MCP gave it.
+                    putToolContent(u, result.slice()); u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     // Cancelled in the call: the calls after it are not run,
                     // and the turn answers cancelled now.
