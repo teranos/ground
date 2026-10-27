@@ -1,0 +1,19 @@
+# session/load: a session's conversation, kept by one process, told back by another before it answers; and its refusals.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"What is 2+2? Reply with only the number."}]}}
+wait 2
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+# Every line of the conversation comes before the answer to id 3.
+{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"$SID","cwd":"$CWD","mcpServers":[]}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"sessionId":"$SID","cwd":"$CWD"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"_meta":{"sessionId":"$SID"},"cwd":"$CWD","mcpServers":[]}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"$SID","cwd":"rel","mcpServers":[]}}
+wait 6
