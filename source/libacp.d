@@ -33,6 +33,19 @@ extern (C) nothrow @nogc {
         char* cwd;
     }
 
+    struct acp_session_list {
+        char* cwd;
+        char* cursor;
+    }
+
+    struct acp_session_info {
+        const(char)* session_id;
+        const(char)* cwd;
+        const(char)* additional_directories;
+        const(char)* title;
+        const(char)* updated_at;
+    }
+
     struct acp_set_mode {
         char* session_id;
         char* mode_id;
@@ -77,6 +90,9 @@ extern (C) nothrow @nogc {
     acp_status acp_session_target_read(const(char)*, const(char)*, size_t, char**, acp_buffer*);
     void acp_session_target_free(char**);
     acp_status acp_directories_read(const(char)*, size_t, acp_buffer*, acp_buffer*);
+    acp_status acp_session_list_read(const(char)*, size_t, acp_session_list*, acp_buffer*);
+    void acp_session_list_free(acp_session_list*);
+    acp_status acp_session_info_write(const(acp_session_info)*, acp_buffer*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);

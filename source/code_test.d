@@ -188,11 +188,19 @@ unittest {
     assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`,
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`));
 }
-static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`);
-// Ground code never gives a nextCursor, so a cursor is not one it gave.
-static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":"x"}}`)
-    == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`);
+// Ground code never gives a nextCursor, so a cursor is not one it gave. libacp
+// reads the cwd and the cursor each as a string, or refuses it.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":"x"}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":7}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/list's cursor must be a string"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":7}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/list's cwd must be a string"}}`));
+}
 // A cwd is kept whole or not at all.
 static assert(answerOf(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`)
     == `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);

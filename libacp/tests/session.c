@@ -1,4 +1,4 @@
-// session/resume: the session and the place it is resumed in, as #118 reads them.
+// session/resume: the session and the place it is resumed in, as #118 reads them; session/list, as #128 lists.
 #include "acp.h"
 
 #include <stdio.h>
@@ -103,15 +103,71 @@ static void additional_directories(void) {
     acp_buffer_free(&error);
 }
 
+// session/list's request, as #128 lists: a cwd to list in, absolute, and a cursor, both optional.
+static acp_status list(const char *params, acp_session_list *out, acp_buffer *error) {
+    memset(out, 0, sizeof *out);
+    memset(error, 0, sizeof *error);
+    return acp_session_list_read(params, strlen(params), out, error);
+}
+
+static void lists(void) {
+    acp_session_list in;
+    acp_buffer error;
+    CHECK(list("{}", &in, &error) == ACP_OK);
+    CHECK(in.cwd == NULL && in.cursor == NULL);
+    CHECK(list("{\"cwd\":null,\"cursor\":null}", &in, &error) == ACP_OK);
+    CHECK(in.cwd == NULL && in.cursor == NULL);
+    CHECK(list("{\"cwd\":\"/work\",\"cursor\":\"c1\"}", &in, &error) == ACP_OK);
+    CHECK(in.cwd && strcmp(in.cwd, "/work") == 0);
+    CHECK(in.cursor && strcmp(in.cursor, "c1") == 0);
+    acp_session_list_free(&in);
+    CHECK(in.cwd == NULL && in.cursor == NULL);
+    CHECK(list("{\"cwd\":\"work\"}", &in, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"cwd must be an absolute path: work\"}"));
+    acp_buffer_free(&error);
+    CHECK(list("{\"cwd\":7}", &in, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"session/list's cwd must be a string\"}"));
+    acp_buffer_free(&error);
+    CHECK(list("{\"cursor\":7}", &in, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"session/list's cursor must be a string\"}"));
+    acp_buffer_free(&error);
+    CHECK(in.cwd == NULL && in.cursor == NULL);
+}
+
+// A SessionInfo: no additional roots and no title are none written; updatedAt as given.
+static void session_info(void) {
+    acp_buffer out = {0};
+    acp_session_info info = {"code-1-1-1", "/work", "[\"/lib\",\"/srv\"]", "Fix the build", "2023-11-14T22:13:20Z"};
+    CHECK(acp_session_info_write(&info, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/work\",\"additionalDirectories\":[\"/lib\",\"/srv\"],"
+                     "\"title\":\"Fix the build\",\"updatedAt\":\"2023-11-14T22:13:20Z\"}"));
+    acp_buffer_free(&out);
+    acp_session_info bare = {"code-1-1-1", "/work", "[]", "", "2023-11-14T22:13:20Z"};
+    CHECK(acp_session_info_write(&bare, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/work\",\"updatedAt\":\"2023-11-14T22:13:20Z\"}"));
+    acp_buffer_free(&out);
+    acp_session_info none = {"code-1-1-1", "/work", NULL, NULL, NULL};
+    CHECK(acp_session_info_write(&none, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/work\"}"));
+    acp_buffer_free(&out);
+    // The roots are a JSON array of paths, or nothing is written.
+    acp_session_info stray = {"code-1-1-1", "/work", "{\"a\":1}", NULL, NULL};
+    CHECK(acp_session_info_write(&stray, &out) == ACP_INVALID_ARGUMENT);
+    acp_session_info nameless = {NULL, "/work", NULL, NULL, NULL};
+    CHECK(acp_session_info_write(&nameless, &out) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     reads_the_place();
     refused();
     names_a_session();
     additional_directories();
+    lists();
+    session_info();
     if (failures) {
         fprintf(stderr, "session: %d failed\n", failures);
         return 1;
     }
-    printf("session: session/resume's session and cwd, and its refusals passed\n");
+    printf("session: session/resume's session and cwd, session/list's request and SessionInfo, and their refusals passed\n");
     return 0;
 }
