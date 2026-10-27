@@ -46,15 +46,42 @@ private string answerWith()(string line, ref Sessions s) {
 
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
-static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
-       ~ versionString() ~ `"}}}`);
+// libacp reads and writes it, so these run rather than fold at compile time.
+private const(char)[] v1Result(string id) {
+    return `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
+}
 
-// "The protocol version the client specified if supported by the agent, or the
-// latest protocol version supported by the agent."
-static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
-       ~ versionString() ~ `"}}}`);
+unittest {
+    bool answers(string line, const(char)[] want) {
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Reply r;
+        scope(exit) r.dispose();
+        return answer(line, r, s) && r.slice() == want;
+    }
+    assert(answers(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`, v1Result(`0`)));
+
+    // A newer version than ground speaks selects the one it does:
+    // "The protocol version the client specified if supported by the agent, or the latest protocol version supported by the agent."
+    assert(answers(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`, v1Result(`"a"`)));
+
+    // None at or below what was asked:
+    // "If none exists, it MUST return -32022 with requested and supported data"
+    assert(answers(`{"jsonrpc":"2.0","id":9,"method":"initialize","params":{"protocolVersion":0}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32022,"message":"no supported protocol version is at or below 0","data":{"requested":0,"supported":[1]}}}`));
+
+    // The one field initialize must carry.
+    assert(answers(`{"jsonrpc":"2.0","id":8,"method":"initialize","params":{}}`,
+        `{"jsonrpc":"2.0","id":8,"error":{"code":-32602,"message":"initialize params name no protocolVersion"}}`));
+
+    // A v2 client's offer is in v2's shape, and ground answers it in v1:
+    // "a v2 request carries info and capabilities"
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply r;
+    scope(exit) r.dispose();
+    assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":2,"info":{"name":"zed","version":"1"},"capabilities":{"elicitation":{"form":{},"url":{}}}}}`, r, s));
+    assert(r.slice() == v1Result(`1`));
+    assert(s.elicitsForms && s.elicitsUrls, "a v2 client's elicitation, read from capabilities");
+}
 
 // authenticate: "Must be one of the methods advertised in the initialize
 // response." ground code advertises none, so no methodId is one of them.
@@ -435,20 +462,25 @@ private string promptWithSpacedCaps()() {
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
 }
-static assert(promptWithSpacedCaps()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-static assert(promptWithLinkFor("file:///tmp/a")
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-static assert(promptWithLinkFor("https://example.com/a")
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+// initialize goes through libacp, so these run rather than fold at compile time.
+unittest {
+    assert(promptWithSpacedCaps()
+        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+    assert(promptWithLinkFor("file:///tmp/a")
+        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+    assert(promptWithLinkFor("https://example.com/a")
+        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
+}
 private string promptLinkNotOffered()() {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`, s);
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
 }
-static assert(promptLinkNotOffered()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
+unittest {
+    assert(promptLinkNotOffered()
+        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
+}
 private string promptUntyped()() {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
