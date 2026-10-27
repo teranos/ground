@@ -89,6 +89,28 @@ void acp_session_target_free(char **session_id);
 // is answered with: in order, [] when none or null. Each must be an absolute path.
 acp_status acp_directories_read(const char *params_json, size_t length, acp_buffer *list_json, acp_buffer *error_json);
 
+// session/list's request: the cwd to list in, absolute, and the cursor to page from; either NULL
+// when absent or null.
+typedef struct acp_session_list {
+    char *cwd;
+    char *cursor;
+} acp_session_list;
+
+acp_status acp_session_list_read(const char *params_json, size_t length, acp_session_list *out, acp_buffer *error_json);
+void acp_session_list_free(acp_session_list *list);
+
+// A SessionInfo. additional_directories is a JSON array; it, title and updated_at are not
+// written when NULL, and neither are an empty array or title.
+typedef struct acp_session_info {
+    const char *session_id;
+    const char *cwd;
+    const char *additional_directories;
+    const char *title;
+    const char *updated_at;
+} acp_session_info;
+
+acp_status acp_session_info_write(const acp_session_info *info, acp_buffer *out_json);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;

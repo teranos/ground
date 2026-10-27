@@ -883,39 +883,59 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // Only the sessions of this process: nothing is kept past it yet. Ground
     // code never gives a nextCursor, so there is no cursor of its to page from.
     if (method == "session/list") {
-        char[4096] fb;
-        auto cwd = extractJsonString(line, `"cwd"`, &fb[0], fb.length);
-        auto cursor = rawValue(line, `"cursor"`);
+        // libacp reads the cwd and the cursor, refuses either as not a string, and a cwd not absolute.
+        import libacp : acp_session_list, acp_session_list_read, acp_session_list_free, acp_session_info,
+            acp_session_info_write, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_session_list asked;
+        scope(exit) acp_session_list_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (cwd !is null && (cwd.length == 0 || cwd[0] != '/')) {
-            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
-            putEscaped(r, cwd); put(`"}}`);
+        if (acp_session_list_read(params.ptr, params.length, &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/list"}`);
+            put(`}`);
             return true;
         }
-        if (cursor !is null && cursor != "null") {
+        const(char)[] cwd = asked.cwd is null ? null : asked.cwd[0 .. strlen(asked.cwd)];
+        if (asked.cursor !is null) {
             put(`,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`);
             return true;
         }
+        auto head = r.len;
         put(`,"result":{"sessions":[`);
         bool first = true;
-        // "Omitted and empty values are equivalent", so a session with no
-        // additional roots lists none.
-        // updatedAt is "ISO 8601 timestamp of last activity".
-        // title: "Human-readable title for the session. May be auto-generated
-        // from the first prompt." One not named yet lists none.
+        bool unwritten = false;
+        Reply named; // the session libacp could not write
+        scope(exit) named.dispose();
+        // libacp writes each SessionInfo. updatedAt is "ISO 8601 timestamp of
+        // last activity". title: "Human-readable title for the session. May be
+        // auto-generated from the first prompt." One not named yet lists none.
         void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs, const(char)[] title, long updatedAt) {
+            if (unwritten) return;
+            Reply text;
+            scope(exit) text.dispose();
+            size_t sidAt = text.len; text.add(sid); text.add("\0");
+            size_t cwdAt = text.len; text.add(at); text.add("\0");
+            size_t dirsAt = text.len; text.add(dirs.length ? dirs : "[]"); text.add("\0");
+            size_t titleAt = text.len; text.add(title); text.add("\0");
+            size_t isoAt = text.len; putIso(text, updatedAt); text.add("\0");
+            acp_buffer info;
+            scope(exit) acp_buffer_free(&info);
+            auto p = text.slice().ptr;
+            auto fields = acp_session_info(p + sidAt, p + cwdAt, p + dirsAt, p + titleAt, p + isoAt);
+            if (text.full || acp_session_info_write(&fields, &info) != acp_status.ACP_OK) { unwritten = true; named.add(sid); return; }
             if (!first) put(",");
             first = false;
-            put(`{"sessionId":"`); putEscaped(r, sid);
-            put(`","cwd":"`); putEscaped(r, at); put(`"`);
-            if (dirs != "[]") { put(`,"additionalDirectories":`); put(dirs); }
-            if (title.length > 0) { put(`,"title":"`); putEscaped(r, title); put(`"`); }
-            put(`,"updatedAt":"`); putIso(r, updatedAt); put(`"}`);
+            put(info.data[0 .. info.length]);
         }
         if (sessions.db !is null) {
             if (!storeList(sessions.db, cwd, &entry)) {
-                r.len = 0;
-                put(`{"jsonrpc":"2.0","id":`); put(id);
+                r.len = head;
                 put(`,"error":{"code":-32603,"message":"the store refused to list sessions"}}`);
                 return true;
             }
@@ -925,6 +945,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 auto at = o.cwd[0 .. o.cwdLen];
                 if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen], o.title[0 .. o.titleLen], o.updatedAt);
             }
+        }
+        if (unwritten) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the session `); putEscaped(r, named.slice()); put(`"}}`);
+            return true;
         }
         put(`]}}`);
         return true;
