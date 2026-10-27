@@ -203,6 +203,20 @@ typedef struct acp_permission_outcome {
 acp_status acp_permission_outcome_read(const char *message_json, size_t length, acp_permission_outcome *out);
 void acp_permission_outcome_free(acp_permission_outcome *outcome);
 
+// fs/read_text_file, whole: request_id is JSON text, path the absolute path to read.
+acp_status acp_read_text_file_request_write(const char *request_id, const char *session_id, const char *path,
+    acp_buffer *message_json);
+
+// The text a client answers fs/read_text_file with, every byte of it; content is NULL for any
+// other answer. libacp owns content until acp_text_file_free.
+typedef struct acp_text_file {
+    char *content;
+    size_t length;
+} acp_text_file;
+
+acp_status acp_read_text_file_result_read(const char *message_json, size_t length, acp_text_file *out);
+void acp_text_file_free(acp_text_file *file);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;

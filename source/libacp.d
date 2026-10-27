@@ -98,6 +98,11 @@ extern (C) nothrow @nogc {
         char* option_id;
     }
 
+    struct acp_text_file {
+        char* content;
+        size_t length;
+    }
+
     struct acp_set_mode {
         char* session_id;
         char* mode_id;
@@ -155,6 +160,9 @@ extern (C) nothrow @nogc {
     acp_status acp_permission_request_write(const(acp_permission_request)*, acp_buffer*);
     acp_status acp_permission_outcome_read(const(char)*, size_t, acp_permission_outcome*);
     void acp_permission_outcome_free(acp_permission_outcome*);
+    acp_status acp_read_text_file_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_read_text_file_result_read(const(char)*, size_t, acp_text_file*);
+    void acp_text_file_free(acp_text_file*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);
