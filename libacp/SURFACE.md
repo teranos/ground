@@ -12,3 +12,5 @@ what v2 (schema-v2.0.0-alpha.9) says of the same method, so v2 needs no second p
 | `additionalDirectories` in `session/new` and `session/resume` | 4 | #123 | reads the list, each path absolute; writes it back as answered | the same in `session/new`, `session/resume` and `SessionInfo` |
 | `session/set_mode` | 3 | #121 | reads `sessionId`, `modeId` | absent: v2 has no session modes |
 | `modes` in `session/new` and `session/resume` | 3 | #121 | writes `currentModeId`, `availableModes` (`id`, `name`, `description`) | absent: v2's results carry `configOptions` alone |
+| `session/set_config_option` | 5 | #124 | reads `sessionId`, `configId`, and `value` as a value id, or `type` boolean and a boolean | the same keys; a value id carries `type` id, and an `other` shape carries custom values |
+| `configOptions` in `session/new`, `session/resume`, `session/set_config_option` | 5 | #124 | writes selects: `id`, `name`, `category`, `type`, `currentValue`, `options` (`value`, `name`, `description`) | an option's `id` is `configId` |

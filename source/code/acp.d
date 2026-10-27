@@ -455,21 +455,40 @@ string effortDefault()(const(char)[] settings) {
 // "Agents that provide mode-like configuration SHOULD send both": configOptions
 // with a category mode option, and modes, kept in sync by being one value.
 // "Agents SHOULD place higher-priority options first in the list."
-private void putConfig(ref Reply r, SessionMode mode, size_t effort) {
-    r.add(`[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"`);
-    r.add(nameOf(mode)); r.add(`","options":[`);
-    foreach (i, m; offered) {
-        if (i > 0) r.add(",");
-        r.add(`{"value":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
-        r.add(`","description":"`); putModeDescription(r, m); r.add(`"}`);
+// libacp writes them; false when it could not.
+private bool putConfig(ref Reply r, SessionMode mode, size_t effort) {
+    import libacp : acp_config_value, acp_config_select, acp_config_options_write, acp_buffer, acp_buffer_free,
+        acp_status;
+    OptionTexts t;
+    scope(exit) t.dispose();
+    if (!t.fill()) return false;
+    auto current = modeAt(mode);
+    if (current == offered.length) return false;
+    acp_config_value[offered.length] modes;
+    foreach (i; 0 .. offered.length) modes[i] = acp_config_value(t.at(t.idAt[i]), t.at(t.nameAt[i]), t.at(t.describedAt[i]));
+    acp_config_value[efforts.length] levels;
+    foreach (i; 0 .. efforts.length) levels[i] = acp_config_value(t.at(t.effortAt[i]), t.at(t.effortNameAt[i]), null);
+    acp_config_select[2] selects = [
+        acp_config_select("mode", "Mode", "mode", t.at(t.idAt[current]), modes.ptr, modes.length),
+        acp_config_select("effort", "Effort", "thought_level", t.at(t.effortAt[effort]), levels.ptr, levels.length),
+    ];
+    acp_buffer options;
+    scope(exit) acp_buffer_free(&options);
+    if (acp_config_options_write(selects.ptr, selects.length, &options) != acp_status.ACP_OK) return false;
+    r.add(options.data[0 .. options.length]);
+    return true;
+}
+
+// The rest of set_config_option's answer, from its configOptions on: "The full
+// set of configuration options and their current values". head is where it began.
+private bool putOptions(ref Reply r, size_t head, const(char)[] sid, SessionMode mode, size_t effort) {
+    if (!putConfig(r, mode, effort)) {
+        r.len = head;
+        r.add(`,"error":{"code":-32603,"message":"libacp could not write the configOptions of `); putEscaped(r, sid); r.add(`"}}`);
+        return true;
     }
-    r.add(`]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`);
-    r.add(efforts[effort]); r.add(`","options":[`);
-    foreach (i, e; efforts) {
-        if (i > 0) r.add(",");
-        r.add(`{"value":"`); r.add(e); r.add(`","name":"`); r.add(effortNames[i]); r.add(`"}`);
-    }
-    r.add("]}]");
+    r.add(`}}`);
+    return true;
 }
 
 // A live session: its id, the cwd it is in and its additional roots, each kept
@@ -544,32 +563,49 @@ private void putModeDescription(ref Reply r, SessionMode m) {
     if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
 }
 
+// Where a mode stands among those offered, or offered.length for one it does not.
+private size_t modeAt(SessionMode m) {
+    foreach (i, o; offered) if (o == m) return i;
+    return offered.length;
+}
+
+// The modes and efforts as C reads them: each string its own bytes, then a NUL.
+// at() is taken once fill() is done, as text may move while it grows.
+private struct OptionTexts {
+    Reply text;
+    size_t[offered.length] idAt, nameAt, describedAt;
+    size_t[efforts.length] effortAt, effortNameAt;
+
+    bool fill() {
+        foreach (i, m; offered) {
+            idAt[i] = text.len; text.add(nameOf(m)); text.add("\0");
+            nameAt[i] = text.len; text.add(shownAs(m)); text.add("\0");
+            describedAt[i] = text.len; putModeDescription(text, m); text.add("\0");
+        }
+        foreach (i; 0 .. efforts.length) {
+            effortAt[i] = text.len; text.add(efforts[i]); text.add("\0");
+            effortNameAt[i] = text.len; text.add(effortNames[i]); text.add("\0");
+        }
+        return !text.full;
+    }
+
+    const(char)* at(size_t from) { return text.slice().ptr + from; }
+    void dispose() { text.dispose(); }
+}
+
 // libacp writes the SessionModeState; false when it could not.
 private bool putModes(ref Reply r, SessionMode current) {
     import libacp : acp_mode, acp_modes_write, acp_buffer, acp_buffer_free, acp_status;
-    Reply[offered.length] described;
-    scope(exit) foreach (ref d; described) d.dispose();
-    Reply ids, names;
-    scope(exit) { ids.dispose(); names.dispose(); }
+    OptionTexts t;
+    scope(exit) t.dispose();
+    if (!t.fill()) return false;
+    auto at = modeAt(current);
+    if (at == offered.length) return false;
     acp_mode[offered.length] modes;
-    foreach (i, m; offered) {
-        putModeDescription(described[i], m); described[i].add("\0");
-    }
-    // Each name and id as C reads it: its own bytes, then a NUL.
-    size_t[offered.length + 1] idAt, nameAt;
-    foreach (i, m; offered) {
-        idAt[i] = ids.len; ids.add(nameOf(m)); ids.add("\0");
-        nameAt[i] = names.len; names.add(shownAs(m)); names.add("\0");
-    }
-    Reply current_;
-    scope(exit) current_.dispose();
-    current_.add(nameOf(current)); current_.add("\0");
-    if (ids.full || names.full || current_.full) return false;
-    foreach (i; 0 .. offered.length)
-        modes[i] = acp_mode(ids.slice().ptr + idAt[i], names.slice().ptr + nameAt[i], described[i].slice().ptr);
+    foreach (i; 0 .. offered.length) modes[i] = acp_mode(t.at(t.idAt[i]), t.at(t.nameAt[i]), t.at(t.describedAt[i]));
     acp_buffer state;
     scope(exit) acp_buffer_free(&state);
-    if (acp_modes_write(current_.slice().ptr, modes.ptr, modes.length, &state) != acp_status.ACP_OK) return false;
+    if (acp_modes_write(t.at(t.idAt[at]), modes.ptr, modes.length, &state) != acp_status.ACP_OK) return false;
     r.add(state.data[0 .. state.length]);
     return true;
 }
@@ -800,7 +836,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32603,"message":"libacp could not write the modes of `); putEscaped(r, sid.slice()); put(`"}}`);
             return true;
         }
-        put(`,"configOptions":`); putConfig(r, SessionMode.manual, effort); put(`}}`);
+        put(`,"configOptions":`);
+        if (!putConfig(r, SessionMode.manual, effort)) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the configOptions of `); putEscaped(r, sid.slice()); put(`"}}`);
+            return true;
+        }
+        put(`}}`);
         return true;
     }
 
@@ -1059,7 +1101,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             put(`,"error":{"code":-32603,"message":"libacp could not write the modes of `); putEscaped(r, sid); put(`"}}`);
             return true;
         }
-        put(`,"configOptions":`); putConfig(r, mode, effort); put(`}}`);
+        put(`,"configOptions":`);
+        if (!putConfig(r, mode, effort)) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the configOptions of `); putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        put(`}}`);
         return true;
     }
 
@@ -1116,19 +1164,31 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // levels. Set, it is kept with the session, and the answer is "The full
     // set of configuration options and their current values".
     if (method == "session/set_config_option") {
-        char[256] sb;
-        char[64] cb;
-        char[64] vb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        auto config = extractJsonString(line, `"configId"`, &cb[0], cb.length);
-        auto value = extractJsonString(line, `"value"`, &vb[0], vb.length);
+        // libacp reads the session, the option and its value, and refuses any missing in its words.
+        import libacp : acp_set_config_option, acp_set_config_option_read, acp_set_config_option_free, acp_buffer,
+            acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_set_config_option asked;
+        scope(exit) acp_set_config_option_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`); return true; }
-        if (config is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`); return true; }
-        if (value is null) {
+        if (acp_set_config_option_read(params.ptr, params.length, &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/set_config_option"}`);
+            put(`}`);
+            return true;
+        }
+        if (asked.is_boolean) {
             put(`,"error":{"code":-32602,"message":"session/set_config_option needs a value: mode and effort are selects, not booleans"}}`);
             return true;
         }
+        auto sid = asked.session_id[0 .. strlen(asked.session_id)];
+        auto config = asked.config_id[0 .. strlen(asked.config_id)];
+        auto value = asked.value[0 .. strlen(asked.value)];
         auto at = openAt(sessions, sid);
         if (at < 0) {
             put(`,"error":{"code":-32002,"message":"no open session `);
@@ -1152,8 +1212,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
             o.mode = mode;
             o.updatedAt = now(sessions);
-            put(`,"result":{"configOptions":`); putConfig(r, o.mode, o.effort); put(`}}`);
-            return true;
+            auto head = r.len;
+            put(`,"result":{"configOptions":`);
+            return putOptions(r, head, sid, o.mode, o.effort);
         }
         if (config != "effort") {
             put(`,"error":{"code":-32602,"message":"no config option `); putEscaped(r, config);
@@ -1173,8 +1234,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         o.effort = effort;
         o.updatedAt = now(sessions);
-        put(`,"result":{"configOptions":`); putConfig(r, o.mode, effort); put(`}}`);
-        return true;
+        auto head = r.len;
+        put(`,"result":{"configOptions":`);
+        return putOptions(r, head, sid, o.mode, effort);
     }
 
     // "deleting an existing session from `session/list`": what list would show
