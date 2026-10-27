@@ -68,10 +68,46 @@ static void names_a_session(void) {
     CHECK(acp_session_target_read(NULL, ok, strlen(ok), &sid, &error) == ACP_INVALID_ARGUMENT);
 }
 
+static acp_status dirs(const char *params, acp_buffer *list, acp_buffer *error) {
+    memset(list, 0, sizeof *list);
+    memset(error, 0, sizeof *error);
+    return acp_directories_read(params, strlen(params), list, error);
+}
+
+// additionalDirectories, as #123 reads them: absolute paths, in order, decoded and answered back.
+static void additional_directories(void) {
+    acp_buffer list, error;
+    CHECK(dirs("{\"cwd\":\"/w\",\"additionalDirectories\":[\"/lib/caf\\u00e9\",\"/lib/b\"]}", &list, &error) == ACP_OK);
+    CHECK(says(&list, "[\"/lib/caf\xc3\xa9\",\"/lib/b\"]"));
+    acp_buffer_free(&list);
+    // None named, or null, is none.
+    CHECK(dirs("{\"cwd\":\"/w\"}", &list, &error) == ACP_OK && says(&list, "[]"));
+    acp_buffer_free(&list);
+    CHECK(dirs("{\"additionalDirectories\":null}", &list, &error) == ACP_OK && says(&list, "[]"));
+    acp_buffer_free(&list);
+    // Only the params' own: a list nested in another field is not theirs.
+    CHECK(dirs("{\"_meta\":{\"additionalDirectories\":[\"rel\"]}}", &list, &error) == ACP_OK && says(&list, "[]"));
+    acp_buffer_free(&list);
+    CHECK(dirs("{\"additionalDirectories\":[\"/lib\",\"rel\"]}", &list, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be absolute paths: rel\"}"));
+    CHECK(list.data == NULL);
+    acp_buffer_free(&error);
+    CHECK(dirs("{\"additionalDirectories\":\"/lib\"}", &list, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be a list of paths\"}"));
+    acp_buffer_free(&error);
+    CHECK(dirs("{\"additionalDirectories\":[\"/lib\",7]}", &list, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be a list of paths\"}"));
+    acp_buffer_free(&error);
+    CHECK(dirs("{\"additionalDirectories\":[\"\"]}", &list, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be absolute paths: \"}"));
+    acp_buffer_free(&error);
+}
+
 int main(void) {
     reads_the_place();
     refused();
     names_a_session();
+    additional_directories();
     if (failures) {
         fprintf(stderr, "session: %d failed\n", failures);
         return 1;

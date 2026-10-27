@@ -46,6 +46,45 @@ acp_status acp_session_target_read(const char *method, const char *params_json, 
     return status;
 }
 
+acp_status acp_directories_read(const char *params_json, size_t length, acp_buffer *list_json, acp_buffer *error_json) {
+    if (params_json == NULL || list_json == NULL || error_json == NULL) return ACP_INVALID_ARGUMENT;
+    list_json->data = NULL;
+    list_json->length = 0;
+    error_json->data = NULL;
+    error_json->length = 0;
+    json_object *params = acp_parse(params_json, length);
+    json_object *named = acp_field(params, "additionalDirectories");
+    acp_status status = ACP_OK;
+    json_object *list = json_object_new_array();
+    if (named != NULL && !json_object_is_type(named, json_type_array)) {
+        status = acp_invalid(error_json, "additionalDirectories must be a list of paths");
+    } else {
+        size_t n = named ? json_object_array_length(named) : 0;
+        for (size_t i = 0; i < n && status == ACP_OK; i++) {
+            json_object *path = json_object_array_get_idx(named, i);
+            if (!json_object_is_type(path, json_type_string)) {
+                status = acp_invalid(error_json, "additionalDirectories must be a list of paths");
+                break;
+            }
+            const char *s = json_object_get_string(path);
+            // "Each path must be absolute."
+            if (s[0] != '/') {
+                char message[4200];
+                snprintf(message, sizeof message, "additionalDirectories must be absolute paths: %s", s);
+                status = acp_invalid(error_json, message);
+                break;
+            }
+            json_object_array_add(list, json_object_new_string(s));
+        }
+    }
+    json_object_put(params);
+    if (status != ACP_OK) {
+        json_object_put(list);
+        return status;
+    }
+    return acp_finish(list, list_json);
+}
+
 void acp_session_target_free(char **session_id) {
     if (session_id == NULL) return;
     free(*session_id);

@@ -85,6 +85,10 @@ acp_status acp_session_target_read(const char *method, const char *params_json, 
                                    char **session_id, acp_buffer *error_json);
 void acp_session_target_free(char **session_id);
 
+// The additionalDirectories a session/new or session/resume names, as the JSON array a client
+// is answered with: in order, [] when none or null. Each must be an absolute path.
+acp_status acp_directories_read(const char *params_json, size_t length, acp_buffer *list_json, acp_buffer *error_json);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;

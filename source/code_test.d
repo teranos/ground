@@ -99,8 +99,11 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/load","params"
     == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`)
     == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`);
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`));
+}
 
 // A notification has no answer to give; the caller says it on stderr instead.
 static assert(answerOf(`{"jsonrpc":"2.0","method":"session/frobnicate","params":{}}`) is null);
@@ -394,6 +397,9 @@ unittest {
         `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"additionalDirectories must be absolute paths: rel"}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/work","additionalDirectories":"/lib","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"additionalDirectories must be a list of paths"}}`));
+    // The params' own list, not one nested in another field.
+    assert(answersFresh(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/work","mcpServers":[],"_meta":{"additionalDirectories":["rel"]}}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // Another process resumes it with a list of its own, then with none.
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;

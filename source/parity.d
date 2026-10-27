@@ -943,6 +943,7 @@ private CodeSides buildCodeSides()() {
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         auto side = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
         libacpKeys(block, side);
+        helperKeys(block, side);
         cs.items[cs.count++] = side;
     }
     // A method sent to the client has no branch: what ground code writes is
@@ -997,6 +998,25 @@ private void libacpKeys()(const(char)[] block, ref GroundSide side) {
         foreach (g; lib.items[0 .. lib.count])
             if (g.fn.name != f.fn.name && named(body_, g.fn.name) >= 0)
                 cKeys(libacpSources[g.src][g.fn.from .. g.fn.to], acpReader, side);
+    }
+}
+
+// ground code's own helpers a block calls, one level: libacp read through them counts for the block.
+private void helperKeys()(const(char)[] block, ref GroundSide side) {
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(codeSource, "\nprivate ", from);
+        if (at < 0) return;
+        from = cast(size_t) at + 1;
+        auto paren = indexIn(codeSource, "(", from), eol = indexIn(codeSource, "\n", from);
+        if (paren < 0 || paren > eol) continue;
+        size_t b = cast(size_t) paren;
+        while (b > from && isIdent(codeSource[b - 1])) b--;
+        auto name = codeSource[b .. cast(size_t) paren];
+        if (name.length == 0 || named(block, name) < 0) continue;
+        auto close = indexIn(codeSource, "\n}\n", from);
+        assert(close >= 0, "code/acp.d has a helper it does not close");
+        libacpKeys(codeSource[from .. cast(size_t) close], side);
     }
 }
 
