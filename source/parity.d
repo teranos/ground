@@ -965,6 +965,7 @@ private CodeSides buildCodeSides()() {
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         cs.items[cs.count++] = GroundSide(name, readsIn(block), writesIn(block, true));
     }
+    libacpSent(cs);
     return cs;
 }
 
@@ -1018,6 +1019,40 @@ private void helperKeys()(const(char)[] block, ref GroundSide side) {
         auto close = indexIn(codeSource, "\n}\n", from);
         assert(close >= 0, "code/acp.d has a helper it does not close");
         libacpKeys(codeSource[from .. cast(size_t) close], side);
+    }
+}
+
+// A request libacp writes for ground code: the method its writer names, measured through each
+// helper of code/acp.d that calls the writer, and the helpers that one calls in turn.
+private void libacpSent()(ref CodeSides cs) {
+    enum mark = `"method", json_object_new_string("`;
+    auto lib = libacpFns();
+    foreach (f; lib.items[0 .. lib.count]) {
+        auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
+        auto at = indexIn(body_, mark);
+        if (at < 0) continue;
+        auto nameFrom = cast(size_t) at + mark.length;
+        auto nameEnd = indexIn(body_, `"`, nameFrom);
+        assert(nameEnd >= 0, "a libacp writer names a method it does not close");
+        auto name = body_[nameFrom .. cast(size_t) nameEnd];
+        size_t k = cs.count;
+        foreach (i; 0 .. cs.count) if (cs.items[i].event == name) k = i;
+        if (k == cs.count) {
+            assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
+            cs.items[cs.count++] = GroundSide(name, GroundKeys.init, GroundKeys.init);
+        }
+        size_t from = 0;
+        while (true) {
+            auto h = indexIn(codeSource, "\nprivate ", from);
+            if (h < 0) break;
+            from = cast(size_t) h + 1;
+            auto close = indexIn(codeSource, "\n}\n", from);
+            assert(close >= 0, "code/acp.d has a helper it does not close");
+            auto helper = codeSource[from .. cast(size_t) close];
+            if (named(helper, f.fn.name) < 0) continue;
+            libacpKeys(helper, cs.items[k]);
+            helperKeys(helper, cs.items[k]);
+        }
     }
 }
 
