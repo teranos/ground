@@ -24,18 +24,23 @@ static assert(toolOf("echo") == "echo");
 // back to be read, a name and a uri each; a block of another kind has no text
 // to give, and its type is said instead of dropped.
 private string textOf()(string line) {
-    Reply r, other, links;
-    promptText(line, r, other, links);
+    Reply r, other, links, embedded;
+    promptText(line, r, other, links, embedded);
     return r.slice().idup;
 }
 private string otherOf()(string line) {
-    Reply r, other, links;
-    return promptText(line, r, other, links) ? "all text" : other.slice().idup;
+    Reply r, other, links, embedded;
+    return promptText(line, r, other, links, embedded) ? "all text" : other.slice().idup;
 }
 private string linksOf()(string line) {
-    Reply r, other, links;
-    promptText(line, r, other, links);
+    Reply r, other, links, embedded;
+    promptText(line, r, other, links, embedded);
     return links.slice().idup;
+}
+private string embeddedOf()(string line) {
+    Reply r, other, links, embedded;
+    promptText(line, r, other, links, embedded);
+    return embedded.slice().idup;
 }
 static assert(textOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"text","text":"b"}]}`) == "a\nb");
 static assert(otherOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"resource_link","uri":"file:///a"}]}`) == "image");
@@ -47,6 +52,16 @@ static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a"}]}`)
 static assert(otherOf(`{"prompt":[{"text":"a"}]}`) == "");
 static assert(otherOf(`{"prompt":[{"type":"text","text":"a"}]}`) == "all text");
 static assert(otherOf(`{"prompt":[]}`) == "all text");
+// embeddedContext: "the Client is allowed to include ContentBlock::Resource in
+// prompt requests for pieces of context that are referenced in the message".
+// A text resource is handed back by its uri and its text; one holding a blob
+// has no text to give the model, and is said, not dropped.
+static assert(embeddedOf(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","mimeType":"text/x-d","text":"int x;"}}]}`)
+    == "file:///a.d\0int x;\0");
+static assert(otherOf(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`) == "all text");
+static assert(textOf(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`) == "see");
+static assert(otherOf(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.png","blob":"AAAA","mimeType":"image/png"}}]}`) == "resource holding a blob");
+static assert(otherOf(`{"prompt":[{"type":"resource","resource":{"text":"no uri"}}]}`) == "resource");
 
 // fs/read_text_file takes an "Absolute path to the file to read": a file://
 // uri on this machine is one, percent-decoded; any other is not.

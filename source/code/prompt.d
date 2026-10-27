@@ -117,10 +117,13 @@ private size_t blanks(const(char)[] json, size_t pos) {
 }
 
 // The prompt's text blocks, in order, one line each. A resource_link goes into
-// links to be read, its name and its uri each ended by a NUL. A block of
-// another kind has no text to give the model, and is not pretended to: false,
-// and other gets the type of the first such block, empty when it names none.
-@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links) {
+// links to be read, its name and its uri each ended by a NUL. A resource
+// embedded with its text, "for pieces of context that are referenced in the
+// message", goes into embedded, its uri and its text each ended by a NUL. A
+// block of another kind has no text to give the model, and is not pretended
+// to: false, and other gets the type of the first such block, empty when it
+// names none; a resource holding a blob is "resource holding a blob".
+@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded) {
     auto at = indexOf(line, `"prompt"`);
     if (at < 0) return true;
     size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
@@ -136,6 +139,9 @@ private size_t blanks(const(char)[] json, size_t pos) {
         Reply value, kind, name, uri;
         scope(exit) { value.dispose(); kind.dispose(); name.dispose(); uri.dispose(); }
         bool named, located;
+        Reply held, heldUri;
+        scope(exit) { held.dispose(); heldUri.dispose(); }
+        bool holdsText, holdsUri, holdsBlob;
         size_t p = 1;
         while (p < block.length) {
             p = blanks(block, p);
@@ -152,6 +158,27 @@ private size_t blanks(const(char)[] json, size_t pos) {
             if (key.slice() == "text" && p < block.length && block[p] == '"') { value.len = 0; copyString(block, p, value); }
             if (key.slice() == "name" && p < block.length && block[p] == '"') { name.len = 0; copyString(block, p, name); named = true; }
             if (key.slice() == "uri" && p < block.length && block[p] == '"') { uri.len = 0; copyString(block, p, uri); located = true; }
+            // EmbeddedResource's resource: its uri, and its text or its blob.
+            if (key.slice() == "resource" && p < block.length && block[p] == '{') {
+                auto inner = block[p .. skipValue(block, p)];
+                size_t q = 1;
+                while (q < inner.length) {
+                    q = blanks(inner, q);
+                    if (q >= inner.length || inner[q] != '"') break;
+                    Reply field;
+                    q = copyString(inner, q, field);
+                    q = blanks(inner, q);
+                    if (q >= inner.length || inner[q] != ':') break;
+                    q = blanks(inner, q + 1);
+                    if (field.slice() == "uri" && q < inner.length && inner[q] == '"') { heldUri.len = 0; copyString(inner, q, heldUri); holdsUri = true; }
+                    if (field.slice() == "text" && q < inner.length && inner[q] == '"') { held.len = 0; copyString(inner, q, held); holdsText = true; }
+                    if (field.slice() == "blob") holdsBlob = true;
+                    field.dispose();
+                    q = skipValue(inner, q);
+                    q = blanks(inner, q);
+                    if (q < inner.length && inner[q] == ',') q++;
+                }
+            }
             p = skipValue(block, p);
             p = blanks(block, p);
             if (p < block.length && block[p] == ',') p++;
@@ -159,7 +186,12 @@ private size_t blanks(const(char)[] json, size_t pos) {
         // "required": name and uri. A link missing one is no link to read.
         bool link = kind.slice() == "resource_link" && named && located;
         if (link) { links.add(name.slice()); links.add("\0"); links.add(uri.slice()); links.add("\0"); }
-        if (!text && !link && all) { all = false; other.add(kind.slice()); }
+        bool resource = kind.slice() == "resource" && holdsUri && holdsText;
+        if (resource) { embedded.add(heldUri.slice()); embedded.add("\0"); embedded.add(held.slice()); embedded.add("\0"); }
+        if (!text && !link && !resource && all) {
+            all = false;
+            other.add(kind.slice() == "resource" && holdsUri && holdsBlob ? "resource holding a blob" : kind.slice());
+        }
         if (text) {
             if (!first) r.add("\n");
             first = false;
@@ -307,6 +339,140 @@ void titleOf(const(char)[] typed, ref Reply title) {
     }
     title.add(line[0 .. cut]);
     title.add("…");
+}
+
+// --- commands: a session's MCP prompts ---
+
+// What a prompt takes, read from its prompts/list entry: how many arguments,
+// and the first one's name, hint and whether it is required.
+private struct Arguments { size_t count; const(char)[] name, hint; bool required; }
+private Arguments argumentsOf(json_object* prompt) {
+    Arguments a;
+    auto list = jsonField(prompt, "arguments");
+    if (json_object_get_type(list) != json_type.array) return a;
+    a.count = json_object_array_length(list);
+    if (a.count == 0) return a;
+    auto first = json_object_array_get_idx(list, 0);
+    a.name = text(jsonField(first, "name"));
+    a.hint = text(jsonField(first, "description"));
+    if (a.hint.length == 0) a.hint = a.name;
+    auto required = jsonField(first, "required");
+    a.required = json_object_get_type(required) == json_type.boolean && json_object_get_boolean(required) != 0;
+    return a;
+}
+
+// Each prompt of each server, in the order the servers gave them, until each
+// says yes. A page that does not read gives none.
+private void eachPrompt(ref McpGroup group,
+        scope bool delegate(const(char)[] server, const(char)[] name, json_object* prompt) each) {
+    foreach (i; 0 .. group.count) {
+        auto server = &group.servers[i];
+        auto serverName = server.name[0 .. strlen(server.name)];
+        for (auto page = server.prompts; page !is null; page = page.next) {
+            auto root = parseJson(page.response.json[0 .. page.response.length]);
+            scope(exit) json_object_put(root);
+            auto list = jsonField(jsonField(root, "result"), "prompts");
+            foreach (j; 0 .. json_object_get_type(list) == json_type.array ? json_object_array_length(list) : 0) {
+                auto prompt = json_object_array_get_idx(list, j);
+                auto name = text(jsonField(prompt, "name"));
+                if (name.length > 0 && each(serverName, name, prompt)) return;
+            }
+        }
+    }
+}
+
+// The session's commands, as available_commands_update lists them: each MCP
+// prompt that takes at most one argument, named as a tool is, server__prompt.
+// "All text that was typed after the command name is provided as input", one
+// text, so a prompt taking two arguments has no way to be given them.
+void commandsOf(ref McpGroup group, ref Reply commands) {
+    commands.add("[");
+    bool first = true;
+    bool each(const(char)[] server, const(char)[] name, json_object* prompt) {
+        auto args = argumentsOf(prompt);
+        if (args.count > 1) return false;
+        if (!first) commands.add(",");
+        first = false;
+        commands.add(`{"name":"`);
+        Reply full;
+        putToolName(full, server, name);
+        putEscaped(commands, full.slice());
+        full.dispose();
+        auto description = text(jsonField(prompt, "description"));
+        if (description.length == 0) description = text(jsonField(prompt, "title"));
+        if (description.length == 0) description = name;
+        commands.add(`","description":"`); putEscaped(commands, description); commands.add(`"`);
+        if (args.count == 1) { commands.add(`,"input":{"hint":"`); putEscaped(commands, args.hint); commands.add(`"}`); }
+        commands.add("}");
+        return false;
+    }
+    eachPrompt(group, &each);
+    commands.add("]");
+}
+
+// The command a turn's typed text starts with: "/server__prompt", then the
+// end or a space and its input. found, its server, prompt and argument, and
+// the input with the spaces around it trimmed.
+struct Command {
+    Reply full, server, prompt, argument, hint;
+    bool required;
+    void dispose() { full.dispose(); server.dispose(); prompt.dispose(); argument.dispose(); hint.dispose(); }
+}
+bool commandOf(ref McpGroup group, const(char)[] typed, ref Command c, ref const(char)[] input) {
+    if (typed.length < 2 || typed[0] != '/') return false;
+    size_t end = 1;
+    while (end < typed.length && typed[end] != ' ' && typed[end] != '\t' && typed[end] != '\n' && typed[end] != '\r') end++;
+    auto asked = typed[1 .. end];
+    bool found = false;
+    bool each(const(char)[] server, const(char)[] name, json_object* prompt) {
+        Reply full;
+        scope(exit) full.dispose();
+        putToolName(full, server, name);
+        if (full.slice() != asked) return false;
+        auto args = argumentsOf(prompt);
+        if (args.count > 1) return false;
+        c.full.add(asked); c.server.add(server); c.prompt.add(name);
+        c.argument.add(args.name); c.hint.add(args.hint); c.required = args.required;
+        found = true;
+        return true;
+    }
+    eachPrompt(group, &each);
+    if (!found) return false;
+    size_t from = end, to = typed.length;
+    while (from < to && (typed[from] == ' ' || typed[from] == '\t' || typed[from] == '\n' || typed[from] == '\r')) from++;
+    while (to > from && (typed[to - 1] == ' ' || typed[to - 1] == '\t' || typed[to - 1] == '\n' || typed[to - 1] == '\r')) to--;
+    input = typed[from .. to];
+    return true;
+}
+
+// What prompts/get gave, as the history keeps the conversation: each message
+// by its role, its text the text of a text block or of an embedded text
+// resource. 1 added; -1 a message the model cannot be asked, its content's
+// type in why; -2 not a prompt.
+int promptMessages(const(char)[] response, ref Reply history, ref Reply why) {
+    auto root = parseJson(response);
+    scope(exit) json_object_put(root);
+    auto messages = jsonField(jsonField(root, "result"), "messages");
+    if (json_object_get_type(messages) != json_type.array) return -2;
+    // Read whole before any is kept, so a prompt the model cannot be asked adds nothing.
+    foreach (i; 0 .. json_object_array_length(messages)) {
+        auto content = jsonField(json_object_array_get_idx(messages, i), "content");
+        auto type = text(jsonField(content, "type"));
+        bool readable = type == "text" ? text(jsonField(content, "text")) !is null
+            : type == "resource" && text(jsonField(jsonField(content, "resource"), "text")) !is null;
+        if (!readable) { why.add(type.length > 0 ? type : "a message with no content type"); return -1; }
+    }
+    foreach (i; 0 .. json_object_array_length(messages)) {
+        auto message = json_object_array_get_idx(messages, i);
+        auto content = jsonField(message, "content");
+        auto said = text(jsonField(content, "type")) == "text" ? text(jsonField(content, "text"))
+            : text(jsonField(jsonField(content, "resource"), "text"));
+        if (text(jsonField(message, "role")) == "assistant") {
+            comma(history);
+            history.add(`{"role":"assistant","content":"`); putEscaped(history, said); history.add(`"}`);
+        } else userMessage(history, said);
+    }
+    return 1;
 }
 
 // --- the history: the messages array's inside, grown a message at a time ---
