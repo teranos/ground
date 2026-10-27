@@ -67,6 +67,10 @@ acp_status acp_initialize_result(unsigned selected_version,
                                  const char *auth_methods_json,
                                  acp_buffer *result_json);
 
+// authenticate's request: the methodId it names, which libacp owns until acp_authenticate_free.
+acp_status acp_authenticate_read(const char *params_json, size_t length, char **method_id, acp_buffer *error_json);
+void acp_authenticate_free(char **method_id);
+
 // session/resume's request: the session, and the absolute cwd it is resumed in.
 // libacp owns both strings until acp_session_resume_free.
 typedef struct acp_session_resume {
