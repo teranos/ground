@@ -970,8 +970,8 @@ private CodeSides buildCodeSides()() {
 // --- acp: the part of a method ground code reads and writes through libacp ---
 
 // The library as ground links it, kept in this repository at libacp/.
-private static immutable string[2] libacpSources = [
-    import("libacp/src/acp.c"), import("libacp/src/initialize.c"),
+private static immutable string[3] libacpSources = [
+    import("libacp/src/acp.c"), import("libacp/src/initialize.c"), import("libacp/src/session.c"),
 ];
 
 private LibFns libacpFns()() {
@@ -1143,7 +1143,7 @@ private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys
 // the library reads and writes a key through, the key their second argument.
 private struct CReader { string[] reads; string[] writes; }
 private static immutable CReader mcpReader = CReader(["mcp_field", "mcp_has"], ["mcp_add"]);
-private static immutable CReader acpReader = CReader(["acp_field", "acp_offered", "acp_flag"], []);
+private static immutable CReader acpReader = CReader(["acp_field", "acp_offered", "acp_flag", "acp_string"], []);
 
 private void cKeys()(const(char)[] region, const CReader reader, ref GroundSide side) {
     keyArgs(region, "json_object_object_get_ex", side.reads);
