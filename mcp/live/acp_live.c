@@ -28,7 +28,9 @@ typedef struct ground {
 } ground;
 
 static const char *binary, *cwd;
+static char live[4096]; // the directory acp_live is in, as $LIVE
 static char sid[256];
+static char asked[256];
 
 static void die(const char *what) {
     fprintf(stderr, "acp_live: %s: %s\n", what, strerror(errno));
@@ -62,7 +64,7 @@ static void start(ground *g) {
     g->out_lines.length = g->err_lines.length = 0;
 }
 
-// The sessionId a session/new or session/resume answer names, kept as $SID.
+// The sessionId a session/new answer names, kept as $SID.
 static void keep_sid(const char *line) {
     static const char mark[] = "\"result\":{\"sessionId\":\"";
     const char *at = strstr(line, mark);
@@ -74,6 +76,16 @@ static void keep_sid(const char *line) {
     sid[end - at] = '\0';
 }
 
+// The id of a request ground code makes of the client, as it stands in the line, kept as $ASKED.
+static void keep_asked(const char *line) {
+    static const char mark[] = "{\"jsonrpc\":\"2.0\",\"id\":";
+    if (strncmp(line, mark, sizeof mark - 1) != 0 || strstr(line, ",\"method\":\"") == NULL) return;
+    const char *at = line + sizeof mark - 1, *end = strstr(at, ",\"method\":\"");
+    if ((size_t) (end - at) >= sizeof asked) return;
+    memcpy(asked, at, (size_t) (end - at));
+    asked[end - at] = '\0';
+}
+
 // Prints each whole line read so far after its mark; true when one holds want.
 static int lines_out(line_buffer *b, const char *mark, const char *want) {
     int seen = 0;
@@ -83,7 +95,7 @@ static int lines_out(line_buffer *b, const char *mark, const char *want) {
         b->data[i] = '\0';
         const char *line = b->data + from;
         printf("%s%s\n", mark, line);
-        if (mark[0] == '<') keep_sid(line);
+        if (mark[0] == '<') { keep_sid(line); keep_asked(line); }
         if (want != NULL && strstr(line, want) != NULL) seen = 1;
         from = i + 1;
     }
@@ -148,11 +160,13 @@ static void finish(ground *g) {
 static char *expand(const char *line) {
     size_t n = 0;
     for (const char *p = line; (p = strchr(p, '$')) != NULL; p++) n++;
-    char *out = malloc(strlen(line) + 1 + n * (strlen(cwd) + sizeof sid)), *w = out;
+    char *out = malloc(strlen(line) + 1 + n * (strlen(cwd) + sizeof sid + sizeof asked + sizeof live)), *w = out;
     if (out == NULL) die("malloc");
     for (const char *p = line; *p; ) {
         if (strncmp(p, "$CWD", 4) == 0) { w += sprintf(w, "%s", cwd); p += 4; }
         else if (strncmp(p, "$SID", 4) == 0) { w += sprintf(w, "%s", sid); p += 4; }
+        else if (strncmp(p, "$LIVE", 5) == 0) { w += sprintf(w, "%s", live); p += 5; }
+        else if (strncmp(p, "$ASKED", 6) == 0) { w += sprintf(w, "%s", asked); p += 6; }
         else *w++ = *p++;
     }
     *w = '\0';
@@ -187,6 +201,22 @@ static int sent(ground *g, const char *line) {
     return whole;
 }
 
+// cat FILE prints the file, each line marked as one read from a file.
+static int shown(const char *name) {
+    char *path = expand(name);
+    FILE *f = fopen(path, "r");
+    if (f == NULL) { printf("# FAILED: cat %s: no such file\n", path); free(path); return 0; }
+    char *text = NULL;
+    size_t capacity = 0;
+    ssize_t got;
+    while ((got = getline(&text, &capacity, f)) >= 0) printf("= %s%s", text, got > 0 && text[got - 1] == '\n' ? "" : "\n");
+    free(text);
+    fclose(f);
+    free(path);
+    fflush(stdout);
+    return 1;
+}
+
 int main(int argc, char **argv) {
     if (argc != 4) {
         fprintf(stderr, "usage: acp_live GROUND_CODE CWD SCRIPT\n");
@@ -194,6 +224,8 @@ int main(int argc, char **argv) {
     }
     binary = argv[1];
     cwd = argv[2];
+    if (realpath(argv[0], live) == NULL) die(argv[0]);
+    *strrchr(live, '/') = '\0';
     FILE *script = fopen(argv[3], "r");
     if (script == NULL) die(argv[3]);
     signal(SIGPIPE, SIG_IGN);
@@ -208,6 +240,7 @@ int main(int argc, char **argv) {
         if (got == 0) continue;
         if (line[0] == '#') { printf("%s\n", line); fflush(stdout); }
         else if (strcmp(line, "restart") == 0) { finish(&g); printf("# restart\n"); start(&g); }
+        else if (strncmp(line, "cat ", 4) == 0) ok = shown(line + 4);
         else if (strncmp(line, "sleep ", 6) == 0) ok = read_for(&g, atol(line + 6), NULL) != -1;
         else if (strncmp(line, "wait ", 5) == 0 || strncmp(line, "expect ", 7) == 0) ok = awaited(&g, line);
         else ok = sent(&g, line);

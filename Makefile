@@ -149,11 +149,18 @@ test-mcp: build ground_code
 	ldc2 -betterC -I=source -of=build/abort-test mcp/abort.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	python3 mcp/test_abort.py build/abort-test
 
-# The live checks' driver: C11 and POSIX, under libacp's warnings.
+# The live checks' driver and the MCP servers they hand a session: C11 and POSIX, under libacp's warnings.
+LIVE_CFLAGS = -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes \
+	-Wmissing-prototypes -Wcast-qual -Wformat=2 -Wundef -Wvla -Wnull-dereference -Wimplicit-fallthrough
 build/acp_live: mcp/live/acp_live.c
 	mkdir -p build
-	cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes \
-		-Wmissing-prototypes -Wcast-qual -Wformat=2 -Wundef -Wvla -Wnull-dereference -Wimplicit-fallthrough $< -o $@
+	cc $(LIVE_CFLAGS) $< -o $@
+build/echo_server: mcp/live/echo_server.c
+	mkdir -p build
+	cc $(LIVE_CFLAGS) $< -o $@
+build/elicit_server: mcp/live/elicit_server.c
+	mkdir -p build
+	cc $(LIVE_CFLAGS) $< -o $@
 
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:
