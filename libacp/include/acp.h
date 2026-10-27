@@ -142,6 +142,24 @@ typedef struct acp_prompt {
 acp_status acp_prompt_read(const char *params_json, size_t length, acp_prompt *out, acp_buffer *error_json);
 void acp_prompt_free(acp_prompt *prompt);
 
+// A cancel: session/cancel naming its session, or $/cancel_request naming a request, its
+// id as JSON text. NONE for any other message; an id a cancel does not name is NULL.
+typedef enum acp_cancel_kind {
+    ACP_CANCEL_NONE,
+    ACP_CANCEL_SESSION,
+    ACP_CANCEL_REQUEST
+} acp_cancel_kind;
+
+typedef struct acp_cancel {
+    acp_cancel_kind kind;
+    char *session_id;
+    char *request_id;
+} acp_cancel;
+
+// Reads a whole message. libacp owns the ids until acp_cancel_free.
+acp_status acp_cancel_read(const char *message_json, size_t length, acp_cancel *out);
+void acp_cancel_free(acp_cancel *cancel);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;

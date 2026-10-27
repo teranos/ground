@@ -74,14 +74,48 @@ static void refused(void) {
     }
 }
 
+// A cancel, as #137 takes one: session/cancel by its session, $/cancel_request by the
+// request it names, that id as JSON text. Any other message is no cancel.
+static acp_status cancel(const char *message, acp_cancel *out) {
+    memset(out, 0, sizeof *out);
+    return acp_cancel_read(message, strlen(message), out);
+}
+
+static void cancels(void) {
+    acp_cancel c;
+    CHECK(cancel("{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"code-1-1-1\"}}", &c) == ACP_OK);
+    CHECK(c.kind == ACP_CANCEL_SESSION && is(c.session_id, "code-1-1-1") && c.request_id == NULL);
+    acp_cancel_free(&c);
+    CHECK(c.session_id == NULL);
+    CHECK(cancel("{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"_meta\":{\"sessionId\":\"code-1-1-1\"}}}", &c) == ACP_OK);
+    CHECK(c.kind == ACP_CANCEL_SESSION && c.session_id == NULL);
+    acp_cancel_free(&c);
+    CHECK(cancel("{\"jsonrpc\":\"2.0\",\"method\":\"$/cancel_request\",\"params\":{\"requestId\":4}}", &c) == ACP_OK);
+    CHECK(c.kind == ACP_CANCEL_REQUEST && is(c.request_id, "4"));
+    acp_cancel_free(&c);
+    CHECK(cancel("{\"jsonrpc\":\"2.0\",\"method\":\"$/cancel_request\",\"params\":{\"requestId\":\"p/1\"}}", &c) == ACP_OK);
+    CHECK(c.kind == ACP_CANCEL_REQUEST && is(c.request_id, "\"p/1\""));
+    acp_cancel_free(&c);
+    CHECK(cancel("{\"jsonrpc\":\"2.0\",\"method\":\"$/cancel_request\",\"params\":{}}", &c) == ACP_OK);
+    CHECK(c.kind == ACP_CANCEL_REQUEST && c.request_id == NULL);
+    acp_cancel_free(&c);
+    const char *others[] = {"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"session/list\",\"params\":{}}", "not json", "[]"};
+    for (size_t i = 0; i < sizeof others / sizeof *others; i++) {
+        CHECK(cancel(others[i], &c) == ACP_OK);
+        CHECK(c.kind == ACP_CANCEL_NONE && c.session_id == NULL && c.request_id == NULL);
+    }
+    CHECK(acp_cancel_read(NULL, 0, &c) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     kinds();
+    cancels();
     incomplete();
     refused();
     if (failures) {
         fprintf(stderr, "prompt: %d failed\n", failures);
         return 1;
     }
-    printf("prompt: session/prompt's blocks, each kind, and their refusals passed\n");
+    printf("prompt: session/prompt's blocks, each kind, their refusals, and cancels passed\n");
     return 0;
 }

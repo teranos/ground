@@ -115,8 +115,11 @@ unittest {
 static assert(answerOf(`{"jsonrpc":"2.0","method":"session/frobnicate","params":{}}`) is null);
 // A cancel with no turn running has nothing to stop: it is answered with
 // nothing, and said on stderr.
-static assert(answerOf(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-1-1-1"}}`) == "");
-static assert(answerOf(`{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":4}}`) == "");
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-1-1-1"}}`, ""));
+    assert(says(s, `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":4}}`, ""));
+}
 
 // A line naming no method is not a request.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4}`)
@@ -705,8 +708,10 @@ version (Posix) unittest {
     {
         int[2] p;
         assert(pipe(p) == 0);
+        // A sessionId only in _meta names no session, and cancels no turn.
+        enum unnamed = `{"jsonrpc":"2.0","method":"session/cancel","params":{"_meta":{"sessionId":"code-100-7-1"}}}`;
         enum queued = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-9"}}` ~ "\n"
-            ~ `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}` ~ "\n" ~ cancel ~ "\n";
+            ~ `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}` ~ "\n" ~ unnamed ~ "\n" ~ cancel ~ "\n";
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); }
@@ -718,6 +723,7 @@ version (Posix) unittest {
         const(char)[] line;
         assert(nextLine(input, line) && line == `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-9"}}`);
         assert(nextLine(input, line) && line == `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`);
+        assert(nextLine(input, line) && line == unnamed);
     }
     // $/cancel_request names the prompt by its id.
     {
