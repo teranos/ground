@@ -63,3 +63,35 @@ void acp_prompt_free(acp_prompt *prompt) {
     prompt->blocks = NULL;
     prompt->count = 0;
 }
+
+acp_status acp_cancel_read(const char *message_json, size_t length, acp_cancel *out) {
+    if (message_json == NULL || out == NULL) return ACP_INVALID_ARGUMENT;
+    memset(out, 0, sizeof *out);
+    json_object *message = acp_parse(message_json, length);
+    char *method = acp_string(message, "method");
+    json_object *params = acp_field(message, "params");
+    acp_status status = ACP_OK;
+    if (method != NULL && strcmp(method, "session/cancel") == 0) {
+        out->kind = ACP_CANCEL_SESSION;
+        out->session_id = acp_string(params, "sessionId");
+    } else if (method != NULL && strcmp(method, "$/cancel_request") == 0) {
+        out->kind = ACP_CANCEL_REQUEST;
+        json_object *id = acp_field(params, "requestId");
+        if (id != NULL) {
+            const char *text = json_object_to_json_string_ext(id, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+            size_t n = strlen(text) + 1;
+            if ((out->request_id = malloc(n)) == NULL) status = ACP_NO_MEMORY;
+            else memcpy(out->request_id, text, n);
+        }
+    }
+    free(method);
+    json_object_put(message);
+    return status;
+}
+
+void acp_cancel_free(acp_cancel *cancel) {
+    if (cancel == NULL) return;
+    free(cancel->session_id);
+    free(cancel->request_id);
+    memset(cancel, 0, sizeof *cancel);
+}

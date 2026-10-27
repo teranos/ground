@@ -64,6 +64,14 @@ extern (C) nothrow @nogc {
         size_t count;
     }
 
+    enum acp_cancel_kind : int { ACP_CANCEL_NONE, ACP_CANCEL_SESSION, ACP_CANCEL_REQUEST }
+
+    struct acp_cancel {
+        acp_cancel_kind kind;
+        char* session_id;
+        char* request_id;
+    }
+
     struct acp_set_mode {
         char* session_id;
         char* mode_id;
@@ -115,6 +123,8 @@ extern (C) nothrow @nogc {
     acp_status acp_session_info_write(const(acp_session_info)*, acp_buffer*);
     acp_status acp_prompt_read(const(char)*, size_t, acp_prompt*, acp_buffer*);
     void acp_prompt_free(acp_prompt*);
+    acp_status acp_cancel_read(const(char)*, size_t, acp_cancel*);
+    void acp_cancel_free(acp_cancel*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);
