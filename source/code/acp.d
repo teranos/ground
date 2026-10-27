@@ -1274,6 +1274,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // "Agents typically send this notification after the first meaningful
             // exchange to auto-generate a title": the first prompt that types
             // something names the session, in the store and to the client.
+            // updatedAt, "ISO 8601 timestamp of last activity", is told with
+            // every turn, so a client's list keeps "in sync without polling".
+            Reply info;
+            scope(exit) info.dispose();
+            info.add(`{"sessionUpdate":"session_info_update"`);
             if (!o.titled) {
                 Reply title;
                 scope(exit) title.dispose();
@@ -1289,13 +1294,12 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (named == 1) {
                         o.titleLen = 0;
                         foreach (c; title.slice()) if (o.titleLen < o.title.length) o.title[o.titleLen++] = c;
-                        Reply u;
-                        scope(exit) u.dispose();
-                        u.add(`{"sessionUpdate":"session_info_update","title":"`); putEscaped(u, title.slice()); u.add(`"}`);
-                        if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                        info.add(`,"title":"`); putEscaped(info, title.slice()); info.add(`"`);
                     }
                 }
             }
+            info.add(`,"updatedAt":"`); putIso(info, o.updatedAt); info.add(`"}`);
+            if (!notify(sid, info.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
             // Each linked file is read before the model is asked, and its text
             // is the user's, after what they typed, under the link's name.
             for (size_t at_ = 0, from = 0, field = 0, nameFrom = 0, nameTo = 0; at_ < links.len; at_++) {

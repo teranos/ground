@@ -1055,7 +1055,7 @@ version (Posix) unittest {
     // session_info_update notification": the title the first prompt gave, as
     // the turn starts.
     assert(said[0 .. saidLen] ==
-          up ~ `{"sessionUpdate":"session_info_update","title":"hi"}}}` ~ "\n"
+          up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
     Reply kept;
@@ -1393,7 +1393,7 @@ version (Posix) unittest {
     assert(asked[0 .. lines] == "GET /api/openrouter-qntx/v1/models HTTP/1.1\nPOST /api/openrouter-qntx/v1/chat/completions HTTP/1.1\n");
     enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
     assert(said[0 .. saidLen] ==
-          up ~ `{"sessionUpdate":"session_info_update","title":"hi"}}}` ~ "\n"
+          up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"usage_update","used":196,"size":200000}}}` ~ "\n");
     assert(s.contextSize == 200_000);
@@ -1743,4 +1743,72 @@ version (Posix) unittest {
     });
     assert(out_ == up ~ `{"sessionUpdate":"notice","severity":"warning","title":"ground code does not handle session/wiggle","description":`
         ~ `"{\"jsonrpc\":\"2.0\",\"method\":\"session/wiggle\",\"params\":{\"sessionId\":\"code-100-7-1\"}}"}}}` ~ "\n");
+}
+
+// updatedAt: "ISO 8601 timestamp of last activity", pushed "in real-time via
+// the session_info_update notification, keeping session titles and metadata
+// in sync without polling". Each turn is the session's activity as it starts:
+// the first tells the title with it, a later one the time alone.
+version (Posix) unittest {
+    import core.sys.posix.unistd : write, close, fork, _exit, read, dup, dup2, pipe;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    enum done = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    auto fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a;
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+    socklen_t n = a.sizeof;
+    assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+    auto child = fork();
+    if (child == 0) {
+        foreach (_; 0 .. 2) {
+            char[65536] got;
+            auto c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, done.ptr, done.length); close(c);
+        }
+        _exit(0);
+    }
+    close(fd);
+    __gshared char[32] urlBuf;
+    ushort port = htons(a.sin_port);
+    size_t len = 0;
+    foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+    char[8] d; size_t k = 0;
+    do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+    while (k) urlBuf[len++] = d[--k];
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
+    int[2] o;
+    assert(pipe(o) == 0);
+    fflush(stdout);
+    auto saved = dup(1);
+    dup2(o[1], 1);
+    Reply r;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, r, s); r.len = 0;
+    s.clock = 1_700_000_090;
+    answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"again"}]}}`, r, s);
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+    __gshared char[65536] said;
+    size_t saidLen = 0;
+    while (true) {
+        auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+        if (got <= 0) break;
+        saidLen += cast(size_t) got;
+    }
+    close(o[0]);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
+    r.dispose();
+    enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
+    enum chunk = up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n";
+    assert(said[0 .. saidLen] ==
+          up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n" ~ chunk
+        ~ up ~ `{"sessionUpdate":"session_info_update","updatedAt":"2023-11-14T22:14:50Z"}}}` ~ "\n" ~ chunk);
+    s.open[0].history.dispose();
 }
