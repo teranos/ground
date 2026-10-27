@@ -93,6 +93,7 @@ struct Sessions {
     long clock;      // the time, when one is given; otherwise the system's
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
+    bool clientTakesNotices; // initialize said the client presents notice session updates
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
@@ -342,6 +343,49 @@ private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, cons
     answer.add(`"the client's answer to elicitation/create is neither a result nor an error: `);
     putEscaped(answer, answered.slice()); answer.add(`"`);
     return -1;
+}
+
+// What the user should know of a session, as it happens: "Fire-and-forget
+// information for the user", a notice, when the client "advertised
+// ClientSessionCapabilities::notices. Otherwise, Agents may use an agent
+// message when the information should still be surfaced to the user." stderr
+// has it too. false when it could not be written.
+private bool tellUser(ref Sessions sessions, const(char)[] sid, const(char)[] severity,
+        const(char)[] title, const(char)[] description) {
+    if (!__ctfe) {
+        fputs("ground code: ", stderr); fwrite(title.ptr, 1, title.length, stderr);
+        fputs(": ", stderr); fwrite(description.ptr, 1, description.length, stderr); fputs("\n", stderr);
+    }
+    Reply u;
+    scope(exit) u.dispose();
+    if (sessions.clientTakesNotices) {
+        u.add(`{"sessionUpdate":"notice","severity":"`); u.add(severity);
+        u.add(`","title":"`); putEscaped(u, title);
+        u.add(`","description":"`); putEscaped(u, description); u.add(`"}`);
+    } else {
+        u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
+        putEscaped(u, title); u.add(": "); putEscaped(u, description); u.add(`\n"}}`);
+    }
+    return notify(sid, u.slice());
+}
+
+// A notification ground code does not handle: said on stderr, and to the
+// session it names when that one is open here.
+void unhandled(const(char)[] line, ref Sessions sessions) {
+    char[256] mb, sb;
+    auto method = extractJsonString(line, `"method"`, &mb[0], mb.length);
+    auto params = objectValue(line, `"params"`);
+    auto sid = params is null ? null : extractJsonString(params, `"sessionId"`, &sb[0], sb.length);
+    if (sid !is null && method !is null && openAt(sessions, sid) >= 0) {
+        Reply title;
+        scope(exit) title.dispose();
+        title.add("ground code does not handle "); title.add(method);
+        tellUser(sessions, sid, "warning", title.slice(), line);
+        return;
+    }
+    fputs("ground code: a notification it does not handle: ", stderr);
+    fwrite(line.ptr, 1, line.length, stderr);
+    fputs("\n", stderr);
 }
 
 // libcurl asks this while the gateway is answering: a cancel cuts the request off.
@@ -673,6 +717,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto caps = objectValue(line, `"clientCapabilities"`);
         auto fs = caps is null ? null : objectValue(caps, `"fs"`);
         sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
+        // "Supplying {} means the client can present notices to the user."
+        auto session = caps is null ? null : objectValue(caps, `"session"`);
+        sessions.clientTakesNotices = session !is null && objectValue(session, `"notices"`) !is null;
         // "Supplying {} explicitly advertises form support", and url's the same.
         auto elicits = caps is null ? null : objectValue(caps, `"elicitation"`);
         sessions.elicitsForms = elicits !is null && objectValue(elicits, `"form"`) !is null;
@@ -1521,7 +1568,16 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     int askClient(const(char)[] method, const(char)[] params, ref Reply answer) {
                         return elicit(sessions, turn, sid, call.id, method, params, answer);
                     }
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient);
+                    // What the server logs at warning or above while it runs, the user is told.
+                    void hearServer(const(char)[] name, const(char)[] level, const(char)[] data) {
+                        Reply title;
+                        scope(exit) title.dispose();
+                        title.add("MCP server "); title.add(name); title.add(" logged ");
+                        title.add(level == "warning" ? "a warning" : level == "error" ? "an error"
+                            : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
+                        tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
+                    }
+                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient, &hearServer);
                     bool ok = status == mcp_status.MCP_OK;
                     if (ok) result.add(response.json[0 .. response.length]);
                     else {
@@ -1592,9 +1648,7 @@ int handleCode() {
         Reply r;
         scope(exit) r.dispose();
         if (!answer(line, r, sessions)) {
-            fputs("ground code: a notification it does not handle: ", stderr);
-            fwrite(line.ptr, 1, line.length, stderr);
-            fputs("\n", stderr);
+            unhandled(line, sessions);
             continue;
         }
         // A notification it handled has no answer to write.
