@@ -1,118 +1,15 @@
 {
-  "jobs": {
-    "github-release": {
-      "if": "startsWith(github.ref, 'refs/tags/')",
-      "needs": "release",
-      "permissions": {
-        "contents": "write"
-      },
-      "runs-on": "ubuntu-latest",
-      "steps": [
-        {
-          "uses": "actions/download-artifact@v8"
-        },
-        {
-          "run": "ls -R"
-        },
-        {
-          "uses": "softprops/action-gh-release@v2",
-          "with": {
-            "files": "ground-*/ground-*\n"
-          }
-        }
-      ]
-    },
-    "release": {
-      "if": "startsWith(github.ref, 'refs/tags/')",
-      "needs": "test",
-      "runs-on": "${{ matrix.os }}",
-      "steps": [
-        {
-          "uses": "actions/checkout@v6",
-          "with": {
-            "fetch-depth": 0
-          }
-        },
-        {
-          "uses": "cachix/install-nix-action@v30"
-        },
-        {
-          "run": "nix build -L .#ground"
-        },
-        {
-          "run": "cp result/bin/ground ground-${{ matrix.target }}"
-        },
-        {
-          "uses": "actions/upload-artifact@v7",
-          "with": {
-            "name": "ground-${{ matrix.target }}",
-            "path": "ground-${{ matrix.target }}"
-          }
-        }
-      ],
-      "strategy": {
-        "matrix": {
-          "include": [
-            {
-              "os": "ubuntu-latest",
-              "target": "x86_64-linux"
-            },
-            {
-              "os": "macos-latest",
-              "target": "aarch64-darwin"
-            }
-          ]
-        }
-      }
-    },
-    "test": {
-      "runs-on": "${{ matrix.os }}",
-      "steps": [
-        {
-          "uses": "actions/checkout@v6",
-          "with": {
-            "fetch-depth": 0
-          }
-        },
-        {
-          "uses": "cachix/install-nix-action@v30"
-        },
-        {
-          "run": "nix build -L .#ground"
-        },
-        {
-          "run": "nix develop .#default --command make test-mcp"
-        },
-        {
-          "run": "nix develop .#default --command sh -c 'make wind && dub test'"
-        },
-        {
-          "run": "nix develop .#default --command sh -c 'make ug && make test-ug'"
-        },
-        {
-          "run": "nix develop .#default --command sh -c 'make test-tools'"
-        }
-      ],
-      "strategy": {
-        "matrix": {
-          "os": [
-            "ubuntu-latest",
-            "macos-latest"
-          ]
-        }
-      }
-    }
-  },
   "name": "CI",
-  "on": {
-    "pull_request": null,
-    "push": {
-      "branches": [
-        "main",
-        "count-one"
-      ],
-      "tags": [
-        "*"
+  "on": { "pull_request": null },
+  "jobs": {
+    "asan-probe": {
+      "runs-on": "macos-latest",
+      "steps": [
+        { "uses": "actions/checkout@v6" },
+        { "uses": "cachix/install-nix-action@v30" },
+        { "run": "nix config show | grep -E '^(sandbox|sandbox-fallback|system) '; sw_vers; uname -a" },
+        { "run": "nix develop .#default --command sh -c 'cd libacp && mkdir -p build && $CC --version && $CC -Iinclude $(pkg-config --cflags json-c) -std=c11 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer tests/initialize.c src/acp.c src/initialize.c src/session.c src/modes.c src/config.c src/prompt.c $(pkg-config --libs json-c) -o build/initialize-sanitized && otool -L build/initialize-sanitized'" },
+        { "run": "cd libacp && (ASAN_OPTIONS=verbosity=2 nix develop ..#default --command ./build/initialize-sanitized > probe.out 2>&1 &); sleep 30; pid=$(pgrep -f build/initialize-sanitized | head -1); echo \"pid=$pid\"; if [ -n \"$pid\" ]; then ps -o pid,stat,etime,command -p $pid; sudo sample $pid 3 -file /dev/stdout | head -120; sudo kill -9 $pid; fi; echo '--- output'; head -80 probe.out", "shell": "bash" }
       ]
     }
   }
