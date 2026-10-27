@@ -95,3 +95,11 @@ void acp_cancel_free(acp_cancel *cancel) {
     free(cancel->request_id);
     memset(cancel, 0, sizeof *cancel);
 }
+
+acp_status acp_prompt_result_write(acp_stop_reason reason, acp_buffer *result_json) {
+    static const char *const named[] = {"end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"};
+    if (result_json == NULL || (unsigned) reason >= sizeof named / sizeof *named) return ACP_INVALID_ARGUMENT;
+    json_object *result = json_object_new_object();
+    json_object_object_add(result, "stopReason", json_object_new_string(named[reason]));
+    return acp_finish(result, result_json);
+}

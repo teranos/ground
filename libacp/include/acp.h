@@ -217,6 +217,18 @@ typedef struct acp_text_file {
 acp_status acp_read_text_file_result_read(const char *message_json, size_t length, acp_text_file *out);
 void acp_text_file_free(acp_text_file *file);
 
+// Why a turn stopped: PromptResponse's stopReason, in the schema's order.
+typedef enum acp_stop_reason {
+    ACP_STOP_END_TURN,
+    ACP_STOP_MAX_TOKENS,
+    ACP_STOP_MAX_TURN_REQUESTS,
+    ACP_STOP_REFUSAL,
+    ACP_STOP_CANCELLED
+} acp_stop_reason;
+
+// session/prompt's result: {"stopReason":...}.
+acp_status acp_prompt_result_write(acp_stop_reason reason, acp_buffer *result_json);
+
 // session/set_mode's request: the session, and the mode it is set to.
 typedef struct acp_set_mode {
     char *session_id;

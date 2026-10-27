@@ -21,6 +21,7 @@ import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
 import code.prompt;
+import libacp : acp_stop_reason;
 public import code.reply : Reply, putEscaped, putNumber;
 public import code.input : Input, nextLine, take, more;
 
@@ -536,6 +537,18 @@ private bool putOptions(ref Reply r, size_t head, const(char)[] sid, SessionMode
     }
     r.add(`}}`);
     return true;
+}
+
+// The rest of session/prompt's answer, from its result on: why the turn stopped, as libacp writes it.
+private void putStop(ref Reply r, acp_stop_reason reason) {
+    import libacp : acp_prompt_result_write, acp_buffer, acp_buffer_free, acp_status;
+    acp_buffer result;
+    scope(exit) acp_buffer_free(&result);
+    if (acp_prompt_result_write(reason, &result) != acp_status.ACP_OK) {
+        r.add(`,"error":{"code":-32603,"message":"libacp could not write the turn's stop reason"}}`);
+        return;
+    }
+    r.add(`,"result":`); r.add(result.data[0 .. result.length]); r.add(`}`);
 }
 
 // A live session: its id, the cwd it is in and its additional roots, each kept
@@ -1451,7 +1464,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             Turn turn = Turn(sessions.input, sid, id);
             // "the Agent MUST respond to the original session/prompt request
             // with the cancelled stop reason"; the history keeps what happened.
-            void stopCancelled() { put(`,"result":{"stopReason":"cancelled"}}`); }
+            void stopCancelled() { putStop(r, acp_stop_reason.ACP_STOP_CANCELLED); }
             // "Agents typically send this notification after the first meaningful
             // exchange to auto-generate a title": the first prompt that types
             // something names the session, in the store and to the client.
@@ -1687,10 +1700,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 if (c.finish == "length") {
                     foreach (i; 0 .. c.callCount)
                         toolMessage(*o.history, c.calls[i].id, `{"status":"not run","why":"the answer asking for it was cut off at the model's token limit"}`);
-                    put(`,"result":{"stopReason":"max_tokens"}}`);
+                    putStop(r, acp_stop_reason.ACP_STOP_MAX_TOKENS);
                     return true;
                 }
-                if (c.callCount == 0) { put(`,"result":{"stopReason":"end_turn"}}`); return true; }
+                if (c.callCount == 0) { putStop(r, acp_stop_reason.ACP_STOP_END_TURN); return true; }
                 foreach (i; 0 .. c.callCount) {
                     auto call = c.calls[i];
                     // A call the turn was called off before is not run; the
