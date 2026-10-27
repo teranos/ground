@@ -216,6 +216,22 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     return -1;
 }
 
+// The client's answer to session/request_permission: 1 an option was selected,
+// its optionId in optionId; 0 "The prompt turn was cancelled before the user
+// responded"; -1 an answer of neither kind, or an error. libacp reads it.
+private int permissionOutcome(const(char)[] line, ref Reply optionId) {
+    import libacp : acp_permission_outcome, acp_permission_outcome_read, acp_permission_outcome_free,
+        acp_permission_kind, acp_status;
+    import core.stdc.string : strlen;
+    acp_permission_outcome o;
+    scope(exit) acp_permission_outcome_free(&o);
+    if (acp_permission_outcome_read(line.ptr, line.length, &o) != acp_status.ACP_OK) return -1;
+    if (o.kind == acp_permission_kind.ACP_PERMISSION_CANCELLED) return 0;
+    if (o.kind != acp_permission_kind.ACP_PERMISSION_SELECTED) return -1;
+    optionId.add(o.option_id[0 .. strlen(o.option_id)]);
+    return 1;
+}
+
 // "Request for user permission to execute a tool call." Asked of the client,
 // the turn waiting on its answer, and still on a cancel: 1 allowed, 0
 // rejected, 2 the turn was called off, -1 no answer ground code can read,
