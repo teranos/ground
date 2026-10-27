@@ -408,6 +408,45 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
     return false;
 }
 
+// A resource the session's servers hold, by uri: resources/read of each in
+// turn, until one has it. 1 read, its text contents joined into text; 0 none
+// has it, why each refused in why as a JSON array; -1 the one that has it
+// holds no text, only blobs.
+int readMcpResource(ref McpGroup group, const(char)[] uri, ref Reply text, ref Reply why) {
+    auto asked = cast(char*) malloc(uri.length + 1);
+    if (asked is null) { why.add(`[{"message":"could not allocate the uri"}]`); return 0; }
+    scope(exit) free(asked);
+    memcpy(asked, uri.ptr, uri.length); asked[uri.length] = 0;
+    why.add("[");
+    foreach (i; 0 .. group.count) {
+        auto server = &group.servers[i];
+        mcp_response response;
+        mcp_error error;
+        scope(exit) mcp_response_free(&response);
+        auto status = mcp_resources_read(server.client, asked, &response, &error);
+        if (status != mcp_status.MCP_OK) {
+            if (why.len > 1) why.add(",");
+            failure(why, server.name, error, response);
+            continue;
+        }
+        auto root = parseJson(response.json[0 .. response.length]);
+        scope(exit) json_object_put(root);
+        auto contents = jsonField(jsonField(root, "result"), "contents");
+        bool any = false;
+        foreach (j; 0 .. json_object_get_type(contents) == json_type.array ? json_object_array_length(contents) : 0) {
+            auto said = stringAt(jsonField(json_object_array_get_idx(contents, j), "text"));
+            if (said is null) continue;
+            if (any) text.add("\n");
+            any = true;
+            text.add(said[0 .. strlen(said)]);
+        }
+        why.len = 0;
+        return any ? 1 : -1;
+    }
+    why.add("]");
+    return 0;
+}
+
 // This is the harness dispatch boundary. Names stay a (server, tool) pair,
 // so two servers exposing "search" never overwrite or masquerade as each other.
 // stop, when given, is asked between polls while the call runs, and a yes

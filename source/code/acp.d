@@ -662,7 +662,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         sessions.elicitsForms = elicits !is null && objectValue(elicits, `"form"`) !is null;
         sessions.elicitsUrls = elicits !is null && objectValue(elicits, `"url"`) !is null;
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
+        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
         put(versionString()); put(`"}}}`);
         return true;
     }
@@ -1150,29 +1150,26 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
         // ground code reads text only: a block it cannot read is refused by its
         // type, not dropped from what the model is told.
-        Reply text, other, links;
-        scope(exit) { text.dispose(); other.dispose(); links.dispose(); }
-        if (!promptText(line, text, other, links)) {
-            put(`,"error":{"code":-32602,"message":"ground code reads only text blocks and resource links, and the prompt holds a block `);
+        Reply text, other, links, embedded;
+        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); }
+        if (!promptText(line, text, other, links, embedded)) {
+            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block `);
             if (other.len == 0) put(`that names no type"}}`);
             else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }
             return true;
         }
-        // A resource_link is read through the client, "Only available if the
-        // client supports the fs.readTextFile capability", and only one on this
-        // machine has the "Absolute path" that asks for.
-        if (links.len > 0 && !sessions.clientReadsFiles) {
-            put(`,"error":{"code":-32602,"message":"ground code reads a resource_link through the client's fs/read_text_file, and the client offers none"}}`);
-            return true;
-        }
+        // A file:// resource_link is read through the client, "Only available
+        // if the client supports the fs.readTextFile capability", and only one
+        // on this machine has the "Absolute path" that asks for. Any other is
+        // read through the session's MCP servers as the turn starts.
         for (size_t at_ = 0, field = 0, from = 0; at_ < links.len; at_++) {
             if (links.slice()[at_] != '\0') continue;
             if (field++ % 2 == 1) {
                 auto uri = links.slice()[from .. at_];
                 Reply path;
                 scope(exit) path.dispose();
-                if (!fileUriPath(uri, path)) {
-                    put(`,"error":{"code":-32602,"message":"ground code reads only file:// resource links on this machine, and the prompt links `);
+                if (fileUriPath(uri, path) && !sessions.clientReadsFiles) {
+                    put(`,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: `);
                     putEscaped(r, uri); put(`"}}`);
                     return true;
                 }
@@ -1258,7 +1255,23 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 from = at_ + 1;
                 Reply path, content, why;
                 scope(exit) { path.dispose(); content.dispose(); why.dispose(); }
-                fileUriPath(uri, path);
+                if (!fileUriPath(uri, path)) {
+                    // "Resource not found" from every server that has none by this uri.
+                    import code.mcp : readMcpResource;
+                    auto had = readMcpResource(o.mcp, uri, content, why);
+                    if (had == 0) {
+                        put(`,"error":{"code":-32603,"message":"no MCP server of the session reads `); putEscaped(r, uri);
+                        put(`","data":`); put(why.slice()); put(`}}`);
+                        return true;
+                    }
+                    if (had < 0) {
+                        put(`,"error":{"code":-32603,"message":"`); putEscaped(r, uri); put(` holds no text to give the model"}}`);
+                        return true;
+                    }
+                    text.add("\n\n"); text.add(links.slice()[nameFrom .. nameTo]);
+                    text.add(" ("); text.add(uri); text.add("):\n"); text.add(content.slice());
+                    continue;
+                }
                 auto got = readThroughClient(sessions, turn, sid, path.slice(), content, why);
                 if (got == 2) { stopCancelled(); return true; }
                 if (got < 0) {
@@ -1268,6 +1281,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 }
                 text.add("\n\n"); text.add(links.slice()[nameFrom .. nameTo]);
                 text.add(" ("); text.add(uri); text.add("):\n"); text.add(content.slice());
+            }
+            // Each embedded resource's text after the linked ones', under its uri.
+            for (size_t at_ = 0, from = 0, field = 0, uriFrom = 0, uriTo = 0; at_ < embedded.len; at_++) {
+                if (embedded.slice()[at_] != '\0') continue;
+                if (field++ % 2 == 0) { uriFrom = from; uriTo = at_; from = at_ + 1; continue; }
+                text.add("\n\n"); text.add(embedded.slice()[uriFrom .. uriTo]); text.add(":\n");
+                text.add(embedded.slice()[from .. at_]);
+                from = at_ + 1;
             }
             userMessage(*o.history, text.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
