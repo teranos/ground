@@ -4,7 +4,7 @@ module prompt_test;
 // "as the endpoint"
 // A prompt is one turn through the node's gateway, and its tools are libmcp's.
 
-import code.prompt : putToolName, serverOf, toolOf, promptText, userMessage, requestBody, fileUriPath;
+import code.prompt : putToolName, serverOf, toolOf, promptText, Blocks, userMessage, requestBody, fileUriPath;
 import code.reply : Reply;
 
 // A tool is named to the model as its server and itself, so two servers'
@@ -22,46 +22,60 @@ static assert(toolOf("echo") == "echo");
 
 // The prompt's text blocks, in order, one line each; a resource_link is handed
 // back to be read, a name and a uri each; a block of another kind has no text
-// to give, and its type is said instead of dropped.
-private string textOf()(string line) {
-    Reply r, other, links, embedded;
-    promptText(line, r, other, links, embedded);
-    return r.slice().idup;
+// to give, and its type is said instead of dropped. libacp reads the blocks.
+private struct Read {
+    Reply text, other, links, embedded, said;
+    Blocks blocks;
+    this(string params) { blocks = promptText(params, text, other, links, embedded, said); }
+    void dispose() { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); said.dispose(); }
 }
-private string otherOf()(string line) {
-    Reply r, other, links, embedded;
-    return promptText(line, r, other, links, embedded) ? "all text" : other.slice().idup;
+private bool textIs()(string params, string want) {
+    auto p = Read(params); scope(exit) p.dispose();
+    return p.text.slice() == want;
 }
-private string linksOf()(string line) {
-    Reply r, other, links, embedded;
-    promptText(line, r, other, links, embedded);
-    return links.slice().idup;
+private bool otherIs()(string params, string want) {
+    auto p = Read(params); scope(exit) p.dispose();
+    return p.blocks == Blocks.read ? want == "all text" : p.blocks == Blocks.other && p.other.slice() == want;
 }
-private string embeddedOf()(string line) {
-    Reply r, other, links, embedded;
-    promptText(line, r, other, links, embedded);
-    return embedded.slice().idup;
+private bool linksAre()(string params, string want) {
+    auto p = Read(params); scope(exit) p.dispose();
+    return p.links.slice() == want;
 }
-static assert(textOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"text","text":"b"}]}`) == "a\nb");
-static assert(otherOf(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"resource_link","uri":"file:///a"}]}`) == "image");
-static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`) == "all text");
-static assert(linksOf(`{"prompt":[{"type":"text","text":"see"},{"type":"resource_link","uri":"file:///a","name":"a"},{"type":"resource_link","name":"b","uri":"file:///b"}]}`)
-    == "a\0file:///a\0b\0file:///b\0");
-// "required": name and uri. A link missing one is no link to read.
-static assert(otherOf(`{"prompt":[{"type":"resource_link","uri":"file:///a"}]}`) == "resource_link");
-static assert(otherOf(`{"prompt":[{"text":"a"}]}`) == "");
-static assert(otherOf(`{"prompt":[{"type":"text","text":"a"}]}`) == "all text");
-static assert(otherOf(`{"prompt":[]}`) == "all text");
-// embeddedContext: "the Client is allowed to include ContentBlock::Resource in
-// prompt requests for pieces of context that are referenced in the message".
-// A text resource is handed back by its uri and its text; one holding a blob
-// has no text to give the model, and is said, not dropped.
-static assert(embeddedOf(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","mimeType":"text/x-d","text":"int x;"}}]}`)
-    == "file:///a.d\0int x;\0");
-static assert(otherOf(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`) == "all text");
-static assert(textOf(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`) == "see");
-static assert(otherOf(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.png","blob":"AAAA","mimeType":"image/png"}}]}`) == "resource holding a blob");
-static assert(otherOf(`{"prompt":[{"type":"resource","resource":{"text":"no uri"}}]}`) == "resource");
+private bool embeddedIs()(string params, string want) {
+    auto p = Read(params); scope(exit) p.dispose();
+    return p.embedded.slice() == want;
+}
+unittest {
+    assert(textIs(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"text","text":"b"}]}`, "a\nb"));
+    assert(otherIs(`{"prompt":[{"type":"text","text":"a"},{"type":"image","data":"x"},{"type":"resource_link","uri":"file:///a"}]}`, "image"));
+    assert(otherIs(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`, "all text"));
+    assert(linksAre(`{"prompt":[{"type":"text","text":"see"},{"type":"resource_link","uri":"file:///a","name":"a"},{"type":"resource_link","name":"b","uri":"file:///b"}]}`,
+        "a\0file:///a\0b\0file:///b\0"));
+    // "required": name and uri. A link missing one is no link to read.
+    assert(otherIs(`{"prompt":[{"type":"resource_link","uri":"file:///a"}]}`, "resource_link"));
+    assert(otherIs(`{"prompt":[{"text":"a"}]}`, ""));
+    assert(otherIs(`{"prompt":[{"type":"text","text":"a"}]}`, "all text"));
+    assert(otherIs(`{"prompt":[]}`, "all text"));
+    // embeddedContext: "the Client is allowed to include ContentBlock::Resource in
+    // prompt requests for pieces of context that are referenced in the message".
+    // A text resource is handed back by its uri and its text; one holding a blob
+    // has no text to give the model, and is said, not dropped.
+    assert(embeddedIs(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","mimeType":"text/x-d","text":"int x;"}}]}`,
+        "file:///a.d\0int x;\0"));
+    assert(otherIs(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`, "all text"));
+    assert(textIs(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`, "see"));
+    assert(otherIs(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.png","blob":"AAAA","mimeType":"image/png"}}]}`, "resource holding a blob"));
+    assert(otherIs(`{"prompt":[{"type":"resource","resource":{"text":"no uri"}}]}`, "resource"));
+    assert(textIs(`{"prompt":[{"type":"text","text":"say \"hi\""}]}`, `say "hi"`));
+    assert(textIs(`{"prompt":[]}`, ""));
+    // prompt is required: a request with none, or one only in _meta, has no prompt to read.
+    static immutable string[2] promptless = [`{}`, `{"_meta":{"prompt":[]}}`];
+    foreach (params; promptless) {
+        auto p = Read(params); scope(exit) p.dispose();
+        assert(p.blocks == Blocks.refused);
+        assert(p.said.slice() == `{"code":-32602,"message":"session/prompt needs prompt, a list of content blocks"}`);
+    }
+}
 
 // fs/read_text_file takes an "Absolute path to the file to read": a file://
 // uri on this machine is one, percent-decoded; any other is not.
@@ -77,8 +91,6 @@ static assert(pathOf("https://example.com/a") == "none");
 static assert(pathOf("file://") == "none");
 static assert(pathOf("file:///a%00b") == "none");
 static assert(pathOf("file:///a%zz") == "none");
-static assert(textOf(`{"prompt":[{"type":"text","text":"say \"hi\""}]}`) == `say "hi"`);
-static assert(textOf(`{"prompt":[]}`) == "");
 
 // The history is the messages array's inside, grown a message at a time.
 private string twoTurns()() {

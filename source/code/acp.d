@@ -1345,9 +1345,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
         // ground code reads text only: a block it cannot read is refused by its
         // type, not dropped from what the model is told.
-        Reply text, other, links, embedded;
-        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); }
-        if (!promptText(line, text, other, links, embedded)) {
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        Reply text, other, links, embedded, said;
+        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); said.dispose(); }
+        auto blocks = promptText(params, text, other, links, embedded, said);
+        if (blocks == Blocks.refused) { put(`,"error":`); put(said.slice()); put(`}`); return true; }
+        if (blocks == Blocks.other) {
             put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block `);
             if (other.len == 0) put(`that names no type"}}`);
             else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }

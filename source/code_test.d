@@ -510,6 +510,9 @@ unittest {
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block that names no type"}}`));
     assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`));
+    // prompt is required; libacp reads none in _meta as the request's.
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","_meta":{"prompt":[]}}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/prompt needs prompt, a list of content blocks"}}`));
 }
 // A file:// link is read through the client only when it offers to:
 // "Only available if the client supports the fs.readTextFile capability"

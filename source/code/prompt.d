@@ -111,96 +111,52 @@ size_t skipValue(const(char)[] json, size_t pos) {
     return pos;
 }
 
-private size_t blanks(const(char)[] json, size_t pos) {
-    while (pos < json.length && (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\t' || json[pos] == '\r')) pos++;
-    return pos;
-}
+// What a prompt's blocks are: all read, one of another kind, or no prompt libacp reads.
+enum Blocks { read, other, refused }
 
-// The prompt's text blocks, in order, one line each. A resource_link goes into
-// links to be read, its name and its uri each ended by a NUL. A resource
-// embedded with its text, "for pieces of context that are referenced in the
-// message", goes into embedded, its uri and its text each ended by a NUL. A
-// block of another kind has no text to give the model, and is not pretended
-// to: false, and other gets the type of the first such block, empty when it
-// names none; a resource holding a blob is "resource holding a blob".
-@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded) {
-    auto at = indexOf(line, `"prompt"`);
-    if (at < 0) return true;
-    size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
-    if (pos >= line.length || line[pos] != ':') return true;
-    pos = blanks(line, pos + 1);
-    if (pos >= line.length || line[pos] != '[') return true;
-    pos = blanks(line, pos + 1);
-    bool first = true, all = true;
-    while (pos < line.length && line[pos] == '{') {
-        auto end = skipValue(line, pos);
-        auto block = line[pos .. end];
-        bool text;
-        Reply value, kind, name, uri;
-        scope(exit) { value.dispose(); kind.dispose(); name.dispose(); uri.dispose(); }
-        bool named, located;
-        Reply held, heldUri;
-        scope(exit) { held.dispose(); heldUri.dispose(); }
-        bool holdsText, holdsUri, holdsBlob;
-        size_t p = 1;
-        while (p < block.length) {
-            p = blanks(block, p);
-            if (p >= block.length || block[p] != '"') break;
-            Reply key;
-            p = copyString(block, p, key);
-            p = blanks(block, p);
-            if (p >= block.length || block[p] != ':') break;
-            p = blanks(block, p + 1);
-            if (key.slice() == "type" && p < block.length && block[p] == '"') {
-                kind.len = 0; copyString(block, p, kind);
-                text = kind.slice() == "text";
-            }
-            if (key.slice() == "text" && p < block.length && block[p] == '"') { value.len = 0; copyString(block, p, value); }
-            if (key.slice() == "name" && p < block.length && block[p] == '"') { name.len = 0; copyString(block, p, name); named = true; }
-            if (key.slice() == "uri" && p < block.length && block[p] == '"') { uri.len = 0; copyString(block, p, uri); located = true; }
-            // EmbeddedResource's resource: its uri, and its text or its blob.
-            if (key.slice() == "resource" && p < block.length && block[p] == '{') {
-                auto inner = block[p .. skipValue(block, p)];
-                size_t q = 1;
-                while (q < inner.length) {
-                    q = blanks(inner, q);
-                    if (q >= inner.length || inner[q] != '"') break;
-                    Reply field;
-                    q = copyString(inner, q, field);
-                    q = blanks(inner, q);
-                    if (q >= inner.length || inner[q] != ':') break;
-                    q = blanks(inner, q + 1);
-                    if (field.slice() == "uri" && q < inner.length && inner[q] == '"') { heldUri.len = 0; copyString(inner, q, heldUri); holdsUri = true; }
-                    if (field.slice() == "text" && q < inner.length && inner[q] == '"') { held.len = 0; copyString(inner, q, held); holdsText = true; }
-                    if (field.slice() == "blob") holdsBlob = true;
-                    field.dispose();
-                    q = skipValue(inner, q);
-                    q = blanks(inner, q);
-                    if (q < inner.length && inner[q] == ',') q++;
-                }
-            }
-            p = skipValue(block, p);
-            p = blanks(block, p);
-            if (p < block.length && block[p] == ',') p++;
-        }
-        // "required": name and uri. A link missing one is no link to read.
-        bool link = kind.slice() == "resource_link" && named && located;
-        if (link) { links.add(name.slice()); links.add("\0"); links.add(uri.slice()); links.add("\0"); }
-        bool resource = kind.slice() == "resource" && holdsUri && holdsText;
-        if (resource) { embedded.add(heldUri.slice()); embedded.add("\0"); embedded.add(held.slice()); embedded.add("\0"); }
-        if (!text && !link && !resource && all) {
-            all = false;
-            other.add(kind.slice() == "resource" && holdsUri && holdsBlob ? "resource holding a blob" : kind.slice());
-        }
-        if (text) {
-            if (!first) r.add("\n");
-            first = false;
-            r.add(value.slice());
-        }
-        pos = blanks(line, end);
-        if (pos < line.length && line[pos] == ',') pos = blanks(line, pos + 1);
+// The prompt's text blocks, in order, one line each, as libacp reads params. A
+// resource_link goes into links to be read, its name and its uri each ended by
+// a NUL. A resource embedded with its text, "for pieces of context that are
+// referenced in the message", goes into embedded, its uri and its text each
+// ended by a NUL. A block of another kind has no text to give the model, and
+// is not pretended to: other gets the type of the first such block, empty when
+// it names none; a resource holding a blob is "resource holding a blob".
+// refused: libacp's refusal of the prompt itself is in said.
+@Reads("prompt") Blocks promptText(const(char)[] params, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded,
+        ref Reply said) {
+    import libacp : acp_prompt, acp_prompt_read, acp_prompt_free, acp_block_kind, acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    acp_prompt prompt;
+    scope(exit) acp_prompt_free(&prompt);
+    acp_buffer refusal;
+    scope(exit) acp_buffer_free(&refusal);
+    if (acp_prompt_read(params.ptr, params.length, &prompt, &refusal) != acp_status.ACP_OK) {
+        if (refusal.data !is null) said.add(refusal.data[0 .. refusal.length]);
+        else said.add(`{"code":-32603,"message":"libacp could not read session/prompt's prompt"}`);
+        return Blocks.refused;
     }
-    return all;
+    static const(char)[] of(const(char)* s) { return s is null ? "" : s[0 .. strlen(s)]; }
+    bool first = true, all = true;
+    foreach (ref b; prompt.blocks[0 .. prompt.count]) {
+        final switch (b.kind) {
+            case acp_block_kind.ACP_BLOCK_TEXT:
+                if (!first) r.add("\n");
+                first = false;
+                r.add(of(b.text));
+                break;
+            case acp_block_kind.ACP_BLOCK_RESOURCE_LINK:
+                links.add(of(b.name)); links.add("\0"); links.add(of(b.uri)); links.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_RESOURCE:
+                embedded.add(of(b.uri)); embedded.add("\0"); embedded.add(of(b.text)); embedded.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_OTHER:
+                if (all) other.add(b.holds_blob ? "resource holding a blob" : of(b.type));
+                all = false;
+                break;
+        }
+    }
+    return all ? Blocks.read : Blocks.other;
 }
 
 // "Absolute path to the file to read": a file:// uri on this machine, its
