@@ -1138,9 +1138,10 @@ private CodeSides buildCodeSides()() {
 // --- acp: the part of a method ground code reads and writes through libacp ---
 
 // The library as ground links it, kept in this repository at libacp/.
-private static immutable string[6] libacpSources = [
+private static immutable string[7] libacpSources = [
     import("libacp/src/acp.c"), import("libacp/src/initialize.c"), import("libacp/src/session.c"),
     import("libacp/src/modes.c"), import("libacp/src/config.c"), import("libacp/src/prompt.c"),
+    import("libacp/src/permission.c"),
 ];
 
 private LibFns libacpFns()() {

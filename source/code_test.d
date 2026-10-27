@@ -908,6 +908,16 @@ version (Posix) unittest {
         assert(count(out_, `"name":"x__y","status"`) == 2);
         end(input, p, s);
     }
+    // Arguments that are no JSON, as an empty string a model may give: libacp writes
+    // them as the text they are, so the request is still one the client can read.
+    {
+        enum emptyArgs = http ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+            ~ `{"id":"c1","type":"function","function":{"name":"x__y","arguments":""}}]}}]}`;
+        const string[2] answers = [emptyArgs, done];
+        assert(turn("default", chose!"allow_once", answers[], endTurn, s, input, p));
+        assert(indexOf(said[0 .. saidLen], `"toolCall":{"toolCallId":"c1","title":"x__y","name":"x__y","status":"pending","rawInput":""},"options":[`) >= 0);
+        end(input, p, s);
+    }
     // Rejected: not run, and the model is told.
     {
         const string[2] answers = [oneCall, done];
