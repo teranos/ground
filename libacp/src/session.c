@@ -4,15 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// A JSON-RPC -32602 for method's params, said as message.
-static acp_status invalid(acp_buffer *error_json, const char *message) {
-    json_object *error = json_object_new_object();
-    json_object_object_add(error, "code", json_object_new_int(ACP_ERROR_INVALID_PARAMS));
-    json_object_object_add(error, "message", json_object_new_string(message));
-    acp_status written = acp_finish(error, error_json);
-    return written == ACP_OK ? ACP_INVALID_PARAMS : written;
-}
-
 acp_status acp_session_resume_read(const char *params_json, size_t length,
                                    acp_session_resume *out, acp_buffer *error_json) {
     if (params_json == NULL || out == NULL || error_json == NULL) return ACP_INVALID_ARGUMENT;
@@ -24,14 +15,14 @@ acp_status acp_session_resume_read(const char *params_json, size_t length,
     acp_status status = ACP_OK;
     char message[1100];
     if (!json_object_is_type(params, json_type_object)) {
-        status = invalid(error_json, "session/resume params are not a JSON object");
+        status = acp_invalid(error_json, "session/resume params are not a JSON object");
     } else if ((out->session_id = acp_string(params, "sessionId")) == NULL) {
-        status = invalid(error_json, "session/resume needs sessionId");
+        status = acp_invalid(error_json, "session/resume needs sessionId");
     } else if ((out->cwd = acp_string(params, "cwd")) == NULL) {
-        status = invalid(error_json, "session/resume needs cwd");
+        status = acp_invalid(error_json, "session/resume needs cwd");
     } else if (out->cwd[0] != '/') {
         snprintf(message, sizeof message, "cwd must be an absolute path: %s", out->cwd);
-        status = invalid(error_json, message);
+        status = acp_invalid(error_json, message);
     }
     json_object_put(params);
     if (status != ACP_OK) acp_session_resume_free(out);
@@ -49,7 +40,7 @@ acp_status acp_session_target_read(const char *method, const char *params_json, 
     char message[256];
     if (!json_object_is_type(params, json_type_object) || (*session_id = acp_string(params, "sessionId")) == NULL) {
         snprintf(message, sizeof message, "%s needs sessionId", method);
-        status = invalid(error_json, message);
+        status = acp_invalid(error_json, message);
     }
     json_object_put(params);
     return status;
