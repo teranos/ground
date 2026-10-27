@@ -425,6 +425,11 @@ static assert(has(sideFor("acp", "initialize").reads, "clientCapabilities"));
 static assert(has(sideFor("acp", "initialize").reads, "capabilities"));
 static assert(has(sideFor("acp", "initialize").reads, "protocolVersion"));
 static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
+// A request libacp writes for ground code is measured through the helper that
+// sends it: the method's own fields, and those of the answer it reads.
+static assert(has(sideFor("acp", "session/request_permission").writes, "toolCall"));
+static assert(has(sideFor("acp", "session/request_permission").writes, "options"));
+static assert(has(sideFor("acp", "session/request_permission").reads, "outcome"));
 // A notification ground code passes on is written with its own fields, so
 // they are measured: elicitation/complete's elicitationId.
 static assert(has(sideFor("acp", "elicitation/complete").writes, "elicitationId"));
