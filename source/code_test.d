@@ -1397,7 +1397,7 @@ version (Posix) unittest {
     assert(said[0 .. saidLen] ==
           up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n"
-        ~ up ~ `{"sessionUpdate":"usage_update","used":196,"size":200000}}}` ~ "\n");
+        ~ up ~ `{"sessionUpdate":"usage_update","used":196,"size":200000,"cost":{"amount":0.95,"currency":"USD"}}}}` ~ "\n");
     assert(s.contextSize == 200_000);
     s.open[0].history.dispose();
     r.dispose();
@@ -1745,6 +1745,23 @@ version (Posix) unittest {
     });
     assert(out_ == up ~ `{"sessionUpdate":"notice","severity":"warning","title":"ground code does not handle session/wiggle","description":`
         ~ `"{\"jsonrpc\":\"2.0\",\"method\":\"session/wiggle\",\"params\":{\"sessionId\":\"code-100-7-1\"}}"}}}` ~ "\n");
+}
+
+// cost: "Total cumulative cost for session." Each answer's usage.cost is
+// added to what the session has cost so far, in the store, so a session
+// resumed in another process goes on from its total.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import code.store : storeOpen, storeAddCost;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+    assert(storeOpen(db, "s1", "/work", "[]", "medium", 1));
+    long total;
+    assert(storeAddCost(db, "s1", 950_000_000, total) == 1 && total == 950_000_000);
+    assert(storeAddCost(db, "s1", 123_000, total) == 1 && total == 950_123_000);
+    assert(storeAddCost(db, "nope", 1, total) == 0);
 }
 
 // updatedAt: "ISO 8601 timestamp of last activity", pushed "in real-time via

@@ -15,7 +15,7 @@ import matcher : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
 import proto : ParsedQntx;
-import code.store : storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
+import code.store : storeAddCost, storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
     storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
@@ -477,6 +477,7 @@ struct Open {
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
     char[TITLE_BYTES + 4] title; // what the first prompt named it, ellipsis and all
+    long costNano;  // what it has cost, when no store keeps it
     size_t titleLen;
     bool titled;    // named, here or by the store, so no later prompt renames it
     Reply always;   // the tools the user said to always allow here, a name a line
@@ -1504,7 +1505,20 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     Reply u;
                     scope(exit) u.dispose();
                     u.add(`{"sessionUpdate":"usage_update","used":`); putNumber(u, c.used);
-                    u.add(`,"size":`); putNumber(u, sessions.contextSize); u.add(`}`);
+                    u.add(`,"size":`); putNumber(u, sessions.contextSize);
+                    // cost: "Cumulative session cost (optional)", every answer's
+                    // added to the session's; OpenRouter's credits are dollars.
+                    if (c.hasCost) {
+                        long total = o.costNano + c.costNano;
+                        if (sessions.db !is null && storeAddCost(sessions.db, sid, c.costNano, total) != 1) {
+                            put(`,"error":{"code":-32603,"message":"the store refused the cost of `);
+                            putEscaped(r, sid); put(`"}}`);
+                            return true;
+                        }
+                        o.costNano = total;
+                        u.add(`,"cost":{"amount":`); putAmount(u, total); u.add(`,"currency":"USD"}`);
+                    }
+                    u.add(`}`);
                     if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 // "max_tokens": the answer was cut off at the model's token

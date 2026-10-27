@@ -269,6 +269,21 @@ int elicitationParams(const(char)[] params, const(char)[] sid, const(char)[] cal
     return mode == "form" ? 1 : mode == "url" ? 2 : 0;
 }
 
+// --- cost ---
+
+// An amount in billionths of a dollar as Cost's amount, a decimal: as few
+// fractional digits as it needs, and none for a whole one.
+void putAmount(ref Reply r, long nano) {
+    putNumber(r, cast(ulong) (nano / 1_000_000_000));
+    long fraction = nano % 1_000_000_000;
+    if (fraction == 0) return;
+    char[9] digits;
+    foreach_reverse (i; 0 .. 9) { digits[i] = cast(char)('0' + fraction % 10); fraction /= 10; }
+    size_t end = 9;
+    while (end > 0 && digits[end - 1] == '0') end--;
+    r.add("."); r.add(digits[0 .. end]);
+}
+
 // --- the model's context window ---
 
 // A model's context_length, "Maximum context length in tokens", from the
@@ -733,11 +748,13 @@ struct Completion {
     size_t callCount;
     bool hasUsage;  // the answer says what the conversation holds now
     ulong used;     // usage.total_tokens: "Tokens currently in context"
+    bool hasCost;   // the answer says what it cost
+    long costNano;  // usage.cost, "The total amount charged", in billionths of a dollar
     void dispose() {
         json_object_put(root); root = null;
         free(calls); calls = null; callCount = 0;
         message = null; content = null; reasoning = null; finish = null;
-        hasUsage = false; used = 0;
+        hasUsage = false; used = 0; hasCost = false; costNano = 0;
     }
 }
 
@@ -758,6 +775,28 @@ bool completionOf(const(char)[] json, ref Completion c) {
     if (json_object_get_type(total) == json_type.int_ && json_object_get_int64(total) >= 0) {
         c.hasUsage = true;
         c.used = cast(ulong) json_object_get_int64(total);
+    }
+    // "cost: The total amount charged to your account", in credits, which are
+    // US dollars; kept in billionths so a session's sum stays exact. A node
+    // that brings its own provider key ("is_byok") is charged by the provider
+    // too, on that key: "cost_details.upstream_inference_cost: The actual cost
+    // charged by the upstream AI provider". Without its own key the provider
+    // is paid out of cost, and that is not added again.
+    auto usage = jsonField(c.root, "usage");
+    auto cost = jsonField(usage, "cost");
+    auto kind = json_object_get_type(cost);
+    if ((kind == json_type.double_ || kind == json_type.int_) && json_object_get_double(cost) >= 0) {
+        import core.stdc.math : llround;
+        double spent = json_object_get_double(cost);
+        auto byok = jsonField(usage, "is_byok");
+        if (json_object_get_type(byok) == json_type.boolean && json_object_get_boolean(byok) != 0) {
+            auto upstream = jsonField(jsonField(usage, "cost_details"), "upstream_inference_cost");
+            auto up = json_object_get_type(upstream);
+            if ((up == json_type.double_ || up == json_type.int_) && json_object_get_double(upstream) >= 0)
+                spent += json_object_get_double(upstream);
+        }
+        c.hasCost = true;
+        c.costNano = llround(spent * 1e9);
     }
     auto calls = jsonField(message, "tool_calls");
     if (calls is null) return true;
