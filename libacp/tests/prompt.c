@@ -107,15 +107,31 @@ static void cancels(void) {
     CHECK(acp_cancel_read(NULL, 0, &c) == ACP_INVALID_ARGUMENT);
 }
 
+// A turn's answer, as #157's abort gives it: the stop reason, one of the five the schema names.
+static void stop_reasons(void) {
+    acp_buffer out = {0};
+    const char *named[] = {"end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"};
+    for (int i = 0; i < 5; i++) {
+        char want[64];
+        snprintf(want, sizeof want, "{\"stopReason\":\"%s\"}", named[i]);
+        CHECK(acp_prompt_result_write((acp_stop_reason) i, &out) == ACP_OK);
+        CHECK(out.data && strcmp(out.data, want) == 0);
+        acp_buffer_free(&out);
+    }
+    CHECK(acp_prompt_result_write((acp_stop_reason) 5, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_prompt_result_write(ACP_STOP_END_TURN, NULL) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     kinds();
     cancels();
+    stop_reasons();
     incomplete();
     refused();
     if (failures) {
         fprintf(stderr, "prompt: %d failed\n", failures);
         return 1;
     }
-    printf("prompt: session/prompt's blocks, each kind, their refusals, and cancels passed\n");
+    printf("prompt: session/prompt's blocks, each kind, their refusals, cancels, and stop reasons passed\n");
     return 0;
 }
