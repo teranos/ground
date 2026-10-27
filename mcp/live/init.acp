@@ -1,0 +1,22 @@
+# initialize in the v1 and v2 request shapes, a version none fits, none named; then authenticate.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}}
+wait 0
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":2,"info":{"name":"probe","version":"1"},"capabilities":{"elicitation":{"form":{}}}}}
+wait 0
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":0}}
+wait 0
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}
+wait 0
+restart
+# authenticate: ground code advertises no auth methods; a methodId only in _meta is none.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"authenticate","params":{"methodId":"openrouter"}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"authenticate","params":{}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"authenticate","params":{"_meta":{"methodId":"openrouter"}}}
+wait 3

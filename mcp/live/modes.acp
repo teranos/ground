@@ -1,0 +1,19 @@
+# A session's modes: offered on session/new, set by set_mode and by config option, kept across a resume.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"plan"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"yolo"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"modeId":"plan","_meta":{"sessionId":"$SID"}}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"$SID","configId":"mode","value":"dontAsk"}}
+wait 5
+restart
+# Resumed in another process, in dontAsk.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"$SID","cwd":"$CWD"}}
+wait 6
