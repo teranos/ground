@@ -85,6 +85,25 @@ acp_status acp_session_target_read(const char *method, const char *params_json, 
                                    char **session_id, acp_buffer *error_json);
 void acp_session_target_free(char **session_id);
 
+// session/set_mode's request: the session, and the mode it is set to.
+typedef struct acp_set_mode {
+    char *session_id;
+    char *mode_id;
+} acp_set_mode;
+
+acp_status acp_set_mode_read(const char *params_json, size_t length, acp_set_mode *out, acp_buffer *error_json);
+void acp_set_mode_free(acp_set_mode *set_mode);
+
+// A mode a session offers; description may be NULL.
+typedef struct acp_mode {
+    const char *id;
+    const char *name;
+    const char *description;
+} acp_mode;
+
+// A SessionModeState: current_id, which is one of modes, and every mode offered.
+acp_status acp_modes_write(const char *current_id, const acp_mode *modes, size_t count, acp_buffer *out_json);
+
 #ifdef __cplusplus
 }
 #endif

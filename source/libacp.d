@@ -33,6 +33,17 @@ extern (C) nothrow @nogc {
         char* cwd;
     }
 
+    struct acp_set_mode {
+        char* session_id;
+        char* mode_id;
+    }
+
+    struct acp_mode {
+        const(char)* id;
+        const(char)* name;
+        const(char)* description;
+    }
+
     const(char)* acp_version();
     const(char)* acp_status_string(acp_status);
     void acp_buffer_free(acp_buffer*);
@@ -42,4 +53,7 @@ extern (C) nothrow @nogc {
     void acp_session_resume_free(acp_session_resume*);
     acp_status acp_session_target_read(const(char)*, const(char)*, size_t, char**, acp_buffer*);
     void acp_session_target_free(char**);
+    acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
+    void acp_set_mode_free(acp_set_mode*);
+    acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);
 }

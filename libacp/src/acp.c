@@ -70,6 +70,14 @@ int acp_flag(json_object *object, const char *key) {
     return json_object_is_type(value, json_type_boolean) && json_object_get_boolean(value);
 }
 
+acp_status acp_invalid(acp_buffer *error_json, const char *message) {
+    json_object *error = json_object_new_object();
+    json_object_object_add(error, "code", json_object_new_int(ACP_ERROR_INVALID_PARAMS));
+    json_object_object_add(error, "message", json_object_new_string(message));
+    acp_status written = acp_finish(error, error_json);
+    return written == ACP_OK ? ACP_INVALID_PARAMS : written;
+}
+
 acp_status acp_finish(json_object *object, acp_buffer *out) {
     out->data = NULL;
     out->length = 0;
