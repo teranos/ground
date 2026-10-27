@@ -28,9 +28,16 @@ extern (C) nothrow @nogc {
         acp_client_capabilities capabilities;
     }
 
+    struct acp_session_resume {
+        char* session_id;
+        char* cwd;
+    }
+
     const(char)* acp_version();
     const(char)* acp_status_string(acp_status);
     void acp_buffer_free(acp_buffer*);
     acp_status acp_initialize_read(const(char)*, size_t, const(uint)*, size_t, acp_initialize*, acp_buffer*);
     acp_status acp_initialize_result(uint, const(char)*, const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_session_resume_read(const(char)*, size_t, acp_session_resume*, acp_buffer*);
+    void acp_session_resume_free(acp_session_resume*);
 }

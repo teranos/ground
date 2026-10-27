@@ -26,7 +26,7 @@ all: $(BUILD)/libacp.a $(SHARED)
 $(BUILD):
 	mkdir -p $@
 
-OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o)
+OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o session.o)
 
 $(BUILD)/%.o: src/%.c src/internal.h include/acp.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
@@ -37,12 +37,16 @@ $(BUILD)/libacp.a: $(OBJECTS)
 $(SHARED): $(OBJECTS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_FLAGS) -o $@ $^ $(LDLIBS)
 
+TESTS = initialize session
+
 test: all
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/initialize.c $(BUILD)/libacp.a $(LDLIBS) -o $(BUILD)/initialize-test
-	$(BUILD)/initialize-test
+	for t in $(TESTS); do \
+		$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/$$t.c $(BUILD)/libacp.a $(LDLIBS) -o $(BUILD)/$$t-test && $(BUILD)/$$t-test || exit 1; \
+	done
 # The same tests built with the library's sources under AddressSanitizer and UndefinedBehaviorSanitizer.
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(SANITIZE) $(LDFLAGS) tests/initialize.c $(addprefix src/,$(notdir $(OBJECTS:.o=.c))) $(LDLIBS) -o $(BUILD)/initialize-sanitized
-	$(BUILD)/initialize-sanitized
+	for t in $(TESTS); do \
+		$(CC) $(CPPFLAGS) $(CFLAGS) $(SANITIZE) $(LDFLAGS) tests/$$t.c $(addprefix src/,$(notdir $(OBJECTS:.o=.c))) $(LDLIBS) -o $(BUILD)/$$t-sanitized && $(BUILD)/$$t-sanitized || exit 1; \
+	done
 
 install: all
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib/pkgconfig
