@@ -1595,6 +1595,35 @@ version (Posix) unittest {
     assert(indexOf(wire[0 .. wireLen], `"error": {"code": -32601`) >= 0);
 }
 
+// A server that takes longer to start than libmcp's probe of server/discover
+// waits is taken for a legacy one and asked initialize, which one that speaks
+// 2026-07-28 alone refuses: a session could not have it. ground code waits
+// for the probe as long as MCP_PROBE_MS, so a server that starts in a second
+// opens.
+version (Posix) unittest {
+    import core.sys.posix.unistd : getcwd;
+    import core.stdc.time : time;
+    import matcher : indexOf;
+    import code.mcp : closeMcp;
+    __gshared char[4096] cwd;
+    assert(getcwd(cwd.ptr, cwd.length) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply req, r;
+    scope(exit) { req.dispose(); r.dispose(); }
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"slow","command":"python3","args":["`);
+    req.add(cwd[0 .. cwdLen]); req.add(`/mcp/slow_server.py"],"env":[]}]}}`);
+    answer(req.slice(), r, s);
+    if (indexOf(r.slice(), `"sessionId":"code-100-7-1"`) < 0) {
+        import core.stdc.stdio : fprintf, stderr;
+        fprintf(stderr, "slow server: %.*s\n", cast(int) r.len, r.slice().ptr);
+    }
+    assert(indexOf(r.slice(), `"sessionId":"code-100-7-1"`) >= 0);
+    Reply closed;
+    assert(closeMcp(s.open[0].mcp, closed));
+    closed.dispose();
+}
+
 // kind: "The category of tool being invoked. Helps clients choose appropriate
 // icons and UI treatment." Only a tool's MCP annotations say what it does:
 // readOnlyHint is read, and a tool that says nothing has no kind. content,

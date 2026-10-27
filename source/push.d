@@ -108,6 +108,30 @@ PushInfo parsePushOutput(const(char)[] output) {
     return info;
 }
 
+// Whether a git push only removes refs: --delete or -d, or every refspec a
+// colon with nothing before it. Such a push carries no line.
+bool deletesOnly(const(char)[] command) {
+    size_t i = 0, specs = 0, deletes = 0;
+    bool afterPush = false, flagged = false, remoteSeen = false;
+    while (i < command.length) {
+        while (i < command.length && command[i] == ' ') i++;
+        size_t s = i;
+        while (i < command.length && command[i] != ' ') i++;
+        auto tok = command[s .. i];
+        if (tok.length == 0 || tok == "&&" || tok == ";" || tok == "|") break;
+        if (!afterPush) {
+            afterPush = tok == "push";
+            continue;
+        }
+        if (tok == "--delete" || tok == "-d") { flagged = true; continue; }
+        if (tok[0] == '-') continue;
+        if (!remoteSeen) { remoteSeen = true; continue; }
+        specs++;
+        if (tok[0] == ':') deletes++;
+    }
+    return afterPush && (flagged || (specs > 0 && deletes == specs));
+}
+
 // Does the newline-separated path list contain a line that starts with `prefix`?
 // Anchored at line start — substring matches inside a path do not count.
 bool hasPathStartingWith(const(char)[] paths, const(char)[] prefix) {

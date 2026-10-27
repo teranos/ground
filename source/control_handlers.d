@@ -1195,6 +1195,8 @@ CheckResult pushNamesPerson(const(char)[] cwd, const(char)[] input) {
     __gshared Repo g;
     __gshared char[1048576] patch = 0;
     __gshared char[512] remote = 0;
+    import push : deletesOnly;
+    if (deletesOnly(input)) return passes();
     if (!g.open(cwd)) return passes();
     scope (exit) g.close();
     auto branch = getBranch(cwd);

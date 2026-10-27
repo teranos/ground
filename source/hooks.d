@@ -234,6 +234,8 @@ struct CheckResult {
 CheckResult fires()     { return CheckResult(true,  null); }
 CheckResult passes()    { return CheckResult(false, null); }
 
+// A cmd: control's check is handed the directory its segment acts in and the
+// segment itself; any other control's, the session's directory and the event.
 alias CheckFn = CheckResult function(const(char)[] cwd, const(char)[] input);
 
 struct SessionStartTrigger {

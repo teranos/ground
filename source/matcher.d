@@ -595,7 +595,7 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                             g_paramKeys = c.paramKeys;
                             g_paramValues = c.paramValues;
                             g_paramCount = c.paramCount;
-                            auto verdict = c.sessionstart.check(cwd, null);
+                            auto verdict = c.sessionstart.check(effectiveCwd(segment, cwd, shellHome()), segment);
                             if (!verdict.fired)
                                 continue;
                             observed = verdict.observed;
@@ -711,7 +711,7 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                             g_paramKeys = c.paramKeys;
                             g_paramValues = c.paramValues;
                             g_paramCount = c.paramCount;
-                            auto verdict = c.sessionstart.check(cwd, null);
+                            auto verdict = c.sessionstart.check(effectiveCwd(segment, effCwd, shellHome()), segment);
                             if (!verdict.fired)
                                 continue;
                             observed = verdict.observed;
