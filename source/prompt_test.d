@@ -220,6 +220,23 @@ unittest {
     assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":196}}`, c));
     assert(!c.hasCost);
     c.dispose();
+    // A node that brings its own provider key ("is_byok": true) is charged
+    // twice over: OpenRouter's cost, 0 on q's real gateway, and the
+    // provider's, cost_details.upstream_inference_cost, "The actual cost
+    // charged by the upstream AI provider", to that key. Without its own key,
+    // the provider is paid out of OpenRouter's cost, so it is not added again.
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":96,"cost":0,"is_byok":true,`
+        ~ `"cost_details":{"upstream_inference_cost":9.6e-05,"upstream_inference_prompt_cost":3.6e-05,"upstream_inference_completions_cost":6e-05}}}`, c));
+    assert(c.hasCost && c.costNano == 96_000);
+    c.dispose();
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":96,"cost":0.0048,"is_byok":true,`
+        ~ `"cost_details":{"upstream_inference_cost":0.096}}}`, c));
+    assert(c.hasCost && c.costNano == 100_800_000);
+    c.dispose();
+    assert(completionOf(`{"choices":[{"message":{"content":"x"}}],"usage":{"total_tokens":96,"cost":0.95,"is_byok":false,`
+        ~ `"cost_details":{"upstream_inference_cost":0.9}}}`, c));
+    assert(c.hasCost && c.costNano == 950_000_000);
+    c.dispose();
     bool says(long nano, string want) { Reply r; scope(exit) r.dispose(); putAmount(r, nano); return r.slice() == want; }
     assert(says(950_000_000, "0.95"));
     assert(says(123_000, "0.000123"));

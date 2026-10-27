@@ -777,13 +777,26 @@ bool completionOf(const(char)[] json, ref Completion c) {
         c.used = cast(ulong) json_object_get_int64(total);
     }
     // "cost: The total amount charged to your account", in credits, which are
-    // US dollars; kept in billionths so a session's sum stays exact.
-    auto cost = jsonField(jsonField(c.root, "usage"), "cost");
+    // US dollars; kept in billionths so a session's sum stays exact. A node
+    // that brings its own provider key ("is_byok") is charged by the provider
+    // too, on that key: "cost_details.upstream_inference_cost: The actual cost
+    // charged by the upstream AI provider". Without its own key the provider
+    // is paid out of cost, and that is not added again.
+    auto usage = jsonField(c.root, "usage");
+    auto cost = jsonField(usage, "cost");
     auto kind = json_object_get_type(cost);
     if ((kind == json_type.double_ || kind == json_type.int_) && json_object_get_double(cost) >= 0) {
         import core.stdc.math : llround;
+        double spent = json_object_get_double(cost);
+        auto byok = jsonField(usage, "is_byok");
+        if (json_object_get_type(byok) == json_type.boolean && json_object_get_boolean(byok) != 0) {
+            auto upstream = jsonField(jsonField(usage, "cost_details"), "upstream_inference_cost");
+            auto up = json_object_get_type(upstream);
+            if ((up == json_type.double_ || up == json_type.int_) && json_object_get_double(upstream) >= 0)
+                spent += json_object_get_double(upstream);
+        }
         c.hasCost = true;
-        c.costNano = llround(json_object_get_double(cost) * 1e9);
+        c.costNano = llround(spent * 1e9);
     }
     auto calls = jsonField(message, "tool_calls");
     if (calls is null) return true;
