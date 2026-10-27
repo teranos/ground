@@ -297,9 +297,19 @@ private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, cons
         const(char)[] method, const(char)[] params, ref Reply answer) {
     if (method == "notifications/elicitation/complete") {
         // "Notification sent by the agent when a URL-based elicitation is complete."
+        // Its one field is read from the server's and written, not the server's passed on unread.
+        char[256] idBuf;
+        auto elicitationId = extractJsonString(params, `"elicitationId"`, &idBuf[0], idBuf.length);
+        if (elicitationId is null) {
+            fputs("ground code: a server's elicitation/complete names no elicitationId: ", stderr);
+            fwrite(params.ptr, 1, params.length, stderr);
+            fputs("\n", stderr);
+            return -1;
+        }
         Reply n;
         scope(exit) n.dispose();
-        n.add(`{"jsonrpc":"2.0","method":"elicitation/complete","params":`); n.add(params); n.add("}\n");
+        n.add(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"`);
+        putEscaped(n, elicitationId); n.add(`"}}` ~ "\n");
         auto out_ = n.slice();
         if (!n.full && fwrite(out_.ptr, 1, out_.length, stdout) == out_.length && fflush(stdout) == 0) return 1;
         fputs("ground code: could not write elicitation/complete\n", stderr);

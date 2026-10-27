@@ -316,14 +316,18 @@ static assert(has(sideFor("acp", "session/new").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/resume").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/set_config_option").reads, "configId"));
 static assert(has(sideFor("acp", "session/set_config_option").writes, "configOptions"));
-// initialize writes protocolVersion and agentInfo, and reads the client's
-// capabilities, not its protocolVersion: there is one version to answer
-// whatever the client asked for.
+// initialize is read and written by libacp, out of its C: it reads the version
+// asked for and the client's capabilities in either shape, and writes the
+// selected version, the agent's capabilities and its info.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
 static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
 static assert(has(sideFor("acp", "initialize").reads, "clientCapabilities"));
-static assert(!has(sideFor("acp", "initialize").reads, "protocolVersion"));
+static assert(has(sideFor("acp", "initialize").reads, "capabilities"));
+static assert(has(sideFor("acp", "initialize").reads, "protocolVersion"));
 static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
+// A notification ground code passes on is written with its own fields, so
+// they are measured: elicitation/complete's elicitationId.
+static assert(has(sideFor("acp", "elicitation/complete").writes, "elicitationId"));
 
 // "i want it"
 // MCP's pins are each released schema.json at one spec commit, the version as
