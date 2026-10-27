@@ -11,6 +11,7 @@ Every script takes the `ground_code` to drive and a working directory first.
 |---|---|---|
 | `acp_drive.py` | any session: one stdio MCP server, a list of prompts, every update shown | #171, #172, #173, #175 |
 | `acp_init.py` | initialize in both shapes, a version none fits, a v2-shaped client's elicitation | #179 |
+| `acp_delete.py` | a session one process opened, deleted by another, and the refusals | #120 (part 2) |
 | `acp_title.py` | a session titled by its first prompt, kept across a resume, listed | #166 |
 | `acp_elicit.py` | elicitation, legacy and 2026-07-28, optionally answered late | #167, #178 |
 | `acp_usage.py` | usage_update's used and size each turn | #169 |

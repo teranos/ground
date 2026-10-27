@@ -50,9 +50,28 @@ static void refused(void) {
     CHECK(in.session_id == NULL && in.cwd == NULL);
 }
 
+// A request that names a session and nothing else it needs, as session/delete's (#120).
+static void names_a_session(void) {
+    char *sid = NULL;
+    acp_buffer error = {0};
+    const char *ok = "{\"sessionId\":\"code-1-1-1\"}";
+    CHECK(acp_session_target_read("session/delete", ok, strlen(ok), &sid, &error) == ACP_OK);
+    CHECK(sid != NULL && strcmp(sid, "code-1-1-1") == 0);
+    CHECK(error.data == NULL);
+    acp_session_target_free(&sid);
+    CHECK(sid == NULL);
+    const char *none = "{\"_meta\":{\"sessionId\":\"code-1-1-1\"}}";
+    CHECK(acp_session_target_read("session/delete", none, strlen(none), &sid, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"session/delete needs sessionId\"}"));
+    CHECK(sid == NULL);
+    acp_buffer_free(&error);
+    CHECK(acp_session_target_read(NULL, ok, strlen(ok), &sid, &error) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     reads_the_place();
     refused();
+    names_a_session();
     if (failures) {
         fprintf(stderr, "session: %d failed\n", failures);
         return 1;

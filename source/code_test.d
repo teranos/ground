@@ -294,6 +294,9 @@ unittest {
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32002,"message":"no open session code-100-7-3"}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":10,"method":"session/delete","params":{}}`,
         `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
+    // The params' own sessionId, not one nested in another field.
+    assert(says(a, `{"jsonrpc":"2.0","id":11,"method":"session/delete","params":{"_meta":{"sessionId":"code-100-7-1"}}}`,
+        `{"jsonrpc":"2.0","id":11,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
 }
 
 // A set on a new session, then a resume of it: what each answers. Resume goes

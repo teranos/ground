@@ -79,6 +79,12 @@ acp_status acp_session_resume_read(const char *params_json, size_t length,
                                    acp_session_resume *out, acp_buffer *error_json);
 void acp_session_resume_free(acp_session_resume *resume);
 
+// The session a request names in its own sessionId, as session/delete's does; a request
+// without one is refused as method's. libacp owns *session_id until acp_session_target_free.
+acp_status acp_session_target_read(const char *method, const char *params_json, size_t length,
+                                   char **session_id, acp_buffer *error_json);
+void acp_session_target_free(char **session_id);
+
 #ifdef __cplusplus
 }
 #endif

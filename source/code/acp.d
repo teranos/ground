@@ -1223,10 +1223,24 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // is what delete takes. Gone from the store, it is gone for every process,
     // and one live here is no longer live.
     if (method == "session/delete") {
-        char[256] sb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+        // libacp reads the session session/delete names, and refuses it in its words.
+        import libacp : acp_session_target_read, acp_session_target_free, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        char* named;
+        scope(exit) acp_session_target_free(&named);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`); return true; }
+        if (acp_session_target_read("session/delete", params.ptr, params.length, &named, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/delete"}`);
+            put(`}`);
+            return true;
+        }
+        auto sid = named[0 .. strlen(named)];
         auto at = openAt(sessions, sid);
         int gone = sessions.db is null ? (at < 0 ? 0 : 1) : storeDelete(sessions.db, sid);
         if (gone < 0) {
