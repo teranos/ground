@@ -108,6 +108,40 @@ typedef struct acp_mode {
 // A SessionModeState: current_id, which is one of modes, and every mode offered.
 acp_status acp_modes_write(const char *current_id, const acp_mode *modes, size_t count, acp_buffer *out_json);
 
+// session/set_config_option's request: a value id in value, or a boolean in boolean_value
+// with is_boolean set.
+typedef struct acp_set_config_option {
+    char *session_id;
+    char *config_id;
+    char *value;
+    int is_boolean;
+    int boolean_value;
+} acp_set_config_option;
+
+acp_status acp_set_config_option_read(const char *params_json, size_t length, acp_set_config_option *out,
+    acp_buffer *error_json);
+void acp_set_config_option_free(acp_set_config_option *set_option);
+
+// A value a select offers; description may be NULL.
+typedef struct acp_config_value {
+    const char *value;
+    const char *name;
+    const char *description;
+} acp_config_value;
+
+// A select SessionConfigOption; category may be NULL, current_value is one of values.
+typedef struct acp_config_select {
+    const char *id;
+    const char *name;
+    const char *category;
+    const char *current_value;
+    const acp_config_value *values;
+    size_t count;
+} acp_config_select;
+
+// configOptions: the selects, in the order given.
+acp_status acp_config_options_write(const acp_config_select *selects, size_t count, acp_buffer *out_json);
+
 #ifdef __cplusplus
 }
 #endif

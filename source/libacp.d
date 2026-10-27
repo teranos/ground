@@ -44,6 +44,29 @@ extern (C) nothrow @nogc {
         const(char)* description;
     }
 
+    struct acp_set_config_option {
+        char* session_id;
+        char* config_id;
+        char* value;
+        int is_boolean;
+        int boolean_value;
+    }
+
+    struct acp_config_value {
+        const(char)* value;
+        const(char)* name;
+        const(char)* description;
+    }
+
+    struct acp_config_select {
+        const(char)* id;
+        const(char)* name;
+        const(char)* category;
+        const(char)* current_value;
+        const(acp_config_value)* values;
+        size_t count;
+    }
+
     const(char)* acp_version();
     const(char)* acp_status_string(acp_status);
     void acp_buffer_free(acp_buffer*);
@@ -57,4 +80,7 @@ extern (C) nothrow @nogc {
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);
+    acp_status acp_set_config_option_read(const(char)*, size_t, acp_set_config_option*, acp_buffer*);
+    void acp_set_config_option_free(acp_set_config_option*);
+    acp_status acp_config_options_write(const(acp_config_select)*, size_t, acp_buffer*);
 }
