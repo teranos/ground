@@ -103,6 +103,10 @@ extern (C) nothrow @nogc {
         size_t length;
     }
 
+    enum acp_stop_reason : int {
+        ACP_STOP_END_TURN, ACP_STOP_MAX_TOKENS, ACP_STOP_MAX_TURN_REQUESTS, ACP_STOP_REFUSAL, ACP_STOP_CANCELLED
+    }
+
     struct acp_set_mode {
         char* session_id;
         char* mode_id;
@@ -163,6 +167,7 @@ extern (C) nothrow @nogc {
     acp_status acp_read_text_file_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_read_text_file_result_read(const(char)*, size_t, acp_text_file*);
     void acp_text_file_free(acp_text_file*);
+    acp_status acp_prompt_result_write(acp_stop_reason, acp_buffer*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);
     acp_status acp_modes_write(const(char)*, const(acp_mode)*, size_t, acp_buffer*);
