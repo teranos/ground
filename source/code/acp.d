@@ -97,6 +97,7 @@ struct Sessions {
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
+    Reply after;     // what is told the client once the answer it follows is written
 }
 
 // The turn under way: whose it is, the request that asked for it, and whether
@@ -260,6 +261,21 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     why.add(`{"message":"the client's answer to session/request_permission is not one ground code offered","answer":"`);
     putEscaped(why, answered.slice()); why.add(`"}`);
     return -1;
+}
+
+// "After creating a session, the Agent MAY send a list of available
+// commands via the available_commands_update session notification": the
+// session's MCP prompts, told once the answer that made the session the
+// client's is written, so the session they name is one it knows.
+private void announceCommands(ref Sessions sessions, const(char)[] sid, ref McpGroup group) {
+    if (__ctfe || group.count == 0) return;
+    Reply commands;
+    scope(exit) commands.dispose();
+    commandsOf(group, commands);
+    if (commands.slice() == "[]") return;
+    sessions.after.add(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`); putEscaped(sessions.after, sid);
+    sessions.after.add(`","update":{"sessionUpdate":"available_commands_update","availableCommands":`);
+    sessions.after.add(commands.slice()); sessions.after.add("}}}\n");
 }
 
 // What a session's MCP servers are told they may ask, as MCP's client
@@ -812,6 +828,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice(), effort);
         o.updatedAt = now(sessions);
         sessions.openLen++;
+        announceCommands(sessions, sid.slice(), o.mcp);
         put(`,"result":{"sessionId":"`); put(sid.slice());
         put(`","modes":`); putModes(r, SessionMode.manual);
         put(`,"configOptions":`); putConfig(r, SessionMode.manual, effort); put(`}}`);
@@ -1038,6 +1055,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 putEscaped(r, sid); put(` back"}}`);
                 return true;
             }
+        }
+        if (!__ctfe) {
+            auto opened = openAt(sessions, sid);
+            if (opened >= 0) announceCommands(sessions, sid, sessions.open[cast(size_t) opened].mcp);
         }
         put(`,"result":{"modes":`); putModes(r, mode);
         put(`,"configOptions":`); putConfig(r, mode, effort); put(`}}`);
@@ -1298,6 +1319,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     }
                 }
             }
+            // What was typed, before any linked file joins it: what a command is read from.
+            auto typedLen = text.len;
             // Each linked file is read before the model is asked, and its text
             // is the user's, after what they typed, under the link's name.
             for (size_t at_ = 0, from = 0, field = 0, nameFrom = 0, nameTo = 0; at_ < links.len; at_++) {
@@ -1318,7 +1341,58 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 text.add("\n\n"); text.add(links.slice()[nameFrom .. nameTo]);
                 text.add(" ("); text.add(uri); text.add("):\n"); text.add(content.slice());
             }
-            userMessage(*o.history, text.slice());
+            // "Commands are included as regular user messages in prompt
+            // requests": one the turn starts with asks the model what its
+            // prompt gives, in place of what was typed; linked files follow.
+            Command command;
+            scope(exit) command.dispose();
+            const(char)[] input;
+            if (commandOf(o.mcp, text.slice()[0 .. typedLen], command, input)) {
+                import code.mcp : getMcpPrompt;
+                import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
+                import core.stdc.string : strlen;
+                if (command.required && input.length == 0) {
+                    put(`,"error":{"code":-32602,"message":"`); putEscaped(r, command.full.slice());
+                    put(` needs input: `); putEscaped(r, command.hint.slice()); put(`"}}`);
+                    return true;
+                }
+                Reply args;
+                scope(exit) args.dispose();
+                args.add("{");
+                if (command.argument.len > 0 && input.length > 0) {
+                    args.add(`"`); putEscaped(args, command.argument.slice()); args.add(`":"`); putEscaped(args, input); args.add(`"`);
+                }
+                args.add("}\0");
+                command.server.add("\0"); command.prompt.add("\0");
+                mcp_response got;
+                mcp_error failed;
+                scope(exit) mcp_response_free(&got);
+                auto status = getMcpPrompt(o.mcp, command.server.slice().ptr, command.prompt.slice().ptr, args.slice().ptr, got, failed);
+                if (status != mcp_status.MCP_OK) {
+                    put(`,"error":{"code":-32603,"message":"`); putEscaped(r, command.full.slice());
+                    put(` could not be had from its server","data":{"status":"`);
+                    auto st = mcp_status_string(status); putEscaped(r, st[0 .. strlen(st)]);
+                    put(`","message":"`); if (failed.message !is null) putEscaped(r, failed.message[0 .. strlen(failed.message)]);
+                    put(`","response":"`); if (got.json !is null) putEscaped(r, got.json[0 .. got.length]); put(`"}}}`);
+                    return true;
+                }
+                Reply why, given;
+                scope(exit) { why.dispose(); given.dispose(); }
+                auto read = promptMessages(got.json[0 .. got.length], given, why);
+                if (read == -1) {
+                    put(`,"error":{"code":-32603,"message":"`); putEscaped(r, command.full.slice());
+                    put(` gives a message ground code cannot ask the model: `); putEscaped(r, why.slice()); put(`"}}`);
+                    return true;
+                }
+                if (read < 0) {
+                    put(`,"error":{"code":-32603,"message":"`); putEscaped(r, command.full.slice());
+                    put(` gave no messages","data":"`); putEscaped(r, got.json[0 .. got.length]); put(`"}}`);
+                    return true;
+                }
+                if (o.history.len > 0 && given.len > 0) o.history.add(",");
+                o.history.add(given.slice());
+                if (text.len > typedLen) userMessage(*o.history, text.slice()[typedLen .. $]);
+            } else userMessage(*o.history, text.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
                 return true;
@@ -1606,6 +1680,13 @@ int handleCode() {
             fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
             fputs("ground code: failed writing ACP response\n", stderr);
             result = 1; break;
+        }
+        // What follows the answer, now that it is the client's.
+        if (sessions.after.len > 0) {
+            auto after = sessions.after.slice();
+            bool written = !sessions.after.full && fwrite(after.ptr, 1, after.length, stdout) == after.length && fflush(stdout) == 0;
+            sessions.after.len = 0;
+            if (!written) { fputs("ground code: failed writing what follows an ACP response\n", stderr); result = 1; break; }
         }
     }
     // Cleanup runs before returning, so its failure is part of the exit status.

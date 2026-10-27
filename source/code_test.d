@@ -1833,3 +1833,110 @@ version (Posix) unittest {
     assert(indexOf(out_, `"content":[{"type":"content","content":{"type":"text","text":"disk full"}}]}`) >= 0);
     s.open[0].history.dispose();
 }
+
+// "After creating a session, the Agent MAY send a list of available commands
+// via the available_commands_update session notification." A session's MCP
+// prompts are its commands, server__prompt, written after the answer that
+// made the session the client's; a prompt takes "All text that was typed
+// after the command name" as its one argument, so one with two is not offered.
+// "Commands are included as regular user messages in prompt requests": a turn
+// that starts with one asks the model what the prompt gives instead of what
+// was typed.
+version (Posix) unittest {
+    import core.sys.posix.unistd : write, close, fork, _exit, read, dup, dup2, getcwd, pipe;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+    import code.mcp : closeMcp;
+
+    __gshared char[4096] cwd;
+    assert(getcwd(cwd.ptr, cwd.length) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    enum done = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    auto fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a;
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 4) == 0);
+    socklen_t n = a.sizeof;
+    assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+    auto child = fork();
+    if (child == 0) {
+        foreach (_; 0 .. 2) {
+            char[65536] got;
+            auto c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, done.ptr, done.length); close(c);
+        }
+        _exit(0);
+    }
+    close(fd);
+    __gshared char[32] urlBuf;
+    ushort port = htons(a.sin_port);
+    size_t len = 0;
+    foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+    char[8] d; size_t k = 0;
+    do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+    while (k) urlBuf[len++] = d[--k];
+
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
+    Reply req, r;
+    scope(exit) { req.dispose(); r.dispose(); }
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(cwd[0 .. cwdLen]); req.add(`/mcp/prompt_server.py"],"env":[]}]}}`);
+    int[2] o;
+    assert(pipe(o) == 0);
+    fflush(stdout);
+    auto saved = dup(1);
+    dup2(o[1], 1);
+    answer(req.slice(), r, s);
+    bool opened = indexOf(r.slice(), `"sessionId":"code-100-7-1"`) >= 0;
+    __gshared char[8192] afterNew;
+    size_t afterLen = s.after.len;
+    foreach (i, c; s.after.slice()) afterNew[i] = c;
+    s.after.len = 0;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"/test__review src/a.d"}]}}`, r, s);
+    bool reviewed = r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`;
+    __gshared char[8192] history;
+    size_t historyLen = s.open[0].history.len;
+    foreach (i, c; s.open[0].history.slice()) history[i] = c;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"/test__review"}]}}`, r, s);
+    __gshared char[4096] bare;
+    size_t bareLen = r.len;
+    foreach (i, c; r.slice()) bare[i] = c;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"/test__picture"}]}}`, r, s);
+    __gshared char[4096] pictured;
+    size_t picturedLen = r.len;
+    foreach (i, c; r.slice()) pictured[i] = c;
+    r.len = 0;
+    // Not a command: what was typed, as it was.
+    answer(`{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"/nothing here"}]}}`, r, s);
+    bool plain = r.slice() == `{"jsonrpc":"2.0","id":5,"result":{"stopReason":"end_turn"}}`;
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+    Reply closed;
+    assert(closeMcp(s.open[0].mcp, closed));
+    closed.dispose();
+    char[65536] drain;
+    while (read(o[0], drain.ptr, drain.length) > 0) {}
+    close(o[0]);
+
+    assert(opened);
+    assert(afterNew[0 .. afterLen] == `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":{"sessionUpdate":"available_commands_update","availableCommands":[`
+        ~ `{"name":"test__review","description":"Review a file","input":{"hint":"the file to review"}},`
+        ~ `{"name":"test__hello","description":"Say hello"},`
+        ~ `{"name":"test__picture","description":"Look at a picture"}]}}}` ~ "\n");
+    assert(reviewed);
+    assert(indexOf(history[0 .. historyLen], `{"role":"user","content":"Review src/a.d for bugs."},{"role":"assistant","content":"I will read it first."},{"role":"assistant","content":"done"}`) == 0);
+    assert(indexOf(bare[0 .. bareLen], `"error":{"code":-32602,"message":"test__review needs input: the file to review"`) >= 0);
+    assert(indexOf(pictured[0 .. picturedLen], `"error":{"code":-32603,"message":"test__picture gives a message ground code cannot ask the model: image"`) >= 0);
+    assert(plain);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"user","content":"/nothing here"}`) >= 0);
+    s.open[0].history.dispose();
+}
