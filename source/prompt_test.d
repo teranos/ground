@@ -212,3 +212,59 @@ unittest {
     assert(says(12_500_000_000, "12.5"));
     assert(says(1, "0.000000001"));
 }
+
+// ToolCall content, "Content produced by the tool call": MCP's content blocks
+// are ACP's, "enabling agents to seamlessly forward content from MCP tool
+// outputs without transformation", each as {"type":"content"}. A call that
+// failed shows what failed it as text; one not run, why.
+unittest {
+    import code.prompt : putToolContent;
+    import code.reply : Reply;
+    bool shows(const(char)[] output, const(char)[] want) {
+        Reply u;
+        scope(exit) u.dispose();
+        putToolContent(u, output);
+        return u.slice() == want;
+    }
+    // Completed: its blocks, as they came.
+    assert(shows(`{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"hi"},{"type":"image","data":"AAAA","mimeType":"image/png"}]}}`,
+        `,"content":[{"type":"content","content":{"type":"text","text":"hi"}},{"type":"content","content":{"type":"image","data":"AAAA","mimeType":"image/png"}}]`));
+    // The server's error answer: its message.
+    assert(shows(`{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"no such file"}}`,
+        `,"content":[{"type":"content","content":{"type":"text","text":"no such file"}}]`));
+    // A tool error, as ground code keeps it: the tool's own words, from the response it carries.
+    assert(shows(`{"status":"tool error","message":"tool error","response":"{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"disk full\"}]}}","validation":null}`,
+        `,"content":[{"type":"content","content":{"type":"text","text":"disk full"}}]`));
+    // A failure with no response: ground code's message.
+    assert(shows(`{"status":"timeout","message":"continuation deadline elapsed","response":"","validation":null}`,
+        `,"content":[{"type":"content","content":{"type":"text","text":"continuation deadline elapsed"}}]`));
+    // Not run: why.
+    assert(shows(`{"status":"not run","why":"the user rejected it"}`,
+        `,"content":[{"type":"content","content":{"type":"text","text":"the user rejected it"}}]`));
+    // A result with nothing to show shows nothing.
+    assert(shows(`{"jsonrpc":"2.0","id":3,"result":{"content":[]}}`, ``));
+}
+
+// A replayed call says kind read as it did live, when its tool only reads;
+// its answer shows its content again.
+unittest {
+    import code.prompt : replayHistory;
+    import code.reply : Reply;
+    import matcher : indexOf;
+    enum history = `{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"fs__look","arguments":"{}"}},`
+        ~ `{"id":"c2","type":"function","function":{"name":"fs__write","arguments":"{}"}}]},`
+        ~ `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"seen\"}]}}"}`;
+    __gshared char[4096] told;
+    size_t toldLen;
+    bool send(const(char)[] update) {
+        foreach (c; update) told[toldLen++] = c;
+        told[toldLen++] = '\n';
+        return true;
+    }
+    bool readOnly(const(char)[] tool) { return tool == "fs__look"; }
+    assert(replayHistory(history, &send, &readOnly));
+    auto out_ = told[0 .. toldLen];
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"fs__look","name":"fs__look","kind":"read","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"fs__write","name":"fs__write","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `"content":[{"type":"content","content":{"type":"text","text":"seen"}}]}`) >= 0);
+}

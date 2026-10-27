@@ -963,7 +963,8 @@ version (Posix) unittest {
         ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","name":"x__y","rawInput":{"a":1}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","name":"x__z","rawInput":{}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
-        ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"},`
+        ~ `"content":[{"type":"content","content":{"type":"text","text":"the user rejected it"}}]}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"both came back"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
     assert(c.open[0].history !is null && c.open[0].history.slice() == history);
@@ -1760,4 +1761,92 @@ unittest {
     assert(storeAddCost(db, "s1", 950_000_000, total) == 1 && total == 950_000_000);
     assert(storeAddCost(db, "s1", 123_000, total) == 1 && total == 950_123_000);
     assert(storeAddCost(db, "nope", 1, total) == 0);
+}
+
+// kind: "The category of tool being invoked. Helps clients choose appropriate
+// icons and UI treatment." Only a tool's MCP annotations say what it does:
+// readOnlyHint is read, and a tool that says nothing has no kind. content,
+// "Content produced by the tool call", is the call's MCP content as it came,
+// and a tool's error its own words.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, getcwd;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+    import code.mcp : closeMcp;
+
+    __gshared char[4096] cwd;
+    assert(getcwd(cwd.ptr, cwd.length) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    enum ok = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    enum calls = ok ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+        ~ `{"id":"c1","type":"function","function":{"name":"test__look","arguments":"{}"}},`
+        ~ `{"id":"c2","type":"function","function":{"name":"test__touch","arguments":"{}"}},`
+        ~ `{"id":"c3","type":"function","function":{"name":"test__break","arguments":"{}"}}]}}]}`;
+    enum done = ok ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    auto fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a;
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+    socklen_t n = a.sizeof;
+    assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+    auto child = fork();
+    if (child == 0) {
+        char[65536] got;
+        auto c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, calls.ptr, calls.length); close(c);
+        c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, done.ptr, done.length); close(c);
+        _exit(0);
+    }
+    close(fd);
+    __gshared char[32] urlBuf;
+    ushort port = htons(a.sin_port);
+    size_t len = 0;
+    foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+    char[8] d; size_t k = 0;
+    do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+    while (k) urlBuf[len++] = d[--k];
+    int[2] p;
+    assert(pipe(p) == 0);
+    Input input = Input(p[0]);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.input = &input;
+    scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+    Reply req, r;
+    scope(exit) { req.dispose(); r.dispose(); }
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(cwd[0 .. cwdLen]); req.add(`/mcp/look_server.py"],"env":[]}]}}`);
+    int[2] o;
+    assert(pipe(o) == 0);
+    fflush(stdout);
+    auto saved = dup(1);
+    dup2(o[1], 1);
+    answer(req.slice(), r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"bypassPermissions"}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"go"}]}}`, r, s);
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+    Reply closed;
+    assert(closeMcp(s.open[0].mcp, closed));
+    closed.dispose();
+    __gshared char[65536] said;
+    size_t saidLen = 0;
+    while (true) {
+        auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+        if (got <= 0) break;
+        saidLen += cast(size_t) got;
+    }
+    close(o[0]);
+    auto out_ = said[0 .. saidLen];
+    assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"test__look","name":"test__look","kind":"read","status":"in_progress","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"test__touch","name":"test__touch","status":"in_progress","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `"toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc": "2.0", "id": 3, "result": {"resultType": "complete", "content": [{"type": "text", "text": "look done"}]}},`
+        ~ `"content":[{"type":"content","content":{"type":"text","text":"look done"}}]}`) >= 0);
+    assert(indexOf(out_, `"toolCallId":"c3","status":"failed"`) >= 0);
+    assert(indexOf(out_, `"content":[{"type":"content","content":{"type":"text","text":"disk full"}}]}`) >= 0);
+    s.open[0].history.dispose();
 }
