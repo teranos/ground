@@ -78,16 +78,46 @@ private extern(C) void ground_mcp_log(void* context, const(char)* json, size_t l
     fputs("]: ", stderr); fwrite(json, 1, length, stderr); fputs("\n", stderr);
 }
 
-// A server's message, written down, and a notification the asker is waiting
-// on passed to it: "notifications/elicitation/complete" says a url
-// elicitation it asked for is done.
+// What a session's server logs while one of its calls runs, at warning or
+// above, heard by whoever runs the call: the server's name, the level, and
+// what it logged, as text when it is a string and as JSON when it is not.
+alias Hear = void delegate(const(char)[] server, const(char)[] level, const(char)[] data);
+private __gshared Hear hearing; // the call under way's, while one is
+
+// MCP's levels, from the least: what is heard starts at warning.
+private static immutable string[5] HEARD = ["warning", "error", "critical", "alert", "emergency"];
+private bool heard(const(char)* level) {
+    foreach (l; HEARD)
+        if (strcmp(level, l.ptr) == 0) return true;
+    return false;
+}
+
+// A server's notifications/message, heard when a call runs and it is at
+// warning or above.
+private void heardLine(void* context, json_object* message) {
+    if (hearing is null) return;
+    auto params = jsonField(message, "params");
+    auto level = stringAt(jsonField(params, "level"));
+    if (level is null || !heard(level)) return;
+    auto data = jsonField(params, "data");
+    auto text = stringAt(data);
+    if (text is null) text = json_object_to_json_string_ext(data, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+    auto server = cast(const(char)*) context;
+    hearing(server is null ? "" : server[0 .. strlen(server)], level[0 .. strlen(level)], text[0 .. strlen(text)]);
+}
+
+// A server's message, written down; a log line at warning or above heard, and
+// a notification the asker is waiting on passed to it:
+// "notifications/elicitation/complete" says a url elicitation it asked for is done.
 private extern(C) void ground_mcp_message(void* context, const(char)* json, size_t length) {
     ground_mcp_log(context, json, length);
-    if (asking is null) return;
+    if (asking is null && hearing is null) return;
     auto message = parseJson(json[0 .. length]);
     scope(exit) json_object_put(message);
     auto method = stringAt(jsonField(message, "method"));
-    if (method is null || jsonField(message, "id") !is null || strcmp(method, "notifications/elicitation/complete") != 0) return;
+    if (method is null || jsonField(message, "id") !is null) return;
+    if (strcmp(method, "notifications/message") == 0) { heardLine(context, message); return; }
+    if (asking is null || strcmp(method, "notifications/elicitation/complete") != 0) return;
     auto params = jsonField(message, "params");
     if (json_object_get_type(params) != json_type.object) return;
     auto text = json_object_to_json_string_ext(params, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
@@ -421,10 +451,11 @@ bool openMcp(const(char)[] line, const(char)[] cwd, ref McpGroup group, ref Repl
 // so two servers exposing "search" never overwrite or masquerade as each other.
 // stop, when given, is asked between polls while the call runs, and a yes
 // cancels it at the server: MCP_CANCELLED, and no response. ask, when given,
-// answers what the server asks of ground code while the call runs.
+// answers what the server asks of ground code while the call runs. hear, when
+// given, hears what the server logs at warning or above while the call runs.
 mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
                        const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error,
-                       scope bool delegate() stop = null, scope Ask ask = null) {
+                       scope bool delegate() stop = null, scope Ask ask = null, scope Hear hear = null) {
     if (serverName is null || toolName is null) return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool dispatch needs server and tool names");
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
@@ -433,7 +464,7 @@ mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)*
                 if (strcmp(mcp_tool_name(contract.tool), toolName) == 0)
                     return stop is null
                         ? mcp_tool_call(server.client, contract.tool, arguments, &response, &validation, &error)
-                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop, ask);
+                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop, ask, hear);
             return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool is not in the session server catalog");
         }
     }
@@ -452,11 +483,14 @@ enum POLL_MS = 100;
 // call continued with the answers.
 private mcp_status stoppableCall(ref McpServer server, const(mcp_tool)* tool, const(char)* arguments,
                                  ref mcp_response response, ref mcp_response validation, ref mcp_error error,
-                                 scope bool delegate() stop, scope Ask ask) {
+                                 scope bool delegate() stop, scope Ask ask, scope Hear hear) {
     mcp_request* request;
     auto was = asking;
     asking = ask;
     scope(exit) asking = was;
+    auto wasHearing = hearing;
+    hearing = hear;
+    scope(exit) hearing = wasHearing;
     auto status = mcp_tool_submit(server.client, tool, arguments, server.timeoutMs, &request, &error);
     if (status != mcp_status.MCP_OK) return status;
     scope(exit) mcp_request_destroy(request, null);
