@@ -117,10 +117,13 @@ private size_t blanks(const(char)[] json, size_t pos) {
 }
 
 // The prompt's text blocks, in order, one line each. A resource_link goes into
-// links to be read, its name and its uri each ended by a NUL. A block of
-// another kind has no text to give the model, and is not pretended to: false,
-// and other gets the type of the first such block, empty when it names none.
-@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links) {
+// links to be read, its name and its uri each ended by a NUL. A resource
+// embedded with its text, "for pieces of context that are referenced in the
+// message", goes into embedded, its uri and its text each ended by a NUL. A
+// block of another kind has no text to give the model, and is not pretended
+// to: false, and other gets the type of the first such block, empty when it
+// names none; a resource holding a blob is "resource holding a blob".
+@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded) {
     auto at = indexOf(line, `"prompt"`);
     if (at < 0) return true;
     size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
@@ -136,6 +139,9 @@ private size_t blanks(const(char)[] json, size_t pos) {
         Reply value, kind, name, uri;
         scope(exit) { value.dispose(); kind.dispose(); name.dispose(); uri.dispose(); }
         bool named, located;
+        Reply held, heldUri;
+        scope(exit) { held.dispose(); heldUri.dispose(); }
+        bool holdsText, holdsUri, holdsBlob;
         size_t p = 1;
         while (p < block.length) {
             p = blanks(block, p);
@@ -152,6 +158,27 @@ private size_t blanks(const(char)[] json, size_t pos) {
             if (key.slice() == "text" && p < block.length && block[p] == '"') { value.len = 0; copyString(block, p, value); }
             if (key.slice() == "name" && p < block.length && block[p] == '"') { name.len = 0; copyString(block, p, name); named = true; }
             if (key.slice() == "uri" && p < block.length && block[p] == '"') { uri.len = 0; copyString(block, p, uri); located = true; }
+            // EmbeddedResource's resource: its uri, and its text or its blob.
+            if (key.slice() == "resource" && p < block.length && block[p] == '{') {
+                auto inner = block[p .. skipValue(block, p)];
+                size_t q = 1;
+                while (q < inner.length) {
+                    q = blanks(inner, q);
+                    if (q >= inner.length || inner[q] != '"') break;
+                    Reply field;
+                    q = copyString(inner, q, field);
+                    q = blanks(inner, q);
+                    if (q >= inner.length || inner[q] != ':') break;
+                    q = blanks(inner, q + 1);
+                    if (field.slice() == "uri" && q < inner.length && inner[q] == '"') { heldUri.len = 0; copyString(inner, q, heldUri); holdsUri = true; }
+                    if (field.slice() == "text" && q < inner.length && inner[q] == '"') { held.len = 0; copyString(inner, q, held); holdsText = true; }
+                    if (field.slice() == "blob") holdsBlob = true;
+                    field.dispose();
+                    q = skipValue(inner, q);
+                    q = blanks(inner, q);
+                    if (q < inner.length && inner[q] == ',') q++;
+                }
+            }
             p = skipValue(block, p);
             p = blanks(block, p);
             if (p < block.length && block[p] == ',') p++;
@@ -159,7 +186,12 @@ private size_t blanks(const(char)[] json, size_t pos) {
         // "required": name and uri. A link missing one is no link to read.
         bool link = kind.slice() == "resource_link" && named && located;
         if (link) { links.add(name.slice()); links.add("\0"); links.add(uri.slice()); links.add("\0"); }
-        if (!text && !link && all) { all = false; other.add(kind.slice()); }
+        bool resource = kind.slice() == "resource" && holdsUri && holdsText;
+        if (resource) { embedded.add(heldUri.slice()); embedded.add("\0"); embedded.add(held.slice()); embedded.add("\0"); }
+        if (!text && !link && !resource && all) {
+            all = false;
+            other.add(kind.slice() == "resource" && holdsUri && holdsBlob ? "resource holding a blob" : kind.slice());
+        }
         if (text) {
             if (!first) r.add("\n");
             first = false;
