@@ -47,9 +47,8 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 // libacp reads and writes it, so these run rather than fold at compile time.
-private const(char)[] v1Result(string id) {
-    return `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
-}
+// Folded at compile time, as betterC has no GC to concatenate with.
+enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
 
 unittest {
     bool answers(string line, const(char)[] want) {
@@ -58,11 +57,11 @@ unittest {
         scope(exit) r.dispose();
         return answer(line, r, s) && r.slice() == want;
     }
-    assert(answers(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`, v1Result(`0`)));
+    assert(answers(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`, v1Result!`0`));
 
     // A newer version than ground speaks selects the one it does:
     // "The protocol version the client specified if supported by the agent, or the latest protocol version supported by the agent."
-    assert(answers(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`, v1Result(`"a"`)));
+    assert(answers(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`, v1Result!`"a"`));
 
     // None at or below what was asked:
     // "If none exists, it MUST return -32022 with requested and supported data"
@@ -79,7 +78,7 @@ unittest {
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":2,"info":{"name":"zed","version":"1"},"capabilities":{"elicitation":{"form":{},"url":{}}}}}`, r, s));
-    assert(r.slice() == v1Result(`1`));
+    assert(r.slice() == v1Result!`1`);
     assert(s.elicitsForms && s.elicitsUrls, "a v2 client's elicitation, read from capabilities");
 }
 
@@ -444,42 +443,34 @@ private string promptWithLink()() {
 }
 static assert(promptWithLink()
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
-// "Only available if the client supports the fs.readTextFile capability", which
-// initialize reads from clientCapabilities. Offered, a file:// link goes on to
-// the turn. Any other is read through the session's MCP servers once the
-// turn starts, so it goes on to the turn too.
-private string promptWithLinkFor()(string link) {
+// A file:// link is read through the client only when it offers to:
+// "Only available if the client supports the fs.readTextFile capability"
+// Any other link is read through the session's MCP servers, so it goes on to the turn.
+private bool promptsTo()(string initialize, string prompt, string want) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":false}}}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"` ~ link ~ `","name":"a"}]}}`, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(initialize, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(prompt, r, s);
+    return r.slice() == want;
 }
-// As a client writes it, spaced: the capability is read from the object, not
-// from where its first space falls.
-private string promptWithSpacedCaps()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"terminal": false, "fs": {"writeTextFile": false, "readTextFile": true}}}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
-}
+
+enum offersReading = `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":false}}}}`;
+enum promptLink(string uri) = `{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"` ~ uri ~ `","name":"a"}]}}`;
+enum noModel = `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`;
+
 // initialize goes through libacp, so these run rather than fold at compile time.
 unittest {
-    assert(promptWithSpacedCaps()
-        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-    assert(promptWithLinkFor("file:///tmp/a")
-        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-    assert(promptWithLinkFor("https://example.com/a")
-        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-}
-private string promptLinkNotOffered()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
-}
-unittest {
-    assert(promptLinkNotOffered()
-        == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
+    assert(promptsTo(offersReading, promptLink!"file:///tmp/a", noModel));
+    assert(promptsTo(offersReading, promptLink!"https://example.com/a", noModel));
+    // As a client writes it, spaced: the capability is read from the object.
+    assert(promptsTo(`{"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"terminal": false, "fs": {"writeTextFile": false, "readTextFile": true}}}}`,
+        promptLink!"file:///tmp/a", noModel));
+    // Not offered, though a field of another name says readTextFile.
+    assert(promptsTo(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`,
+        promptLink!"file:///tmp/a",
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`));
 }
 private string promptUntyped()() {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
