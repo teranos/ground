@@ -40,4 +40,6 @@ extern (C) nothrow @nogc {
     acp_status acp_initialize_result(uint, const(char)*, const(char)*, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_session_resume_read(const(char)*, size_t, acp_session_resume*, acp_buffer*);
     void acp_session_resume_free(acp_session_resume*);
+    acp_status acp_session_target_read(const(char)*, const(char)*, size_t, char**, acp_buffer*);
+    void acp_session_target_free(char**);
 }

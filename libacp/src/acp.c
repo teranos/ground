@@ -54,6 +54,17 @@ int acp_offered(json_object *object, const char *key) {
     return json_object_is_type(acp_field(object, key), json_type_object);
 }
 
+// A string field's value, copied, or NULL when absent or not a string; the caller frees it.
+char *acp_string(json_object *object, const char *key) {
+    json_object *value = acp_field(object, key);
+    if (!json_object_is_type(value, json_type_string)) return NULL;
+    const char *s = json_object_get_string(value);
+    size_t n = strlen(s) + 1;
+    char *copy = malloc(n);
+    if (copy != NULL) memcpy(copy, s, n);
+    return copy;
+}
+
 int acp_flag(json_object *object, const char *key) {
     json_object *value = acp_field(object, key);
     return json_object_is_type(value, json_type_boolean) && json_object_get_boolean(value);

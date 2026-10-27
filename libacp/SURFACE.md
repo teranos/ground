@@ -8,3 +8,4 @@ what v2 (schema-v2.0.0-alpha.9) says of the same method, so v2 needs no second p
 |---|---|---|---|---|
 | `initialize` | 0 | #179 | reads `protocolVersion`, `clientCapabilities`; writes `protocolVersion`, `agentCapabilities`, `authMethods`, `agentInfo` | request carries `info`, `capabilities`; result `info`, `capabilities`, `authMethods`; read and written by libacp in both shapes |
 | `session/resume` | 1 | #118 | reads `sessionId`, `cwd` (absolute) | request adds `replayFrom`; result drops `modes`, adds `availableCommands` |
+| `session/delete` | 2 | #120 | reads `sessionId` | the same: `sessionId` required, result `_meta` only |
