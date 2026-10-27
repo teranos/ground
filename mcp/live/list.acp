@@ -1,0 +1,18 @@
+# session/list: a session's entry, filtered by cwd, and the requests it refuses.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[],"additionalDirectories":["/lib"]}}
+wait 1
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":2,"method":"session/list","params":{"cwd":"$CWD"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/list","params":{"cwd":"rel"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/list","params":{"cursor":"x"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/list","params":{"cursor":7}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/list","params":{"cwd":7}}
+wait 6
