@@ -630,14 +630,34 @@ private void putModeDescription(ref Reply r, SessionMode m) {
     if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
 }
 
-private void putModes(ref Reply r, SessionMode current) {
-    r.add(`{"currentModeId":"`); r.add(nameOf(current)); r.add(`","availableModes":[`);
+// libacp writes the SessionModeState; false when it could not.
+private bool putModes(ref Reply r, SessionMode current) {
+    import libacp : acp_mode, acp_modes_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply[offered.length] described;
+    scope(exit) foreach (ref d; described) d.dispose();
+    Reply ids, names;
+    scope(exit) { ids.dispose(); names.dispose(); }
+    acp_mode[offered.length] modes;
     foreach (i, m; offered) {
-        if (i > 0) r.add(",");
-        r.add(`{"id":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
-        r.add(`","description":"`); putModeDescription(r, m); r.add(`"}`);
+        putModeDescription(described[i], m); described[i].add("\0");
     }
-    r.add("]}");
+    // Each name and id as C reads it: its own bytes, then a NUL.
+    size_t[offered.length + 1] idAt, nameAt;
+    foreach (i, m; offered) {
+        idAt[i] = ids.len; ids.add(nameOf(m)); ids.add("\0");
+        nameAt[i] = names.len; names.add(shownAs(m)); names.add("\0");
+    }
+    Reply current_;
+    scope(exit) current_.dispose();
+    current_.add(nameOf(current)); current_.add("\0");
+    if (ids.full || names.full || current_.full) return false;
+    foreach (i; 0 .. offered.length)
+        modes[i] = acp_mode(ids.slice().ptr + idAt[i], names.slice().ptr + nameAt[i], described[i].slice().ptr);
+    acp_buffer state;
+    scope(exit) acp_buffer_free(&state);
+    if (acp_modes_write(current_.slice().ptr, modes.ptr, modes.length, &state) != acp_status.ACP_OK) return false;
+    r.add(state.data[0 .. state.length]);
+    return true;
 }
 
 private void forget(ref Open o) {
@@ -858,8 +878,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         o.updatedAt = now(sessions);
         sessions.openLen++;
         announceCommands(sessions, sid.slice(), o.mcp);
+        auto head = r.len;
         put(`,"result":{"sessionId":"`); put(sid.slice());
-        put(`","modes":`); putModes(r, SessionMode.manual);
+        put(`","modes":`);
+        if (!putModes(r, SessionMode.manual)) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the modes of `); putEscaped(r, sid.slice()); put(`"}}`);
+            return true;
+        }
         put(`,"configOptions":`); putConfig(r, SessionMode.manual, effort); put(`}}`);
         return true;
     }
@@ -1112,7 +1138,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             auto opened = openAt(sessions, sid);
             if (opened >= 0) announceCommands(sessions, sid, sessions.open[cast(size_t) opened].mcp);
         }
-        put(`,"result":{"modes":`); putModes(r, mode);
+        auto head = r.len;
+        put(`,"result":{"modes":`);
+        if (!putModes(r, mode)) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the modes of `); putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
         put(`,"configOptions":`); putConfig(r, mode, effort); put(`}}`);
         return true;
     }
@@ -1121,13 +1153,25 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // with the session, so a resume comes back in it. The client chose it, so
     // there is no current_mode_update to tell it what it already knows.
     if (method == "session/set_mode") {
-        char[256] sb;
-        char[64] mb2;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        auto want = extractJsonString(line, `"modeId"`, &mb2[0], mb2.length);
+        // libacp reads the session and the mode, and refuses either missing in its words.
+        import libacp : acp_set_mode, acp_set_mode_read, acp_set_mode_free, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_set_mode asked;
+        scope(exit) acp_set_mode_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`); return true; }
-        if (want is null) { put(`,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`); return true; }
+        if (acp_set_mode_read(params.ptr, params.length, &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/set_mode"}`);
+            put(`}`);
+            return true;
+        }
+        auto sid = asked.session_id[0 .. strlen(asked.session_id)];
+        auto want = asked.mode_id[0 .. strlen(asked.mode_id)];
         auto at = openAt(sessions, sid);
         if (at < 0) {
             put(`,"error":{"code":-32002,"message":"no open session `);

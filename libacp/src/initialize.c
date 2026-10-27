@@ -28,11 +28,6 @@ static json_object *rpc_error(int code, const char *message) {
     return error;
 }
 
-static acp_status invalid(acp_buffer *error_json, const char *message) {
-    acp_status written = acp_finish(rpc_error(ACP_ERROR_INVALID_PARAMS, message), error_json);
-    return written == ACP_OK ? ACP_INVALID_PARAMS : written;
-}
-
 static acp_status unsupported(acp_buffer *error_json, unsigned requested, const unsigned *supported, size_t n) {
     char message[96];
     snprintf(message, sizeof message, "no supported protocol version is at or below %u", requested);
@@ -68,17 +63,17 @@ acp_status acp_initialize_read(const char *params_json, size_t length,
     json_object *params = acp_parse(params_json, length);
     if (!json_object_is_type(params, json_type_object)) {
         json_object_put(params);
-        return invalid(error_json, "initialize params are not a JSON object");
+        return acp_invalid(error_json, "initialize params are not a JSON object");
     }
     json_object *version = acp_field(params, "protocolVersion");
     if (!json_object_is_type(version, json_type_int)) {
         json_object_put(params);
-        return invalid(error_json, "initialize params name no protocolVersion");
+        return acp_invalid(error_json, "initialize params name no protocolVersion");
     }
     int64_t requested = json_object_get_int64(version);
     if (requested < 0 || requested > ACP_VERSION_MAX) {
         json_object_put(params);
-        return invalid(error_json, "protocolVersion is not a uint16");
+        return acp_invalid(error_json, "protocolVersion is not a uint16");
     }
     out->requested_version = (unsigned) requested;
 
