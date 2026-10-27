@@ -47,13 +47,13 @@ private string answerWith()(string line, ref Sessions s) {
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // "The protocol version the client specified if supported by the agent, or the
 // latest protocol version supported by the agent."
 static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
+    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
        ~ versionString() ~ `"}}}`);
 
 // authenticate: "Must be one of the methods advertised in the initialize
@@ -416,10 +416,11 @@ private string promptWithLink()() {
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
 }
 static assert(promptWithLink()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a resource_link through the client's fs/read_text_file, and the client offers none"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
 // "Only available if the client supports the fs.readTextFile capability", which
 // initialize reads from clientCapabilities. Offered, a file:// link goes on to
-// the turn; any other is refused by its uri.
+// the turn. Any other is read through the session's MCP servers once the
+// turn starts, so it goes on to the turn too.
 private string promptWithLinkFor()(string link) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":false}}}}`, s);
@@ -439,7 +440,7 @@ static assert(promptWithSpacedCaps()
 static assert(promptWithLinkFor("file:///tmp/a")
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 static assert(promptWithLinkFor("https://example.com/a")
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only file:// resource links on this machine, and the prompt links https://example.com/a"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 private string promptLinkNotOffered()() {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`, s);
@@ -447,14 +448,14 @@ private string promptLinkNotOffered()() {
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
 }
 static assert(promptLinkNotOffered()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a resource_link through the client's fs/read_text_file, and the client offers none"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
 private string promptUntyped()() {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
     return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`, s);
 }
 static assert(promptUntyped()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads only text blocks and resource links, and the prompt holds a block that names no type"}}`);
+    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block that names no type"}}`);
 static assert(promptWithoutModel()
     == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 
@@ -1938,5 +1939,91 @@ version (Posix) unittest {
     assert(indexOf(pictured[0 .. picturedLen], `"error":{"code":-32603,"message":"test__picture gives a message ground code cannot ask the model: image"`) >= 0);
     assert(plain);
     assert(indexOf(s.open[0].history.slice(), `{"role":"user","content":"/nothing here"}`) >= 0);
+    s.open[0].history.dispose();
+}
+
+// A text resource embedded in the prompt joins what was typed, under its uri.
+// A resource_link that is not file:// is read through the session's MCP
+// servers, resources/read, the first that has it; one none has, or that holds
+// no text, is the prompt's error, by its uri.
+version (Posix) unittest {
+    import core.sys.posix.unistd : write, close, fork, _exit, read, dup, dup2, getcwd, pipe;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+    import code.mcp : closeMcp;
+
+    __gshared char[4096] cwd;
+    assert(getcwd(cwd.ptr, cwd.length) !is null);
+    size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
+    enum done = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    auto fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a;
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 4) == 0);
+    socklen_t n = a.sizeof;
+    assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+    auto child = fork();
+    if (child == 0) {
+        foreach (_; 0 .. 2) {
+            char[65536] got;
+            auto c = accept(fd, null, null); read(c, got.ptr, got.length); write(c, done.ptr, done.length); close(c);
+        }
+        _exit(0);
+    }
+    close(fd);
+    __gshared char[32] urlBuf;
+    ushort port = htons(a.sin_port);
+    size_t len = 0;
+    foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+    char[8] d; size_t k = 0;
+    do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+    while (k) urlBuf[len++] = d[--k];
+
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
+    Reply req, r;
+    scope(exit) { req.dispose(); r.dispose(); }
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"notes","command":"python3","args":["`);
+    req.add(cwd[0 .. cwdLen]); req.add(`/mcp/resource_server.py"],"env":[]}]}}`);
+    __gshared char[4096] said1, said2, said3;
+    size_t len1, len2, len3;
+    int[2] o;
+    assert(pipe(o) == 0);
+    fflush(stdout);
+    auto saved = dup(1);
+    dup2(o[1], 1);
+    answer(req.slice(), r, s);
+    bool opened = indexOf(r.slice(), `"sessionId":"code-100-7-1"`) >= 0;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read these"},`
+        ~ `{"type":"resource","resource":{"uri":"file:///work/a.d","mimeType":"text/x-d","text":"int x;"}},`
+        ~ `{"type":"resource_link","name":"notes","uri":"mem://notes/a"}]}}`, r, s);
+    len1 = r.len; foreach (i, c; r.slice()) said1[i] = c;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","name":"x","uri":"mem://missing"}]}}`, r, s);
+    len2 = r.len; foreach (i, c; r.slice()) said2[i] = c;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","name":"logo","uri":"mem://logo"}]}}`, r, s);
+    len3 = r.len; foreach (i, c; r.slice()) said3[i] = c;
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+    Reply closed;
+    assert(closeMcp(s.open[0].mcp, closed));
+    closed.dispose();
+    char[65536] drain;
+    while (read(o[0], drain.ptr, drain.length) > 0) {}
+    close(o[0]);
+
+    assert(opened);
+    assert(said1[0 .. len1] == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"user","content":"read these\n\nnotes (mem://notes/a):\nthe notes say hi\n\nfile:///work/a.d:\nint x;"}`) == 0);
+    assert(indexOf(said2[0 .. len2], `"error":{"code":-32603,"message":"no MCP server of the session reads mem://missing"`) >= 0);
+    assert(indexOf(said3[0 .. len3], `"error":{"code":-32603,"message":"mem://logo holds no text to give the model"`) >= 0);
     s.open[0].history.dispose();
 }
