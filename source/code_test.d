@@ -118,14 +118,13 @@ static assert(answerOf(`not json`)
 // session/new: cwd and mcpServers are required, and sessionId is all the
 // answer needs. An id is ground code's start, its pid and a count, so two
 // sessions of one process are told apart and so are two processes.
-private string twoSessions()() {
+// A new session's modes are libacp's, so these run rather than fold at compile time.
+unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     enum req = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
-    return answerWith(req, s) ~ "\n" ~ answerWith(req, s);
+    assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 }
-static assert(twoSessions()
-    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
 
 // "The working directory for this session. Must be an absolute path."
 static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`)
@@ -141,18 +140,23 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":
 // session/close: "Supplying `{}` means the agent supports closing sessions",
 // so initialize says so. A session closed is gone, and closing it again, or
 // one ground code never opened, is "Resource not found".
-private string openThenClose()(string close) {
+// Two sessions opened, then close asked twice: what each close answers.
+private bool openThenClose()(string close, string first, string second) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(close, s) ~ "\n" ~ answerWith(close, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    return says(s, close, first) && says(s, close, second);
 }
-static assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`)
-    == `{"jsonrpc":"2.0","id":2,"result":{}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`);
-static assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
+unittest {
+    assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`));
+    assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`));
+}
 // Another process's session is not this one's to close.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/close","params":{"sessionId":"code-1-1-1"}}`)
     == `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
@@ -161,21 +165,26 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params
 
 // session/list: the sessions this process has open, each with the cwd it was
 // opened in. Nothing is kept past the process yet, so that is all there is.
-private string listAfter()(string list) {
+// Three sessions opened and one closed, then a list: what it answers.
+private bool listAfter()(string list, string want) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/srv","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`, s);
-    return answerWith(list, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/srv","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`, r, s); r.len = 0;
+    return says(s, list, want);
 }
-static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`);
-// "Filter sessions by working directory. Must be an absolute path."
-static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"/srv"}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`);
-static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`)
-    == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`);
+unittest {
+    assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
+    // "Filter sessions by working directory. Must be an absolute path."
+    assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"/srv"}}`,
+        `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
+    assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`));
+}
 static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
     == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`);
 // Ground code never gives a nextCursor, so a cursor is not one it gave.
@@ -323,12 +332,26 @@ unittest {
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no mode yolo; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 }
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`);
+// A request to a fresh process, and its answer: libacp reads it, so this runs.
+private bool answersFresh()(string line, string want) {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply r;
+    scope(exit) r.dispose();
+    answer(line, r, s);
+    return r.slice() == want;
+}
+
+unittest {
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`));
+    // The params' own sessionId, not one nested in another field.
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan","_meta":{"sessionId":"code-1-1-1"}}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`));
+}
 
 // A mode set in one process is the mode the next one resumes in.
 unittest {
@@ -442,21 +465,25 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":11,"method":"session/prompt","para
     == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":12,"method":"session/prompt","params":{"prompt":[]}}`)
     == `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`);
-private string promptWithoutModel()() {
+// A new session, then one request to it: what that request answers. A new
+// session's modes are libacp's, so these run rather than fold at compile time.
+private bool newThen()(string line, string want) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    return says(s, line, want);
 }
-// "As a baseline, the Agent MUST support ContentBlock::Text and
-// ContentBlock::ResourceLink". ground code reads text only, so a block of any
-// other kind is refused by its type before the turn starts, not dropped.
-private string promptWithLink()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
+// ground code reads text only, and refuses any other block by its type before the turn starts:
+// "As a baseline, the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
+unittest {
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`));
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block that names no type"}}`));
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`));
 }
-static assert(promptWithLink()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
 // A file:// link is read through the client only when it offers to:
 // "Only available if the client supports the fs.readTextFile capability"
 // Any other link is read through the session's MCP servers, so it goes on to the turn.
@@ -486,34 +513,25 @@ unittest {
         promptLink!"file:///tmp/a",
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`));
 }
-private string promptUntyped()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`, s);
-}
-static assert(promptUntyped()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block that names no type"}}`);
-static assert(promptWithoutModel()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-
 // The mode is set through either door, and both say the same: set by config
 // option, the modes a session reports follow; set by set_mode, the config
 // option does.
-private string modeBothWays()() {
+unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"plan"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"sometimes"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"dontAsk"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s);
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("plan", "medium") ~ `}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"sometimes"}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"no mode sometimes; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"dontAsk"}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`,
+        `{"jsonrpc":"2.0","id":5,"result":{"configOptions":` ~ configOf!("dontAsk", "high") ~ `}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}`));
 }
-static assert(modeBothWays() ==
-      `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("plan", "medium") ~ `}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"no mode sometimes; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":4,"result":{}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":5,"result":{"configOptions":` ~ configOf!("dontAsk", "high") ~ `}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}`);
 
 // updatedAt: "ISO 8601 timestamp of last activity". A session's activity is
 // its opening, a resume, and a change to its mode or effort; each one is the

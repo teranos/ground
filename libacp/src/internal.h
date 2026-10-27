@@ -14,5 +14,7 @@ int acp_flag(json_object *object, const char *key);
 char *acp_string(json_object *object, const char *key);
 // Hands object's JSON to out and puts object; ACP_NO_MEMORY when it could not be written.
 acp_status acp_finish(json_object *object, acp_buffer *out);
+// A -32602 saying message, in error_json; ACP_INVALID_PARAMS once it is written.
+acp_status acp_invalid(acp_buffer *error_json, const char *message);
 
 #endif
