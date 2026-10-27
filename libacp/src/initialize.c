@@ -1,68 +1,58 @@
 #include "internal.h"
 
-#include <json-c/json.h>
+#include <stdio.h>
 #include <string.h>
 
 // ProtocolVersion is a uint16 in both schemas.
 #define ACP_VERSION_MAX 65535
 
-static json_object *field(json_object *object, const char *key) {
-    json_object *value = NULL;
-    if (object == NULL || !json_object_is_type(object, json_type_object)) return NULL;
-    return json_object_object_get_ex(object, key, &value) ? value : NULL;
-}
-
-// Present as an object, as {} offers form or url elicitation and session notices.
-static int offered(json_object *object, const char *key) {
-    return json_object_is_type(field(object, key), json_type_object);
-}
-
-static int flag(json_object *object, const char *key) {
-    json_object *value = field(object, key);
-    return json_object_is_type(value, json_type_boolean) && json_object_get_boolean(value);
-}
-
 static void read_capabilities(json_object *params, unsigned requested, acp_client_capabilities *caps) {
     memset(caps, 0, sizeof *caps);
     // The request is in the shape of the version the client asked for.
-    json_object *c = field(params, requested >= 2 ? "capabilities" : "clientCapabilities");
-    json_object *elicitation = field(c, "elicitation");
-    caps->elicitation_form = offered(elicitation, "form");
-    caps->elicitation_url = offered(elicitation, "url");
+    json_object *c = acp_field(params, requested >= 2 ? "capabilities" : "clientCapabilities");
+    json_object *elicitation = acp_field(c, "elicitation");
+    caps->elicitation_form = acp_offered(elicitation, "form");
+    caps->elicitation_url = acp_offered(elicitation, "url");
     if (requested >= 2) return;
-    json_object *fs = field(c, "fs");
-    caps->fs_read_text_file = flag(fs, "readTextFile");
-    caps->fs_write_text_file = flag(fs, "writeTextFile");
-    caps->terminal = flag(c, "terminal");
-    caps->session_notices = offered(field(c, "session"), "notices");
+    json_object *fs = acp_field(c, "fs");
+    caps->fs_read_text_file = acp_flag(fs, "readTextFile");
+    caps->fs_write_text_file = acp_flag(fs, "writeTextFile");
+    caps->terminal = acp_flag(c, "terminal");
+    caps->session_notices = acp_offered(acp_field(c, "session"), "notices");
+}
+
+static json_object *rpc_error(int code, const char *message) {
+    json_object *error = json_object_new_object();
+    json_object_object_add(error, "code", json_object_new_int(code));
+    json_object_object_add(error, "message", json_object_new_string(message));
+    return error;
 }
 
 static acp_status invalid(acp_buffer *error_json, const char *message) {
-    acp_text t = {0};
-    acp_text_printf(&t, "{\"code\":%d,\"message\":", ACP_ERROR_INVALID_PARAMS);
-    acp_text_json_string(&t, message);
-    acp_text_puts(&t, "}");
-    acp_status written = acp_text_finish(&t, error_json);
+    acp_status written = acp_finish(rpc_error(ACP_ERROR_INVALID_PARAMS, message), error_json);
     return written == ACP_OK ? ACP_INVALID_PARAMS : written;
 }
 
 static acp_status unsupported(acp_buffer *error_json, unsigned requested, const unsigned *supported, size_t n) {
-    acp_text t = {0};
-    acp_text_printf(&t, "{\"code\":%d,\"message\":\"no supported protocol version is at or below %u\","
-                        "\"data\":{\"requested\":%u,\"supported\":[",
-                    ACP_ERROR_UNSUPPORTED_VERSION, requested, requested);
+    char message[96];
+    snprintf(message, sizeof message, "no supported protocol version is at or below %u", requested);
+    json_object *error = rpc_error(ACP_ERROR_UNSUPPORTED_VERSION, message);
+    json_object *data = json_object_new_object();
+    json_object *listed = json_object_new_array();
     // Listed in ascending order, whatever order the caller named them in.
     unsigned last = 0;
-    for (size_t listed = 0; listed < n; listed++) {
+    for (size_t i = 0; i < n; i++) {
         unsigned next = 0;
-        for (size_t i = 0; i < n; i++)
-            if (supported[i] > last && (next == 0 || supported[i] < next)) next = supported[i];
+        for (size_t j = 0; j < n; j++)
+            if (supported[j] > last && (next == 0 || supported[j] < next)) next = supported[j];
         if (next == 0) break;
-        acp_text_printf(&t, listed ? ",%u" : "%u", next);
+        json_object_array_add(listed, json_object_new_int64(next));
         last = next;
     }
-    acp_text_puts(&t, "]}}");
-    acp_status written = acp_text_finish(&t, error_json);
+    json_object_object_add(data, "requested", json_object_new_int64(requested));
+    json_object_object_add(data, "supported", listed);
+    json_object_object_add(error, "data", data);
+    acp_status written = acp_finish(error, error_json);
     return written == ACP_OK ? ACP_UNSUPPORTED_VERSION : written;
 }
 
@@ -75,17 +65,12 @@ acp_status acp_initialize_read(const char *params_json, size_t length,
     error_json->data = NULL;
     error_json->length = 0;
 
-    json_tokener *tokener = json_tokener_new();
-    if (tokener == NULL) return ACP_NO_MEMORY;
-    json_object *params = json_tokener_parse_ex(tokener, params_json, (int) length);
-    int parsed = json_tokener_get_error(tokener) == json_tokener_success && json_object_is_type(params, json_type_object);
-    json_tokener_free(tokener);
-    if (!parsed) {
+    json_object *params = acp_parse(params_json, length);
+    if (!json_object_is_type(params, json_type_object)) {
         json_object_put(params);
         return invalid(error_json, "initialize params are not a JSON object");
     }
-
-    json_object *version = field(params, "protocolVersion");
+    json_object *version = acp_field(params, "protocolVersion");
     if (!json_object_is_type(version, json_type_int)) {
         json_object_put(params);
         return invalid(error_json, "initialize params name no protocolVersion");
@@ -109,15 +94,11 @@ acp_status acp_initialize_read(const char *params_json, size_t length,
     return ACP_OK;
 }
 
-// Caller JSON goes in whole, so it must be one JSON value of the expected type.
-static int valid(const char *json, json_type expected) {
-    json_tokener *tokener = json_tokener_new();
-    if (tokener == NULL) return 0;
-    json_object *value = json_tokener_parse_ex(tokener, json, (int) strlen(json));
-    int ok = json_tokener_get_error(tokener) == json_tokener_success && json_object_is_type(value, expected);
-    json_tokener_free(tokener);
-    json_object_put(value);
-    return ok;
+static json_object *implementation(const char *name, const char *version) {
+    json_object *info = json_object_new_object();
+    json_object_object_add(info, "name", json_object_new_string(name));
+    json_object_object_add(info, "version", json_object_new_string(version));
+    return info;
 }
 
 acp_status acp_initialize_result(unsigned selected_version,
@@ -127,32 +108,26 @@ acp_status acp_initialize_result(unsigned selected_version,
                                  acp_buffer *result_json) {
     if (result_json == NULL || agent_name == NULL || agent_version == NULL || selected_version == 0 || selected_version > 2)
         return ACP_INVALID_ARGUMENT;
-    const char *capabilities = agent_capabilities_json ? agent_capabilities_json : "{}";
-    const char *auth = auth_methods_json ? auth_methods_json : "[]";
-    if (!valid(capabilities, json_type_object) || !valid(auth, json_type_array)) return ACP_INVALID_ARGUMENT;
-
-    acp_text t = {0};
-    acp_text_printf(&t, "{\"protocolVersion\":%u,", selected_version);
-    if (selected_version >= 2) {
-        acp_text_puts(&t, "\"info\":{\"name\":");
-        acp_text_json_string(&t, agent_name);
-        acp_text_puts(&t, ",\"version\":");
-        acp_text_json_string(&t, agent_version);
-        acp_text_puts(&t, "},\"capabilities\":");
-        acp_text_puts(&t, capabilities);
-        acp_text_puts(&t, ",\"authMethods\":");
-        acp_text_puts(&t, auth);
-        acp_text_puts(&t, "}");
-    } else {
-        acp_text_puts(&t, "\"agentCapabilities\":");
-        acp_text_puts(&t, capabilities);
-        acp_text_puts(&t, ",\"authMethods\":");
-        acp_text_puts(&t, auth);
-        acp_text_puts(&t, ",\"agentInfo\":{\"name\":");
-        acp_text_json_string(&t, agent_name);
-        acp_text_puts(&t, ",\"version\":");
-        acp_text_json_string(&t, agent_version);
-        acp_text_puts(&t, "}}");
+    const char *c = agent_capabilities_json ? agent_capabilities_json : "{}";
+    const char *a = auth_methods_json ? auth_methods_json : "[]";
+    json_object *capabilities = acp_parse(c, strlen(c));
+    json_object *auth = acp_parse(a, strlen(a));
+    if (!json_object_is_type(capabilities, json_type_object) || !json_object_is_type(auth, json_type_array)) {
+        json_object_put(capabilities);
+        json_object_put(auth);
+        return ACP_INVALID_ARGUMENT;
     }
-    return acp_text_finish(&t, result_json);
+
+    json_object *result = json_object_new_object();
+    json_object_object_add(result, "protocolVersion", json_object_new_int64(selected_version));
+    if (selected_version >= 2) {
+        json_object_object_add(result, "info", implementation(agent_name, agent_version));
+        json_object_object_add(result, "capabilities", capabilities);
+        json_object_object_add(result, "authMethods", auth);
+    } else {
+        json_object_object_add(result, "agentCapabilities", capabilities);
+        json_object_object_add(result, "authMethods", auth);
+        json_object_object_add(result, "agentInfo", implementation(agent_name, agent_version));
+    }
+    return acp_finish(result, result_json);
 }

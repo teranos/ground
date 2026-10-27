@@ -1,6 +1,6 @@
 #include "internal.h"
 
-#include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,67 +27,50 @@ void acp_buffer_free(acp_buffer *buffer) {
     buffer->length = 0;
 }
 
-void acp_text_add(acp_text *t, const char *s, size_t n) {
-    if (t->failed) return;
-    if (t->length + n + 1 > t->capacity) {
-        size_t capacity = t->capacity ? t->capacity : 256;
-        while (capacity < t->length + n + 1) capacity *= 2;
-        char *grown = realloc(t->data, capacity);
-        if (grown == NULL) { t->failed = 1; return; }
-        t->data = grown;
-        t->capacity = capacity;
+// One JSON value, the whole of what was given, or NULL.
+json_object *acp_parse(const char *json, size_t length) {
+    if (json == NULL || length > INT32_MAX) return NULL;
+    json_tokener *tokener = json_tokener_new();
+    if (tokener == NULL) return NULL;
+    json_object *value = json_tokener_parse_ex(tokener, json, (int) length);
+    int whole = json_tokener_get_error(tokener) == json_tokener_success
+        && (size_t) json_tokener_get_parse_end(tokener) == length;
+    json_tokener_free(tokener);
+    if (!whole) {
+        json_object_put(value);
+        return NULL;
     }
-    memcpy(t->data + t->length, s, n);
-    t->length += n;
-    t->data[t->length] = '\0';
+    return value;
 }
 
-void acp_text_puts(acp_text *t, const char *s) {
-    acp_text_add(t, s, strlen(s));
+json_object *acp_field(json_object *object, const char *key) {
+    json_object *value = NULL;
+    if (!json_object_is_type(object, json_type_object)) return NULL;
+    return json_object_object_get_ex(object, key, &value) ? value : NULL;
 }
 
-void acp_text_printf(acp_text *t, const char *format, ...) {
-    char small[128];
-    va_list args;
-    va_start(args, format);
-    int n = vsnprintf(small, sizeof small, format, args);
-    va_end(args);
-    if (n < 0) { t->failed = 1; return; }
-    if ((size_t) n < sizeof small) { acp_text_add(t, small, (size_t) n); return; }
-    char *large = malloc((size_t) n + 1);
-    if (large == NULL) { t->failed = 1; return; }
-    va_start(args, format);
-    vsnprintf(large, (size_t) n + 1, format, args);
-    va_end(args);
-    acp_text_add(t, large, (size_t) n);
-    free(large);
+// Present as an object, as {} offers form or url elicitation and session notices.
+int acp_offered(json_object *object, const char *key) {
+    return json_object_is_type(acp_field(object, key), json_type_object);
 }
 
-void acp_text_json_string(acp_text *t, const char *s) {
-    acp_text_add(t, "\"", 1);
-    for (const unsigned char *c = (const unsigned char *) s; *c; c++) {
-        switch (*c) {
-        case '"': acp_text_add(t, "\\\"", 2); break;
-        case '\\': acp_text_add(t, "\\\\", 2); break;
-        case '\n': acp_text_add(t, "\\n", 2); break;
-        case '\r': acp_text_add(t, "\\r", 2); break;
-        case '\t': acp_text_add(t, "\\t", 2); break;
-        default:
-            if (*c < 0x20) acp_text_printf(t, "\\u%04x", *c);
-            else acp_text_add(t, (const char *) c, 1);
-        }
+int acp_flag(json_object *object, const char *key) {
+    json_object *value = acp_field(object, key);
+    return json_object_is_type(value, json_type_boolean) && json_object_get_boolean(value);
+}
+
+acp_status acp_finish(json_object *object, acp_buffer *out) {
+    out->data = NULL;
+    out->length = 0;
+    if (object == NULL) return ACP_NO_MEMORY;
+    size_t length = 0;
+    const char *json = json_object_to_json_string_length(object, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE, &length);
+    char *copy = json ? malloc(length + 1) : NULL;
+    if (copy != NULL) {
+        memcpy(copy, json, length + 1);
+        out->data = copy;
+        out->length = length;
     }
-    acp_text_add(t, "\"", 1);
-}
-
-acp_status acp_text_finish(acp_text *t, acp_buffer *out) {
-    if (t->failed) {
-        free(t->data);
-        out->data = NULL;
-        out->length = 0;
-        return ACP_NO_MEMORY;
-    }
-    out->data = t->data;
-    out->length = t->length;
-    return ACP_OK;
+    json_object_put(object);
+    return copy ? ACP_OK : ACP_NO_MEMORY;
 }

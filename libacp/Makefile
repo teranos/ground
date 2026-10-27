@@ -6,6 +6,10 @@ BUILD ?= build
 CPPFLAGS += -Iinclude $(shell $(PKG_CONFIG) --cflags json-c)
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror -fPIC
+# Every implicit narrowing, shadowed name, unprototyped function and non-literal format is an error.
+CFLAGS += -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes -Wmissing-prototypes \
+	-Wcast-qual -Wformat=2 -Wundef -Wvla -Wnull-dereference -Wdouble-promotion -Wimplicit-fallthrough
+SANITIZE = -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
 LDLIBS += $(shell $(PKG_CONFIG) --libs json-c)
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)
@@ -36,6 +40,9 @@ $(SHARED): $(OBJECTS)
 test: all
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/initialize.c $(BUILD)/libacp.a $(LDLIBS) -o $(BUILD)/initialize-test
 	$(BUILD)/initialize-test
+# The same tests built with the library's sources under AddressSanitizer and UndefinedBehaviorSanitizer.
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(SANITIZE) $(LDFLAGS) tests/initialize.c $(addprefix src/,$(notdir $(OBJECTS:.o=.c))) $(LDLIBS) -o $(BUILD)/initialize-sanitized
+	$(BUILD)/initialize-sanitized
 
 install: all
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib/pkgconfig
