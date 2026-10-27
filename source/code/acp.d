@@ -990,43 +990,31 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     if (method == "session/resume" || method == "session/load") {
         bool load = method == "session/load";
         auto verb = load ? "load" : "resume";
-        char[256] sb;
-        char[4096] cb;
-        const(char)[] sid, cwd;
-        // libacp reads session/resume's request, and refuses it in its words.
-        import libacp : acp_session_resume, acp_session_resume_read, acp_session_resume_free;
+        // libacp reads the request, load's servers required too, and refuses it in its words.
+        import libacp : acp_session_resume, acp_session_resume_read, acp_session_load_read, acp_session_resume_free,
+            acp_buffer, acp_buffer_free, acp_status;
         import core.stdc.string : strlen;
         acp_session_resume resumed;
-        scope(exit) if (!load) acp_session_resume_free(&resumed);
-        if (!load) {
-            import libacp : acp_buffer, acp_buffer_free, acp_status;
+        scope(exit) acp_session_resume_free(&resumed);
+        {
             auto params = objectValue(line, `"params"`);
             if (params is null) params = "{}";
             acp_buffer said;
             scope(exit) acp_buffer_free(&said);
-            if (acp_session_resume_read(params.ptr, params.length, &resumed, &said) != acp_status.ACP_OK) {
+            auto read = load ? acp_session_load_read(params.ptr, params.length, &resumed, &said)
+                : acp_session_resume_read(params.ptr, params.length, &resumed, &said);
+            if (read != acp_status.ACP_OK) {
                 put(`{"jsonrpc":"2.0","id":`); put(id); put(`,"error":`);
                 if (said.data !is null) put(said.data[0 .. said.length]);
-                else put(`{"code":-32603,"message":"libacp could not read session/resume"}`);
+                else { put(`{"code":-32603,"message":"libacp could not read `); put(method); put(`"}`); }
                 put(`}`);
                 return true;
             }
-            sid = resumed.session_id[0 .. strlen(resumed.session_id)];
-            cwd = resumed.cwd[0 .. strlen(resumed.cwd)];
-        } else {
-            sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-            cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
         }
+        auto sid = resumed.session_id[0 .. strlen(resumed.session_id)];
+        auto cwd = resumed.cwd[0 .. strlen(resumed.cwd)];
         auto mcp = emptyArray(line, `"mcpServers"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"`); put(method); put(` needs sessionId"}}`); return true; }
-        if (cwd is null) { put(`,"error":{"code":-32602,"message":"`); put(method); put(` needs cwd"}}`); return true; }
-        if (cwd[0] != '/') {
-            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
-            putEscaped(r, cwd); put(`"}}`);
-            return true;
-        }
-        if (load && mcp < 0) { put(`,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`); return true; }
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;

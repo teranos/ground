@@ -157,6 +157,37 @@ static void session_info(void) {
     CHECK(acp_session_info_write(&nameless, &out) == ACP_INVALID_ARGUMENT);
 }
 
+// session/load, as #143 reads it: resume's request, its servers required too.
+static acp_status load(const char *params, acp_session_resume *out, acp_buffer *error) {
+    memset(out, 0, sizeof *out);
+    memset(error, 0, sizeof *error);
+    return acp_session_load_read(params, strlen(params), out, error);
+}
+
+static void loads(void) {
+    acp_session_resume in;
+    acp_buffer error;
+    CHECK(load("{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\",\"mcpServers\":[]}", &in, &error) == ACP_OK);
+    CHECK(in.session_id && strcmp(in.session_id, "code-1-1-1") == 0 && in.cwd && strcmp(in.cwd, "/w") == 0);
+    acp_session_resume_free(&in);
+    const char *refused_[][2] = {
+        {"{\"cwd\":\"/w\",\"mcpServers\":[]}", "session/load needs sessionId"},
+        {"{\"_meta\":{\"sessionId\":\"code-1-1-1\"},\"cwd\":\"/w\",\"mcpServers\":[]}", "session/load needs sessionId"},
+        {"{\"sessionId\":\"code-1-1-1\",\"mcpServers\":[]}", "session/load needs cwd"},
+        {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"w\",\"mcpServers\":[]}", "cwd must be an absolute path: w"},
+        {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\"}", "session/load needs mcpServers"},
+        {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\",\"mcpServers\":{}}", "session/load needs mcpServers"},
+    };
+    for (size_t i = 0; i < sizeof refused_ / sizeof *refused_; i++) {
+        char want[256];
+        snprintf(want, sizeof want, "{\"code\":-32602,\"message\":\"%s\"}", refused_[i][1]);
+        CHECK(load(refused_[i][0], &in, &error) == ACP_INVALID_PARAMS);
+        CHECK(says(&error, want));
+        CHECK(in.session_id == NULL && in.cwd == NULL);
+        acp_buffer_free(&error);
+    }
+}
+
 int main(void) {
     reads_the_place();
     refused();
@@ -164,10 +195,11 @@ int main(void) {
     additional_directories();
     lists();
     session_info();
+    loads();
     if (failures) {
         fprintf(stderr, "session: %d failed\n", failures);
         return 1;
     }
-    printf("session: session/resume's session and cwd, session/list's request and SessionInfo, and their refusals passed\n");
+    printf("session: session/resume's session and cwd, session/list's request and SessionInfo, session/load's request, and their refusals passed\n");
     return 0;
 }

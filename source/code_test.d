@@ -101,10 +101,16 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"logout","params":{}}`)
 
 // session/load: "Clients MUST call the session/load method with" the session,
 // "MCP servers to connect to" and "The working directory": all three required.
-static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"cwd":"/w","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`)
-    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`);
+// libacp reads them; a sessionId only in _meta is none.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"cwd":"/w","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`,
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":7,"method":"session/load","params":{"_meta":{"sessionId":"code-1-1-1"},"cwd":"/w","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"session/load needs sessionId"}}`));
+}
 unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`,
