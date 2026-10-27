@@ -19,6 +19,10 @@
       libmcp = (import ./libmcp/flake.nix).outputs { self = { }; inherit nixpkgs; };
       # What the client and ground link: the library, and the json-c it patched.
       mcpLibs = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
+      # The ACP ground code speaks to its client through: libacp, kept at libacp/ the
+      # same way, and built against libmcp's json-c so one json-c is linked.
+      libacp = (import ./libacp/flake.nix).outputs { self = { }; inherit nixpkgs; };
+      acpLib = system: libacp.lib.libacpWith nixpkgs.legacyPackages.${system} libmcp.packages.${system}.json-c;
       # What phone/phone.cc compiles and links against: libphonenumber, and the headers its own include.
       phoneLibs = pkgs: [ pkgs.libphonenumber pkgs.icu pkgs.protobuf pkgs.abseil-cpp pkgs.boost ];
     in {
@@ -34,7 +38,7 @@
             src = ./.;
 
             nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git pkgs.pkg-config ];
-            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ] ++ mcpLibs system ++ phoneLibs pkgs;
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -238,7 +242,7 @@
           default = pkgs.mkShell {
             # dub asks pkg-config for each lib. Without the pinned one in the
             # shell it asked Homebrew's, which named an x86_64 libgit2.
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 ] ++ mcpLibs system ++ phoneLibs pkgs;
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
           };
         }
       );

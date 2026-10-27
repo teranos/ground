@@ -712,23 +712,41 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
-    // ACP's version is 1 for all of v1, and there is no other to offer: the
-    // client's is answered with it whatever it asked for.
+    // libacp reads the client's offer in the shape of the version it asked for,
+    // selects the version the connection speaks, and writes the result in its
+    // shape. ground code speaks v1 alone, until its v2 surface stands.
     if (method == "initialize") {
-        // "Whether the Client supports fs/read_text_file requests."
-        auto caps = objectValue(line, `"clientCapabilities"`);
-        auto fs = caps is null ? null : objectValue(caps, `"fs"`);
-        sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
-        // "Supplying {} means the client can present notices to the user."
-        auto session = caps is null ? null : objectValue(caps, `"session"`);
-        sessions.clientTakesNotices = session !is null && objectValue(session, `"notices"`) !is null;
-        // "Supplying {} explicitly advertises form support", and url's the same.
-        auto elicits = caps is null ? null : objectValue(caps, `"elicitation"`);
-        sessions.elicitsForms = elicits !is null && objectValue(elicits, `"form"`) !is null;
-        sessions.elicitsUrls = elicits !is null && objectValue(elicits, `"url"`) !is null;
+        import libacp : acp_initialize, acp_buffer, acp_status, acp_initialize_read,
+                        acp_initialize_result, acp_buffer_free;
+        static immutable uint[1] speaks = [1];
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_initialize got;
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
+        auto read = acp_initialize_read(params.ptr, params.length, speaks.ptr, speaks.length, &got, &said);
+        if (read != acp_status.ACP_OK) {
+            put(`{"jsonrpc":"2.0","id":`); put(id); put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else { put(`{"code":-32603,"message":"libacp could not read initialize"}`); }
+            put(`}`);
+            return true;
+        }
+        sessions.clientReadsFiles = got.capabilities.fs_read_text_file != 0;
+        sessions.clientTakesNotices = got.capabilities.session_notices != 0;
+        sessions.elicitsForms = got.capabilities.elicitation_form != 0;
+        sessions.elicitsUrls = got.capabilities.elicitation_url != 0;
+        Reply version_;
+        scope(exit) version_.dispose();
+        version_.add(versionString()); version_.add("\0");
+        acp_buffer result;
+        scope(exit) acp_buffer_free(&result);
+        auto wrote = acp_initialize_result(got.selected_version, "ground", version_.slice().ptr,
+            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}}`,
+            null, &result);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
-        put(versionString()); put(`"}}}`);
+        if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
+        put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
         return true;
     }
 

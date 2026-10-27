@@ -32,7 +32,7 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
 BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
-	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl \
+	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lm -L-lpthread -L-ldl \
 	$(if $(filter Darwin,$(shell uname -s)),-L-lc++,-L-lstdc++)
 
 # What make install puts beside ground; ground_parity is for whoever develops ground.
