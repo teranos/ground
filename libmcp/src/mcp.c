@@ -70,6 +70,13 @@ int64_t mcp_now(void) {
     return -1;
   return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
+/* Time spent waiting on the host is not the server's: a deadline moves past
+ * it, saturating, and one that never falls due stays so. */
+int64_t mcp_later(int64_t deadline, int64_t waited) {
+  if (waited <= 0)
+    return deadline;
+  return deadline > INT64_MAX - waited ? INT64_MAX : deadline + waited;
+}
 json *mcp_identity(mcp_client *c) {
   json *o = json_object_new_object();
   if (!mcp_add(o, "name", json_object_new_string(c->name)) ||
@@ -356,6 +363,10 @@ mcp_status mcp_request_resume(mcp_request *r, const char *text, mcp_error *e) {
   int64_t now = mcp_now();
   if (now < 0)
     return mcp_fail(e, MCP_SYSTEM_ERROR, errno, "read continuation clock");
+  if (r->paused_at < 0)
+    return mcp_fail(e, MCP_SYSTEM_ERROR, 0,
+                    "pause clock was unreadable at input_required");
+  r->deadline = mcp_later(r->deadline, now - r->paused_at);
   if (now >= r->deadline) {
     mcp_finish(r, MCP_TIMEOUT, NULL);
     return mcp_fail(e, MCP_TIMEOUT, 0, "continuation deadline elapsed");

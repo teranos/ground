@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "internal.h"
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
@@ -70,11 +71,22 @@ mcp_status mcp_invoke(mcp_client *c, const char *method, json *p, json **out,
     return mcp_fail(e, MCP_NO_MEMORY, 0, "serialize client feature parameters");
   mcp_response result = {0};
   mcp_error detail = {0};
+  int64_t asked = mcp_now();
+  if (asked < 0)
+    return mcp_fail(e, MCP_SYSTEM_ERROR, errno, "read handler clock");
   bool was_polling = c->polling;
   c->polling = true;
   mcp_status s =
       c->on_request(c->request_context, method, text, &result, &detail);
   c->polling = was_polling;
+  int64_t answered = mcp_now();
+  if (answered < 0) {
+    mcp_response_free(&result);
+    return mcp_fail(e, MCP_SYSTEM_ERROR, errno, "read handler clock");
+  }
+  for (mcp_request *r = c->requests; r; r = r->next)
+    if (r->status == MCP_PENDING)
+      r->deadline = mcp_later(r->deadline, answered - asked);
   if (s != MCP_OK && s != MCP_REMOTE_ERROR) {
     mcp_response_free(&c->handler_error);
     c->handler_error = result;
@@ -377,6 +389,7 @@ mcp_status mcp_dispatch(mcp_client *c, mcp_request *origin, const char *text,
       }
       json_object_put(r->input_result);
       r->input_result = json_object_get(result);
+      r->paused_at = mcp_now();
       mcp_finish(r, MCP_INPUT_REQUIRED, NULL);
     } else {
       if (!strcmp(r->method, "tools/call") && tool_error &&

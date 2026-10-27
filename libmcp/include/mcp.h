@@ -134,7 +134,8 @@ mcp_status mcp_tool_call(mcp_client *, const mcp_tool *, const char *arguments,
 /* Handler output is a result object, or an error object for MCP_REMOTE_ERROR.
  * Use mcp_response_set to copy it into library-owned storage. A handler only
  * runs for explicitly declared capabilities. It may decline without retrying.
- * Callbacks run on the polling thread; no reentry into the same client. */
+ * Callbacks run on the polling thread; no reentry into the same client.
+ * The time a handler takes is not counted against any request's deadline. */
 typedef mcp_status (*mcp_handler_fn)(void *context, const char *method,
                                    const char *params_json, mcp_response *result,
                                    mcp_error *error);
@@ -198,13 +199,16 @@ long mcp_request_http_status(const mcp_request *);
 int mcp_request_transport_code(const mcp_request *);
 mcp_status mcp_request_take(mcp_request *, mcp_response *, mcp_error *);
 mcp_status mcp_request_cancel(mcp_request *, const char *reason, mcp_error *);
+/* The time between input_required and resume is not counted against the
+ * request's deadline: the host can take as long as it needs to answer. */
 mcp_status mcp_request_resume(mcp_request *, const char *input_responses, mcp_error *);
 mcp_status mcp_request_destroy(mcp_request *, mcp_error *);
 /* Optional synchronous MRTR helper. Invokes declared feature handlers and
  * echoes opaque requestState with a fresh RPC id for each continuation.
  * On a host handler failure, response contains that handler's JSON error
  * object when supplied, preserving its message and data.
- * The whole conversation shares the original timeout; no tool is retried on
+ * The whole conversation shares the original timeout, less the time spent in
+ * handlers; no tool is retried on
  * transport errors. If no handler is installed, INPUT_REQUIRED is returned. */
 mcp_status mcp_client_call(mcp_client *, const char *method, const char *params,
                            mcp_response *, mcp_error *);
