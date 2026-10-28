@@ -195,6 +195,8 @@ extern (C) nothrow @nogc {
     acp_status acp_read_text_file_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_read_text_file_result_read(const(char)*, size_t, acp_text_file*);
     void acp_text_file_free(acp_text_file*);
+    acp_status acp_write_text_file_request_write(const(char)*, const(char)*, const(char)*, const(char)*, size_t, acp_buffer*);
+    acp_status acp_write_text_file_result_read(const(char)*, size_t, int*);
     acp_status acp_prompt_result_write(acp_stop_reason, acp_buffer*);
     acp_status acp_session_update_write(const(char)*, const(char)*, acp_buffer*);
     acp_status acp_text_chunk_write(acp_chunk_kind, const(char)*, size_t, acp_buffer*);

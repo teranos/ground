@@ -94,6 +94,7 @@ struct Sessions {
     long clock;      // the time, when one is given; otherwise the system's
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
+    bool clientWritesFiles; // initialize said the client answers fs/write_text_file
     bool clientTakesNotices; // initialize said the client presents notice session updates
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
@@ -144,7 +145,7 @@ private bool listed(const(char)[] names, const(char)[] name) {
 
 // What a session's mode makes of a call its turn asks for. Manual asks the
 // client; acceptEdits and auto have no meaning of their own for ground code,
-// which has no edit tools and no classifier, so they ask as Manual does.
+// so they ask as Manual does, write_text_file among the calls they ask for.
 private enum Verdict { run, ask, refuse }
 private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref const(char)[] why) {
     final switch (o.mode) {
@@ -234,6 +235,59 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     if (readTextContent(answered.slice(), content) == 1) return 1;
     why.add(answered.slice());
     return -1;
+}
+
+// fs/write_text_file, asked of the client for what a write_text_file call gives: 1 answered, its answer in
+// answered; 0 not asked, the arguments being no absolute path and text, said in answered; 2 the turn was
+// called off; -1 the client could not be asked, why the reason.
+private int writeThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
+        const(char)[] arguments, ref Reply answered, ref Reply why) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
+        json_object_get_string, json_object_get_string_len;
+    import core.stdc.string : strlen;
+    auto args = parseJson(arguments);
+    scope(exit) json_object_put(args);
+    auto path = jsonField(args, "path"), content = jsonField(args, "content");
+    // A path is a C string to libacp, so one holding a NUL would name another file.
+    if (json_object_get_type(path) != json_type.string_ || json_object_get_type(content) != json_type.string_
+            || json_object_get_string(path)[0] != '/' || strlen(json_object_get_string(path)) != cast(size_t) json_object_get_string_len(path)) {
+        answered.add(`{"status":"not run","why":"write_text_file takes path, an absolute path, and content, text"}`);
+        return 0;
+    }
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    sessions.asked++;
+    Reply pid;
+    scope(exit) pid.dispose();
+    pid.add(`"write-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    // libacp writes the request from these, each its own bytes and a NUL; content goes by its length.
+    import libacp : acp_write_text_file_request_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid);
+    if (text.full) { why.add(`"could not allocate fs/write_text_file"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_write_text_file_request_write(t + idAt, t + sidAt, json_object_get_string(path), json_object_get_string(content),
+            cast(size_t) json_object_get_string_len(content), &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write fs/write_text_file"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+        why.add(`"could not write fs/write_text_file"`);
+        return -1;
+    }
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on the write"`); return -1; }
+    return waited;
+}
+
+// Whether the client's answer to fs/write_text_file is a result, the file written. libacp reads it.
+private bool clientWrote(const(char)[] line) {
+    import libacp : acp_write_text_file_result_read, acp_status;
+    int written;
+    return acp_write_text_file_result_read(line.ptr, line.length, &written) == acp_status.ACP_OK && written == 1;
 }
 
 // The client's answer to session/request_permission: 1 an option was selected,
@@ -842,6 +896,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         sessions.clientReadsFiles = got.capabilities.fs_read_text_file != 0;
+        sessions.clientWritesFiles = got.capabilities.fs_write_text_file != 0;
         sessions.clientTakesNotices = got.capabilities.session_notices != 0;
         sessions.elicitsForms = got.capabilities.elicitation_form != 0;
         sessions.elicitsUrls = got.capabilities.elicitation_url != 0;
@@ -1667,6 +1722,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
                 return true;
             }
+            if (sessions.clientWritesFiles) putWriteTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
             auto token = qntxToken(qntxNode.token);
             auto dest = cast(char*) malloc(GATEWAY_BODY);
@@ -1789,7 +1845,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // here and in no update after.
                     // "Helps clients choose appropriate icons and UI
                     // treatment": read, when the tool's annotations say it only reads.
-                    auto kind = readOnlyTool(o.mcp, call.name) ? "read" : null;
+                    // edit, for ground code's own write:
+                    // "Modifying files or content."
+                    bool own = call.name == WRITE_TOOL && sessions.clientWritesFiles;
+                    auto kind = own ? "edit" : readOnlyTool(o.mcp, call.name) ? "read" : null;
                     auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
                     if (!putToolCall(u, false, call.id, call.name, call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
@@ -1826,41 +1885,58 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         if (!putToolCall(u, true, call.id, null, null, null, "failed", null, refused.slice()) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         continue;
                     }
-                    server.add(serverOf(call.name)); server.add("\0");
-                    tool.add(toolOf(call.name)); tool.add("\0");
-                    args.add(call.arguments); args.add("\0");
-                    import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
-                    import core.stdc.string : strlen;
-                    mcp_response response, validation;
-                    mcp_error error;
-                    scope(exit) { mcp_response_free(&response); mcp_response_free(&validation); }
-                    // "Abort all tool call invocations in progress": a cancel
-                    // that arrives while the call runs cancels it at the server.
-                    bool stopCall() { return cancelAsked(turn); }
-                    // What the server asks while it runs is asked of the client, tied to this call.
-                    int askClient(const(char)[] method, const(char)[] params, ref Reply answer) {
-                        return elicit(sessions, turn, sid, call.id, method, params, answer);
-                    }
-                    // What the server logs at warning or above while it runs, the user is told.
-                    void hearServer(const(char)[] name, const(char)[] level, const(char)[] data) {
-                        Reply title;
-                        scope(exit) title.dispose();
-                        title.add("MCP server "); title.add(name); title.add(" logged ");
-                        title.add(level == "warning" ? "a warning" : level == "error" ? "an error"
-                            : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
-                        tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
-                    }
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient, &hearServer);
-                    bool ok = status == mcp_status.MCP_OK;
-                    if (ok) result.add(response.json[0 .. response.length]);
-                    else {
-                        result.add(`{"status":"`); result.add(mcp_status_string(status)[0 .. strlen(mcp_status_string(status))]);
-                        result.add(`","message":"`); if (error.message !is null) putEscaped(result, error.message[0 .. strlen(error.message)]);
-                        result.add(`","response":"`); if (response.json !is null) putEscaped(result, response.json[0 .. response.length]);
-                        result.add(`","validation":`);
-                        if (validation.json !is null) result.add(validation.json[0 .. validation.length]);
-                        else result.add("null");
-                        result.add(`}`);
+                    bool ok;
+                    if (own) {
+                        // What the client answered is what the call answered.
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto wrote = writeThroughClient(sessions, turn, sid, call.arguments, result, asking);
+                        if (wrote < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client to write the file","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
+                        if (wrote == 2) result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to write the file"}`);
+                        ok = wrote == 1 && clientWrote(result.slice());
+                    } else {
+                        server.add(serverOf(call.name)); server.add("\0");
+                        tool.add(toolOf(call.name)); tool.add("\0");
+                        args.add(call.arguments); args.add("\0");
+                        import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
+                        import core.stdc.string : strlen;
+                        mcp_response response, validation;
+                        mcp_error error;
+                        scope(exit) { mcp_response_free(&response); mcp_response_free(&validation); }
+                        // A cancel that arrives while the call runs cancels it at the server:
+                        // "Abort all tool call invocations in progress"
+                        bool stopCall() { return cancelAsked(turn); }
+                        // What the server asks while it runs is asked of the client, tied to this call.
+                        int askClient(const(char)[] method, const(char)[] params, ref Reply answer) {
+                            return elicit(sessions, turn, sid, call.id, method, params, answer);
+                        }
+                        // What the server logs at warning or above while it runs, the user is told.
+                        void hearServer(const(char)[] name, const(char)[] level, const(char)[] data) {
+                            Reply title;
+                            scope(exit) title.dispose();
+                            title.add("MCP server "); title.add(name); title.add(" logged ");
+                            title.add(level == "warning" ? "a warning" : level == "error" ? "an error"
+                                : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
+                            tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
+                        }
+                        auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient, &hearServer);
+                        ok = status == mcp_status.MCP_OK;
+                        if (ok) result.add(response.json[0 .. response.length]);
+                        else {
+                            result.add(`{"status":"`); result.add(mcp_status_string(status)[0 .. strlen(mcp_status_string(status))]);
+                            result.add(`","message":"`); if (error.message !is null) putEscaped(result, error.message[0 .. strlen(error.message)]);
+                            result.add(`","response":"`); if (response.json !is null) putEscaped(result, response.json[0 .. response.length]);
+                            result.add(`","validation":`);
+                            if (validation.json !is null) result.add(validation.json[0 .. validation.length]);
+                            else result.add("null");
+                            result.add(`}`);
+                        }
                     }
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
