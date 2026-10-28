@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -45,4 +46,31 @@ void acp_text_file_free(acp_text_file *file) {
     free(file->content);
     file->content = NULL;
     file->length = 0;
+}
+
+acp_status acp_write_text_file_request_write(const char *request_id, const char *session_id, const char *path,
+    const char *content, size_t content_length, acp_buffer *message_json) {
+    if (request_id == NULL || session_id == NULL || path == NULL || content == NULL || message_json == NULL ||
+        content_length > INT_MAX)
+        return ACP_INVALID_ARGUMENT;
+    json_object *id = acp_parse(request_id, strlen(request_id));
+    if (id == NULL) return ACP_INVALID_ARGUMENT;
+    json_object *params = json_object_new_object();
+    json_object_object_add(params, "sessionId", json_object_new_string(session_id));
+    json_object_object_add(params, "path", json_object_new_string(path));
+    json_object_object_add(params, "content", json_object_new_string_len(content, (int) content_length));
+    json_object *message = json_object_new_object();
+    json_object_object_add(message, "jsonrpc", json_object_new_string("2.0"));
+    json_object_object_add(message, "id", id);
+    json_object_object_add(message, "method", json_object_new_string("fs/write_text_file"));
+    json_object_object_add(message, "params", params);
+    return acp_finish(message, message_json);
+}
+
+acp_status acp_write_text_file_result_read(const char *message_json, size_t length, int *written) {
+    if (message_json == NULL || written == NULL) return ACP_INVALID_ARGUMENT;
+    json_object *message = acp_parse(message_json, length);
+    *written = json_object_is_type(acp_field(message, "result"), json_type_object);
+    json_object_put(message);
+    return ACP_OK;
 }
