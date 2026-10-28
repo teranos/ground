@@ -1,0 +1,17 @@
+# Part 15: nested fields and malformed servers cannot create a session.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"_meta":{"cwd":"$CWD","mcpServers":[]}}}
+expect "id":1,"error":{"code":-32602
+{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"$CWD","_meta":{"mcpServers":[]}}}
+expect "id":2,"error":{"code":-32602
+{"jsonrpc":"2.0","id":3,"method":"session/new","_meta":{"params":{"cwd":"$CWD","mcpServers":[]}},"params":{}}
+expect "id":3,"error":{"code":-32602
+{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[{"name":"first","command":"/does/not/exist","args":[],"env":[]},{}]}}
+expect "id":4,"error":{"code":-32602
+{"jsonrpc":"2.0","id":5,"method":"session/list","params":{"cwd":"$CWD"}}
+expect "id":5,"result":{"sessions":[]}
+{"jsonrpc":"2.0","id":6,"method":"session/new","_meta":{"params":{"cwd":"relative","mcpServers":[7]}},"params":{"_meta":{"cwd":"relative","mcpServers":[7]},"cwd":"$CWD","mcpServers":[]}}
+wait 6
+{"jsonrpc":"2.0","id":7,"method":"session/close","params":{"sessionId":"$SID"}}
+expect "id":7,"result":{}

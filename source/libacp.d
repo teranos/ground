@@ -28,6 +28,17 @@ extern (C) nothrow @nogc {
         acp_client_capabilities capabilities;
     }
 
+    struct acp_session_new {
+        char* cwd;
+        acp_buffer additional_directories;
+    }
+
+    acp_status acp_session_new_read(const(char)* params_json, size_t length,
+        acp_session_new* out_, acp_buffer* error_json);
+    void acp_session_new_free(acp_session_new* session);
+    acp_status acp_session_new_result(const(char)* session_id, const(char)* modes_json,
+        const(char)* config_options_json, acp_buffer* out_json);
+
     struct acp_session_resume {
         char* session_id;
         char* cwd;

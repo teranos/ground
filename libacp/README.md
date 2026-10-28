@@ -39,5 +39,6 @@ v2 client with v1, which the guide allows of a v1-only agent.
 
 ## Scope
 
-`initialize` and version selection. The rest of the agent side follows from
-`ground code`, which still writes them itself.
+The methods and updates ported from `ground code` are listed in [SURFACE.md](SURFACE.md).
+`initialize` reads and writes both version shapes. Each subsequent row states the
+implemented v1 surface and its v2 differences; documenting v2 is not implementing it.
