@@ -911,27 +911,33 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // Ground owns each session's MCP clients, including discovery and close.
     if (method == "session/new") {
-        char[4096] cb;
-        auto cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
-        auto mcp = emptyArray(line, `"mcpServers"`);
+        import libacp : acp_session_new, acp_session_new_read, acp_session_new_free,
+            acp_session_new_result, acp_buffer, acp_buffer_free, acp_status;
+        import libjsonc : parseJson, jsonField, json_object_put, json_object_to_json_string_ext;
+        import core.stdc.string : strlen;
+        // Only the envelope's own params: a nested _meta.params is not the request.
+        auto root = parseJson(line);
+        scope(exit) json_object_put(root);
+        auto params = json_object_to_json_string_ext(jsonField(root, "params"), 0);
+        if (params is null) params = "null";
+        acp_session_new asked;
+        scope(exit) acp_session_new_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (cwd is null) { put(`,"error":{"code":-32602,"message":"session/new needs cwd"}}`); return true; }
-        if (cwd.length == 0 || cwd[0] != '/') {
-            char[8192] eb;
-            auto n = jsonEscapeInto(cwd, eb[]);
-            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
-            put(n < 0 ? "one too long to name" : eb[0 .. cast(size_t) n]);
-            put(`"}}`);
+        if (acp_session_new_read(params, strlen(params), &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/new"}`);
+            put(`}`);
             return true;
         }
-        if (mcp < 0) { put(`,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`); return true; }
+        auto cwd = asked.cwd[0 .. strlen(asked.cwd)];
+        auto dirs = asked.additional_directories.data[0 .. asked.additional_directories.length];
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
-        Reply dirs;
-        scope(exit) dirs.dispose();
-        if (readDirs(line, dirs, r)) return true;
         if (sessions.openLen == sessions.open.length) {
             put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
             return true;
@@ -947,9 +953,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 put(detail.slice()); put(`}}`);
                 return true;
             }
-        } else if (mcp == 0) assert(0, "MCP processes are tested at runtime");
+        }
         sessions.count++;
         Reply sid;
+        scope(exit) sid.dispose();
         putSessionId(sid, sessions, sessions.count);
         size_t effort = MEDIUM;
         if (sessions.settingsEffort && !__ctfe) {
@@ -957,32 +964,29 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             __gshared char[65536] settings;
             effort = effortAt(effortDefault(settings[0 .. settingsInto(settings[])]));
         }
-        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), efforts[effort], now(sessions))) {
+        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs, efforts[effort], now(sessions))) {
             Reply detail;
             scope(exit) detail.dispose();
             if (!__ctfe) closeMcp(o.mcp, detail);
             put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
             return true;
         }
-        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice(), effort);
+        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs, effort);
         o.updatedAt = now(sessions);
         sessions.openLen++;
         announceCommands(sessions, sid.slice(), o.mcp);
-        auto head = r.len;
-        put(`,"result":{"sessionId":"`); put(sid.slice());
-        put(`","modes":`);
-        if (!putModes(r, SessionMode.manual)) {
-            r.len = head;
-            put(`,"error":{"code":-32603,"message":"libacp could not write the modes of `); putEscaped(r, sid.slice()); put(`"}}`);
+        Reply modes, config;
+        scope(exit) { modes.dispose(); config.dispose(); }
+        acp_buffer result;
+        scope(exit) acp_buffer_free(&result);
+        bool written = putModes(modes, SessionMode.manual) && putConfig(config, SessionMode.manual, effort);
+        modes.add("\0"); config.add("\0"); sid.add("\0");
+        if (!written || modes.full || config.full || sid.full ||
+            acp_session_new_result(sid.slice().ptr, modes.slice().ptr, config.slice().ptr, &result) != acp_status.ACP_OK) {
+            put(`,"error":{"code":-32603,"message":"libacp could not write session/new"}}`);
             return true;
         }
-        put(`,"configOptions":`);
-        if (!putConfig(r, SessionMode.manual, effort)) {
-            r.len = head;
-            put(`,"error":{"code":-32603,"message":"libacp could not write the configOptions of `); putEscaped(r, sid.slice()); put(`"}}`);
-            return true;
-        }
-        put(`}}`);
+        put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
         return true;
     }
 

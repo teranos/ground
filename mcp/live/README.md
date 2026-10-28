@@ -46,6 +46,7 @@ five minutes, or ground code ending first, prints `# FAILED` and exits 1.
 
 | Script | Checks | First run for |
 |---|---|---|
+| `new.acp` | session/new reads its own params, rejects malformed servers before setup, and creates no session on refusal | #179 (part 15) |
 | `init.acp` | initialize in both shapes, a version none fits, none named; authenticate refused; a v2-shaped client's elicitation | #179, #131 (part 7) |
 | `delete.acp` | a session one process opened, deleted by another, and the refusals | #120 (part 2) |
 | `modes.acp` | a session's modes offered, set by set_mode and by config option, kept across a resume | #121 (part 3), #162 |

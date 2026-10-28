@@ -144,13 +144,32 @@ unittest {
     assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 }
 
-// "The working directory for this session. Must be an absolute path."
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"cwd must be an absolute path: tmp"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"session/new needs cwd"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/tmp"}}`)
-    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`);
+// The reader is C: these refusals now run alongside the successful creations.
+unittest {
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"cwd must be an absolute path: tmp"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"session/new needs cwd"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/tmp"}}`,
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`));
+}
+
+// Part 15: nested fields cannot create a session, and invalid servers fail before setup.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    enum missingCwd = `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new needs cwd"}}`;
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"_meta":{"cwd":"/tmp","mcpServers":[]}}}`, missingCwd));
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","_meta":{"mcpServers":[]}}}`,
+        `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`));
+    // Even a whole params object nested in metadata is not the envelope's params.
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","_meta":{"params":{"cwd":"/tmp","mcpServers":[]}},"params":{}}`, missingCwd));
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"first","command":"/does/not/exist","args":[],"env":[]},{}]}}`,
+        `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new has an invalid MCP server configuration"}}`));
+    assert(s.openLen == 0 && s.count == 0);
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","_meta":{"params":{"cwd":"relative","mcpServers":[7]}},"params":{"_meta":{"cwd":"relative","mcpServers":[7]},"cwd":"/tmp","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(s.openLen == 1 && s.count == 1);
+}
 
 // Nonempty mcpServers launch real processes. libmcp/tests/test_ground.py
 // verifies the runtime path, rollback, per-session ownership and EOF cleanup.
@@ -217,8 +236,10 @@ unittest {
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/list's cwd must be a string"}}`));
 }
 // A cwd is kept whole or not at all.
-static assert(answerOf(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
+unittest {
+    assert(answersFresh(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`));
+}
 
 private string replicate()(string s, size_t n) {
     string r;
@@ -1361,7 +1382,8 @@ version (Posix) unittest {
 
     Reply req;
     scope(exit) req.dispose();
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    // ACP requires an absolute executable; env finds Python in the test shell.
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/abort_server.py"],"env":[{"name":"ABORT_LOG","value":"`);
     req.add(dir[0 .. dirLen]); req.add(`/wire.jsonl"}]}]}}`);
     fflush(stdout);
@@ -1632,7 +1654,7 @@ version (Posix) unittest {
         scope(exit) { init.dispose(); req.dispose(); }
         init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":`);
         init.add(caps); init.add(`}}`);
-        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
         req.add(cwd[0 .. cwdLen]); req.add(`/mcp/elicit_server.py"],"env":[{"name":"ELICIT_PROTOCOL","value":"`);
         req.add(protocol); req.add(`"},{"name":"ELICIT_LOG","value":"`);
         req.add(dir[0 .. dirLen]); req.add(`/wire.jsonl"}]}]}}`);
@@ -1725,7 +1747,7 @@ version (Posix) unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"slow","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"slow","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/slow_server.py"],"env":[]}]}}`);
     answer(req.slice(), r, s);
     if (indexOf(r.slice(), `"sessionId":"code-100-7-1"`) < 0) {
@@ -1819,7 +1841,7 @@ version (Posix) unittest {
         scope(exit) { init.dispose(); req.dispose(); }
         init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":`);
         init.add(caps); init.add(`}}`);
-        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
         req.add(cwd[0 .. cwdLen]); req.add(`/mcp/log_server.py"],"env":[]}]}}`);
         auto out_ = capture(s, () {
             answer(init.slice(), r, s); r.len = 0;
@@ -2000,7 +2022,7 @@ version (Posix) unittest {
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/look_server.py"],"env":[]}]}}`);
     int[2] o;
     assert(pipe(o) == 0);
@@ -2085,7 +2107,7 @@ version (Posix) unittest {
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/prompt_server.py"],"env":[]}]}}`);
     int[2] o;
     assert(pipe(o) == 0);
@@ -2188,7 +2210,7 @@ version (Posix) unittest {
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"notes","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"notes","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/resource_server.py"],"env":[]}]}}`);
     __gshared char[4096] said1, said2, said3;
     size_t len1, len2, len3;

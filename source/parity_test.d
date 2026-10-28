@@ -307,6 +307,10 @@ static assert(has(sideFor("acp", "session/list").writes, "sessions"));
 static assert(has(sideFor("acp", "session/resume").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/resume").reads, "cwd"));
 static assert(has(sideFor("acp", "session/delete").reads, "sessionId"));
+// Part 15: the creation reader and result writer count through libacp.
+static assert(has(sideFor("acp", "session/new").reads, "cwd"));
+static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
+static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(has(sideFor("acp", "session/new").writes, "modes"));
 static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
