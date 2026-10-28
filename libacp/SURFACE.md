@@ -7,6 +7,7 @@ what v2 (schema-v2.0.0-alpha.9) says of the same method, so v2 needs no second p
 | Method | Part | Ported from | libacp, v1 | v2 alpha.9 |
 |---|---|---|---|---|
 | `initialize` | 0 | #179 | reads `protocolVersion`, `clientCapabilities`; writes `protocolVersion`, `agentCapabilities`, `authMethods`, `agentInfo` | request carries `info`, `capabilities`; result `info`, `capabilities`, `authMethods`; read and written by libacp in both shapes |
+| `session/new` | 15 | #113 | reads its own `cwd`, `mcpServers` (stdio, HTTP and SSE shapes), and `additionalDirectories`; writes `sessionId`, `modes`, `configOptions`; Ground owns transport support, startup and storage | stdio adds explicit `type: "stdio"`; result drops `modes`, permits `availableCommands`, and config options use `configId`; this reader and result writer implement v1 only |
 | `session/resume` | 1 | #118 | reads `sessionId`, `cwd` (absolute) | request adds `replayFrom`; result drops `modes`, adds `availableCommands` |
 | `session/delete` | 2 | #120 | reads `sessionId` | the same: `sessionId` required, result `_meta` only |
 | `additionalDirectories` in `session/new` and `session/resume` | 4 | #123 | reads the list, each path absolute; writes it back as answered | the same in `session/new`, `session/resume` and `SessionInfo` |

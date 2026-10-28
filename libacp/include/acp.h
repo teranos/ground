@@ -71,6 +71,21 @@ acp_status acp_initialize_result(unsigned selected_version,
 acp_status acp_authenticate_read(const char *params_json, size_t length, char **method_id, acp_buffer *error_json);
 void acp_authenticate_free(char **method_id);
 
+// session/new in v1: required cwd and mcpServers, with every server shape checked.
+// The library owns cwd and the normalized additionalDirectories until freed.
+// Transport support and process limits remain the agent's responsibility.
+typedef struct acp_session_new {
+    char *cwd;
+    acp_buffer additional_directories;
+} acp_session_new;
+
+acp_status acp_session_new_read(const char *params_json, size_t length,
+                                acp_session_new *out, acp_buffer *error_json);
+void acp_session_new_free(acp_session_new *session);
+// modes/configOptions are already written by their libacp writers; NULL omits them.
+acp_status acp_session_new_result(const char *session_id, const char *modes_json,
+                                  const char *config_options_json, acp_buffer *out_json);
+
 // session/resume's request: the session, and the absolute cwd it is resumed in.
 // libacp owns both strings until acp_session_resume_free.
 typedef struct acp_session_resume {
