@@ -330,6 +330,9 @@ static assert(has(sideFor("acp", "initialize").reads, "capabilities"));
 static assert(has(sideFor("acp", "initialize").reads, "protocolVersion"));
 static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
 static assert(has(sideFor("acp", "fs/read_text_file").reads, "content"));
+static assert(has(sideFor("acp", "fs/write_text_file").writes, "sessionId"));
+static assert(has(sideFor("acp", "fs/write_text_file").writes, "path"));
+static assert(has(sideFor("acp", "fs/write_text_file").writes, "content"));
 // A turn's answer is libacp's, through putStop: still measured as session/prompt's.
 static assert(has(sideFor("acp", "session/prompt").writes, "stopReason"));
 // What libacp writes for a session's MCP server: elicitation/create's message, and the update's own fields.

@@ -31,6 +31,17 @@ const(char)[] toolOf(const(char)[] name) {
     return at < 0 ? name : name[cast(size_t) at + TOOL_MARK.length .. $];
 }
 
+// ground code's own tool, fs/write_text_file's request as the model calls it, in the schema's words.
+// Its name has no TOOL_MARK, so no server's tool is named the same.
+enum WRITE_TOOL = "write_text_file";
+
+void putWriteTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ WRITE_TOOL ~ `","description":"Request to write content to a text file.",`
+        ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
+        ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}`);
+}
+
 // --- the prompt's text, read from the ACP line ---
 
 private void putUtf8(ref Reply r, uint cp) {
