@@ -1317,6 +1317,174 @@ version (Posix) unittest {
     end(input, p, s);
 }
 
+// fs/write_text_file is offered the model as write_text_file when the client offers it:
+// "Only available if the client supports the `fs.writeTextFile` capability"
+// The call runs through the client as the session's mode allows, and the client's answer is what it answered.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, sleep;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+
+    enum http ="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    enum done = http ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    enum writes = `{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":true}}}`;
+    __gshared char[65536] said, asked;
+    __gshared size_t saidLen, askedLen;
+    __gshared char[4096] gotBuf;
+    __gshared size_t gotLen;
+
+    // A turn in mode whose model calls write_text_file with args, then is done; the client sends queued
+    // once the model has called, a second later when late. What the gateway was first asked lands in asked.
+    void turn(string caps, string mode, string args, string queued, ref Sessions s, bool late = false) {
+        Reply calls;
+        scope(exit) calls.dispose();
+        calls.add(http);
+        calls.add(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`);
+        calls.add(`{"id":"c1","type":"function","function":{"name":"write_text_file","arguments":"`); calls.add(args); calls.add(`"}}]}}]}`);
+        int[2] first, p;
+        assert(pipe(first) == 0 && pipe(p) == 0);
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            // The whole first request: its body ends the reasoning object and itself.
+            char[65536] got;
+            size_t len = 0;
+            auto c = accept(fd, null, null);
+            while (len < got.length) {
+                auto r = read(c, got.ptr + len, got.length - len);
+                if (r <= 0) break;
+                len += cast(size_t) r;
+                if (len >= 3 && got[len - 3 .. len] == `"}}` && indexOf(got[0 .. len], `"reasoning":{`) >= 0) break;
+            }
+            write(first[1], got.ptr, len);
+            close(first[1]);
+            write(c, calls.slice().ptr, calls.len);
+            close(c);
+            if (late) sleep(1);
+            write(p[1], queued.ptr, queued.length);
+            c = accept(fd, null, null);
+            read(c, got.ptr, got.length);
+            write(c, done.ptr, done.length);
+            close(c);
+            _exit(0);
+        }
+        close(fd);
+        close(first[1]);
+        __gshared char[32] urlBuf;
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        Input input = Input(p[0]);
+        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.input = &input;
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        Reply r, init, set;
+        scope(exit) { init.dispose(); set.dispose(); }
+        init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":`); init.add(caps); init.add(`}`);
+        set.add(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"`); set.add(mode); set.add(`"}}`);
+        answer(init.slice(), r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+        answer(set.slice(), r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"write it"}]}}`, r, s);
+        gotLen = r.len < gotBuf.length ? r.len : gotBuf.length;
+        foreach (i; 0 .. gotLen) gotBuf[i] = r.slice()[i];
+        r.dispose();
+        fflush(stdout);
+        dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        askedLen = 0;
+        while (true) {
+            auto got = read(first[0], asked.ptr + askedLen, asked.length - askedLen);
+            if (got <= 0) break;
+            askedLen += cast(size_t) got;
+        }
+        close(first[0]);
+    }
+    enum ended = `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`;
+    enum args = `{\"path\":\"/tmp/a b\",\"content\":\"line one\\nline \\\"two\\\"\"}`;
+    enum request = `{"jsonrpc":"2.0","id":"write-1","method":"fs/write_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b","content":"line one\nline \"two\""}}`;
+    Sessions s;
+
+    // Offered: the model is offered the tool in the schema's own words, and the file is written through the client.
+    enum wrote = `{"jsonrpc":"2.0","id":"write-1","result":{}}`;
+    turn(writes, "bypassPermissions", args, wrote ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"write_text_file","description":"Request to write content to a text file.",`
+        ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
+        ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}]`) >= 0);
+    assert(indexOf(said[0 .. saidLen], request) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_text_file","name":"write_text_file","kind":"edit","status":"in_progress",`
+        ~ `"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{}}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // The client could not write it: the call failed with the client's own answer, and the model goes on.
+    enum refused = `{"jsonrpc":"2.0","id":"write-1","error":{"code":-32002,"message":"read-only"}}`;
+    turn(writes, "bypassPermissions", args, refused ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refused) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `"content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"error\":{\"code\":-32002,\"message\":\"read-only\"}}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // A path that is not absolute is not asked of the client, nor is a call missing content.
+    turn(writes, "bypassPermissions", `{\"path\":\"a b\",\"content\":\"x\"}`, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"write_text_file takes path, an absolute path, and content, text\"}"}`) >= 0);
+    s.open[0].history.dispose();
+    turn(writes, "bypassPermissions", `{\"path\":\"/tmp/a\"}`, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    s.open[0].history.dispose();
+
+    // Plan mode runs only what only reads, and a write does not.
+    turn(writes, "plan", args, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed"`) >= 0);
+    s.open[0].history.dispose();
+
+    // Called off while the client writes: the turn stops, and the history says the call was cut short.
+    turn(writes, "bypassPermissions", args, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n", s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(said[0 .. saidLen], request) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while it was asked to write the file\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Not offered: no such tool is offered, and a call by its name is no write.
+    turn(`{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}`, "bypassPermissions", args, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(asked[0 .. askedLen], `write_text_file`) < 0);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    s.open[0].history.dispose();
+}
+
 // "Upon receiving this notification, the Agent SHOULD: ... Abort all tool call
 // invocations in progress". A cancel that arrives while a session's tool runs
 // cancels it at the server, and the turn answers cancelled without waiting

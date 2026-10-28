@@ -232,6 +232,15 @@ typedef struct acp_text_file {
 acp_status acp_read_text_file_result_read(const char *message_json, size_t length, acp_text_file *out);
 void acp_text_file_free(acp_text_file *file);
 
+// fs/write_text_file, whole: request_id is JSON text, path the absolute path to write, and
+// content its content_length bytes, every one of them.
+acp_status acp_write_text_file_request_write(const char *request_id, const char *session_id, const char *path,
+    const char *content, size_t content_length, acp_buffer *message_json);
+
+// What a client answers fs/write_text_file with: written is 1 for a result, which is the file
+// written, and 0 for any other answer, an error among them.
+acp_status acp_write_text_file_result_read(const char *message_json, size_t length, int *written);
+
 // Why a turn stopped: PromptResponse's stopReason, in the schema's order.
 typedef enum acp_stop_reason {
     ACP_STOP_END_TURN,

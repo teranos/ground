@@ -1,4 +1,5 @@
-// fs/read_text_file, as #156 asks it of the client: the request, and the text it answers with.
+// fs/read_text_file, as #156 asks it of the client: the request, and the text it answers with;
+// fs/write_text_file: the request, and whether the client wrote the file.
 #include "acp.h"
 
 #include <stdio.h>
@@ -50,13 +51,46 @@ static void answers(void) {
     }
 }
 
+// fs/write_text_file's whole request: the content's every byte, a NUL among them, as JSON escapes it.
+static void write_request(void) {
+    acp_buffer out = {0};
+    CHECK(acp_write_text_file_request_write("\"write-1\"", "code-1-1-1", "/tmp/a b/c\"d", "one\0two\n", 8, &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"method\":\"fs/write_text_file\",\"params\":"
+                     "{\"sessionId\":\"code-1-1-1\",\"path\":\"/tmp/a b/c\\\"d\",\"content\":\"one\\u0000two\\n\"}}"));
+    acp_buffer_free(&out);
+    CHECK(acp_write_text_file_request_write("\"write-1\"", "code-1-1-1", "/tmp/empty", "", 0, &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"method\":\"fs/write_text_file\",\"params\":"
+                     "{\"sessionId\":\"code-1-1-1\",\"path\":\"/tmp/empty\",\"content\":\"\"}}"));
+    acp_buffer_free(&out);
+    CHECK(acp_write_text_file_request_write("write-1", "code-1-1-1", "/tmp/a", "x", 1, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_write_text_file_request_write("\"write-1\"", "code-1-1-1", "/tmp/a", NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+}
+
+static int written(const char *message) {
+    int got = -1;
+    if (acp_write_text_file_result_read(message, strlen(message), &got) != ACP_OK) return -1;
+    return got;
+}
+
+// WriteTextFileResponse is an object: a result that is one is the file written; any other answer is not.
+static void write_answers(void) {
+    CHECK(written("{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{}}") == 1);
+    CHECK(written("{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{\"_meta\":{\"x\":1}}}") == 1);
+    CHECK(written("{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"error\":{\"code\":-32002,\"message\":\"read-only\"}}") == 0);
+    CHECK(written("{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":null}") == 0);
+    CHECK(written("not json") == 0);
+    CHECK(acp_write_text_file_result_read("{}", 2, NULL) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     request();
     answers();
+    write_request();
+    write_answers();
     if (failures) {
         fprintf(stderr, "fs: %d failed\n", failures);
         return 1;
     }
-    printf("fs: fs/read_text_file's request and the text it answers with passed\n");
+    printf("fs: fs/read_text_file's and fs/write_text_file's requests and answers passed\n");
     return 0;
 }
