@@ -188,7 +188,59 @@ static void loads(void) {
     }
 }
 
+// Part 15: creation reads only its own params and validates every server before Ground starts any.
+static void creates(void) {
+    const char *bad[] = {
+        "{}", "[]", "{\"_meta\":{\"cwd\":\"/w\",\"mcpServers\":[]}}",
+        "{\"cwd\":\"/w\",\"_meta\":{\"mcpServers\":[]}}",
+        "{\"cwd\":\"relative\",\"mcpServers\":[]}",
+        "{\"cwd\":\"/w\\u0000hidden\",\"mcpServers\":[]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":null}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[7]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[{\"name\":\"x\",\"command\":\"relative\",\"args\":[],\"env\":[]}]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[{\"name\":\"x\",\"command\":\"/bin/x\",\"args\":[],\"env\":[{}]}]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[{\"name\":\"x\",\"command\":\"/bin/x\",\"args\":[7],\"env\":[]}]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[{\"type\":\"http\",\"name\":\"x\",\"url\":\"https://x\"}]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[{\"type\":\"http\",\"name\":\"x\",\"url\":\"https://x\",\"headers\":[{\"name\":\"X\",\"value\":7}]}]}",
+        "{\"cwd\":\"/w\",\"mcpServers\":[],\"additionalDirectories\":[\"relative\"]}"
+    };
+    acp_session_new in = {0};
+    acp_buffer error = {0};
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+        CHECK(acp_session_new_read(bad[i], strlen(bad[i]), &in, &error) == ACP_INVALID_PARAMS);
+        CHECK(error.data != NULL && strstr(error.data, "-32602") != NULL);
+        CHECK(in.cwd == NULL && in.additional_directories.data == NULL);
+        acp_buffer_free(&error);
+        acp_session_new_free(&in);
+    }
+    const char *ok = "{\"_meta\":{\"cwd\":\"relative\",\"mcpServers\":[7]},\"cwd\":\"/caf\\u00e9\",\"mcpServers\":[],\"additionalDirectories\":[\"/lib\"]}";
+    CHECK(acp_session_new_read(ok, strlen(ok), &in, &error) == ACP_OK);
+    CHECK(in.cwd != NULL && strcmp(in.cwd, "/caf\xc3\xa9") == 0);
+    CHECK(says(&in.additional_directories, "[\"/lib\"]"));
+    acp_session_new_free(&in);
+    const char *servers = "{\"cwd\":\"/w\",\"mcpServers\":[{\"name\":\"x\",\"command\":\"/bin/x\",\"args\":[\"a\"],\"env\":[{\"name\":\"K\",\"value\":\"V\"}]},{\"type\":\"http\",\"name\":\"h\",\"url\":\"https://x\",\"headers\":[]},{\"type\":\"sse\",\"name\":\"s\",\"url\":\"https://x\",\"headers\":[]}]}";
+    CHECK(acp_session_new_read(servers, strlen(servers), &in, &error) == ACP_OK);
+    CHECK(says(&in.additional_directories, "[]"));
+    acp_session_new_free(&in);
+    CHECK(acp_session_new_read(NULL, 0, &in, &error) == ACP_INVALID_ARGUMENT);
+}
+
+static void creation_result(void) {
+    acp_buffer out = {0};
+    CHECK(acp_session_new_result("s\"1", NULL, NULL, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionId\":\"s\\\"1\"}"));
+    acp_buffer_free(&out);
+    CHECK(acp_session_new_result("s", "{\"currentModeId\":\"m\",\"availableModes\":[]}", "[]", &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionId\":\"s\",\"modes\":{\"currentModeId\":\"m\",\"availableModes\":[]},\"configOptions\":[]}"));
+    acp_buffer_free(&out);
+    CHECK(acp_session_new_result("s", "[]", NULL, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_session_new_result("s", NULL, "{}", &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_session_new_result(NULL, NULL, NULL, &out) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
+    creates();
+    creation_result();
     reads_the_place();
     refused();
     names_a_session();
@@ -200,6 +252,6 @@ int main(void) {
         fprintf(stderr, "session: %d failed\n", failures);
         return 1;
     }
-    printf("session: session/resume's session and cwd, session/list's request and SessionInfo, session/load's request, and their refusals passed\n");
+    printf("session: session/new request and result, session/resume's session and cwd, session/list's request and SessionInfo, session/load's request, and their refusals passed\n");
     return 0;
 }
