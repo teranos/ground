@@ -235,9 +235,10 @@ unittest {
     assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":7}}`,
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/list's cwd must be a string"}}`));
 }
-// A cwd is kept whole or not at all.
+// A cwd is kept whole or not at all. The request is built at compile time, as -betterC has no GC to join it at run time.
+enum longCwdNew = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`;
 unittest {
-    assert(answersFresh(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`,
+    assert(answersFresh(longCwdNew,
         `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`));
 }
 
