@@ -22,6 +22,7 @@ extern (C) nothrow @nogc {
         int session_notices;
         int elicitation_form;
         int elicitation_url;
+        int auth_terminal;
     }
 
     struct acp_initialize {
@@ -236,6 +237,7 @@ extern (C) nothrow @nogc {
     acp_status acp_available_commands_update_write(const(char)*, acp_buffer*);
     acp_status acp_notice_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_elicitation_create_write(const(char)*, const(char)*, const(char)*, const(char)*, size_t, int*, acp_buffer*);
+    acp_status acp_elicitation_url_write(const(char)*, const(char)*, const(char)*, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_elicitation_complete_write(const(char)*, acp_buffer*);
     acp_status acp_set_mode_read(const(char)*, size_t, acp_set_mode*, acp_buffer*);
     void acp_set_mode_free(acp_set_mode*);

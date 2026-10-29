@@ -8,6 +8,8 @@ module code.acp;
 enum BOOK_COMMAND = q"EOS
 # an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
 ground_code
+# sign in to the qntx block's node: approve the link it prints with your passkey:
+ground_code login
 EOS";
 
 import parse : extractJsonString, extractBool;
@@ -24,7 +26,7 @@ import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
 import code.prompt;
 import libacp : acp_stop_reason;
 public import code.reply : Reply, putEscaped, putNumber;
-public import code.input : Input, nextLine, take, more;
+public import code.input : Input, nextLine, take, more, within;
 
 extern (C) void free(void* p);
 extern (C) int getpid();
@@ -100,6 +102,7 @@ struct Sessions {
     Reply unreleased; // terminal/create asked by a turn called off before the answer, its id and session a line
     bool clientTakesNotices; // initialize said the client presents notice session updates
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
+    bool clientRunsAuth; // initialize said the client runs a terminal auth method itself
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
     Reply after;     // what is told the client once the answer it follows is written
@@ -692,6 +695,118 @@ private void announceCommands(ref Sessions sessions, const(char)[] sid, ref McpG
     sessions.after.add("\n");
 }
 
+// ground code's auth methods: qntx it runs itself through authenticate,
+// qntx-terminal the client runs as `ground_code login`.
+enum AGENT_METHOD = "qntx";
+enum TERMINAL_METHOD = "qntx-terminal";
+private enum AGENT_AUTH = `{"id":"qntx","name":"Sign in to QNTX","description":"Open the link ground code gives, and approve it at your QNTX node with your passkey"}`;
+private enum TERMINAL_AUTH = `{"type":"terminal","id":"qntx-terminal","name":"Sign in to QNTX in a terminal","description":"Runs ground_code login, which prints the link to approve at your QNTX node with your passkey","args":["login"]}`;
+
+// "Authentication methods supported by the agent": qntx to a client that can
+// send the person to a link, and qntx-terminal only to one that said it runs
+// terminal methods: "Agents MUST advertise this method only when the client
+// enabled its terminal authentication capability."
+private const(char)* authMethods(ref const Sessions sessions) {
+    if (sessions.elicitsUrls && sessions.clientRunsAuth) return "[" ~ AGENT_AUTH ~ "," ~ TERMINAL_AUTH ~ "]";
+    if (sessions.elicitsUrls) return "[" ~ AGENT_AUTH ~ "]";
+    if (sessions.clientRunsAuth) return "[" ~ TERMINAL_AUTH ~ "]";
+    return "[]";
+}
+
+// authenticate qntx, its answer added to r after its id: the node starts a
+// sign-in, the person is sent to its link by an elicitation "tied to a
+// specific JSON-RPC request outside of a session (e.g., during
+// auth/configuration phases before any session is started)", the node is
+// asked until they said yes, and the token it gives is kept where every
+// ground reads its token. The client can call it off while it waits.
+private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
+    import code.login : SignIn, startSignIn, pollSignIn, keepToken, LABEL;
+    import attest : qntxTokenFile;
+    import libacp : acp_elicitation_url_write, acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    import core.sys.posix.time : clock_gettime, CLOCK_MONOTONIC, timespec;
+    void error(int code, const(char)[] message, const(char)[] data = null) {
+        r.add(`,"error":{"code":`); r.add(code == -32000 ? "-32000" : code == -32800 ? "-32800" : "-32603");
+        r.add(`,"message":"`); putEscaped(r, message); r.add(`"`);
+        if (data !is null) { r.add(`,"data":`); r.add(data); }
+        r.add(`}}`);
+    }
+    if (sessions.input is null) return error(-32603, "ground code reads no input here, so it cannot ask the client");
+    if (sessions.node.url.length == 0) return error(-32603, "the qntx block names no url, so there is no node to sign in to");
+    auto named = qntxTokenFile(sessions.node.token);
+    if (named is null) return error(-32603, "the token is kept in a home, and HOME names none");
+    Reply file, why, token, pid, text, answered;
+    SignIn s;
+    scope(exit) { file.dispose(); why.dispose(); token.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
+    file.add(named[0 .. strlen(named)]); file.add("\0");
+    if (startSignIn(sessions.node.url, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
+
+    sessions.asked++;
+    pid.add(`"login-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    size_t at(const(char)[] part) { auto from = text.len; text.add(part); text.add("\0"); return from; }
+    auto pidAt = at(pid.slice()), idAt = at(id);
+    auto eidAt = text.len; text.add("qntx-"); text.add(s.userCode.slice()); text.add("\0");
+    auto linkAt = at(s.link.slice());
+    auto messageAt = text.len; text.add("Sign in to QNTX as "); text.add(LABEL); text.add(". The code there is ");
+    text.add(s.userCode.slice()); text.add(".\0");
+    if (text.full || file.full) return error(-32603, "could not allocate the sign-in");
+    auto t = text.slice().ptr;
+    acp_buffer asked;
+    scope(exit) acp_buffer_free(&asked);
+    if (acp_elicitation_url_write(t + pidAt, t + idAt, t + eidAt, t + linkAt, t + messageAt, &asked) != acp_status.ACP_OK)
+        return error(-32603, "libacp could not write elicitation/create");
+    if (fwrite(asked.data, 1, asked.length, stdout) != asked.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0)
+        return error(-32603, "could not write elicitation/create");
+
+    Turn turn = Turn(sessions.input, "", id);
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) return error(-32603, "the client's input ended while ground code waited on the sign-in");
+    if (waited == 2) return error(-32800, "the client cancelled the sign-in");
+    auto refused = objectValue(answered.slice(), `"error"`);
+    if (refused !is null) return error(-32000, "the client did not send the person to sign in", refused);
+    auto result = objectValue(answered.slice(), `"result"`);
+    char[32] actionBuf;
+    auto action = result is null ? null : extractJsonString(result, `"action"`, &actionBuf[0], actionBuf.length);
+    if (action != "accept") {
+        Reply data;
+        scope(exit) data.dispose();
+        if (action is null) { data.add(`"`); putEscaped(data, answered.slice()); data.add(`"`); }
+        else { data.add(`{"action":"`); putEscaped(data, action); data.add(`"}`); }
+        return error(-32000, "the person did not sign in to QNTX", data.slice());
+    }
+
+    long nowMs() {
+        timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return cast(long) ts.tv_sec * 1000 + ts.tv_nsec / 1_000_000;
+    }
+    while (true) {
+        if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
+        why.len = 0;
+        auto got = pollSignIn(sessions.node.url, s, token, why);
+        if (got == 1) break;
+        if (got < 0) return error(-32000, "the node did not sign ground code in", why.slice());
+        // "the minimum amount of time in seconds that the client SHOULD wait between polling requests"
+        auto until = nowMs() + cast(long) s.interval * 1000;
+        while (true) {
+            if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
+            auto left = until - nowMs();
+            if (left <= 0) break;
+            if (!within(*turn.input, left > 1000 ? 1000 : cast(int) left))
+                return error(-32603, "the client's input ended while ground code waited on the sign-in");
+        }
+    }
+    why.len = 0;
+    if (!keepToken(file.slice().ptr, token.slice(), why)) return error(-32603, "signed in, but the token could not be kept", why.slice());
+    // "Notification sent by the agent when a URL-based elicitation is complete."
+    acp_buffer done;
+    scope(exit) acp_buffer_free(&done);
+    if (acp_elicitation_complete_write(t + eidAt, &done) != acp_status.ACP_OK
+        || fwrite(done.data, 1, done.length, stdout) != done.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0)
+        fputs("ground code: signed in, but could not write elicitation/complete\n", stderr);
+    r.add(`,"result":{}}`);
+}
+
 // What a session's MCP servers are told they may ask, as MCP's client
 // capabilities: the elicitation the client offers, and nothing when it offers none.
 private const(char)* serverAsks(ref const Sessions sessions) {
@@ -1208,14 +1323,15 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         sessions.clientTakesNotices = got.capabilities.session_notices != 0;
         sessions.elicitsForms = got.capabilities.elicitation_form != 0;
         sessions.elicitsUrls = got.capabilities.elicitation_url != 0;
+        sessions.clientRunsAuth = got.capabilities.auth_terminal != 0;
         Reply version_;
         scope(exit) version_.dispose();
         version_.add(versionString()); version_.add("\0");
         acp_buffer result;
         scope(exit) acp_buffer_free(&result);
         auto wrote = acp_initialize_result(got.selected_version, "ground", version_.slice().ptr,
-            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}}`,
-            null, &result);
+            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true},"auth":{"logout":{}}}`,
+            authMethods(sessions), &result);
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
         put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
@@ -1246,8 +1362,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     }
 
     // "Must be one of the methods advertised in the initialize response."
-    // initialize advertises none: the model is reached through the QNTX node,
-    // whose credentials ground code never holds.
+    // qntx signs in to the node; qntx-terminal is the client's to run.
     if (method == AGENT_METHODS.authenticate) {
         // libacp reads the methodId, and refuses a request with none in its words.
         import libacp : acp_authenticate_read, acp_authenticate_free, acp_buffer, acp_buffer_free, acp_status;
@@ -1267,8 +1382,47 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         auto mid = named[0 .. strlen(named)];
-        put(`,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named `);
-        putEscaped(r, mid); put(`"}}`);
+        if (mid == TERMINAL_METHOD) {
+            put(`,"error":{"code":-32602,"message":"qntx-terminal is a terminal method: the client runs ground_code login itself, and does not pass it to authenticate"}}`);
+            return true;
+        }
+        if (mid != AGENT_METHOD) {
+            put(`,"error":{"code":-32602,"message":"ground code's auth method is qntx, and authenticate named `);
+            putEscaped(r, mid); put(`"}}`);
+            return true;
+        }
+        if (!sessions.elicitsUrls) {
+            put(`,"error":{"code":-32602,"message":"qntx sends the person to their node's link, and the client offers no url elicitation"}}`);
+            return true;
+        }
+        if (__ctfe) assert(0, "the node is signed in to at runtime");
+        else signIn(sessions, id, r);
+        return true;
+    }
+
+    // "Terminates the current authenticated session": the token ground code
+    // was given is dropped. The node keeps it until the person revokes it there.
+    if (method == AGENT_METHODS.logout) {
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (__ctfe) assert(0, "a token file is dropped at runtime");
+        else {
+            import attest : qntxTokenFile;
+            import code.login : dropToken;
+            import errors : getenv;
+            if (sessions.node.token.length == 0 && getenv("QNTX_TOKEN\0".ptr) !is null) {
+                put(`,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
+                return true;
+            }
+            auto file = qntxTokenFile(sessions.node.token);
+            if (file is null) { put(`,"error":{"code":-32603,"message":"the token is kept in a home, and HOME names none"}}`); return true; }
+            Reply why;
+            scope(exit) why.dispose();
+            if (dropToken(file, why) < 0) {
+                put(`,"error":{"code":-32603,"message":"logout could not drop the token","data":`); put(why.slice()); put(`}}`);
+                return true;
+            }
+        }
+        put(`,"result":{}}`);
         return true;
     }
 
@@ -2048,7 +2202,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 models.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); models.add(MODELS_PATH);
                 auto listed = httpGet(models.slice(), token, dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
                 if (listed.code != 0 || listed.overran || listed.status != 200) {
-                    put(`,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
+                    // "Authentication required": the node did not take the token, and a sign-in gives it one it does.
+                    put(listed.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
+                        : `,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
                     putEscaped(r, models.slice());
                     put(`","status":`); putNumber(r, cast(uint) listed.status);
                     put(`,"curl":`); putNumber(r, cast(uint) listed.code);
@@ -2076,7 +2232,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     "application/json", Abort(&stopIfCancelled, &turn));
                 if (turn.cancelled) { stopCancelled(); return true; }
                 if (http.code != 0 || http.overran || http.status != 200) {
-                    put(`,"error":{"code":-32603,"message":"the gateway did not answer the prompt","data":{"url":"`);
+                    put(http.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
+                        : `,"error":{"code":-32603,"message":"the gateway did not answer the prompt","data":{"url":"`);
                     putEscaped(r, url.slice());
                     put(`","status":`); putNumber(r, cast(uint) http.status);
                     put(`,"curl":`); putNumber(r, cast(uint) http.code);
