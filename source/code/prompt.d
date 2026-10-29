@@ -42,6 +42,16 @@ void putWriteTool(ref Reply tools) {
         ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}`);
 }
 
+// ground code's other own tool, terminal/create's request as the model calls it, in the schema's words.
+enum RUN_TOOL = "run_command";
+
+void putRunTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ RUN_TOOL ~ `","description":"Request to create a new terminal and execute a command.",`
+        ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}}`);
+}
+
 // --- the prompt's text, read from the ACP line ---
 
 private void putUtf8(ref Reply r, uint cp) {
@@ -555,6 +565,8 @@ void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
         if (found is null && text_.length == 0) {
             text_ = text(jsonField(root, "why"));
             if (text_.length == 0) text_ = text(jsonField(root, "message"));
+            // A command run in the client's terminal: what it printed.
+            if (text_.length == 0) text_ = text(jsonField(root, "output"));
         }
     }
     if (json_object_get_type(found) == json_type.array && json_object_array_length(found) > 0) {
@@ -567,11 +579,13 @@ void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
 // null is not written; rawOutput, when given, also gives what the call shows. false when libacp
 // could not write it.
 bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title, const(char)[] name,
-        const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput) {
+        const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput,
+        const(char)[] terminalId = null) {
     import libacp : acp_tool_call, acp_tool_call_write, acp_buffer, acp_buffer_free, acp_status;
     Reply blocks, said, text_;
     scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
-    if (rawOutput !is null) toolContentOf(rawOutput, blocks, said);
+    // A call that shows a terminal shows it alone: the terminal holds what the call printed.
+    if (rawOutput !is null && terminalId is null) toolContentOf(rawOutput, blocks, said);
     // Each field as C reads it, its own bytes and a NUL; size_t.max is one not given.
     size_t at(const(char)[] s) {
         if (s is null) return size_t.max;
@@ -580,10 +594,11 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     auto idAt = at(id), titleAt = at(title), nameAt = at(name), kindAt = at(kind), statusAt = at(status);
     auto inputAt = at(rawInput), outputAt = at(rawOutput);
     auto blocksAt = at(blocks.len > 0 ? blocks.slice() : null), saidAt = at(said.len > 0 ? said.slice() : null);
+    auto terminalAt = at(terminalId);
     if (text_.full || blocks.full || said.full) return false;
     const(char)* c(size_t from) { return from == size_t.max ? null : text_.slice().ptr + from; }
     auto call = acp_tool_call(update, c(idAt), c(titleAt), c(nameAt), c(kindAt), c(statusAt), c(inputAt), c(outputAt),
-        c(blocksAt), c(saidAt));
+        c(blocksAt), c(saidAt), c(terminalAt));
     acp_buffer written;
     scope(exit) acp_buffer_free(&written);
     if (acp_tool_call_write(&call, &written) != acp_status.ACP_OK) return false;
@@ -647,7 +662,10 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             if (id is null || content is null) return false;
             auto answer = parseJson(content);
             scope(exit) json_object_put(answer);
-            bool completed = jsonField(answer, "result") !is null;
+            // A command completed as it did live, by exiting 0.
+            auto exitCode = jsonField(answer, "exitCode");
+            bool completed = jsonField(answer, "result") !is null
+                || (json_object_get_type(exitCode) == json_type.int_ && json_object_get_int64(exitCode) == 0);
             Reply u;
             scope(exit) u.dispose();
             if (!putToolCall(u, true, id, null, null, null, completed ? "completed" : "failed", null, content) || !told(u)) return false;

@@ -42,39 +42,39 @@ static void chunks(void) {
 // produced: MCP's content blocks as they came, or a text.
 static void tool_calls(void) {
     acp_buffer out = {0};
-    acp_tool_call first = {0, "c1", "x__y", "x__y", "read", "pending", "{\"q\":1}", NULL, NULL, NULL};
+    acp_tool_call first = {0, "c1", "x__y", "x__y", "read", "pending", "{\"q\":1}", NULL, NULL, NULL, NULL};
     CHECK(acp_tool_call_write(&first, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\",\"kind\":\"read\","
                      "\"status\":\"pending\",\"rawInput\":{\"q\":1}}"));
-    acp_tool_call replayed = {0, "c1", "x__y", "x__y", NULL, NULL, "", NULL, NULL, NULL};
+    acp_tool_call replayed = {0, "c1", "x__y", "x__y", NULL, NULL, "", NULL, NULL, NULL, NULL};
     CHECK(acp_tool_call_write(&replayed, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\",\"rawInput\":\"\"}"));
-    acp_tool_call running = {1, "c1", NULL, NULL, NULL, "in_progress", NULL, NULL, NULL, NULL};
+    acp_tool_call running = {1, "c1", NULL, NULL, NULL, "in_progress", NULL, NULL, NULL, NULL, NULL};
     CHECK(acp_tool_call_write(&running, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"in_progress\"}"));
     acp_tool_call done = {1, "c1", NULL, NULL, NULL, "completed",
-        NULL, "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}", "[{\"type\":\"text\",\"text\":\"ok\"}]", NULL};
+        NULL, "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}", "[{\"type\":\"text\",\"text\":\"ok\"}]", NULL, NULL};
     CHECK(acp_tool_call_write(&done, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawOutput\":{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}},"
                      "\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"ok\"}}]}"));
-    acp_tool_call refused = {1, "c1", NULL, NULL, NULL, "failed", NULL, "{\"status\":\"not run\"}", NULL, "the user rejected it"};
+    acp_tool_call refused = {1, "c1", NULL, NULL, NULL, "failed", NULL, "{\"status\":\"not run\"}", NULL, "the user rejected it", NULL};
     CHECK(acp_tool_call_write(&refused, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"failed\","
                      "\"rawOutput\":{\"status\":\"not run\"},\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\","
                      "\"text\":\"the user rejected it\"}}]}"));
     // Raw JSON is passed on byte for byte, as the server wrote it.
-    acp_tool_call spaced = {1, "c1", NULL, NULL, NULL, "completed", "{ \"q\" : 1 }", "{\"jsonrpc\": \"2.0\", \"id\": 3}", NULL, NULL};
+    acp_tool_call spaced = {1, "c1", NULL, NULL, NULL, "completed", "{ \"q\" : 1 }", "{\"jsonrpc\": \"2.0\", \"id\": 3}", NULL, NULL, NULL};
     CHECK(acp_tool_call_write(&spaced, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawInput\":{ \"q\" : 1 },\"rawOutput\":{\"jsonrpc\": \"2.0\", \"id\": 3}}"));
     // Output that is no JSON is the text it is; no blocks and no text, no content.
-    acp_tool_call bare = {1, "c1", NULL, NULL, NULL, "failed", NULL, "boom", "[]", NULL};
+    acp_tool_call bare = {1, "c1", NULL, NULL, NULL, "failed", NULL, "boom", "[]", NULL, NULL};
     CHECK(acp_tool_call_write(&bare, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"failed\",\"rawOutput\":\"boom\"}"));
-    acp_tool_call stray = {1, "c1", NULL, NULL, NULL, "failed", NULL, NULL, "{\"a\":1}", NULL};
+    acp_tool_call stray = {1, "c1", NULL, NULL, NULL, "failed", NULL, NULL, "{\"a\":1}", NULL, NULL};
     CHECK(acp_tool_call_write(&stray, &out) == ACP_INVALID_ARGUMENT);
-    acp_tool_call nameless = {0, NULL, "x", NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+    acp_tool_call nameless = {0, NULL, "x", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
     CHECK(acp_tool_call_write(&nameless, &out) == ACP_INVALID_ARGUMENT);
 }
 

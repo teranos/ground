@@ -241,6 +241,58 @@ acp_status acp_write_text_file_request_write(const char *request_id, const char 
 // written, and 0 for any other answer, an error among them.
 acp_status acp_write_text_file_result_read(const char *message_json, size_t length, int *written);
 
+// terminal/create, whole: request_id is JSON text, command run with its arg_count args. cwd, an
+// absolute path, is written when given, and output_byte_limit when it is not 0.
+acp_status acp_terminal_create_request_write(const char *request_id, const char *session_id, const char *command,
+    const char *const *args, size_t arg_count, const char *cwd, unsigned long long output_byte_limit,
+    acp_buffer *message_json);
+
+// The terminalId a client answers terminal/create with; NULL for any other answer. libacp owns it
+// until acp_terminal_id_free.
+acp_status acp_terminal_create_result_read(const char *message_json, size_t length, char **terminal_id);
+void acp_terminal_id_free(char *terminal_id);
+
+// terminal/output, terminal/wait_for_exit, terminal/kill and terminal/release, whole, each for the
+// terminal terminal/create named.
+acp_status acp_terminal_output_request_write(const char *request_id, const char *session_id, const char *terminal_id,
+    acp_buffer *message_json);
+acp_status acp_terminal_wait_for_exit_request_write(const char *request_id, const char *session_id,
+    const char *terminal_id, acp_buffer *message_json);
+acp_status acp_terminal_kill_request_write(const char *request_id, const char *session_id, const char *terminal_id,
+    acp_buffer *message_json);
+acp_status acp_terminal_release_request_write(const char *request_id, const char *session_id, const char *terminal_id,
+    acp_buffer *message_json);
+
+// How a terminal's command ended: exited is 0 for an answer that says it has not, or no result. An exit
+// code is known when has_exit_code, and signal names the one that ended it, or is NULL. libacp owns
+// signal until acp_terminal_exit_free.
+typedef struct acp_terminal_exit {
+    int exited;
+    int has_exit_code;
+    unsigned long exit_code;
+    char *signal;
+} acp_terminal_exit;
+
+// What a client answers terminal/wait_for_exit with.
+acp_status acp_terminal_exit_read(const char *message_json, size_t length, acp_terminal_exit *out);
+void acp_terminal_exit_free(acp_terminal_exit *exit_status);
+
+// What a client answers terminal/output with: the output, every byte, whether the client cut it,
+// and the exit when the command has ended; output is NULL for any other answer.
+typedef struct acp_terminal_output {
+    char *output;
+    size_t length;
+    int truncated;
+    acp_terminal_exit exit_status;
+} acp_terminal_output;
+
+acp_status acp_terminal_output_result_read(const char *message_json, size_t length, acp_terminal_output *out);
+void acp_terminal_output_free(acp_terminal_output *output);
+
+// What a client answers terminal/kill and terminal/release with: answered is 1 for a result, 0 for
+// any other answer.
+acp_status acp_terminal_answered_read(const char *message_json, size_t length, int *answered);
+
 // Why a turn stopped: PromptResponse's stopReason, in the schema's order.
 typedef enum acp_stop_reason {
     ACP_STOP_END_TURN,
@@ -265,9 +317,9 @@ typedef enum acp_chunk_kind {
 
 acp_status acp_text_chunk_write(acp_chunk_kind kind, const char *text, size_t length, acp_buffer *update_json);
 
-// tool_call, or tool_call_update when update is set; a NULL field is not written. Raw input and
-// output are JSON text, or a string when not JSON. content_blocks is a ContentBlock array, each
-// written as content; content_text, with no blocks, is one text block.
+// tool_call, or tool_call_update when update is set; a NULL field is not written. Raw input and output are
+// JSON text, or a string when not JSON. content_blocks is a ContentBlock array, each written as content;
+// content_text, with no blocks, is one text block. terminal_id is a terminal shown ahead of either.
 typedef struct acp_tool_call {
     int update;
     const char *tool_call_id;
@@ -279,6 +331,7 @@ typedef struct acp_tool_call {
     const char *raw_output;
     const char *content_blocks;
     const char *content_text;
+    const char *terminal_id;
 } acp_tool_call;
 
 acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json);
