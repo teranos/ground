@@ -15,7 +15,7 @@ enum modesOf(string current) = modes(current); // folded at compile time: better
 enum configOf(string mode, string effort) = `[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"`
     ~ mode ~ `","options":[{"value":"default","name":"Manual","description":"m in a permission block"},`
     ~ `{"value":"plan","name":"Plan","description":"p in a permission block"},`
-    ~ `{"value":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code asks, as Manual does"},`
+    ~ `{"value":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code writes files without asking, and asks the rest as Manual does"},`
     ~ `{"value":"auto","name":"Auto","description":"a in a permission block; ground code asks, as Manual does"},`
     ~ `{"value":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
     ~ `{"value":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]},`
@@ -27,7 +27,7 @@ private string modes()(string current) {
     return `{"currentModeId":"` ~ current ~ `","availableModes":[`
         ~ `{"id":"default","name":"Manual","description":"m in a permission block"},`
         ~ `{"id":"plan","name":"Plan","description":"p in a permission block"},`
-        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code asks, as Manual does"},`
+        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code writes files without asking, and asks the rest as Manual does"},`
         ~ `{"id":"auto","name":"Auto","description":"a in a permission block; ground code asks, as Manual does"},`
         ~ `{"id":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
         ~ `{"id":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]}`;
@@ -793,8 +793,8 @@ version (Posix) unittest {
 
 // What a session's mode does to the tool calls its turns ask for:
 //   default (Manual), acceptEdits, auto  the client is asked, by
-//       session/request_permission; ground code has no edit tools of its own
-//       and no classifier, so the last two ask as Manual does
+//       session/request_permission; acceptEdits runs write_text_file unasked,
+//       and auto, with no classifier, asks as Manual does
 //   plan               only a tool whose MCP annotations say readOnlyHint runs
 //   dontAsk            nothing is approved ahead, so nothing runs
 //   bypassPermissions  every call runs
@@ -1461,6 +1461,15 @@ version (Posix) unittest {
     turn(writes, "bypassPermissions", `{\"path\":\"/tmp/a\"}`, "", s);
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    s.open[0].history.dispose();
+
+    // Accept edits writes without asking.
+    turn(writes, "acceptEdits", args, wrote ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `session/request_permission`) < 0);
+    assert(indexOf(said[0 .. saidLen], `"kind":"edit","status":"in_progress"`) >= 0);
+    assert(indexOf(said[0 .. saidLen], request) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
     s.open[0].history.dispose();
 
     // Plan mode runs only what only reads, and a write does not.
