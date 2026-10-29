@@ -724,7 +724,7 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     import attest : qntxTokenFile;
     import libacp : acp_elicitation_url_write, acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
-    import core.sys.posix.time : clock_gettime, CLOCK_MONOTONIC, timespec;
+    import core.sys.posix.sys.time : gettimeofday, timeval;
     void error(int code, const(char)[] message, const(char)[] data = null) {
         r.add(`,"error":{"code":`); r.add(code == -32000 ? "-32000" : code == -32800 ? "-32800" : "-32603");
         r.add(`,"message":"`); putEscaped(r, message); r.add(`"`);
@@ -775,10 +775,12 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
         return error(-32000, "the person did not sign in to QNTX", data.slice());
     }
 
+    // gettimeofday, as the rest of ground reads the time: druntime declares
+    // it on Darwin and Linux alike, where clock_gettime it does not.
     long nowMs() {
-        timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        return cast(long) ts.tv_sec * 1000 + ts.tv_nsec / 1_000_000;
+        timeval tv;
+        gettimeofday(&tv, null);
+        return cast(long) tv.tv_sec * 1000 + tv.tv_usec / 1000;
     }
     while (true) {
         if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
