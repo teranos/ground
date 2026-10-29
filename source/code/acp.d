@@ -18,6 +18,7 @@ import proto : ParsedQntx;
 import code.store : storeAddCost, storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
     storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
+import acpmethods : AGENT_METHODS, PROTOCOL_METHODS;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
 import code.prompt;
@@ -1184,7 +1185,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // libacp reads the client's offer in the shape of the version it asked for,
     // selects the version the connection speaks, and writes the result in its
     // shape. ground code speaks v1 alone, until its v2 surface stands.
-    if (method == "initialize") {
+    if (method == AGENT_METHODS.initialize) {
         import libacp : acp_initialize, acp_buffer, acp_status, acp_initialize_read,
                         acp_initialize_result, acp_buffer_free;
         static immutable uint[1] speaks = [1];
@@ -1228,13 +1229,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // "Notification to cancel an ongoing request." Every request but a turn is
     // answered before the next line is read, so only a turn's can be ongoing.
     // libacp reads either cancel's id.
-    if (method == "session/cancel" || method == "$/cancel_request") {
+    if (method == AGENT_METHODS.session_cancel || method == PROTOCOL_METHODS.cancel_request) {
         import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_status;
         import core.stdc.string : strlen;
         acp_cancel c;
         scope(exit) acp_cancel_free(&c);
         bool read = acp_cancel_read(line.ptr, line.length, &c) == acp_status.ACP_OK;
-        bool session = method == "session/cancel";
+        bool session = method == AGENT_METHODS.session_cancel;
         auto named = session ? c.session_id : c.request_id;
         fputs(session ? "ground code: session/cancel for " : "ground code: $/cancel_request for ", stderr);
         if (!read) fputs("a message libacp could not read", stderr);
@@ -1247,7 +1248,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // "Must be one of the methods advertised in the initialize response."
     // initialize advertises none: the model is reached through the QNTX node,
     // whose credentials ground code never holds.
-    if (method == "authenticate") {
+    if (method == AGENT_METHODS.authenticate) {
         // libacp reads the methodId, and refuses a request with none in its words.
         import libacp : acp_authenticate_read, acp_authenticate_free, acp_buffer, acp_buffer_free, acp_status;
         import core.stdc.string : strlen;
@@ -1272,7 +1273,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     }
 
     // Ground owns each session's MCP clients, including discovery and close.
-    if (method == "session/new") {
+    if (method == AGENT_METHODS.session_new) {
         import libacp : acp_session_new, acp_session_new_read, acp_session_new_free,
             acp_session_new_result, acp_buffer, acp_buffer_free, acp_status;
         import libjsonc : parseJson, jsonField, json_object_put, json_object_to_json_string_ext;
@@ -1354,7 +1355,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // Close owns every MCP child. The session is removed even if a child needs
     // forced termination, and that failure is returned to the ACP client.
-    if (method == "session/close") {
+    if (method == AGENT_METHODS.session_close) {
         char[256] sb;
         auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
         put(`{"jsonrpc":"2.0","id":`); put(id);
@@ -1388,7 +1389,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // Only the sessions of this process: nothing is kept past it yet. Ground
     // code never gives a nextCursor, so there is no cursor of its to page from.
-    if (method == "session/list") {
+    if (method == AGENT_METHODS.session_list) {
         // libacp reads the cwd and the cursor, refuses either as not a string, and a cwd not absolute.
         import libacp : acp_session_list, acp_session_list_read, acp_session_list_free, acp_session_info,
             acp_session_info_write, acp_buffer, acp_buffer_free, acp_status;
@@ -1470,8 +1471,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // session/load is session/resume that also tells the conversation back:
     // "Unlike session/load, the Agent MUST NOT replay the conversation history
     // via session/update notifications before responding."
-    if (method == "session/resume" || method == "session/load") {
-        bool load = method == "session/load";
+    if (method == AGENT_METHODS.session_resume || method == AGENT_METHODS.session_load) {
+        bool load = method == AGENT_METHODS.session_load;
         auto verb = load ? "load" : "resume";
         // libacp reads the request, load's servers required too, and refuses it in its words.
         import libacp : acp_session_resume, acp_session_resume_read, acp_session_load_read, acp_session_resume_free,
@@ -1633,7 +1634,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // A mode is one a session offers, set on a session live here. It is kept
     // with the session, so a resume comes back in it. The client chose it, so
     // there is no current_mode_update to tell it what it already knows.
-    if (method == "session/set_mode") {
+    if (method == AGENT_METHODS.session_set_mode) {
         // libacp reads the session and the mode, and refuses either missing in its words.
         import libacp : acp_set_mode, acp_set_mode_read, acp_set_mode_free, acp_buffer, acp_buffer_free, acp_status;
         import core.stdc.string : strlen;
@@ -1682,7 +1683,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // Effort is the one option a session offers, a select over the five
     // levels. Set, it is kept with the session, and the answer is "The full
     // set of configuration options and their current values".
-    if (method == "session/set_config_option") {
+    if (method == AGENT_METHODS.session_set_config_option) {
         // libacp reads the session, the option and its value, and refuses any missing in its words.
         import libacp : acp_set_config_option, acp_set_config_option_read, acp_set_config_option_free, acp_buffer,
             acp_buffer_free, acp_status;
@@ -1761,7 +1762,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // "deleting an existing session from `session/list`": what list would show
     // is what delete takes. Gone from the store, it is gone for every process,
     // and one live here is no longer live.
-    if (method == "session/delete") {
+    if (method == AGENT_METHODS.session_delete) {
         // libacp reads the session session/delete names, and refuses it in its words.
         import libacp : acp_session_target_read, acp_session_target_free, acp_buffer, acp_buffer_free, acp_status;
         import core.stdc.string : strlen;
@@ -1810,7 +1811,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // "we use the qntx openrouter plugin"
     // "as the endpoint"
-    if (method == "session/prompt") {
+    if (method == AGENT_METHODS.session_prompt) {
         auto qntxNode = &sessions.node;
         char[256] sb;
         auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);

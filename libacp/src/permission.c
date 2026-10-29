@@ -41,7 +41,7 @@ acp_status acp_permission_request_write(const acp_permission_request *request, a
     json_object *message = json_object_new_object();
     json_object_object_add(message, "jsonrpc", json_object_new_string("2.0"));
     json_object_object_add(message, "id", id);
-    json_object_object_add(message, "method", json_object_new_string("session/request_permission"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_SESSION_REQUEST_PERMISSION));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }
