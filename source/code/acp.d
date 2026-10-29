@@ -95,6 +95,7 @@ struct Sessions {
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
     bool clientWritesFiles; // initialize said the client answers fs/write_text_file
+    bool clientRunsCommands; // initialize said the client answers terminal/*
     bool clientTakesNotices; // initialize said the client presents notice session updates
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
@@ -289,6 +290,260 @@ private bool clientWrote(const(char)[] line) {
     import libacp : acp_write_text_file_result_read, acp_status;
     int written;
     return acp_write_text_file_result_read(line.ptr, line.length, &written) == acp_status.ACP_OK && written == 1;
+}
+
+// How much of a command's output the client keeps for ground code, cut from its start.
+enum OUTPUT_BYTE_LIMIT = 65536;
+
+// The id of the next request ground code asks of the client about a terminal.
+private void termId(ref Sessions sessions, ref Reply pid) {
+    sessions.asked++;
+    pid.add(`"term-`); putNumber(pid, sessions.asked); pid.add(`"`);
+}
+
+// A terminal/* request libacp wrote, sent as pid and its answer waited on: 1 answered, into
+// answered; 2 the turn was called off; -1 not, why the reason.
+private int askTerminal(ref Turn turn, const(char)[] pid, const(char)[] request, const(char)[] method,
+        ref Reply answered, ref Reply why) {
+    if (fwrite(request.ptr, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+        why.add(`"could not write `); why.add(method); why.add(`"`);
+        return -1;
+    }
+    auto waited = awaitAnswer(turn, pid, answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on `); why.add(method); why.add(`"`); }
+    return waited;
+}
+
+// terminal/create for command and its args, in cwd: 1 created, its id in terminalId; 0 the client
+// answered with none, its answer in answered; 2 the turn was called off; -1 not asked, why the reason.
+private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
+        const(char)* command, const(const(char)*)[] args, ref Reply terminalId, ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_create_request_write, acp_terminal_create_result_read, acp_terminal_id_free,
+        acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), cwdAt = at(cwd);
+    if (text.full) { why.add(`"could not allocate terminal/create"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_create_request_write(t + idAt, t + sidAt, command, args.ptr, args.length, t + cwdAt,
+            OUTPUT_BYTE_LIMIT, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/create"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/create", answered, why);
+    if (waited != 1) return waited;
+    char* id;
+    scope(exit) acp_terminal_id_free(id);
+    if (acp_terminal_create_result_read(answered.slice().ptr, answered.len, &id) != acp_status.ACP_OK || id is null) return 0;
+    terminalId.add(id[0 .. strlen(id)]);
+    return 1;
+}
+
+// terminal/wait_for_exit: 1 exited, how into code, hasCode and signal; 0 the client answered
+// otherwise, into answered; 2 the turn was called off; -1 not asked, why the reason.
+private int terminalWait(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref bool hasCode, ref ulong code, ref Reply signal, ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_wait_for_exit_request_write, acp_terminal_exit_read, acp_terminal_exit_free,
+        acp_terminal_exit, acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/wait_for_exit"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_wait_for_exit_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/wait_for_exit"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/wait_for_exit", answered, why);
+    if (waited != 1) return waited;
+    acp_terminal_exit e;
+    scope(exit) acp_terminal_exit_free(&e);
+    if (acp_terminal_exit_read(answered.slice().ptr, answered.len, &e) != acp_status.ACP_OK || !e.exited) return 0;
+    hasCode = e.has_exit_code != 0;
+    code = e.exit_code;
+    if (e.signal !is null) signal.add(e.signal[0 .. strlen(e.signal)]);
+    return 1;
+}
+
+// terminal/output: 1 read, every byte into output and whether the client cut it into truncated; 0
+// the client answered otherwise, into answered; 2 the turn was called off; -1 not asked, why the reason.
+private int terminalOutput(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref Reply output, ref bool truncated, ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_output_request_write, acp_terminal_output_result_read, acp_terminal_output_free,
+        acp_terminal_output, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/output"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_output_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/output"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/output", answered, why);
+    if (waited != 1) return waited;
+    acp_terminal_output o;
+    scope(exit) acp_terminal_output_free(&o);
+    if (acp_terminal_output_result_read(answered.slice().ptr, answered.len, &o) != acp_status.ACP_OK || o.output is null) return 0;
+    output.add(o.output[0 .. o.length]);
+    truncated = o.truncated != 0;
+    return output.full ? -1 : 1;
+}
+
+// terminal/kill: 1 the client killed it; 0 it answered otherwise, into answered; 2 the turn was called
+// off; -1 not asked, why the reason.
+private int terminalKill(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_kill_request_write, acp_terminal_answered_read, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/kill"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_kill_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/kill"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/kill", answered, why);
+    if (waited != 1) return waited;
+    int done;
+    return acp_terminal_answered_read(answered.slice().ptr, answered.len, &done) == acp_status.ACP_OK && done ? 1 : 0;
+}
+
+// terminal/release: 1 the client released it; 0 it answered otherwise, into answered; 2 the turn was
+// called off; -1 not asked, why the reason.
+private int terminalRelease(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_release_request_write, acp_terminal_answered_read, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/release"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_release_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/release"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/release", answered, why);
+    if (waited != 1) return waited;
+    int done;
+    return acp_terminal_answered_read(answered.slice().ptr, answered.len, &done) == acp_status.ACP_OK && done ? 1 : 0;
+}
+
+// A run_command call, run in the client's terminal in the session's cwd: shown in the call, waited on, read
+// and released, killed first when the turn is called off. 1 it ran, into result, ok when it exited 0; 0 not
+// asked, said in result; 2 the turn was called off, said in result; -1 not asked, why the reason.
+private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
+        const(char)[] callId, const(char)[] arguments, ref Reply result, ref bool ok, ref Reply terminalId, ref Reply why) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type, json_object_get_string,
+        json_object_get_string_len, json_object_array_length, json_object_array_get_idx;
+    import core.stdc.string : strlen;
+    import core.stdc.stdlib : malloc, free;
+    ok = false;
+    auto root = parseJson(arguments);
+    scope(exit) json_object_put(root);
+    // Each a C string to libacp, so one holding a NUL would run something else.
+    bool whole(typeof(root) v) {
+        return json_object_get_type(v) == json_type.string_
+            && strlen(json_object_get_string(v)) == cast(size_t) json_object_get_string_len(v);
+    }
+    auto command = jsonField(root, "command"), list = jsonField(root, "args");
+    bool usable = whole(command) && json_object_get_string_len(command) > 0
+        && (list is null || json_object_get_type(list) == json_type.array);
+    size_t count = usable && list !is null ? json_object_array_length(list) : 0;
+    foreach (i; 0 .. count) if (!whole(json_object_array_get_idx(list, i))) usable = false;
+    if (!usable) {
+        result.add(`{"status":"not run","why":"run_command takes command, text, and args, a list of text"}`);
+        return 0;
+    }
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    auto args = cast(const(char)**) malloc((count > 0 ? count : 1) * (const(char)*).sizeof);
+    if (args is null) { why.add(`"could not allocate run_command's args"`); return -1; }
+    scope(exit) free(args);
+    foreach (i; 0 .. count) args[i] = json_object_get_string(json_object_array_get_idx(list, i));
+
+    Reply answered;
+    scope(exit) answered.dispose();
+    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], terminalId, answered, why);
+    if (made < 0) return -1;
+    if (made == 2) {
+        result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to run the command"}`);
+        return 2;
+    }
+    if (made == 0) { result.add(answered.slice()); return 1; }
+    // The terminal is shown in the call before it is released:
+    // "The terminal must be added before calling `terminal/release`."
+    {
+        Reply u;
+        scope(exit) u.dispose();
+        if (!putToolCall(u, true, callId, null, null, null, "in_progress", null, null, terminalId.slice()) || !notify(sid, u.slice())) {
+            why.add(`"could not write session/update"`);
+            return -1;
+        }
+    }
+    bool hasCode, truncated;
+    ulong code;
+    Reply signal, output, released;
+    scope(exit) { signal.dispose(); output.dispose(); released.dispose(); }
+    answered.len = 0;
+    auto exited = terminalWait(sessions, turn, sid, terminalId.slice(), hasCode, code, signal, answered, why);
+    if (exited < 0) return -1;
+    // Called off: killed, and what it printed so far read, before it is released.
+    if (exited == 2) {
+        Reply killed;
+        scope(exit) killed.dispose();
+        if (terminalKill(sessions, turn, sid, terminalId.slice(), killed, why) < 0) return -1;
+    }
+    Reply readAnswer;
+    scope(exit) readAnswer.dispose();
+    auto read = terminalOutput(sessions, turn, sid, terminalId.slice(), output, truncated, readAnswer, why);
+    if (read < 0) return -1;
+    auto freed = terminalRelease(sessions, turn, sid, terminalId.slice(), released, why);
+    if (freed < 0) return -1;
+    void tail() {
+        result.add(`"truncated":`); result.add(truncated ? "true" : "false");
+        result.add(`,"output":"`); putEscaped(result, output.slice()); result.add(`"`);
+        if (freed == 0) { result.add(`,"release":`); result.add(released.len > 0 ? released.slice() : "null"); }
+        result.add(`}`);
+    }
+    if (exited == 2) {
+        result.add(`{"status":"cancelled","why":"the client cancelled the turn while the command ran",`);
+        tail();
+        return 2;
+    }
+    // An answer that is no exit, or no output, is what came of the call, as the client gave it.
+    if (exited == 0) { result.add(answered.slice()); return 1; }
+    if (read == 0) { result.add(readAnswer.slice()); return 1; }
+    result.add(`{"exitCode":`);
+    if (hasCode) putNumber(result, cast(uint) code); else result.add("null");
+    result.add(`,"signal":`);
+    if (signal.len > 0) { result.add(`"`); putEscaped(result, signal.slice()); result.add(`"`); } else result.add("null");
+    result.add(`,`);
+    tail();
+    ok = hasCode && code == 0;
+    return result.full ? -1 : 1;
 }
 
 // The client's answer to session/request_permission: 1 an option was selected,
@@ -899,6 +1154,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         sessions.clientReadsFiles = got.capabilities.fs_read_text_file != 0;
         sessions.clientWritesFiles = got.capabilities.fs_write_text_file != 0;
+        sessions.clientRunsCommands = got.capabilities.terminal != 0;
         sessions.clientTakesNotices = got.capabilities.session_notices != 0;
         sessions.elicitsForms = got.capabilities.elicitation_form != 0;
         sessions.elicitsUrls = got.capabilities.elicitation_url != 0;
@@ -1725,6 +1981,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 return true;
             }
             if (sessions.clientWritesFiles) putWriteTool(tools);
+            if (sessions.clientRunsCommands) putRunTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
             auto token = qntxToken(qntxNode.token);
             auto dest = cast(char*) malloc(GATEWAY_BODY);
@@ -1842,6 +2099,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // Manual asks the client. "pending": "awaiting approval".
                     const(char)[] why;
                     bool own = call.name == WRITE_TOOL && sessions.clientWritesFiles;
+                    bool runs = call.name == RUN_TOOL && sessions.clientRunsCommands;
                     auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), own, why);
                     // "Agents SHOULD include it in the first report when available
                     // and SHOULD NOT change it later": the name the model called,
@@ -1850,7 +2108,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // treatment": read, when the tool's annotations say it only reads.
                     // edit, for ground code's own write:
                     // "Modifying files or content."
-                    auto kind = own ? "edit" : readOnlyTool(o.mcp, call.name) ? "read" : null;
+                    // execute, for ground code's own command:
+                    // "Running commands or code."
+                    auto kind = own ? "edit" : runs ? "execute" : readOnlyTool(o.mcp, call.name) ? "read" : null;
                     auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
                     if (!putToolCall(u, false, call.id, call.name, call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
@@ -1888,6 +2148,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         continue;
                     }
                     bool ok;
+                    Reply shown; // the terminal the call shows, when it ran a command
+                    scope(exit) shown.dispose();
                     if (own) {
                         // What the client answered is what the call answered.
                         Reply asking;
@@ -1902,6 +2164,18 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         }
                         if (wrote == 2) result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to write the file"}`);
                         ok = wrote == 1 && clientWrote(result.slice());
+                    } else if (runs) {
+                        // What the command printed, and how it exited, is what the call answered.
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto ran = runThroughClient(sessions, turn, sid, o.cwd[0 .. o.cwdLen], call.id, call.arguments, result, ok, shown, asking);
+                        if (ran < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client to run the command","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
                     } else {
                         server.add(serverOf(call.name)); server.add("\0");
                         tool.add(toolOf(call.name)); tool.add("\0");
@@ -1943,7 +2217,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
                     // What the tool call produced, as MCP gave it, is its content.
-                    if (!putToolCall(u, true, call.id, null, null, null, ok ? "completed" : "failed", null, result.slice()) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!putToolCall(u, true, call.id, null, null, null, ok ? "completed" : "failed", null, result.slice(),
+                            shown.len > 0 ? shown.slice() : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     // Cancelled in the call: the calls after it are not run,
                     // and the turn answers cancelled now.
                     if (turn.cancelled) {

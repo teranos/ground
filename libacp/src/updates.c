@@ -38,8 +38,9 @@ acp_status acp_text_chunk_write(acp_chunk_kind kind, const char *text, size_t le
     return acp_finish(update, update_json);
 }
 
-// ToolCallContent: each block written as content, or the text as one text block when there are none.
-static json_object *tool_content(const char *blocks_json, const char *text, int *bad) {
+// ToolCallContent: the terminal when there is one, then each block written as content, or the text as one
+// text block when there are none.
+static json_object *tool_content(const char *terminal_id, const char *blocks_json, const char *text, int *bad) {
     json_object *blocks = NULL;
     if (blocks_json != NULL) {
         blocks = acp_parse(blocks_json, strlen(blocks_json));
@@ -50,9 +51,16 @@ static json_object *tool_content(const char *blocks_json, const char *text, int 
         }
     }
     json_object *content = NULL;
+    if (terminal_id != NULL) {
+        json_object *terminal = json_object_new_object();
+        add_string(terminal, "type", "terminal");
+        add_string(terminal, "terminalId", terminal_id);
+        content = json_object_new_array();
+        json_object_array_add(content, terminal);
+    }
     size_t n = blocks != NULL ? json_object_array_length(blocks) : 0;
     if (n > 0) {
-        content = json_object_new_array();
+        if (content == NULL) content = json_object_new_array();
         for (size_t i = 0; i < n; i++) {
             json_object *item = json_object_new_object();
             add_string(item, "type", "content");
@@ -66,7 +74,7 @@ static json_object *tool_content(const char *blocks_json, const char *text, int 
         json_object *item = json_object_new_object();
         add_string(item, "type", "content");
         json_object_object_add(item, "content", block);
-        content = json_object_new_array();
+        if (content == NULL) content = json_object_new_array();
         json_object_array_add(content, item);
     }
     json_object_put(blocks);
@@ -76,7 +84,7 @@ static json_object *tool_content(const char *blocks_json, const char *text, int 
 acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json) {
     if (call == NULL || update_json == NULL || call->tool_call_id == NULL) return ACP_INVALID_ARGUMENT;
     int bad = 0;
-    json_object *content = tool_content(call->content_blocks, call->content_text, &bad);
+    json_object *content = tool_content(call->terminal_id, call->content_blocks, call->content_text, &bad);
     if (bad) return ACP_INVALID_ARGUMENT;
     json_object *update = json_object_new_object();
     add_string(update, "sessionUpdate", call->update ? "tool_call_update" : "tool_call");

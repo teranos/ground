@@ -433,6 +433,16 @@ static assert(has(sideFor("acp", "fs/read_text_file").reads, "content"));
 static assert(has(sideFor("acp", "fs/write_text_file").writes, "sessionId"));
 static assert(has(sideFor("acp", "fs/write_text_file").writes, "path"));
 static assert(has(sideFor("acp", "fs/write_text_file").writes, "content"));
+// Each terminal/* method is measured through its own helper, so one's keys are not another's.
+static assert(has(sideFor("acp", "terminal/create").writes, "command"));
+static assert(has(sideFor("acp", "terminal/create").writes, "cwd"));
+static assert(has(sideFor("acp", "terminal/create").reads, "terminalId"));
+static assert(!has(sideFor("acp", "terminal/create").reads, "output"));
+static assert(has(sideFor("acp", "terminal/output").reads, "output"));
+static assert(has(sideFor("acp", "terminal/output").reads, "truncated"));
+static assert(has(sideFor("acp", "terminal/wait_for_exit").reads, "exitCode"));
+static assert(has(sideFor("acp", "terminal/kill").writes, "terminalId"));
+static assert(has(sideFor("acp", "terminal/release").writes, "terminalId"));
 // A turn's answer is libacp's, through putStop: still measured as session/prompt's.
 static assert(has(sideFor("acp", "session/prompt").writes, "stopReason"));
 // What libacp writes for a session's MCP server: elicitation/create's message, and the update's own fields.
