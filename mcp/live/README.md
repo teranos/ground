@@ -59,6 +59,7 @@ five minutes, or ground code ending first, prints `# FAILED` and exits 1.
 | `load.acp` | a conversation kept by one process, told back by another before it answers; the refusals | #143 (part 11) |
 | `fs.acp` | a file:// resource_link read through the client, every byte of it, and the client's error | #156 (part 12) |
 | `write.acp` | write_text_file allowed in Manual and written through the client, the client's error, and written unasked in Accept edits | #179 (part 16) |
+| `terminal.acp` | run_command allowed in Manual and run in the client's terminal, killed by a cancel, and the client's error | #179 (part 17) |
 | `title.acp` | a session titled by its first prompt, kept across a resume, listed | #166 |
 | `elicit-legacy.acp` | elicitation from a legacy server, form then url, and the url's completion | #167 |
 | `elicit-modern.acp` | elicitation from a 2026-07-28 server, answered late | #167, #178 |

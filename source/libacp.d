@@ -5,6 +5,8 @@ module libacp;
 
 enum ACP_VERSION = "0.1.0-dev";
 
+import core.stdc.config : c_ulong;
+
 extern (C) nothrow @nogc {
     enum acp_status : int {
         ACP_OK = 0, ACP_INVALID_ARGUMENT, ACP_NO_MEMORY, ACP_PARSE_ERROR,
@@ -114,6 +116,20 @@ extern (C) nothrow @nogc {
         size_t length;
     }
 
+    struct acp_terminal_exit {
+        int exited;
+        int has_exit_code;
+        c_ulong exit_code;
+        char* signal;
+    }
+
+    struct acp_terminal_output {
+        char* output;
+        size_t length;
+        int truncated;
+        acp_terminal_exit exit_status;
+    }
+
     enum acp_stop_reason : int {
         ACP_STOP_END_TURN, ACP_STOP_MAX_TOKENS, ACP_STOP_MAX_TURN_REQUESTS, ACP_STOP_REFUSAL, ACP_STOP_CANCELLED
     }
@@ -131,6 +147,7 @@ extern (C) nothrow @nogc {
         const(char)* raw_output;
         const(char)* content_blocks;
         const(char)* content_text;
+        const(char)* terminal_id;
     }
 
     enum acp_elicit_mode : int { ACP_ELICIT_FORM, ACP_ELICIT_URL, ACP_ELICIT_OTHER }
@@ -197,6 +214,19 @@ extern (C) nothrow @nogc {
     void acp_text_file_free(acp_text_file*);
     acp_status acp_write_text_file_request_write(const(char)*, const(char)*, const(char)*, const(char)*, size_t, acp_buffer*);
     acp_status acp_write_text_file_result_read(const(char)*, size_t, int*);
+    acp_status acp_terminal_create_request_write(const(char)*, const(char)*, const(char)*, const(const(char)*)*, size_t,
+        const(char)*, ulong, acp_buffer*);
+    acp_status acp_terminal_create_result_read(const(char)*, size_t, char**);
+    void acp_terminal_id_free(char*);
+    acp_status acp_terminal_output_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_terminal_wait_for_exit_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_terminal_kill_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_terminal_release_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_terminal_exit_read(const(char)*, size_t, acp_terminal_exit*);
+    void acp_terminal_exit_free(acp_terminal_exit*);
+    acp_status acp_terminal_output_result_read(const(char)*, size_t, acp_terminal_output*);
+    void acp_terminal_output_free(acp_terminal_output*);
+    acp_status acp_terminal_answered_read(const(char)*, size_t, int*);
     acp_status acp_prompt_result_write(acp_stop_reason, acp_buffer*);
     acp_status acp_session_update_write(const(char)*, const(char)*, acp_buffer*);
     acp_status acp_text_chunk_write(acp_chunk_kind, const(char)*, size_t, acp_buffer*);
