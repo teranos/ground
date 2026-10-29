@@ -412,20 +412,29 @@ unittest {
     answer(`{"jsonrpc":"2.0","id":8,"method":"logout"}`, r, s);
     assert(r.slice() == `{"jsonrpc":"2.0","id":8,"result":{}}`);
 
-    // A home of its own, so nobody's token is touched.
+    // A home of its own, so nobody's token is touched; and the home the
+    // tests after this one run in is the one they were given, every byte.
+    import core.stdc.string : strlen;
     __gshared char[160] home;
     tokenFile(home, "home");
     auto wasHome = getenv("HOME");
-    __gshared char[512] keptHome;
+    // A char starts as 0xFF, not NUL: the copy is ended by hand.
+    __gshared char[512] keptHome = 0;
     size_t hl = 0;
     if (wasHome !is null) while (wasHome[hl] != 0 && hl + 1 < keptHome.length) { keptHome[hl] = wasHome[hl]; hl++; }
-    setenv("HOME", home.ptr, 1);
-    setenv("QNTX_TOKEN", "qntx_env", 1);
-    scope(exit) { unsetenv("QNTX_TOKEN"); if (wasHome !is null) setenv("HOME", keptHome.ptr, 1); }
-    s.node.token = "";
-    r.len = 0;
-    answer(`{"jsonrpc":"2.0","id":9,"method":"logout","params":{}}`, r, s);
-    assert(r.slice() == `{"jsonrpc":"2.0","id":9,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
+    keptHome[hl] = 0;
+    {
+        setenv("HOME", home.ptr, 1);
+        setenv("QNTX_TOKEN", "qntx_env", 1);
+        scope(exit) { unsetenv("QNTX_TOKEN"); if (wasHome !is null) setenv("HOME", keptHome.ptr, 1); }
+        s.node.token = "";
+        r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":9,"method":"logout","params":{}}`, r, s);
+        assert(r.slice() == `{"jsonrpc":"2.0","id":9,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
+    }
+    auto isHome = getenv("HOME");
+    assert((wasHome is null) == (isHome is null));
+    if (isHome !is null) assert(strlen(isHome) == hl && isHome[0 .. hl] == keptHome[0 .. hl]);
 }
 
 // A 401 from the node is "Authentication required": its answer is the
