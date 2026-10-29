@@ -197,6 +197,33 @@ acp_status acp_elicitation_create_write(const char *request_id, const char *sess
     return acp_finish(message, message_json);
 }
 
+acp_status acp_elicitation_url_write(const char *id, const char *request_id, const char *elicitation_id,
+    const char *url, const char *message, acp_buffer *message_json) {
+    if (id == NULL || request_id == NULL || elicitation_id == NULL || url == NULL || message == NULL || message_json == NULL)
+        return ACP_INVALID_ARGUMENT;
+    message_json->data = NULL;
+    message_json->length = 0;
+    json_object *own = acp_parse(id, strlen(id));
+    json_object *scope = acp_parse(request_id, strlen(request_id));
+    if (own == NULL || scope == NULL) {
+        json_object_put(own);
+        json_object_put(scope);
+        return ACP_INVALID_ARGUMENT;
+    }
+    json_object *params = json_object_new_object();
+    json_object_object_add(params, "requestId", scope);
+    add_string(params, "mode", "url");
+    add_string(params, "message", message);
+    add_string(params, "elicitationId", elicitation_id);
+    add_string(params, "url", url);
+    json_object *m = json_object_new_object();
+    add_string(m, "jsonrpc", "2.0");
+    json_object_object_add(m, "id", own);
+    json_object_object_add(m, "method", json_object_new_string(ACP_CLIENT_ELICITATION_CREATE));
+    json_object_object_add(m, "params", params);
+    return acp_finish(m, message_json);
+}
+
 acp_status acp_elicitation_complete_write(const char *elicitation_id, acp_buffer *message_json) {
     if (elicitation_id == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *params = json_object_new_object();

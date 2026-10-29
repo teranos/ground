@@ -107,3 +107,10 @@ bool more(ref Input input) {
     fill(input, -1);
     return !input.eof && !input.failed;
 }
+
+// Waits up to ms for more to arrive, taking what does. false at the end of
+// the input, or when it failed.
+bool within(ref Input input, int ms) {
+    fill(input, ms < 0 ? 0 : ms);
+    return !input.eof && !input.failed;
+}

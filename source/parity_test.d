@@ -276,8 +276,12 @@ static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
 // hook side would have claimed session/new's cwd: main.d reads a cwd from
 // every hook payload, and that is not ground code handling session/new.
 static assert(has(sideFor("claude", "session/new").reads, "cwd"));
+// logout carries nothing to read, and is answered with its result.
 static assert(sideFor("acp", "logout").reads.slice() == "");
-static assert(sideFor("acp", "logout").writes.slice() == "");
+static assert(has(sideFor("acp", "logout").writes, "result"));
+// authenticate's sign-in is an elicitation tied to its request.
+static assert(has(sideFor("acp", "authenticate").writes, "requestId"));
+static assert(has(sideFor("acp", "authenticate").writes, "url"));
 static assert(has(sideFor("acp", "session/load").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/load").reads, "mcpServers"));
 static assert(has(sideFor("acp", "session/load").writes, "configOptions"));
