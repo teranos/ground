@@ -1,4 +1,4 @@
-# terminal/*: the model's run_command, allowed in Manual, runs in the client's terminal; a cancel kills it; the client's error is the call's.
+# terminal/*: the model's run_command, allowed in Manual, runs in the client's terminal; a cancel kills it; the client's error is the call's; a terminal made after the turn was called off is released.
 {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"terminal":true}}}
 wait 0
 {"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
@@ -37,3 +37,14 @@ expect "method":"session/request_permission"
 expect "method":"terminal/create"
 {"jsonrpc":"2.0","id":$ASKED,"error":{"code":-32603,"message":"no shell"}}
 wait 4
+# Called off before the client said it created the terminal: the late answer's terminal is released.
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use run_command once to run sleep with the one argument 60, then reply with only: done"}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}
+expect "method":"terminal/create"
+{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"$SID"}}
+wait 5
+{"jsonrpc":"2.0","id":$ASKED,"result":{"terminalId":"live-3"}}
+expect "method":"terminal/release"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+sleep 1000
