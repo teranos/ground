@@ -144,10 +144,10 @@ private bool listed(const(char)[] names, const(char)[] name) {
 }
 
 // What a session's mode makes of a call its turn asks for. Manual asks the
-// client; acceptEdits and auto have no meaning of their own for ground code,
-// so they ask as Manual does, write_text_file among the calls they ask for.
+// client; acceptEdits runs an edit unasked, unless the user always rejects it,
+// and asks the rest as Manual does; auto has no classifier, so it asks as well.
 private enum Verdict { run, ask, refuse }
-private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref const(char)[] why) {
+private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, bool edit, ref const(char)[] why) {
     final switch (o.mode) {
         case SessionMode.bypassPermissions: return Verdict.run;
         case SessionMode.plan:
@@ -163,6 +163,7 @@ private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref con
             if (listed(o.always.slice(), tool)) return Verdict.run;
             why = "the user rejected it";
             if (listed(o.never.slice(), tool)) return Verdict.refuse;
+            if (o.mode == SessionMode.acceptEdits && edit) return Verdict.run;
             return Verdict.ask;
     }
 }
@@ -695,8 +696,9 @@ private string shownAs(SessionMode m) {
 private void putModeDescription(ref Reply r, SessionMode m) {
     char[1] letter = [letterOf(m)];
     r.add(letter[]); r.add(` in a permission block`);
-    // Neither has a meaning of its own for ground code's tool calls yet.
-    if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
+    // write_text_file is the one edit ground code has, and auto no classifier to run on.
+    if (m == SessionMode.acceptEdits) r.add(`; ground code writes files without asking, and asks the rest as Manual does`);
+    if (m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
 }
 
 // Where a mode stands among those offered, or offered.length for one it does not.
@@ -1839,7 +1841,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // The session's mode decides whether the call runs, and
                     // Manual asks the client. "pending": "awaiting approval".
                     const(char)[] why;
-                    auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), why);
+                    bool own = call.name == WRITE_TOOL && sessions.clientWritesFiles;
+                    auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), own, why);
                     // "Agents SHOULD include it in the first report when available
                     // and SHOULD NOT change it later": the name the model called,
                     // here and in no update after.
@@ -1847,7 +1850,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // treatment": read, when the tool's annotations say it only reads.
                     // edit, for ground code's own write:
                     // "Modifying files or content."
-                    bool own = call.name == WRITE_TOOL && sessions.clientWritesFiles;
                     auto kind = own ? "edit" : readOnlyTool(o.mcp, call.name) ? "read" : null;
                     auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
                     if (!putToolCall(u, false, call.id, call.name, call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
