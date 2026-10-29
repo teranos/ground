@@ -141,9 +141,10 @@ int pollSignIn(const(char)[] node, ref SignIn s, ref Reply token, ref Reply why)
 // there; the file only its owner's, written beside it and moved over it, so a
 // reader finds the old token or the new one, never half of one.
 bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
-    import core.sys.posix.sys.stat : mkdir;
-    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
-    import core.sys.posix.unistd : write, close, fsync, unlink;
+    // libc as ground declares it once, in errors.d: a second declaration of
+    // mkdir with Darwin's 16-bit mode_t is a different function to the linker.
+    import errors : mkdir, open, write, close, unlink, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.unistd : fsync;
     import core.stdc.stdio : rename;
     import core.stdc.errno : errno, EEXIST;
     import core.stdc.string : strlen, strerror;
@@ -173,7 +174,7 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
     temp.add(path); temp.add(".login\0");
     auto fd = open(temp.slice().ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x180);
     if (fd < 0) { failed("could not write the token", temp.slice()[0 .. $ - 1]); return false; }
-    bool ok = write(fd, token.ptr, token.length) == cast(ptrdiff_t) token.length && write(fd, "\n".ptr, 1) == 1 && fsync(fd) == 0;
+    bool ok = write(fd, token.ptr, token.length) == cast(long) token.length && write(fd, "\n".ptr, 1) == 1 && fsync(fd) == 0;
     if (!ok) failed("could not write the token", temp.slice()[0 .. $ - 1]);
     if (close(fd) != 0 && ok) { failed("could not write the token", temp.slice()[0 .. $ - 1]); ok = false; }
     if (ok && rename(temp.slice().ptr, file) != 0) { failed("could not put the token in place", path); ok = false; }
@@ -184,7 +185,7 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
 // Drops the token file: 1 dropped, 0 none was there, -1 it could not be, why
 // in why. The node still holds the token until the person revokes it there.
 int dropToken(const(char)* file, ref Reply why) {
-    import core.sys.posix.unistd : unlink;
+    import errors : unlink;
     import core.stdc.errno : errno, ENOENT;
     import core.stdc.string : strlen, strerror;
     if (unlink(file) == 0) return 1;
