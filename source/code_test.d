@@ -1585,6 +1585,14 @@ version (Posix) unittest {
         gotLen = r.len < gotBuf.length ? r.len : gotBuf.length;
         foreach (i; 0 .. gotLen) gotBuf[i] = r.slice()[i];
         r.dispose();
+        // What the client sent that the turn left is answered after it, as handleCode answers it.
+        while (true) {
+            Reply left, ignored;
+            scope(exit) { left.dispose(); ignored.dispose(); }
+            bool any(const(char)[] line) { left.add(line); return true; }
+            if (!take(input, &any)) break;
+            answer(left.slice(), ignored, s);
+        }
         fflush(stdout);
         dup2(saved, 1); close(saved); close(o[1]);
         saidLen = 0;
@@ -1676,6 +1684,15 @@ version (Posix) unittest {
     assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-5","method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
     assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while the command ran\",`
         ~ `\"truncated\":false,\"output\":\"part\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Called off before the client said it created the terminal: its late answer is released, not left running.
+    turn(runs, "bypassPermissions", args, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n"
+        ~ created, s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while it was asked to run the command\"}"}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-2","method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
     s.open[0].history.dispose();
 
     // Not offered: no such tool is offered, and a call by its name runs nothing.
