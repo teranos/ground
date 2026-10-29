@@ -48,7 +48,7 @@ private string answerWith()(string line, ref Sessions s) {
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 // libacp reads and writes it, so these run rather than fold at compile time.
 // Folded at compile time, as betterC has no GC to concatenate with.
-enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
+enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true},"auth":{"logout":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
 
 unittest {
     bool answers(string line, const(char)[] want) {
@@ -78,17 +78,21 @@ unittest {
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":2,"info":{"name":"zed","version":"1"},"capabilities":{"elicitation":{"form":{},"url":{}}}}}`, r, s));
-    assert(r.slice() == v1Result!`1`);
+    // A client that can send the person to a link is offered the sign-in that does.
+    import matcher : indexOf;
+    enum qntx = `"authMethods":[{"id":"qntx","name":"Sign in to QNTX","description":"Open the link ground code gives, and approve it at your QNTX node with your passkey"}]`;
+    enum plain = v1Result!`1`;
+    enum offered = plain[0 .. indexOf(plain, `"authMethods":[]`)] ~ qntx ~ plain[indexOf(plain, `"authMethods":[]`) + 16 .. $];
+    assert(r.slice() == offered);
     assert(s.elicitsForms && s.elicitsUrls, "a v2 client's elicitation, read from capabilities");
 }
 
 // authenticate: "Must be one of the methods advertised in the initialize
-// response." ground code advertises none, so no methodId is one of them.
-// libacp reads the methodId; one only in _meta is not the request's.
+// response." libacp reads the methodId; one only in _meta is not the request's.
 unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"agent"}}`,
-        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named agent"}}`));
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code's auth method is qntx, and authenticate named agent"}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{}}`,
         `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"authenticate needs methodId"}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":7,"method":"authenticate","params":{"_meta":{"methodId":"agent"}}}`,
@@ -96,8 +100,8 @@ unittest {
 }
 
 // A method ground code does not handle is said to the client, by name.
-static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"logout","params":{}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle logout"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/wobble","params":{}}`)
+    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle session/wobble"}}`);
 
 // session/load: "Clients MUST call the session/load method with" the session,
 // "MCP servers to connect to" and "The working directory": all three required.

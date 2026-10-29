@@ -127,8 +127,27 @@ static void elicitation(void) {
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"method\":\"elicitation/complete\",\"params\":{\"elicitationId\":\"x1\"}}"));
 }
 
+// An elicitation "tied to a specific JSON-RPC request outside of a session (e.g., during
+// auth/configuration phases before any session is started)": url mode, scoped by requestId.
+static void request_scoped(void) {
+    acp_buffer out = {0};
+    CHECK(acp_elicitation_url_write("\"login-1\"", "7", "qntx-ABCD-EFGH", "https://q.example/auth/device/approve?user_code=ABCD-EFGH",
+                                    "Sign in to QNTX: ABCD-EFGH", &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"login-1\",\"method\":\"elicitation/create\",\"params\":{\"requestId\":7,"
+                     "\"mode\":\"url\",\"message\":\"Sign in to QNTX: ABCD-EFGH\",\"elicitationId\":\"qntx-ABCD-EFGH\","
+                     "\"url\":\"https://q.example/auth/device/approve?user_code=ABCD-EFGH\"}}"));
+    // A string request id stays a string.
+    CHECK(acp_elicitation_url_write("\"login-2\"", "\"auth-1\"", "e", "https://q.example/a", "m", &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"login-2\",\"method\":\"elicitation/create\",\"params\":{\"requestId\":\"auth-1\","
+                     "\"mode\":\"url\",\"message\":\"m\",\"elicitationId\":\"e\",\"url\":\"https://q.example/a\"}}"));
+    CHECK(acp_elicitation_url_write("\"login-3\"", "not json", "e", "u", "m", &out) == ACP_INVALID_ARGUMENT);
+    CHECK(out.data == NULL);
+    CHECK(acp_elicitation_url_write("\"login-3\"", "7", NULL, "u", "m", &out) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     envelope();
+    request_scoped();
     chunks();
     tool_calls();
     others();
