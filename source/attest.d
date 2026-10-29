@@ -35,6 +35,27 @@ int backoffSeconds(int attempt) {
 // for the same credential is a second thing to rotate, and the one nobody
 // rotated went stale and was refused for weeks. What tells these attestations
 // apart is actors ["ground"], not the filename.
+// The file a node's token is kept in: the one its qntx block names, `~/` being
+// the home, or ~/.qntx/token. What ground code's login writes is this file, so
+// every ground reads the token it was given. Null when it is in a home there is
+// none of. Good until the next call.
+const(char)* qntxTokenFile(const(char)[] path = "") {
+    import errors : getenv;
+    __gshared ZBuf pathBuf;
+    pathBuf.reset();
+    if (path.length == 0 || (path.length >= 2 && path[0 .. 2] == "~/")) {
+        auto home = getenv("HOME\0".ptr);
+        if (home is null) return null;
+        size_t hLen = 0;
+        while (home[hLen] != 0) hLen++;
+        pathBuf.put(home[0 .. hLen]);
+        pathBuf.put(path.length == 0 ? "/.qntx/token" : path[1 .. $]);
+    } else {
+        pathBuf.put(path);
+    }
+    return pathBuf.ptr();
+}
+
 const(char)[] qntxToken(const(char)[] path = "") {
     import errors : getenv, open, read, close, O_RDONLY;
     import http : trimToken;
@@ -49,20 +70,9 @@ const(char)[] qntxToken(const(char)[] path = "") {
         }
     }
 
-    __gshared ZBuf pathBuf;
-    pathBuf.reset();
-    if (path.length == 0 || (path.length >= 2 && path[0 .. 2] == "~/")) {
-        auto home = getenv("HOME\0".ptr);
-        if (home is null) return null;
-        size_t hLen = 0;
-        while (home[hLen] != 0) hLen++;
-        pathBuf.put(home[0 .. hLen]);
-        pathBuf.put(path.length == 0 ? "/.qntx/token" : path[1 .. $]);
-    } else {
-        pathBuf.put(path);
-    }
-
-    auto fd = open(pathBuf.ptr(), O_RDONLY, 0);
+    auto file = qntxTokenFile(path);
+    if (file is null) return null;
+    auto fd = open(file, O_RDONLY, 0);
     if (fd < 0) return null;
     __gshared char[512] tokBuf = 0;
     auto n = read(fd, &tokBuf[0], tokBuf.length);

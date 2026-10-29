@@ -13,6 +13,7 @@ static void read_capabilities(json_object *params, unsigned requested, acp_clien
     json_object *elicitation = acp_field(c, "elicitation");
     caps->elicitation_form = acp_offered(elicitation, "form");
     caps->elicitation_url = acp_offered(elicitation, "url");
+    caps->auth_terminal = acp_flag(acp_field(c, "auth"), "terminal");
     if (requested >= 2) return;
     json_object *fs = acp_field(c, "fs");
     caps->fs_read_text_file = acp_flag(fs, "readTextFile");

@@ -19,6 +19,8 @@ extern "C" {
 // A requested version none of the supported ones fits:
 // "If none exists, it MUST return -32022 with requested and supported data"
 #define ACP_ERROR_UNSUPPORTED_VERSION (-32022)
+// "Authentication is required before this operation can be performed."
+#define ACP_ERROR_AUTH_REQUIRED (-32000)
 
 typedef enum acp_status {
     ACP_OK = 0,
@@ -44,6 +46,7 @@ typedef struct acp_client_capabilities {
     int session_notices;
     int elicitation_form;
     int elicitation_url;
+    int auth_terminal; // auth.terminal: the client runs a terminal auth method itself
 } acp_client_capabilities;
 
 typedef struct acp_initialize {
@@ -363,6 +366,11 @@ typedef enum acp_elicit_mode {
 // lead, then its mode, then everything else server_params, an object, asked, in its order.
 acp_status acp_elicitation_create_write(const char *request_id, const char *session_id, const char *tool_call_id,
     const char *server_params, size_t length, int *mode, acp_buffer *message_json);
+
+// elicitation/create in url mode, tied to a request outside any session, as authenticate's is:
+// request_id is that request's id, JSON as the client sent it.
+acp_status acp_elicitation_url_write(const char *id, const char *request_id, const char *elicitation_id,
+    const char *url, const char *message, acp_buffer *message_json);
 
 // elicitation/complete, whole.
 acp_status acp_elicitation_complete_write(const char *elicitation_id, acp_buffer *message_json);

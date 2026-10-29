@@ -115,8 +115,26 @@ static void authenticate(void) {
     }
 }
 
+// "Whether the client supports terminal authentication methods", in either shape: an agent
+// advertises a terminal method only to a client that said so.
+static void auth_terminal(void) {
+    const unsigned v1[] = {1};
+    acp_initialize in;
+    acp_buffer error;
+    CHECK(read_one("{\"protocolVersion\":1,\"clientCapabilities\":{\"auth\":{\"terminal\":true}}}", v1, 1, &in, &error) == ACP_OK);
+    CHECK(in.capabilities.auth_terminal == 1);
+    CHECK(read_one("{\"protocolVersion\":2,\"capabilities\":{\"auth\":{\"terminal\":true}}}", v1, 1, &in, &error) == ACP_OK);
+    CHECK(in.capabilities.auth_terminal == 1);
+    CHECK(read_one("{\"protocolVersion\":1,\"clientCapabilities\":{\"auth\":{\"terminal\":false}}}", v1, 1, &in, &error) == ACP_OK);
+    CHECK(in.capabilities.auth_terminal == 0);
+    CHECK(read_one("{\"protocolVersion\":1,\"clientCapabilities\":{}}", v1, 1, &in, &error) == ACP_OK);
+    CHECK(in.capabilities.auth_terminal == 0);
+    CHECK(ACP_ERROR_AUTH_REQUIRED == -32000);
+}
+
 int main(void) {
     v1_shape();
+    auth_terminal();
     v2_shape_to_a_v1_agent();
     dual_stack_selects();
     none_fits();
