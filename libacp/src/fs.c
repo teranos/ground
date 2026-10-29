@@ -15,7 +15,7 @@ acp_status acp_read_text_file_request_write(const char *request_id, const char *
     json_object *message = json_object_new_object();
     json_object_object_add(message, "jsonrpc", json_object_new_string("2.0"));
     json_object_object_add(message, "id", id);
-    json_object_object_add(message, "method", json_object_new_string("fs/read_text_file"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_FS_READ_TEXT_FILE));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }
@@ -62,7 +62,7 @@ acp_status acp_write_text_file_request_write(const char *request_id, const char 
     json_object *message = json_object_new_object();
     json_object_object_add(message, "jsonrpc", json_object_new_string("2.0"));
     json_object_object_add(message, "id", id);
-    json_object_object_add(message, "method", json_object_new_string("fs/write_text_file"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_FS_WRITE_TEXT_FILE));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }

@@ -140,12 +140,12 @@ static acp_status resume_read(const char *method, int servers, const char *param
 
 acp_status acp_session_resume_read(const char *params_json, size_t length,
                                    acp_session_resume *out, acp_buffer *error_json) {
-    return resume_read("session/resume", 0, params_json, length, out, error_json);
+    return resume_read(ACP_AGENT_SESSION_RESUME, 0, params_json, length, out, error_json);
 }
 
 acp_status acp_session_load_read(const char *params_json, size_t length,
                                  acp_session_resume *out, acp_buffer *error_json) {
-    return resume_read("session/load", 1, params_json, length, out, error_json);
+    return resume_read(ACP_AGENT_SESSION_LOAD, 1, params_json, length, out, error_json);
 }
 
 acp_status acp_session_target_read(const char *method, const char *params_json, size_t length,
