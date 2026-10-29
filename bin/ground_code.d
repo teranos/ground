@@ -17,8 +17,8 @@ int main(string[] args) {
     return handleCode();
 }
 
-// Signs in to the node the qntx block names, the token kept in the file the
-// block names for it, where ground code and every other ground read it.
+// Signs in to q, the node a prompt goes through and the one that owns auth, and keeps its token in
+// ~/.qntx/token. The block's url and token file are the hooks' node for attestations, k, and stay its.
 int signIn() {
     import code.login : login;
     import controls : qntxNode;
@@ -26,8 +26,8 @@ int signIn() {
     import errors : getenv;
     import core.stdc.stdio : fwrite, fflush, stdout;
     void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); fflush(stdout); }
-    auto status = login(qntxNode.url, qntxTokenFile(qntxNode.token), &say);
-    if (status == 0 && qntxNode.token.length == 0 && getenv("QNTX_TOKEN\0".ptr) !is null)
+    auto status = login(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url, qntxTokenFile(""), &say);
+    if (status == 0 && getenv("QNTX_TOKEN\0".ptr) !is null)
         say("QNTX_TOKEN is set in this environment, and is read before that file.\n");
     return status;
 }
