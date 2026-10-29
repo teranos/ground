@@ -50,7 +50,7 @@ acp_status acp_terminal_create_request_write(const char *request_id, const char 
     if (cwd != NULL) json_object_object_add(params, "cwd", json_object_new_string(cwd));
     if (output_byte_limit > 0)
         json_object_object_add(params, "outputByteLimit", json_object_new_int64((int64_t) output_byte_limit));
-    json_object_object_add(message, "method", json_object_new_string("terminal/create"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_TERMINAL_CREATE));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }
@@ -79,7 +79,7 @@ acp_status acp_terminal_output_request_write(const char *request_id, const char 
     if (!terminal_arguments(request_id, session_id, terminal_id, message_json)) return ACP_INVALID_ARGUMENT;
     json_object *message = request_head(request_id);
     if (message == NULL) return ACP_INVALID_ARGUMENT;
-    json_object_object_add(message, "method", json_object_new_string("terminal/output"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_TERMINAL_OUTPUT));
     return terminal_finish(message, session_id, terminal_id, message_json);
 }
 
@@ -88,7 +88,7 @@ acp_status acp_terminal_wait_for_exit_request_write(const char *request_id, cons
     if (!terminal_arguments(request_id, session_id, terminal_id, message_json)) return ACP_INVALID_ARGUMENT;
     json_object *message = request_head(request_id);
     if (message == NULL) return ACP_INVALID_ARGUMENT;
-    json_object_object_add(message, "method", json_object_new_string("terminal/wait_for_exit"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_TERMINAL_WAIT_FOR_EXIT));
     return terminal_finish(message, session_id, terminal_id, message_json);
 }
 
@@ -97,7 +97,7 @@ acp_status acp_terminal_kill_request_write(const char *request_id, const char *s
     if (!terminal_arguments(request_id, session_id, terminal_id, message_json)) return ACP_INVALID_ARGUMENT;
     json_object *message = request_head(request_id);
     if (message == NULL) return ACP_INVALID_ARGUMENT;
-    json_object_object_add(message, "method", json_object_new_string("terminal/kill"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_TERMINAL_KILL));
     return terminal_finish(message, session_id, terminal_id, message_json);
 }
 
@@ -106,7 +106,7 @@ acp_status acp_terminal_release_request_write(const char *request_id, const char
     if (!terminal_arguments(request_id, session_id, terminal_id, message_json)) return ACP_INVALID_ARGUMENT;
     json_object *message = request_head(request_id);
     if (message == NULL) return ACP_INVALID_ARGUMENT;
-    json_object_object_add(message, "method", json_object_new_string("terminal/release"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_TERMINAL_RELEASE));
     return terminal_finish(message, session_id, terminal_id, message_json);
 }
 

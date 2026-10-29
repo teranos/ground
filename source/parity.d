@@ -930,18 +930,23 @@ string sentBlock()(string src, string method) {
 
 private CodeSides buildCodeSides()() {
     CodeSides cs;
-    enum key = `method == "`;
+    // A method code/acp.d handles is tested by its name in meta.json's tables, AGENT_METHODS.session_new;
+    // a method tested by any other name is not ACP's.
+    import acpmethods : wireOf;
+    enum key = `method == `;
     size_t from = 0;
     while (true) {
         auto at = indexIn(codeSource, key, from);
         if (at < 0) break;
         auto nameFrom = cast(size_t) at + key.length;
-        auto nameEnd = indexIn(codeSource, `"`, nameFrom);
-        assert(nameEnd >= 0, "code/acp.d tests a method it does not close");
-        from = cast(size_t) nameEnd;
+        auto nameEnd = nameFrom;
+        while (nameEnd < codeSource.length && (isIdent(codeSource[nameEnd]) || codeSource[nameEnd] == '.')) nameEnd++;
+        from = nameFrom;
+        auto wire = wireOf(codeSource[nameFrom .. nameEnd]);
+        if (wire is null) continue;
         auto block = codeSource[cast(size_t) at .. branchEnd(codeSource, cast(size_t) at)];
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
-        auto side = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
+        auto side = GroundSide(wire, readsIn(block), writesIn(block));
         libacpKeys(block, side);
         helperKeys(block, side);
         cs.items[cs.count++] = side;
@@ -1026,16 +1031,19 @@ private void helperKeys()(const(char)[] block, ref GroundSide side) {
 // A request libacp writes for ground code: the method its writer names, measured through each
 // helper of code/acp.d that calls the writer, and the helpers that one calls in turn.
 private void libacpSent()(ref CodeSides cs) {
-    enum mark = `"method", json_object_new_string("`;
+    import acpmethods : wireOfMacro;
+    enum mark = `"method", json_object_new_string(`;
     auto lib = libacpFns();
     foreach (f; lib.items[0 .. lib.count]) {
         auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
         auto at = indexIn(body_, mark);
         if (at < 0) continue;
+        // The writer's method by its name in acp_methods.h, ACP_CLIENT_TERMINAL_KILL, generated from meta.json.
         auto nameFrom = cast(size_t) at + mark.length;
-        auto nameEnd = indexIn(body_, `"`, nameFrom);
-        assert(nameEnd >= 0, "a libacp writer names a method it does not close");
-        auto name = body_[nameFrom .. cast(size_t) nameEnd];
+        auto nameEnd = nameFrom;
+        while (nameEnd < body_.length && isIdent(body_[nameEnd])) nameEnd++;
+        auto name = wireOfMacro(body_[nameFrom .. nameEnd]);
+        assert(name !is null, "a libacp writer names a method meta.json does not");
         size_t k = cs.count;
         foreach (i; 0 .. cs.count) if (cs.items[i].event == name) k = i;
         if (k == cs.count) {

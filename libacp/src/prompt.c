@@ -71,10 +71,10 @@ acp_status acp_cancel_read(const char *message_json, size_t length, acp_cancel *
     char *method = acp_string(message, "method");
     json_object *params = acp_field(message, "params");
     acp_status status = ACP_OK;
-    if (method != NULL && strcmp(method, "session/cancel") == 0) {
+    if (method != NULL && strcmp(method, ACP_AGENT_SESSION_CANCEL) == 0) {
         out->kind = ACP_CANCEL_SESSION;
         out->session_id = acp_string(params, "sessionId");
-    } else if (method != NULL && strcmp(method, "$/cancel_request") == 0) {
+    } else if (method != NULL && strcmp(method, ACP_PROTOCOL_CANCEL_REQUEST) == 0) {
         out->kind = ACP_CANCEL_REQUEST;
         json_object *id = acp_field(params, "requestId");
         if (id != NULL) {
