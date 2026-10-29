@@ -96,6 +96,7 @@ struct Sessions {
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
     bool clientWritesFiles; // initialize said the client answers fs/write_text_file
     bool clientRunsCommands; // initialize said the client answers terminal/*
+    Reply unreleased; // terminal/create asked by a turn called off before the answer, its id and session a line
     bool clientTakesNotices; // initialize said the client presents notice session updates
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
@@ -314,15 +315,15 @@ private int askTerminal(ref Turn turn, const(char)[] pid, const(char)[] request,
     return waited;
 }
 
-// terminal/create for command and its args, in cwd: 1 created, its id in terminalId; 0 the client
-// answered with none, its answer in answered; 2 the turn was called off; -1 not asked, why the reason.
+// terminal/create for command and its args, in cwd, asked as pid: 1 created, its id in terminalId; 0 the
+// client answered with none, its answer in answered; 2 the turn was called off; -1 not asked, why the reason.
 private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
-        const(char)* command, const(const(char)*)[] args, ref Reply terminalId, ref Reply answered, ref Reply why) {
+        const(char)* command, const(const(char)*)[] args, ref Reply pid, ref Reply terminalId, ref Reply answered, ref Reply why) {
     import libacp : acp_terminal_create_request_write, acp_terminal_create_result_read, acp_terminal_id_free,
         acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
-    Reply pid, text;
-    scope(exit) { pid.dispose(); text.dispose(); }
+    Reply text;
+    scope(exit) text.dispose();
     termId(sessions, pid);
     size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
     auto idAt = at(pid.slice()), sidAt = at(sid), cwdAt = at(cwd);
@@ -452,6 +453,51 @@ private int terminalRelease(ref Sessions sessions, ref Turn turn, const(char)[] 
     return acp_terminal_answered_read(answered.slice().ptr, answered.len, &done) == acp_status.ACP_OK && done ? 1 : 0;
 }
 
+// The answer to a terminal/create a turn was called off before: the terminal it names is released, its
+// own answer left to arrive as one no turn waits on. false when line answers no such request.
+private bool releaseUnreleased(ref Sessions sessions, const(char)[] id, const(char)[] line) {
+    import libacp : acp_terminal_create_result_read, acp_terminal_id_free, acp_terminal_release_request_write,
+        acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    auto all = sessions.unreleased.slice();
+    for (size_t from = 0; from < all.length; ) {
+        auto end = from;
+        while (end < all.length && all[end] != '\n') end++;
+        auto entry = all[from .. end];
+        auto tab = indexOf(entry, "\t");
+        if (tab >= 0 && entry[0 .. cast(size_t) tab] == id) {
+            Reply sid, pid, text;
+            scope(exit) { sid.dispose(); pid.dispose(); text.dispose(); }
+            sid.add(entry[cast(size_t) tab + 1 .. $]);
+            // Out of the list first: an answer is released once, whatever comes of it.
+            Reply rest;
+            scope(exit) rest.dispose();
+            rest.add(all[0 .. from]); if (end < all.length) rest.add(all[end + 1 .. $]);
+            sessions.unreleased.len = 0; sessions.unreleased.add(rest.slice());
+            char* terminal;
+            scope(exit) acp_terminal_id_free(terminal);
+            if (acp_terminal_create_result_read(line.ptr, line.length, &terminal) != acp_status.ACP_OK || terminal is null) {
+                fputs("ground code: a called-off turn's terminal/create made no terminal to release: ", stderr);
+                fwrite(line.ptr, 1, line.length, stderr); fputs("\n", stderr);
+                return true;
+            }
+            termId(sessions, pid);
+            size_t at(const(char)[] s) { auto f = text.len; text.add(s); text.add("\0"); return f; }
+            auto idAt = at(pid.slice()), sidAt = at(sid.slice());
+            acp_buffer request;
+            scope(exit) acp_buffer_free(&request);
+            if (text.full || acp_terminal_release_request_write(text.slice().ptr + idAt, text.slice().ptr + sidAt, terminal, &request) != acp_status.ACP_OK
+                    || fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+                fputs("ground code: could not release the terminal a called-off turn's terminal/create made: ", stderr);
+                fwrite(line.ptr, 1, line.length, stderr); fputs("\n", stderr);
+            }
+            return true;
+        }
+        from = end + 1;
+    }
+    return false;
+}
+
 // A run_command call, run in the client's terminal in the session's cwd: shown in the call, waited on, read
 // and released, killed first when the turn is called off. 1 it ran, into result, ok when it exited 0; 0 not
 // asked, said in result; 2 the turn was called off, said in result; -1 not asked, why the reason.
@@ -484,11 +530,13 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
     scope(exit) free(args);
     foreach (i; 0 .. count) args[i] = json_object_get_string(json_object_array_get_idx(list, i));
 
-    Reply answered;
-    scope(exit) answered.dispose();
-    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], terminalId, answered, why);
+    Reply answered, asked;
+    scope(exit) { answered.dispose(); asked.dispose(); }
+    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], asked, terminalId, answered, why);
     if (made < 0) return -1;
+    // Called off before the client answered: the terminal it makes is released when its answer comes.
     if (made == 2) {
+        sessions.unreleased.add(asked.slice()); sessions.unreleased.add("\t"); sessions.unreleased.add(sid); sessions.unreleased.add("\n");
         result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to run the command"}`);
         return 2;
     }
@@ -1119,6 +1167,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // An answer to a question ground code asked and stopped waiting on, as a
     // turn called off while asking leaves: no request, so no answer to give.
     if (method is null && (rawValue(line, `"result"`) !is null || rawValue(line, `"error"`) !is null)) {
+        if (!__ctfe && releaseUnreleased(sessions, id, line)) return true;
         if (!__ctfe) {
             fputs("ground code: an answer to a request no turn is waiting on: ", stderr);
             fwrite(line.ptr, 1, line.length, stderr);
