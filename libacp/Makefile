@@ -3,7 +3,9 @@ AR ?= ar
 PKG_CONFIG ?= pkg-config
 PREFIX ?= /usr/local
 BUILD ?= build
-CPPFLAGS += -Iinclude $(shell $(PKG_CONFIG) --cflags json-c)
+CPPFLAGS += -Iinclude -I$(BUILD) $(shell $(PKG_CONFIG) --cflags json-c)
+# The protocol's own list of its methods, as the release it is held to ships it.
+META = schema/v1/meta.json
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror -fPIC
 # Every implicit narrowing, shadowed name, unprototyped function and non-literal format is an error.
@@ -28,7 +30,14 @@ $(BUILD):
 
 OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o session.o modes.o config.o prompt.o permission.o fs.o terminal.o updates.o)
 
-$(BUILD)/%.o: src/%.c src/internal.h include/acp.h | $(BUILD)
+# Every method name libacp writes or reads, generated from META, as the SDK generates its tables.
+$(BUILD)/methods: tools/methods.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
+
+$(BUILD)/acp_methods.h: $(META) $(BUILD)/methods
+	$(BUILD)/methods $(META) $@
+
+$(BUILD)/%.o: src/%.c src/internal.h include/acp.h $(BUILD)/acp_methods.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/libacp.a: $(OBJECTS)
@@ -37,7 +46,7 @@ $(BUILD)/libacp.a: $(OBJECTS)
 $(SHARED): $(OBJECTS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_FLAGS) -o $@ $^ $(LDLIBS)
 
-TESTS = initialize session modes config prompt permission fs terminal updates
+TESTS = methods initialize session modes config prompt permission fs terminal updates
 
 test: all
 	for t in $(TESTS); do \
@@ -50,7 +59,7 @@ test: all
 
 install: all
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib/pkgconfig
-	install -m 644 include/acp.h $(DESTDIR)$(PREFIX)/include/
+	install -m 644 include/acp.h $(BUILD)/acp_methods.h $(DESTDIR)$(PREFIX)/include/
 # The archive alone, as libmcp installs: -lacp resolves to it with nothing to find at run time.
 	install -m 644 $(BUILD)/libacp.a $(DESTDIR)$(PREFIX)/lib/
 	sed -e 's|@PREFIX@|$(PREFIX)|g' libacp.pc.in > $(BUILD)/libacp.pc

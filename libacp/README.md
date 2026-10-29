@@ -21,6 +21,14 @@ make install PREFIX="$HOME/.local"
 
 Outside Nix: C11, make, pkg-config and json-c.
 
+## Method names
+
+`acp_methods.h`, which `acp.h` includes, names every method as the release's own `meta.json`
+does: `ACP_AGENT_SESSION_NEW` is `"session/new"`, `ACP_CLIENT_TERMINAL_KILL` is
+`"terminal/kill"`. `make` generates it from `schema/v1/meta.json` with `tools/methods.c`, as the
+TypeScript SDK generates its `AGENT_METHODS` and `CLIENT_METHODS` from the same file. `nix build`
+checks that file against schema-v1.26.0's `meta.json` by its sha256.
+
 ## Versions
 
 One protocol version per connection, chosen at `initialize`, as the

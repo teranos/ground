@@ -23,8 +23,16 @@
         buildInputs = [ jsonC ];
         buildPhase = "make";
         doCheck = true;
-        checkPhase = "make test";
+        # The method names are generated from schema/v1/meta.json, which is the release's own, byte for byte.
+        checkPhase = "cmp schema/v1/meta.json ${meta pkgs} && make test";
         installPhase = "make install PREFIX=$out";
+      };
+      # github.com/agentclientprotocol/agent-client-protocol schema-v1.26.0, the release's meta.json:
+      # every method by its name, as the TypeScript SDK generates its method tables from it.
+      meta = pkgs: pkgs.fetchurl {
+        name = "acp-1.26.0-meta.json";
+        url = "https://github.com/agentclientprotocol/agent-client-protocol/releases/download/schema-v1.26.0/meta.json";
+        sha256 = "061edb6efa8fb2aa2792459a86ec7268de5fe665bba48b2ffe7939df01481f88";
       };
     in {
       lib = { inherit libacpWith; };

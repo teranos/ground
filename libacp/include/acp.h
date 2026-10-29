@@ -6,6 +6,9 @@
 
 #include <stddef.h>
 
+// Every method by its name in schema-v1.26.0's meta.json: ACP_AGENT_SESSION_NEW is "session/new".
+#include "acp_methods.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

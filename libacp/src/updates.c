@@ -20,7 +20,7 @@ acp_status acp_session_update_write(const char *session_id, const char *update_j
     json_object_object_add(params, "update", update);
     json_object *message = json_object_new_object();
     add_string(message, "jsonrpc", "2.0");
-    json_object_object_add(message, "method", json_object_new_string("session/update"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_SESSION_UPDATE));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }
@@ -192,7 +192,7 @@ acp_status acp_elicitation_create_write(const char *request_id, const char *sess
     json_object *message = json_object_new_object();
     add_string(message, "jsonrpc", "2.0");
     json_object_object_add(message, "id", id);
-    json_object_object_add(message, "method", json_object_new_string("elicitation/create"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_ELICITATION_CREATE));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }
@@ -203,7 +203,7 @@ acp_status acp_elicitation_complete_write(const char *elicitation_id, acp_buffer
     add_string(params, "elicitationId", elicitation_id);
     json_object *message = json_object_new_object();
     add_string(message, "jsonrpc", "2.0");
-    json_object_object_add(message, "method", json_object_new_string("elicitation/complete"));
+    json_object_object_add(message, "method", json_object_new_string(ACP_CLIENT_ELICITATION_COMPLETE));
     json_object_object_add(message, "params", params);
     return acp_finish(message, message_json);
 }
