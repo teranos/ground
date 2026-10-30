@@ -136,6 +136,7 @@ extern (C) {
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
     int sqlite3_changes(sqlite3* db);
     int sqlite3_errcode(sqlite3* db);
+    const(char)* sqlite3_errmsg(sqlite3* db);
     long sqlite3_last_insert_rowid(sqlite3* db);
 }
 

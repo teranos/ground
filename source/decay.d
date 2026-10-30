@@ -10,73 +10,77 @@ enum BOOK_COMMAND = q"EOS
 ground decay
 EOS";
 
+// Every row decay has not decayed, by its predicate and age: step 1 and 2 read the rows they change and
+// no other. Built here, once, not by the store's schema, so the one read of every row it costs is
+// decay's, which make install runs, and not a hook's, which would wait it out.
+enum UNDECAYED_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_undecayed ON attestations("
+    ~ "json_extract(predicates, '$[0]'), created_at) WHERE json_extract(attributes, '$.decayed') IS NULL\0";
+
+// 1. Strip PostToolUse/PreToolUse attributes > 7 days
+enum STRIP_TOOL_USE = "UPDATE attestations SET attributes = json_object("
+    ~ "'tool_name', json_extract(attributes, '$.tool_name'), "
+    ~ "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
+    ~ "'command', json_extract(attributes, '$.tool_input.command'), "
+    ~ "'original_size', length(attributes), "
+    ~ "'decayed', 1"
+    ~ ") WHERE json_extract(predicates, '$[0]') IN ('PostToolUse', 'PreToolUse') "
+    ~ "AND created_at < datetime('now', '-7 days') "
+    ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
+
+// 2. Strip SubagentStop attributes > 7 days
+enum STRIP_SUBAGENT = "UPDATE attestations SET attributes = json_object("
+    ~ "'session_id', json_extract(attributes, '$.session_id'), "
+    ~ "'original_size', length(attributes), "
+    ~ "'decayed', 1"
+    ~ ") WHERE json_extract(predicates, '$[0]') = 'SubagentStop' "
+    ~ "AND created_at < datetime('now', '-7 days') "
+    ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
+
+// 3. Delete timing rows > 30 days, once sentry has them. Unshipped rows
+// are the record still, and the watcher ships them in its own time.
+enum DELETE_TIMING = "DELETE FROM timing WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
+
+// 4. Immediate rows nobody claimed in seven days, and their receipts, once the node has them: a session
+// that ended marks nothing, so its rows stayed pending, 11,297 of them on 2026-09-22, 695ms a sky pass.
+// Receipts are found by a range over the predicate index, as a LIKE would read every row.
+enum DROP_GONE = "DROP TABLE IF EXISTS temp.decay_gone\0";
+enum GONE_SELECT = "SELECT id FROM attestations "
+    ~ "WHERE json_extract(predicates, '$[0]') >= 'immediate:' AND json_extract(predicates, '$[0]') < 'immediate;' "
+    ~ "AND created_at < datetime('now', '-7 days') AND qntx_at > 0 "
+    ~ "AND id NOT IN (SELECT substr(json_extract(predicates, '$[0]'), 11) FROM attestations "
+    ~ "WHERE qntx_at <= 0 AND json_extract(predicates, '$[0]') >= 'delivered:' AND json_extract(predicates, '$[0]') < 'delivered;')";
+enum GONE = "CREATE TEMP TABLE decay_gone AS " ~ GONE_SELECT ~ "\0";
+enum DELETE_RECEIPTS = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') >= 'delivered:' "
+    ~ "AND json_extract(predicates, '$[0]') < 'delivered;' "
+    ~ "AND substr(json_extract(predicates, '$[0]'), 11) IN (SELECT id FROM temp.decay_gone)\0";
+enum DELETE_IMMEDIATE = "DELETE FROM attestations WHERE id IN (SELECT id FROM temp.decay_gone)\0";
+
+// One step, run, and on failure said, which and as sqlite said it: decay ends on it.
+private bool step(sqlite3* db, string sql, string what) {
+    import db : sqlite3_errmsg;
+    if (sqlite3_exec(db, sql.ptr, null, null, null) == SQLITE_OK) return true;
+    fprintf(stderr, "ground decay: %.*s failed: %s\n".ptr, cast(int) what.length, what.ptr, sqlite3_errmsg(db));
+    return false;
+}
+
 int decayDb(sqlite3* db) {
-    // Get before stats
-    long beforeToolUse = countRows(db, "PostToolUse");
-    long beforePreToolUse = countRows(db, "PreToolUse");
-    long beforeSubagent = countRows(db, "SubagentStop");
+    if (!step(db, UNDECAYED_INDEX, "the index of rows not yet decayed")) return 1;
     long beforeSize = dbPageSize(db);
 
-    // 1. Strip PostToolUse/PreToolUse attributes > 7 days
-    enum stripToolUse = "UPDATE attestations SET attributes = json_object("
-        ~ "'tool_name', json_extract(attributes, '$.tool_name'), "
-        ~ "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
-        ~ "'command', json_extract(attributes, '$.tool_input.command'), "
-        ~ "'original_size', length(attributes), "
-        ~ "'decayed', 1"
-        ~ ") WHERE json_extract(predicates, '$[0]') IN ('PostToolUse', 'PreToolUse') "
-        ~ "AND created_at < datetime('now', '-7 days') "
-        ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
-
-    sqlite3_exec(db, stripToolUse.ptr, null, null, null);
+    if (!step(db, STRIP_TOOL_USE, "stripping PostToolUse/PreToolUse")) return 1;
     auto toolUseDecayed = sqlite3_changes(db);
-
-    // 2. Strip SubagentStop attributes > 7 days
-    enum stripSubagent = "UPDATE attestations SET attributes = json_object("
-        ~ "'session_id', json_extract(attributes, '$.session_id'), "
-        ~ "'original_size', length(attributes), "
-        ~ "'decayed', 1"
-        ~ ") WHERE json_extract(predicates, '$[0]') = 'SubagentStop' "
-        ~ "AND created_at < datetime('now', '-7 days') "
-        ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
-
-    sqlite3_exec(db, stripSubagent.ptr, null, null, null);
+    if (!step(db, STRIP_SUBAGENT, "stripping SubagentStop")) return 1;
     auto subagentDecayed = sqlite3_changes(db);
-
-    // 3. Delete timing rows > 30 days, once sentry has them. Unshipped rows
-    // are the record still, and the watcher ships them in its own time.
-    enum deleteTiming = "DELETE FROM timing WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
-    sqlite3_exec(db, deleteTiming.ptr, null, null, null);
+    if (!step(db, DELETE_TIMING, "deleting shipped timing")) return 1;
     auto timingDeleted = sqlite3_changes(db);
 
-    // 4. Immediate rows nobody claimed in seven days, and their receipts. A
-    // row is pending until a session marks it delivered, and a session that
-    // ended marks nothing — so every row ever written to a session that is
-    // gone stayed pending and was walked again by every sky every two seconds.
-    // 11,297 of them on 2026-09-22, 695ms a pass, with each PreToolUse queued
-    // behind it. The receipts go first: they name the row, and a receipt for a
-    // row that is gone is a row nobody can read either.
-    enum dropGone = "DROP TABLE IF EXISTS temp.decay_gone\0";
-    sqlite3_exec(db, dropGone.ptr, null, null, null);
-
-    // A row and its receipt go only once the node has them, or when they were
-    // there before the stream began: deleted unsent, QNTX never learns of them.
-    // The unsent receipts are read by the stream's index, once, not per row.
-    enum gone = "CREATE TEMP TABLE decay_gone AS SELECT id FROM attestations "
-        ~ "WHERE json_extract(predicates, '$[0]') >= 'immediate:' AND json_extract(predicates, '$[0]') < 'immediate;' "
-        ~ "AND created_at < datetime('now', '-7 days') AND qntx_at > 0 "
-        ~ "AND id NOT IN (SELECT substr(json_extract(predicates, '$[0]'), 11) FROM attestations "
-        ~ "WHERE qntx_at <= 0 AND json_extract(predicates, '$[0]') LIKE 'delivered:%')\0";
-    sqlite3_exec(db, gone.ptr, null, null, null);
-
-    enum deleteReceipts = "DELETE FROM attestations WHERE json_extract(predicates, '$[0]') LIKE 'delivered:%' "
-        ~ "AND substr(json_extract(predicates, '$[0]'), 11) IN (SELECT id FROM temp.decay_gone)\0";
-    sqlite3_exec(db, deleteReceipts.ptr, null, null, null);
+    if (!step(db, DROP_GONE, "dropping decay_gone")) return 1;
+    if (!step(db, GONE, "finding immediate rows the node has")) return 1;
+    if (!step(db, DELETE_RECEIPTS, "deleting their receipts")) return 1;
     auto receiptsDeleted = sqlite3_changes(db);
-    enum deleteImmediate = "DELETE FROM attestations WHERE id IN (SELECT id FROM temp.decay_gone)\0";
-    sqlite3_exec(db, deleteImmediate.ptr, null, null, null);
+    if (!step(db, DELETE_IMMEDIATE, "deleting the immediate rows")) return 1;
     auto immediateDeleted = sqlite3_changes(db);
-    sqlite3_exec(db, dropGone.ptr, null, null, null);
+    if (!step(db, DROP_GONE, "dropping decay_gone")) return 1;
 
     long afterSize = dbPageSize(db);
 
@@ -368,5 +372,41 @@ unittest {
     assert(sqlite3_step(stmt) == SQLITE_ROW);
     assert(sqlite3_column_int64(stmt, 0) > 0, "decay does not rewrite the store under the write lock");
     sqlite3_finalize(stmt);
+    sqlite3_close(db);
+}
+
+// No step reads attestations whole: each finds its rows through an index, so none holds the write lock
+// longer than a hook waits for it. On 2026-10-30's 1.4 GB store a step that scanned held it 17.3 s, and
+// the hooks it held out were refused with SQLITE_BUSY.
+unittest {
+    import db : sqlite3_open, applySchema;
+    import scan : indexOf;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(sqlite3_exec(db, UNDECAYED_INDEX.ptr, null, null, null) == SQLITE_OK);
+    assert(sqlite3_exec(db, "CREATE TEMP TABLE decay_gone(id)\0".ptr, null, null, null) == SQLITE_OK);
+    static foreach (sql; [STRIP_TOOL_USE, STRIP_SUBAGENT, GONE_SELECT, DELETE_RECEIPTS, DELETE_IMMEDIATE]) {{
+        enum plan = "EXPLAIN QUERY PLAN " ~ sql;
+        sqlite3_stmt* stmt;
+        assert(sqlite3_prepare_v2(db, plan.ptr, -1, &stmt, null) == SQLITE_OK);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            auto detail = sqlite3_column_text(stmt, 3);
+            size_t n = 0;
+            while (detail[n] != 0) n++;
+            assert(indexOf(detail[0 .. n], "SCAN attestations") < 0, "a decay step reads attestations whole: " ~ sql);
+        }
+        sqlite3_finalize(stmt);
+    }}
+    sqlite3_close(db);
+}
+
+// A step that fails ends decay, and says which and why: an error is never dropped.
+unittest {
+    import db : sqlite3_open;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    // No schema: the first step, the index on attestations, has no table to stand on.
+    assert(decayDb(db) == 1);
     sqlite3_close(db);
 }
