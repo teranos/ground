@@ -2193,7 +2193,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             if (sessions.clientWritesFiles) putWriteTool(tools);
             if (sessions.clientRunsCommands) putRunTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
-            auto token = qntxToken(qntxNode.token);
+            // One token: what ground code signed in to q with, ~/.qntx/token. The block's file is k's.
+            auto token = qntxToken("");
             auto dest = cast(char*) malloc(GATEWAY_BODY);
             if (dest is null) { put(`,"error":{"code":-32603,"message":"could not allocate the gateway's answer"}}`); return true; }
             scope(exit) free(dest);

@@ -361,6 +361,8 @@ unittest {
     s.node.gateway = cast(string) n.url;
     s.node.url = K_URL;
     s.node.token = K_TOKEN;
+    // From no k token, so one an aborted run left cannot stand in for one this run wrote.
+    unlink(K_TOKEN.ptr);
     borrowHome("auth");
     scope(exit) giveBackHome();
     __gshared Spoken spoken;
@@ -484,4 +486,32 @@ unittest {
     assert(indexOf(prompted.reply.slice(), `token expired`) >= 0);
     prompted.reply.dispose();
     if (s.open[0].history !is null) s.open[0].history.dispose();
+}
+
+// One token: what ground code signed in with, ~/.qntx/token, is what it prompts q with. The block's
+// token file is k's, and no prompt carries it.
+unittest {
+    import attest : qntxTokenFile;
+    import core.sys.posix.unistd : unlink;
+    enum refused = http!("401 Unauthorized", `{"error":"token expired"}`);
+    auto n = node(refused);
+    borrowHome("prompt");
+    scope(exit) giveBackHome();
+    Reply why;
+    scope(exit) why.dispose();
+    assert(keepToken(qntxTokenFile(""), "qntx_signed_in", why));
+    scope(exit) unlink(qntxTokenFile(""));
+    assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
+    scope(exit) unlink(K_TOKEN.ptr);
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    s.node.gateway = cast(string) n.url; s.node.url = K_URL; s.node.model = "m"; s.node.token = K_TOKEN; s.contextSize = 200_000;
+    __gshared Spoken opened, prompted;
+    speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
+    opened.reply.dispose();
+    speak(s, `{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, "", prompted);
+    auto heard = heardAll(n);
+    prompted.reply.dispose();
+    if (s.open[0].history !is null) s.open[0].history.dispose();
+    assert(indexOf(heard, "Authorization: Bearer qntx_signed_in\r\n") >= 0);
+    assert(indexOf(heard, "qntx_k") < 0);
 }
