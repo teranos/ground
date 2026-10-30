@@ -690,6 +690,12 @@ int handleSky(int argc, const(char)** argv) {
                     if (atMost || pass.odd) streamFailed(sessionId, pass, pace.wait);
                 }
             }
+            {
+                import db : heldLongestUs, heldLongestSql, heldReset;
+                auto held = holdSaid(heldLongestUs(), heldLongestSql());
+                heldReset();
+                if (held.length > 0) toSentry("sky.hold", cast(string) held, -1, sessionId, "");
+            }
             sqlite3_close(db);
             askDue(due, sessionId, now);
 
@@ -906,6 +912,34 @@ private void streamFailed(const(char)[] sessionId, const ref Pass pass, long wai
     num(wait);
     put("s");
     toSentry("sky.stream", cast(string) said[0 .. n], -1, sessionId, "");
+}
+
+// A hook gives up on the lock at BUSY_LIMIT_US, and the store's timing rows
+// held 1378 hook waits of a second or more, the holder named ground_sky most.
+enum HOLD_SAY_US = 1_000_000;
+
+// A write of this watcher's that held the store's lock past HOLD_SAY_US, in
+// milliseconds and by its own SQL; empty below it.
+const(char)[] holdSaid(long us, const(char)[] sql) {
+    __gshared char[400] said = 0;
+    size_t n;
+    if (us < HOLD_SAY_US) return said[0 .. 0];
+    void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
+    put("a write held the store's lock for ");
+    char[20] d = 0;
+    size_t dl;
+    auto v = us / 1000;
+    do { d[dl++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0 && dl < d.length);
+    foreach_reverse (i; 0 .. dl) put(d[i .. i + 1]);
+    put("ms, every hook waiting behind it: ");
+    put(sql);
+    return said[0 .. n];
+}
+
+unittest {
+    assert(holdSaid(HOLD_SAY_US - 1, "UPDATE x") == "");
+    assert(holdSaid(4_210_000, "UPDATE outbox SET shipped_at = ?2")
+        == "a write held the store's lock for 4210ms, every hook waiting behind it: UPDATE outbox SET shipped_at = ?2");
 }
 
 // A post that did not land, said once per backoff, with what sentry or
