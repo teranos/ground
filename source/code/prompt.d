@@ -140,12 +140,13 @@ enum Blocks { read, other, refused }
 // a NUL. A resource embedded with its text, "for pieces of context that are
 // referenced in the message", goes into embedded, its uri and its text each
 // ended by a NUL. An image, "Agent supports ContentBlock::Image", goes into
-// images, its mimeType and its data each ended by a NUL. A block of another kind has no text to give the model, and
+// images, its mimeType and its data each ended by a NUL; audio, "Agent
+// supports ContentBlock::Audio", goes into audio the same way. A block of another kind has no text to give the model, and
 // is not pretended to: other gets the type of the first such block, empty when
 // it names none; a resource holding a blob is "resource holding a blob".
 // refused: libacp's refusal of the prompt itself is in said.
 @Reads("prompt") Blocks promptText(const(char)[] params, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded,
-        ref Reply images, ref Reply said) {
+        ref Reply images, ref Reply audio, ref Reply said) {
     import libacp : acp_prompt, acp_prompt_read, acp_prompt_free, acp_block_kind, acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
     acp_prompt prompt;
@@ -174,6 +175,9 @@ enum Blocks { read, other, refused }
                 break;
             case acp_block_kind.ACP_BLOCK_IMAGE:
                 images.add(of(b.mime_type)); images.add("\0"); images.add(of(b.data)); images.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_AUDIO:
+                audio.add(of(b.mime_type)); audio.add("\0"); audio.add(of(b.data)); audio.add("\0");
                 break;
             case acp_block_kind.ACP_BLOCK_OTHER:
                 if (all) other.add(b.holds_blob ? "resource holding a blob" : of(b.type));
@@ -428,13 +432,47 @@ int promptMessages(const(char)[] response, ref Reply history, ref Reply why) {
 
 private void comma(ref Reply h) { if (h.len > 0) h.add(","); }
 
-// The user's words, and the images they gave, each a mimeType and its data
-// ended by a NUL: words alone are a string; with images, the content is the
-// gateway's parts, a text part when there are words, then each image as an
-// image_url holding a data URL.
-void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null) {
+// The gateway's audio formats, "wav, mp3, flac, m4a, ogg, aiff, aac", each by
+// the mimeTypes it goes by; the first is the one a format is told back as.
+private static immutable string[][] AUDIO_FORMATS = [
+    ["wav", "audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"],
+    ["mp3", "audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"],
+    ["flac", "audio/flac", "audio/x-flac"],
+    ["m4a", "audio/mp4", "audio/m4a", "audio/x-m4a"],
+    ["ogg", "audio/ogg"],
+    ["aiff", "audio/aiff", "audio/x-aiff"],
+    ["aac", "audio/aac"],
+];
+
+// The gateway's format for audio of this mimeType, as it names it; null for
+// a mimeType ground code knows no format of. A type is the same in any case.
+const(char)[] audioFormat(const(char)[] mimeType) {
+    static bool same(const(char)[] a, const(char)[] b) {
+        if (a.length != b.length) return false;
+        foreach (i; 0 .. a.length) {
+            char x = a[i] >= 'A' && a[i] <= 'Z' ? cast(char)(a[i] + 32) : a[i];
+            if (x != b[i]) return false;
+        }
+        return true;
+    }
+    foreach (f; AUDIO_FORMATS) foreach (m; f[1 .. $]) if (same(mimeType, m)) return f[0];
+    return null;
+}
+
+// The mimeType a format is told back as, on session/load.
+private const(char)[] audioMimeOf(const(char)[] format) {
+    foreach (f; AUDIO_FORMATS) if (f[0] == format) return f[1];
+    return null;
+}
+
+// The user's words, and the images and audio they gave, each a mimeType and
+// its data ended by a NUL: words alone are a string; with either, the content
+// is the gateway's parts, a text part when there are words, then each image
+// as an image_url holding a data URL, then each audio as an input_audio
+// holding its base64 data and its format.
+void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null, const(char)[] audio = null) {
     comma(h);
-    if (images.length == 0) { h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`); return; }
+    if (images.length == 0 && audio.length == 0) { h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`); return; }
     h.add(`{"role":"user","content":[`);
     bool first = true;
     if (text.length > 0) { h.add(`{"type":"text","text":"`); putEscaped(h, text); h.add(`"}`); first = false; }
@@ -447,7 +485,28 @@ void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null) {
         } else { putEscaped(h, images[from .. at]); h.add(`"}}`); }
         from = at + 1;
     }
+    const(char)[] format;
+    for (size_t at = 0, from = 0, field = 0; at < audio.length; at++) {
+        if (audio[at] != '\0') continue;
+        if (field++ % 2 == 0) format = audioFormat(audio[from .. at]);
+        else {
+            if (!first) h.add(",");
+            first = false;
+            h.add(`{"type":"input_audio","input_audio":{"data":"`); putEscaped(h, audio[from .. at]);
+            h.add(`","format":"`); putEscaped(h, format); h.add(`"}}`);
+        }
+        from = at + 1;
+    }
     h.add(`]}`);
+}
+
+// Whether data is base64, as the gateway takes an image's or audio's data.
+bool isBase64(const(char)[] data) {
+    if (data.length == 0) return false;
+    foreach (c; data)
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='))
+            return false;
+    return true;
 }
 
 // What would keep an image out of a data URL, "data:" mimeType ";base64," data:
@@ -465,9 +524,7 @@ const(char)[] unusableImage(const(char)[] mimeType, const(char)[] data) {
     }
     if (slashes != 1 || slash == 0 || slash + 1 == mimeType.length) return "its mimeType is not a type/subtype";
     if (data.length == 0) return "its data is empty";
-    foreach (c; data)
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='))
-            return "its data is not base64";
+    if (!isBase64(data)) return "its data is not base64";
     return null;
 }
 
@@ -680,6 +737,25 @@ private bool putImageChunk(ref Reply u, const(char)[] url) {
     return !u.full;
 }
 
+// The user's audio, by the mimeType its format is told back as, as libacp
+// writes a user_message_chunk holding it, into u.
+private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data) {
+    import libacp : acp_chunk_kind, acp_audio_chunk_write, acp_buffer, acp_buffer_free, acp_status;
+    auto mime = audioMimeOf(format);
+    if (mime is null || data is null) return false;
+    Reply z;
+    scope(exit) z.dispose();
+    z.add(mime); z.add("\0");
+    auto dataAt = z.len; z.add(data); z.add("\0");
+    if (z.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_audio_chunk_write(acp_chunk_kind.ACP_CHUNK_USER_MESSAGE, z.slice().ptr, z.slice().ptr + dataAt, &written) != acp_status.ACP_OK)
+        return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
 // The history, told again. readOnly, when given, says which of the calls'
 // tools are read-only, so their replayed calls say kind read as they did live.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
@@ -713,6 +789,10 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 scope(exit) u.dispose();
                 if (type == "text") { if (!putChunk(u, 2, text(jsonField(part, "text"))) || !told(u)) return false; }
                 else if (type == "image_url") { if (!putImageChunk(u, text(jsonField(jsonField(part, "image_url"), "url"))) || !told(u)) return false; }
+                else if (type == "input_audio") {
+                    auto given = jsonField(part, "input_audio");
+                    if (!putAudioChunk(u, text(jsonField(given, "format")), text(jsonField(given, "data"))) || !told(u)) return false;
+                }
                 else return false;
             }
         }

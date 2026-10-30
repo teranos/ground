@@ -1335,7 +1335,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         acp_buffer result;
         scope(exit) acp_buffer_free(&result);
         auto wrote = acp_initialize_result(got.selected_version, "ground", version_.slice().ptr,
-            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true},"auth":{"logout":{}}}`,
+            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true},"auth":{"logout":{}}}`,
             authMethods(sessions), &result);
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
@@ -1988,12 +1988,12 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // type, not dropped from what the model is told.
         auto params = objectValue(line, `"params"`);
         if (params is null) params = "{}";
-        Reply text, other, links, embedded, images, said;
-        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); said.dispose(); }
-        auto blocks = promptText(params, text, other, links, embedded, images, said);
+        Reply text, other, links, embedded, images, audio, said;
+        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); audio.dispose(); said.dispose(); }
+        auto blocks = promptText(params, text, other, links, embedded, images, audio, said);
         if (blocks == Blocks.refused) { put(`,"error":`); put(said.slice()); put(`}`); return true; }
         if (blocks == Blocks.other) {
-            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links, resources holding text and images, and the prompt holds a block `);
+            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links, resources holding text, images and audio, and the prompt holds a block `);
             if (other.len == 0) put(`that names no type"}}`);
             else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }
             return true;
@@ -2009,6 +2009,26 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 if (wrong !is null) {
                     put(`,"error":{"code":-32602,"message":"ground code cannot give the model an image whose `);
                     put(wrong[4 .. $]); put(`: `); putEscaped(r, mime); put(`"}}`);
+                    return true;
+                }
+            }
+            from = at_ + 1;
+        }
+        // Audio goes to the model by the gateway's format for its mimeType, its
+        // data base64; audio that names no such format, or is not base64, is refused.
+        for (size_t at_ = 0, field = 0, from = 0, mimeFrom = 0, mimeTo = 0; at_ < audio.len; at_++) {
+            if (audio.slice()[at_] != '\0') continue;
+            if (field++ % 2 == 0) { mimeFrom = from; mimeTo = at_; }
+            else {
+                auto mime = audio.slice()[mimeFrom .. mimeTo];
+                if (audioFormat(mime) is null) {
+                    put(`,"error":{"code":-32602,"message":"ground code knows no gateway audio format for the mimeType `);
+                    putEscaped(r, mime); put(`"}}`);
+                    return true;
+                }
+                if (!isBase64(audio.slice()[from .. at_])) {
+                    put(`,"error":{"code":-32602,"message":"ground code cannot give the model audio whose data is not base64: `);
+                    putEscaped(r, mime); put(`"}}`);
                     return true;
                 }
             }
@@ -2200,8 +2220,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 }
                 if (o.history.len > 0 && given.len > 0) o.history.add(",");
                 o.history.add(given.slice());
-                if (text.len > typedLen || images.len > 0) userMessage(*o.history, text.slice()[typedLen .. $], images.slice());
-            } else userMessage(*o.history, text.slice(), images.slice());
+                if (text.len > typedLen || images.len > 0 || audio.len > 0)
+                    userMessage(*o.history, text.slice()[typedLen .. $], images.slice(), audio.slice());
+            } else userMessage(*o.history, text.slice(), images.slice(), audio.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
                 return true;
