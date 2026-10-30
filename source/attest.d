@@ -29,8 +29,7 @@ int backoffSeconds(int attempt) {
     }
 }
 
-// A node's token and the file it is kept in, apart from what attest posts with. What tells these
-// attestations apart is actors ["ground"], not the filename.
+// The token lives in token.d, which ground_code imports without attest's own imports.
 public import token : qntxToken, qntxTokenFile;
 
 enum BOOK_COMMAND = q"EOS

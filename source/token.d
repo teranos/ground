@@ -38,7 +38,7 @@ const(char)* qntxTokenFile(const(char)[] path = "") {
 
 // The token a node is spoken to with: from the file its qntx block names, or QNTX_TOKEN, then ~/.qntx/token.
 // One token per node: a second name for one credential is a second thing to rotate, and the one nobody
-// rotated went stale and was refused for weeks.
+// rotated went stale and was refused for weeks. Ground's attestations are told apart by actors ["ground"].
 const(char)[] qntxToken(const(char)[] path = "") {
     import core.stdc.stdlib : getenv;
     import core.sys.posix.fcntl : open, O_RDONLY;
