@@ -17,6 +17,9 @@ enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON atte
 // and of "claimed" (< 0) is never fooled by it.
 enum BEFORE_STREAM = 1;
 
+// The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.
+enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
+
 // --- sqlite3 C bindings (minimal) ---
 
 struct sqlite3;
@@ -471,6 +474,11 @@ bool applySchema(sqlite3* db) {
     // The pending set is small against the table, so the index is partial.
     enum idxStream = "CREATE INDEX IF NOT EXISTS idx_attestations_stream ON attestations(qntx_at) WHERE qntx_at <= 0\0";
     sqlite3_exec(db, idxStream.ptr, null, null, null);
+    // The claim's own, without the refused rows: 45870 of them sat at qntx_at 0
+    // beside 6 pending, and each claim read them all under the write lock, 1356ms.
+    enum idxOpen = "CREATE INDEX IF NOT EXISTS idx_attestations_stream_open ON attestations(qntx_at) "
+        ~ "WHERE qntx_at <= 0 AND NOT " ~ REFUSED_SQL ~ "\0";
+    sqlite3_exec(db, idxOpen.ptr, null, null, null);
 
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
@@ -1258,8 +1266,9 @@ unittest {
 
     attestEventAt(db, "PreToolUse", "/tmp", "sess-old", `{"probe":"old"}`, "2026-09-19T09:00:00Z", 1);
     // The store as it stood before the stream: the column gone, the row there.
-    // The index names the column, so it goes first.
+    // The indexes name the column, so they go first.
     assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream\0".ptr, null, null, null) == SQLITE_OK);
+    assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream_open\0".ptr, null, null, null) == SQLITE_OK);
     assert(sqlite3_exec(db, "ALTER TABLE attestations DROP COLUMN qntx_at\0".ptr, null, null, null) == SQLITE_OK);
     assert(applySchema(db), "the migration runs against a store that has rows");
     attestEventAt(db, "PreToolUse", "/tmp", "sess-new", `{"probe":"new"}`, "2026-09-19T09:00:01Z", 2);
