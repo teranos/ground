@@ -320,46 +320,81 @@ private const(char)[] tokenFile(ref char[160] buf, string name) {
     return buf[0 .. cast(size_t) n];
 }
 
-// authenticate qntx: the node starts a sign-in, the person is sent to its
-// link by an elicitation tied to the authenticate request, the node is asked
-// until they said yes, the token is kept where ground reads it, the
+// q's token is kept in ~/.qntx/token: a test borrows a home of its own, so nobody's token is touched,
+// and gives back the home the tests after it run in, every byte. QNTX_TOKEN, read first, is unset.
+private __gshared char[512] keptHome = 0;
+private __gshared size_t keptLen;
+private __gshared bool hadHome;
+private __gshared char[160] borrowed;
+
+private void borrowHome(string name) {
+    import core.stdc.stdlib : getenv;
+    import core.sys.posix.stdlib : setenv, unsetenv;
+    auto was = getenv("HOME");
+    hadHome = was !is null;
+    keptLen = 0;
+    if (hadHome) while (was[keptLen] != 0 && keptLen + 1 < keptHome.length) { keptHome[keptLen] = was[keptLen]; keptLen++; }
+    keptHome[keptLen] = 0;
+    tokenFile(borrowed, name);
+    setenv("HOME", borrowed.ptr, 1);
+    unsetenv("QNTX_TOKEN");
+}
+
+private void giveBackHome() {
+    import core.sys.posix.stdlib : setenv, unsetenv;
+    if (hadHome) setenv("HOME", keptHome.ptr, 1); else unsetenv("HOME");
+}
+
+// Auth is q's, the block's gateway; its url and token file are k's, the hooks' node, and are left alone.
+enum K_URL = "http://127.0.0.1:9";
+enum K_TOKEN = "/tmp/ground-k-token-left-alone";
+
+// authenticate qntx: q starts a sign-in, the person is sent to its link by an elicitation tied to the
+// authenticate request, q is asked until they said yes, its token is kept in ~/.qntx/token, the
 // elicitation is said complete, and authenticate is answered.
 unittest {
     import attest : qntxToken;
-    import core.sys.posix.unistd : unlink;
-    __gshared char[160] buf;
-    auto file = tokenFile(buf, "auth");
+    import core.sys.posix.unistd : unlink, access, F_OK;
     auto n = node(DEVICE, PENDING, TOKEN);
     Sessions s = Sessions(100, 7);
     s.elicitsUrls = true;
-    s.node.url = cast(string) n.url;
-    s.node.token = cast(string) file;
+    s.node.gateway = cast(string) n.url;
+    s.node.url = K_URL;
+    s.node.token = K_TOKEN;
+    borrowHome("auth");
+    scope(exit) giveBackHome();
     __gshared Spoken spoken;
     speak(s, `{"jsonrpc":"2.0","id":3,"method":"authenticate","params":{"methodId":"qntx"}}`,
         `{"jsonrpc":"2.0","id":"login-1","result":{"action":"accept"}}` ~ "\n", spoken);
     heardAll(n);
-    scope(exit) { spoken.reply.dispose(); unlink(buf.ptr); }
+    scope(exit) spoken.reply.dispose();
     assert(spoken.reply.slice() == `{"jsonrpc":"2.0","id":3,"result":{}}`);
     assert(spoken.told() ==
           `{"jsonrpc":"2.0","id":"login-1","method":"elicitation/create","params":{"requestId":3,"mode":"url",`
         ~ `"message":"Sign in to QNTX as ground code. The code there is BCDF-GHJK.","elicitationId":"qntx-BCDF-GHJK",`
         ~ `"url":"http://q/auth/device/approve?user_code=BCDF-GHJK"}}` ~ "\n"
         ~ `{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"qntx-BCDF-GHJK"}}` ~ "\n");
-    assert(qntxToken(file) == "qntx_abc123");
+    assert(qntxToken("") == "qntx_abc123");
+    assert(access(K_TOKEN.ptr, F_OK) != 0);
+    char[200] kept;
+    import core.stdc.stdio : snprintf;
+    snprintf(kept.ptr, kept.length, "%s/.qntx/token", borrowed.ptr);
+    unlink(kept.ptr);
 }
 
 // The person declines, the client calls authenticate off, or nobody says yes:
 // each is said to the client as it happened, and nothing is kept.
 unittest {
     import attest : qntxToken;
-    __gshared char[160] buf;
-    auto file = tokenFile(buf, "auth-no");
     Sessions s = Sessions(100, 7);
     s.elicitsUrls = true;
-    s.node.token = cast(string) file;
+    s.node.url = K_URL;
+    s.node.token = K_TOKEN;
+    borrowHome("auth-no");
+    scope(exit) giveBackHome();
 
     auto n = node(DEVICE);
-    s.node.url = cast(string) n.url;
+    s.node.gateway = cast(string) n.url;
     __gshared Spoken declined;
     speak(s, `{"jsonrpc":"2.0","id":4,"method":"authenticate","params":{"methodId":"qntx"}}`,
         `{"jsonrpc":"2.0","id":"login-1","result":{"action":"decline"}}` ~ "\n", declined);
@@ -368,7 +403,7 @@ unittest {
     declined.reply.dispose();
 
     auto m = node(DEVICE, PENDING);
-    s.node.url = cast(string) m.url;
+    s.node.gateway = cast(string) m.url;
     __gshared Spoken called;
     speak(s, `{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"qntx"}}`,
         `{"jsonrpc":"2.0","id":"login-2","result":{"action":"accept"}}` ~ "\n"
@@ -378,7 +413,7 @@ unittest {
     called.reply.dispose();
 
     auto o = node(DEVICE, EXPIRED);
-    s.node.url = cast(string) o.url;
+    s.node.gateway = cast(string) o.url;
     __gshared Spoken over;
     speak(s, `{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{"methodId":"qntx"}}`,
         `{"jsonrpc":"2.0","id":"login-3","result":{"action":"accept"}}` ~ "\n", over);
@@ -386,55 +421,50 @@ unittest {
     assert(indexOf(over.reply.slice(), `{"jsonrpc":"2.0","id":6,"error":{"code":-32000,"message":"the node did not sign ground code in","data":{"url":"`) == 0);
     assert(indexOf(over.reply.slice(), `nobody said yes within 10m0s`) >= 0);
     over.reply.dispose();
-    assert(qntxToken(file) is null);
+    assert(qntxToken("") is null);
 }
 
-// logout: "Terminates the current authenticated session": the token ground
-// code was given is dropped, and a second logout has nothing left to drop.
-// One QNTX_TOKEN gives is read before the file, so logout says it cannot end it.
+// logout drops q's token, the one ground code signed in with; k's is left alone:
+// "Terminates the current authenticated session."
+// A second logout has nothing left to drop, and one QNTX_TOKEN gives, read before the file, it cannot end.
 unittest {
-    import attest : qntxToken;
+    import attest : qntxToken, qntxTokenFile;
     import core.sys.posix.stdlib : setenv, unsetenv;
     import core.stdc.stdlib : getenv;
-    __gshared char[160] buf;
-    auto file = tokenFile(buf, "logout");
+    import core.stdc.string : strlen;
+    import core.sys.posix.unistd : unlink;
+    auto wasHome = getenv("HOME");
+    size_t wasLen = wasHome is null ? 0 : strlen(wasHome);
+    borrowHome("logout");
     Reply why;
     scope(exit) why.dispose();
-    assert(keepToken(buf.ptr, "qntx_abc123", why));
+    assert(keepToken(qntxTokenFile(""), "qntx_abc123", why));
+    assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
+    scope(exit) unlink(K_TOKEN.ptr);
     Sessions s = Sessions(100, 7);
-    s.node.token = cast(string) file;
+    s.node.token = K_TOKEN;
     Reply r;
     scope(exit) r.dispose();
-    answer(`{"jsonrpc":"2.0","id":7,"method":"logout","params":{}}`, r, s);
-    assert(r.slice() == `{"jsonrpc":"2.0","id":7,"result":{}}`);
-    assert(qntxToken(file) is null);
-    r.len = 0;
-    answer(`{"jsonrpc":"2.0","id":8,"method":"logout"}`, r, s);
-    assert(r.slice() == `{"jsonrpc":"2.0","id":8,"result":{}}`);
-
-    // A home of its own, so nobody's token is touched; and the home the
-    // tests after this one run in is the one they were given, every byte.
-    import core.stdc.string : strlen;
-    __gshared char[160] home;
-    tokenFile(home, "home");
-    auto wasHome = getenv("HOME");
-    // A char starts as 0xFF, not NUL: the copy is ended by hand.
-    __gshared char[512] keptHome = 0;
-    size_t hl = 0;
-    if (wasHome !is null) while (wasHome[hl] != 0 && hl + 1 < keptHome.length) { keptHome[hl] = wasHome[hl]; hl++; }
-    keptHome[hl] = 0;
     {
-        setenv("HOME", home.ptr, 1);
+        scope(exit) giveBackHome();
+        answer(`{"jsonrpc":"2.0","id":7,"method":"logout","params":{}}`, r, s);
+        assert(r.slice() == `{"jsonrpc":"2.0","id":7,"result":{}}`);
+        assert(qntxToken("") is null);
+        assert(qntxToken(K_TOKEN) == "qntx_k");
+        r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":8,"method":"logout"}`, r, s);
+        assert(r.slice() == `{"jsonrpc":"2.0","id":8,"result":{}}`);
+
         setenv("QNTX_TOKEN", "qntx_env", 1);
-        scope(exit) { unsetenv("QNTX_TOKEN"); if (wasHome !is null) setenv("HOME", keptHome.ptr, 1); }
-        s.node.token = "";
+        scope(exit) unsetenv("QNTX_TOKEN");
         r.len = 0;
         answer(`{"jsonrpc":"2.0","id":9,"method":"logout","params":{}}`, r, s);
         assert(r.slice() == `{"jsonrpc":"2.0","id":9,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
     }
+    // The home the tests after this one run in is the one they were given, every byte.
     auto isHome = getenv("HOME");
     assert((wasHome is null) == (isHome is null));
-    if (isHome !is null) assert(strlen(isHome) == hl && isHome[0 .. hl] == keptHome[0 .. hl]);
+    if (isHome !is null) assert(strlen(isHome) == wasLen && isHome[0 .. wasLen] == keptHome[0 .. wasLen]);
 }
 
 // A 401 from the node is "Authentication required": its answer is the
