@@ -73,8 +73,7 @@ bool retryable(int status) {
     return status < 200 || status >= 500 || status == TOO_MANY;
 }
 
-// The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.
-enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
+public import db : REFUSED_SQL;
 
 // The attributes a row is posted with, in the same words decay uses on the
 // local copy, so what the node holds and what the store keeps after seven
@@ -124,10 +123,10 @@ unittest {
         while (text[n] != 0) n++;
         auto detail = (cast(const(char)*) text)[0 .. n];
         assert(!contains(detail, "SCAN attestations"), "the claim walked the whole table under the write lock");
-        if (contains(detail, "idx_attestations_stream")) byIndex = true;
+        if (contains(detail, "idx_attestations_stream_open")) byIndex = true;
     }
     sqlite3_finalize(stmt);
-    assert(byIndex, "the claim reads by idx_attestations_stream");
+    assert(byIndex, "the claim reads by idx_attestations_stream_open, which holds no refused row");
     sqlite3_close(db);
 }
 
