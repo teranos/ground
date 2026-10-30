@@ -48,7 +48,7 @@ private string answerWith()(string line, ref Sessions s) {
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
 // libacp reads and writes it, so these run rather than fold at compile time.
 // Folded at compile time, as betterC has no GC to concatenate with.
-enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true},"auth":{"logout":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
+enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true},"auth":{"logout":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
 
 unittest {
     bool answers(string line, const(char)[] want) {
@@ -542,7 +542,7 @@ unittest {
     assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`));
     assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block that names no type"}}`));
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links, resources holding text and images, and the prompt holds a block that names no type"}}`));
     assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`));
     // prompt is required; libacp reads none in _meta as the request's.

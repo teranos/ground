@@ -139,12 +139,13 @@ enum Blocks { read, other, refused }
 // resource_link goes into links to be read, its name and its uri each ended by
 // a NUL. A resource embedded with its text, "for pieces of context that are
 // referenced in the message", goes into embedded, its uri and its text each
-// ended by a NUL. A block of another kind has no text to give the model, and
+// ended by a NUL. An image, "Agent supports ContentBlock::Image", goes into
+// images, its mimeType and its data each ended by a NUL. A block of another kind has no text to give the model, and
 // is not pretended to: other gets the type of the first such block, empty when
 // it names none; a resource holding a blob is "resource holding a blob".
 // refused: libacp's refusal of the prompt itself is in said.
 @Reads("prompt") Blocks promptText(const(char)[] params, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded,
-        ref Reply said) {
+        ref Reply images, ref Reply said) {
     import libacp : acp_prompt, acp_prompt_read, acp_prompt_free, acp_block_kind, acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
     acp_prompt prompt;
@@ -170,6 +171,9 @@ enum Blocks { read, other, refused }
                 break;
             case acp_block_kind.ACP_BLOCK_RESOURCE:
                 embedded.add(of(b.uri)); embedded.add("\0"); embedded.add(of(b.text)); embedded.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_IMAGE:
+                images.add(of(b.mime_type)); images.add("\0"); images.add(of(b.data)); images.add("\0");
                 break;
             case acp_block_kind.ACP_BLOCK_OTHER:
                 if (all) other.add(b.holds_blob ? "resource holding a blob" : of(b.type));
@@ -424,9 +428,47 @@ int promptMessages(const(char)[] response, ref Reply history, ref Reply why) {
 
 private void comma(ref Reply h) { if (h.len > 0) h.add(","); }
 
-void userMessage(ref Reply h, const(char)[] text) {
+// The user's words, and the images they gave, each a mimeType and its data
+// ended by a NUL: words alone are a string; with images, the content is the
+// gateway's parts, a text part when there are words, then each image as an
+// image_url holding a data URL.
+void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null) {
     comma(h);
-    h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`);
+    if (images.length == 0) { h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`); return; }
+    h.add(`{"role":"user","content":[`);
+    bool first = true;
+    if (text.length > 0) { h.add(`{"type":"text","text":"`); putEscaped(h, text); h.add(`"}`); first = false; }
+    for (size_t at = 0, from = 0, field = 0; at < images.length; at++) {
+        if (images[at] != '\0') continue;
+        if (field++ % 2 == 0) {
+            if (!first) h.add(",");
+            first = false;
+            h.add(`{"type":"image_url","image_url":{"url":"data:`); putEscaped(h, images[from .. at]); h.add(`;base64,`);
+        } else { putEscaped(h, images[from .. at]); h.add(`"}}`); }
+        from = at + 1;
+    }
+    h.add(`]}`);
+}
+
+// What would keep an image out of a data URL, "data:" mimeType ";base64," data:
+// a mimeType that is no type/subtype, or data that is not base64. null when
+// nothing does. Whether the model takes the image is the gateway's to say.
+const(char)[] unusableImage(const(char)[] mimeType, const(char)[] data) {
+    static bool token(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+            || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-';
+    }
+    size_t slashes = 0, slash = 0;
+    foreach (i, c; mimeType) {
+        if (c == '/') { slashes++; slash = i; }
+        else if (!token(c)) return "its mimeType is not a type/subtype";
+    }
+    if (slashes != 1 || slash == 0 || slash + 1 == mimeType.length) return "its mimeType is not a type/subtype";
+    if (data.length == 0) return "its data is empty";
+    foreach (c; data)
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='))
+            return "its data is not base64";
+    return null;
 }
 
 // The model's own message, as the gateway gave it, so its tool_calls come
@@ -616,6 +658,28 @@ bool putChunk(ref Reply u, int kind, const(char)[] text_) {
     return !u.full;
 }
 
+// The user's image, from the data URL it was given to the model in, as libacp
+// writes a user_message_chunk holding it, into u.
+private bool putImageChunk(ref Reply u, const(char)[] url) {
+    import libacp : acp_chunk_kind, acp_image_chunk_write, acp_buffer, acp_buffer_free, acp_status;
+    enum head = "data:", tail = ";base64,";
+    if (url.length < head.length || url[0 .. head.length] != head) return false;
+    size_t at = head.length;
+    while (at + tail.length <= url.length && url[at .. at + tail.length] != tail) at++;
+    if (at + tail.length > url.length) return false;
+    Reply z;
+    scope(exit) z.dispose();
+    z.add(url[head.length .. at]); z.add("\0");
+    auto dataAt = z.len; z.add(url[at + tail.length .. $]); z.add("\0");
+    if (z.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_image_chunk_write(acp_chunk_kind.ACP_CHUNK_USER_MESSAGE, z.slice().ptr, z.slice().ptr + dataAt, &written) != acp_status.ACP_OK)
+        return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
 // The history, told again. readOnly, when given, says which of the calls'
 // tools are read-only, so their replayed calls say kind read as they did live.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
@@ -639,7 +703,20 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             scope(exit) u.dispose();
             if (!putChunk(u, 1, reasoning) || !told(u)) return false;
         }
-        if (role == "user" || (role == "assistant" && content.length > 0)) {
+        auto parts = jsonField(m, "content");
+        if (role == "user" && json_object_get_type(parts) == json_type.array) {
+            // The words and images the user gave, each as it was given.
+            foreach (j; 0 .. json_object_array_length(parts)) {
+                auto part = json_object_array_get_idx(parts, j);
+                auto type = text(jsonField(part, "type"));
+                Reply u;
+                scope(exit) u.dispose();
+                if (type == "text") { if (!putChunk(u, 2, text(jsonField(part, "text"))) || !told(u)) return false; }
+                else if (type == "image_url") { if (!putImageChunk(u, text(jsonField(jsonField(part, "image_url"), "url"))) || !told(u)) return false; }
+                else return false;
+            }
+        }
+        else if (role == "user" || (role == "assistant" && content.length > 0)) {
             Reply u;
             scope(exit) u.dispose();
             if (!putChunk(u, role == "user" ? 2 : 0, content) || !told(u)) return false;
