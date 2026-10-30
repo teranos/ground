@@ -88,7 +88,8 @@ char[64] sha256Hex()(const(char)[] s) {
 
 // --- the pins, read out of flake.nix, the one place they are written ---
 
-struct Pin { string agent; string release; string sha256; }
+// protocol: dsh's pins only, the hook-protocol bundle beside the bridge.
+struct Pin { string agent; string release; string sha256; string protocol; }
 
 version (OSX) {
     version (AArch64) { enum claudePlatform = "darwin-arm64"; enum codexTarget = "aarch64-apple-darwin"; enum agyTarget = "mac_arm64"; }
@@ -135,8 +136,12 @@ PinSet readPins()(string flake) {
         else if (startsAt(flake, i, `agy "`)) agent = "agy";
         else if (startsAt(flake, i, `acp "`)) agent = "acp";
         else if (startsAt(flake, i, `mcp "`)) agent = "mcp";
+        else if (startsAt(flake, i, `dshClaude "`)) agent = "dsh-claude";
+        else if (startsAt(flake, i, `dshCodex "`)) agent = "dsh-codex";
         else continue;
-        auto from = i + agent.length + 2;
+        // The name the pin is written by: dsh's bridges are dshClaude and dshCodex.
+        auto written = agent == "dsh-claude" ? "dshClaude".length : agent == "dsh-codex" ? "dshCodex".length : agent.length;
+        auto from = i + written + 2;
         auto close = indexIn(flake[from .. $], `"`);
         if (close < 0) continue;
         auto release = flake[from .. from + close];
@@ -150,15 +155,17 @@ PinSet readPins()(string flake) {
             else if (flake[p] == '}' && --depth == 0) { end = p + 1; break; }
         }
         auto block = flake[from .. end];
-        string sha;
+        string sha, protocol;
         if (agent == "claude") sha = hexAfter(block, claudePlatform);
+        // A bundle is the same on every platform.
+        else if (agent == "dsh-claude" || agent == "dsh-codex") { sha = hexAfter(block, "bridge"); protocol = hexAfter(block, "protocol"); }
         else if (agent == "acp" || agent == "mcp") sha = hexAfter(block, "schema");
         else {
             // codex and agy pin each target's tarball and the binary it unpacks to.
             auto t = assigned(block, agent == "codex" ? codexTarget : agyTarget, " = {");
             if (t >= 0) sha = hexAfter(block[cast(size_t) t .. $], "binary");
         }
-        if (sha !is null && found.count < found.items.length) found.items[found.count++] = Pin(agent, release, sha);
+        if (sha !is null && found.count < found.items.length) found.items[found.count++] = Pin(agent, release, sha, protocol);
     }
     return found;
 }
@@ -686,6 +693,166 @@ private static immutable string[3][6] agyEvents = [
     ["PostInvocation", "PostInvocationHookArgs", "PostInvocationHookResult"],
     ["Stop", "StopHookArgs", "StopHookResult"],
 ];
+
+// --- dsh: its hook bridges' bundles, JS as tsdown emits it ---
+
+private size_t skipSpace(const(char)[] text, size_t i) {
+    while (i < text.length && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n' || text[i] == '\r')) i++;
+    return i;
+}
+
+// Where the element starting at i ends: the comma or closer at its own depth.
+// A string is skipped whole.
+private size_t elementEnd(const(char)[] text, size_t i) {
+    int nest = 0;
+    char quote = 0;
+    for (; i < text.length; i++) {
+        char c = text[i];
+        if (quote) {
+            if (c == '\\') { i++; continue; }
+            if (c == quote) quote = 0;
+            continue;
+        }
+        if (c == '"' || c == '\'' || c == '`') quote = c;
+        else if (c == '(' || c == '[' || c == '{') nest++;
+        else if (c == ')' || c == ']' || c == '}') { if (nest-- == 0) return i; }
+        else if (c == ',' && nest == 0) return i;
+    }
+    return text.length;
+}
+
+private const(char)[] identAt(const(char)[] text, size_t i) {
+    size_t j = i;
+    while (j < text.length && isIdent(text[j])) j++;
+    return text[i .. j];
+}
+
+// The keys of the object literal opening at open, its own and not its values'.
+// A spread of a call is the keys the called function returns; a spread that
+// tests the event, `...event === "Name" ? {..} : {..}`, is its first object's
+// keys when Name is the event measured. Any other spread is the run's.
+private void dshObject(const(char)[] text, size_t open, const(char)[] event, ref Keys keys, int depth) {
+    if (depth > 8 || open >= text.length || text[open] != '{') return;
+    size_t i = open + 1;
+    while (i < text.length) {
+        i = skipSpace(text, i);
+        if (i >= text.length || text[i] == '}') return;
+        auto end = elementEnd(text, i);
+        auto el = text[i .. end];
+        if (startsAt(el, 0, "...")) {
+            auto name = identAt(el, 3);
+            if (name.length > 0 && startsAt(el, 3 + name.length, "(")) dshReturned(text, name, event, keys, depth + 1);
+            else if (name.length > 0 && startsAt(el, 3 + name.length, ` === "`)) {
+                auto from = 3 + name.length + ` === "`.length;
+                auto close = indexIn(el, `"`, from);
+                if (close >= 0 && el[from .. cast(size_t) close] == event) {
+                    auto q = indexIn(el, "? {", cast(size_t) close);
+                    if (q >= 0) dshObject(text, i + cast(size_t) q + 2, event, keys, depth + 1);
+                }
+            }
+        } else {
+            auto name = identAt(el, 0);
+            auto after = skipSpace(el, name.length);
+            if (name.length > 0 && (after == el.length || el[after] == ':')) keys.add(name);
+        }
+        if (end >= text.length || text[end] == '}') return;
+        i = end + 1;
+    }
+}
+
+// The keys of the object `function name(` returns.
+private void dshReturned(const(char)[] text, const(char)[] name, const(char)[] event, ref Keys keys, int depth) {
+    char[96] nb;
+    auto f = indexIn(text, joined(nb, "\nfunction ", name, "("));
+    if (f < 0) return;
+    auto r = indexIn(text, "return {", cast(size_t) f);
+    if (r >= 0) dshObject(text, cast(size_t) r + "return ".length, event, keys, depth);
+}
+
+// Every event the bridge runs a hook at: each runPoint("Name", ...).
+Keys dshEvents()(const(char)[] text) {
+    enum call = `runPoint("`;
+    Keys events;
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(text, call, from);
+        if (at < 0) return events;
+        from = cast(size_t) at + call.length;
+        auto close = indexIn(text, `"`, from);
+        if (close < 0) return events;
+        events.add(text[from .. cast(size_t) close]);
+    }
+}
+
+// What the bridge sends a hook at event: what every run adds to the payload,
+// then the payload runPoint is handed, its third argument.
+bool dshInput(const(char)[] text, const(char)[] event, ref Keys keys) {
+    char[96] cb;
+    auto at = indexIn(text, joined(cb, `runPoint("`, event, `", `));
+    if (at < 0) return false;
+    auto p = indexIn(text, "payload: {");
+    if (p >= 0) dshObject(text, cast(size_t) p + "payload: ".length, event, keys, 0);
+    auto subject = cast(size_t) at + `runPoint("`.length + event.length + `", `.length;
+    auto arg = skipSpace(text, elementEnd(text, subject) + 1);
+    if (arg < text.length && text[arg] == '{') dshObject(text, arg, event, keys, 0);
+    else {
+        auto name = identAt(text, arg);
+        if (name.length > 0) dshReturned(text, name, event, keys, 0);
+    }
+    return true;
+}
+
+// What dsh-hook-protocol reads of a hook's reply, for every event alike: the
+// keys applyStructured takes of the reply and of each object it takes from it.
+void dshOutput(const(char)[] text, ref Keys keys) {
+    enum fn = "\nfunction applyStructured(";
+    auto f = indexIn(text, fn);
+    if (f < 0) return;
+    auto bodyFrom = cast(size_t) f + fn.length;
+    auto next = indexIn(text, "\nfunction ", bodyFrom);
+    auto body = text[bodyFrom .. next < 0 ? text.length : cast(size_t) next];
+    // The reply is the second parameter; an object taken of it is `const v = obj(reply.`.
+    auto comma = indexIn(body, ", ");
+    if (comma < 0) return;
+    const(char)[][8] objects;
+    size_t count = 0;
+    objects[count++] = identAt(body, cast(size_t) comma + 2);
+    for (size_t i = 0; i < body.length; i++) {
+        foreach (o; objects[0 .. count]) {
+            bool own = i == 0 || !isIdent(body[i - 1]);
+            if (own && startsAt(body, i, o) && startsAt(body, i + o.length, ".")) {
+                auto key = identAt(body, i + o.length + 1);
+                keys.add(key);
+                // `const v = obj(reply.key)` names an object of its own.
+                auto line = lastIndexIn(body[0 .. i], "const ");
+                if (line >= 0 && startsAt(body, i - 4, "obj(") && count < objects.length) {
+                    auto v = identAt(body, cast(size_t) line + "const ".length);
+                    auto eq = cast(size_t) line + "const ".length + v.length;
+                    if (startsAt(body, eq, " = obj(") && eq + " = obj(".length == i) objects[count++] = v;
+                }
+                break;
+            }
+            if (startsAt(body, i, "(") && startsAt(body, i + 1, o) && startsAt(body, i + 1 + o.length, `, "`)) {
+                auto from = i + 1 + o.length + `, "`.length;
+                auto close = indexIn(body, `"`, from);
+                if (close >= 0) keys.add(body[from .. cast(size_t) close]);
+                break;
+            }
+        }
+    }
+}
+
+Keys dshInputKeys()(string text, string event) {
+    Keys k;
+    dshInput(text, event, k);
+    return k;
+}
+
+Keys dshOutputKeys()(string text) {
+    Keys k;
+    dshOutput(text, k);
+    return k;
+}
 
 // --- ground's side, read out of its own source at compile time ---
 
@@ -1541,6 +1708,9 @@ private void pathOf(ref const Pin pin, ref Measured m) {
     // make install links the pinned schemas here from the store.
     else if (pin.agent == "acp") { add("/.local/lib/ground/acp/"); add(pin.release); add("/schema.json"); }
     else if (pin.agent == "mcp") { add("/.local/lib/ground/mcp/"); add(pin.release); add("/schema.json"); }
+    // make install links the pinned bundles here from the store.
+    else if (pin.agent == "dsh-claude") { add("/.local/lib/ground/dsh/"); add(pin.release); add("/claude.js"); }
+    else if (pin.agent == "dsh-codex") { add("/.local/lib/ground/dsh/"); add(pin.release); add("/codex.js"); }
     // where agy's installer puts it
     else if (pin.agent == "agy") add("/.local/bin/agy");
     else add("/.codex/packages/standalone/current/bin/codex");
@@ -1617,6 +1787,21 @@ private void readAgy(const(char)[] text) {
     }
 }
 
+private void readDsh(const(char)[] bridge, const(char)[] protocol) {
+    Keys output;
+    dshOutput(protocol, output);
+    auto events = dshEvents(bridge);
+    size_t s = 0;
+    auto list = events.slice();
+    foreach (i; 0 .. list.length + 1) {
+        if (i < list.length && list[i] != ',') continue;
+        Keys input;
+        dshInput(bridge, list[s .. i], input);
+        addSpec(list[s .. i], input, output);
+        s = i + 1;
+    }
+}
+
 private void unread(const(char)[] message) {
     say("ground_parity:agy's hooks.proto has no message ");
     say(message);
@@ -1683,7 +1868,29 @@ private Measured measure(ref const Pin pin) {
 
     sha256(text, m.sha);
     if (m.sha[] != pin.sha256) { m.access = Access.mismatch; return m; }
-    if (pin.agent == "claude") readClaude(text);
+    if (pin.agent == "dsh-claude" || pin.agent == "dsh-codex") {
+        // The hook-protocol bundle beside the bridge reads a hook's reply.
+        Measured p;
+        auto stem = m.pathLen - ".js".length;
+        foreach (i; 0 .. stem) p.path[i] = m.path[i];
+        enum tail = "-protocol.js";
+        foreach (i, c; tail) p.path[stem + i] = c;
+        p.pathLen = stem + tail.length;
+        auto pfd = open(p.path.ptr, O_RDONLY);
+        if (pfd < 0) { m = p; return m; }
+        scope (exit) close(pfd);
+        stat_t ps;
+        if (fstat(pfd, &ps) != 0 || ps.st_size <= 0) { m = p; return m; }
+        auto psize = cast(size_t) ps.st_size;
+        auto pmem = mmap(null, psize, PROT_READ, MAP_PRIVATE, pfd, 0);
+        if (pmem == MAP_FAILED) { m = p; return m; }
+        scope (exit) munmap(pmem, psize);
+        auto protocol = (cast(const(char)*) pmem)[0 .. psize];
+        sha256(protocol, p.sha);
+        if (p.sha[] != pin.protocol) { p.access = Access.mismatch; m = p; return m; }
+        readDsh(text, protocol);
+    }
+    else if (pin.agent == "claude") readClaude(text);
     else if (pin.agent == "acp") readAcp(text);
     else if (pin.agent == "mcp") readMcp(text);
     else if (pin.agent == "agy") readAgy(text);
@@ -2051,7 +2258,9 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
             case Access.live: put(m.path[0 .. m.pathLen]); break;
             case Access.mismatch:
                 put(m.path[0 .. m.pathLen]); put(" is "); put(m.sha[0 .. 12]);
-                put(", pinned "); put(pin.sha256[0 .. 12]);
+                // dsh's hook-protocol bundle is pinned beside its bridge.
+                auto protocol = m.pathLen > 12 && m.path[m.pathLen - 12 .. m.pathLen] == "-protocol.js";
+                put(", pinned "); put(protocol ? pin.protocol[0 .. 12] : pin.sha256[0 .. 12]);
                 break;
             case Access.empty:
                 put(tableOf(pin.agent) != "hooks" ? "no methods read from " : "no hook schemas read from ");

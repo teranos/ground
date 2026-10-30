@@ -117,6 +117,30 @@
             echo "${sha256.${agyTarget}.binary}  $out/bin/agy" | sha256sum -c -
           '';
 
+          # The hooks dsh runs: Claude Code's and Codex's, each in its dialect and
+          # each a plugin of its own, npm @deepseek-ai/dsh-hooks-<dialect>, reading
+          # a hook's reply through @deepseek-ai/dsh-hook-protocol of the same release.
+          # tarball, protocolTarball: the registry's bytes. bridge, protocol: the
+          # lib/index.js each unpacks to, the hashes ground parity checks.
+          dshHooks = dialect: version: sha256: pkgs.runCommand "dsh-hooks-${dialect}-${version}" {
+            bridge = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/@deepseek-ai/dsh-hooks-${dialect}/-/dsh-hooks-${dialect}-${version}.tgz";
+              sha256 = sha256.tarball;
+            };
+            protocol = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/@deepseek-ai/dsh-hook-protocol/-/dsh-hook-protocol-${version}.tgz";
+              sha256 = sha256.protocolTarball;
+            };
+          } ''
+            mkdir -p $out
+            tar -xzf $bridge -O package/lib/index.js > $out/bridge.js
+            tar -xzf $protocol -O package/lib/index.js > $out/protocol.js
+            echo "${sha256.bridge}  $out/bridge.js" | sha256sum -c -
+            echo "${sha256.protocol}  $out/protocol.js" | sha256sum -c -
+          '';
+          dshClaude = dshHooks "claude-code";
+          dshCodex = dshHooks "codex";
+
           # The protocol ground code answers an ACP client in, at the schema it is
           # held to: github.com/agentclientprotocol/agent-client-protocol
           # schema-v<version>, the release's schema.json. It is the tag's
@@ -213,6 +237,22 @@
             schema = "ef70b61f99b6d2e5e3b46863822eab08dff6a45bedc7a08914e0e5b133f40203";
           };
 
+          # "Pin the latest stable deepseek harness In parity". dsh has no stable
+          # release: every tag is an alpha or a release candidate, and this is the
+          # one npm's latest dist-tag names.
+          dsh-claude-0_2_1-rc_5 = dshClaude "0.2.1-rc.5" {
+            tarball = "d076dcb29985ddd3cb28160e84c8e16921116cba7bcc830c083db61db6685b56";
+            bridge = "c4f3f5d92c82e790593d977d95eef0afa4ffad07bb9b9d1609ae613fe6a76283";
+            protocolTarball = "8407d62ec16ea68e1c856816cc807c8e5e2b3ae346ee2d4908e229ca19481c39";
+            protocol = "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132";
+          };
+          dsh-codex-0_2_1-rc_5 = dshCodex "0.2.1-rc.5" {
+            tarball = "8b89ab72d9b8fc3c017b1fddf3ec387057886d55a2190488e1684569e6b6b4ef";
+            bridge = "4f245084fa3a90f6740446e124962a2037c8a8be5f1daf3085ee1c1004a6fa86";
+            protocolTarball = "8407d62ec16ea68e1c856816cc807c8e5e2b3ae346ee2d4908e229ca19481c39";
+            protocol = "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132";
+          };
+
           # Every acp pin above, a directory per release, for make install to link
           # where ground parity reads them. A new pin joins without being named here.
           acp-schemas = pkgs.linkFarm "acp-schemas" (pkgs.lib.mapAttrsToList
@@ -229,6 +269,20 @@
               path = schema;
             })
             (pkgs.lib.filterAttrs (name: _: builtins.match "mcp-[0-9_]+" name != null) self.packages.${system}));
+
+          # Every dsh pin, its bridge and protocol bundles side by side under its
+          # release, where ground parity reads them.
+          dsh-hooks = pkgs.linkFarm "dsh-hooks" (pkgs.lib.concatLists (pkgs.lib.mapAttrsToList
+            (name: hooks:
+              let
+                m = builtins.match "dsh-(claude|codex)-(.*)" name;
+                dialect = builtins.elemAt m 0;
+                release = pkgs.lib.replaceStrings [ "_" ] [ "." ] (builtins.elemAt m 1);
+              in [
+                { name = "${release}/${dialect}.js"; path = "${hooks}/bridge.js"; }
+                { name = "${release}/${dialect}-protocol.js"; path = "${hooks}/protocol.js"; }
+              ])
+            (pkgs.lib.filterAttrs (name: _: builtins.match "dsh-(claude|codex)-.*" name != null) self.packages.${system})));
         }
       );
 
