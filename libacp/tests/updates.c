@@ -127,6 +127,15 @@ static void elicitation(void) {
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"method\":\"elicitation/complete\",\"params\":{\"elicitationId\":\"x1\"}}"));
 }
 
+// An image the user gave, told back as a user_message_chunk: "An image provided to or from an LLM."
+static void image_chunk(void) {
+    acp_buffer out = {0};
+    CHECK(acp_image_chunk_write(ACP_CHUNK_USER_MESSAGE, "image/png", "iVBORw0KGgo=", &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgo=\"}}"));
+    CHECK(acp_image_chunk_write(ACP_CHUNK_USER_MESSAGE, NULL, "x", &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_image_chunk_write((acp_chunk_kind) 9, "image/png", "x", &out) == ACP_INVALID_ARGUMENT);
+}
+
 // An elicitation "tied to a specific JSON-RPC request outside of a session (e.g., during
 // auth/configuration phases before any session is started)": url mode, scoped by requestId.
 static void request_scoped(void) {
@@ -148,6 +157,7 @@ static void request_scoped(void) {
 int main(void) {
     envelope();
     request_scoped();
+    image_chunk();
     chunks();
     tool_calls();
     others();
