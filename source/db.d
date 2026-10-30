@@ -224,6 +224,63 @@ unittest {
     attemptUs = 0;
 }
 
+extern (C) {
+    int sqlite3_trace_v2(sqlite3* db, uint mask, int function(uint, void*, void*, void*) cb, void* ctx);
+    const(char)* sqlite3_sql(sqlite3_stmt* stmt);
+    int sqlite3_stmt_readonly(sqlite3_stmt* stmt);
+}
+enum SQLITE_TRACE_STMT = 1;
+enum SQLITE_TRACE_PROFILE = 2;
+
+// The longest one write of this process held the store's write lock, and the
+// write: its run less what it slept in groundBusy waiting to get the lock.
+__gshared long heldUs;
+__gshared char[256] heldSqlBuf = 0;
+__gshared size_t heldSqlLen;
+__gshared long waitAtStart;
+
+long heldLongestUs() { return heldUs; }
+const(char)[] heldLongestSql() { return heldSqlBuf[0 .. heldSqlLen]; }
+void heldReset() { heldUs = 0; heldSqlLen = 0; }
+
+extern (C) int heldTrace(uint what, void*, void* p, void* x) {
+    auto stmt = cast(sqlite3_stmt*) p;
+    if (sqlite3_stmt_readonly(stmt)) return 0;
+    if (what == SQLITE_TRACE_STMT) { waitAtStart = lockWaitUs; return 0; }
+    auto held = *cast(long*) x / 1000 - (lockWaitUs - waitAtStart);
+    if (held <= heldUs) return 0;
+    heldUs = held;
+    heldSqlLen = 0;
+    auto sql = sqlite3_sql(stmt);
+    if (sql !is null)
+        while (sql[heldSqlLen] != 0 && heldSqlLen < heldSqlBuf.length) { heldSqlBuf[heldSqlLen] = sql[heldSqlLen]; heldSqlLen++; }
+    return 0;
+}
+
+void traceWrites(sqlite3* db) {
+    sqlite3_trace_v2(db, SQLITE_TRACE_STMT | SQLITE_TRACE_PROFILE, &heldTrace, null);
+}
+
+// A write slow enough to be measured is the longest this process held the lock;
+// a read takes no write lock and is not counted.
+unittest {
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    traceWrites(db);
+    heldReset();
+    sqlite3_exec(db, "CREATE TABLE t (n INTEGER)\0".ptr, null, null, null);
+    enum many = "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 300000) "
+        ~ "INSERT INTO t SELECT n FROM c\0";
+    assert(sqlite3_exec(db, many.ptr, null, null, null) == SQLITE_OK);
+    assert(heldLongestUs() > 0, "a write that ran is a hold that is measured");
+    assert(contains(heldLongestSql(), "INSERT INTO t"), "and the write is named by its own SQL");
+    auto write = heldLongestUs();
+    sqlite3_exec(db, "SELECT count(*) FROM t, t AS u WHERE u.n < 3\0".ptr, null, null, null);
+    assert(heldLongestUs() == write, "a read holds no write lock");
+    sqlite3_close(db);
+    heldReset();
+}
+
 // Open ground's own db at ~/.local/share/ground/ground.db
 sqlite3* openDb() {
     return openStandaloneDb();
@@ -302,6 +359,7 @@ sqlite3* openStandaloneDb() {
     // Up to 5s of waiting on another writer, in 1ms sleeps ground counts
     // itself, so a hook's timing row can say it slept and for how long.
     sqlite3_busy_handler(db, &groundBusy, null);
+    traceWrites(db);
 
     if (!applySchema(db)) {
         sqlite3_close(db);
