@@ -141,10 +141,11 @@ int pollSignIn(const(char)[] node, ref SignIn s, ref Reply token, ref Reply why)
 // there; the file only its owner's, written beside it and moved over it, so a
 // reader finds the old token or the new one, never half of one.
 bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
-    // libc as ground declares it once, in errors.d: a second declaration of
-    // mkdir with Darwin's 16-bit mode_t is a different function to the linker.
-    import errors : mkdir, open, write, close, unlink, O_WRONLY, O_CREAT, O_TRUNC;
-    import core.sys.posix.unistd : fsync;
+    // mkdir as db declares it, the one declaration ground code links: Darwin's 16-bit mode_t in a second
+    // is a different function to the linker. The rest are druntime's, of the same types.
+    import db : mkdir;
+    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.unistd : write, close, unlink, fsync;
     import core.stdc.stdio : rename;
     import core.stdc.errno : errno, EEXIST;
     import core.stdc.string : strlen, strerror;
@@ -185,7 +186,7 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
 // Drops the token file: 1 dropped, 0 none was there, -1 it could not be, why
 // in why. The node still holds the token until the person revokes it there.
 int dropToken(const(char)* file, ref Reply why) {
-    import errors : unlink;
+    import core.sys.posix.unistd : unlink;
     import core.stdc.errno : errno, ENOENT;
     import core.stdc.string : strlen, strerror;
     if (unlink(file) == 0) return 1;
@@ -200,7 +201,7 @@ int dropToken(const(char)* file, ref Reply why) {
 // and the code said, the node asked until the person said yes, the token
 // kept. 0 signed in, 1 not, what the node or the file said given to say.
 int login(const(char)[] node, const(char)* file, scope void delegate(const(char)[]) say) {
-    import attest : sleepSeconds;
+    import core.sys.posix.unistd : sleep;
     SignIn s;
     Reply why, token;
     scope(exit) { s.dispose(); why.dispose(); token.dispose(); }
@@ -213,7 +214,7 @@ int login(const(char)[] node, const(char)* file, scope void delegate(const(char)
     say("Sign in to QNTX as "); say(LABEL); say(": open\n\n  "); say(s.link.slice());
     say("\n\nand check the code there is "); say(s.userCode.slice()); say(".\n");
     while (true) {
-        sleepSeconds(cast(int) s.interval);
+        sleep(s.interval);
         why.len = 0;
         auto got = pollSignIn(node, s, token, why);
         if (got == 0) continue;
