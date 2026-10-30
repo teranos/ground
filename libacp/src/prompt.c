@@ -24,10 +24,11 @@ static acp_status block_of(json_object *value, acp_prompt_block *block) {
         block->text = acp_string(resource, "text");
         if (block->uri != NULL && block->text != NULL) block->kind = ACP_BLOCK_RESOURCE;
         else block->holds_blob = block->uri != NULL && json_object_is_type(acp_field(resource, "blob"), json_type_string);
-    } else if (strcmp(block->type, "image") == 0) {
+    } else if (strcmp(block->type, "image") == 0 || strcmp(block->type, "audio") == 0) {
         block->mime_type = acp_string(value, "mimeType");
         block->data = acp_string(value, "data");
-        if (block->mime_type != NULL && block->data != NULL) block->kind = ACP_BLOCK_IMAGE;
+        if (block->mime_type != NULL && block->data != NULL)
+            block->kind = strcmp(block->type, "image") == 0 ? ACP_BLOCK_IMAGE : ACP_BLOCK_AUDIO;
     }
     return ACP_OK;
 }
