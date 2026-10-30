@@ -61,7 +61,7 @@ extern (C) nothrow @nogc {
     }
 
     enum acp_block_kind : int {
-        ACP_BLOCK_TEXT, ACP_BLOCK_RESOURCE_LINK, ACP_BLOCK_RESOURCE, ACP_BLOCK_OTHER, ACP_BLOCK_IMAGE
+        ACP_BLOCK_TEXT, ACP_BLOCK_RESOURCE_LINK, ACP_BLOCK_RESOURCE, ACP_BLOCK_OTHER, ACP_BLOCK_IMAGE, ACP_BLOCK_AUDIO
     }
 
     struct acp_prompt_block {
@@ -234,6 +234,7 @@ extern (C) nothrow @nogc {
     acp_status acp_session_update_write(const(char)*, const(char)*, acp_buffer*);
     acp_status acp_text_chunk_write(acp_chunk_kind, const(char)*, size_t, acp_buffer*);
     acp_status acp_image_chunk_write(acp_chunk_kind, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_audio_chunk_write(acp_chunk_kind, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_tool_call_write(const(acp_tool_call)*, acp_buffer*);
     acp_status acp_usage_update_write(ulong, ulong, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_session_info_update_write(const(char)*, const(char)*, acp_buffer*);
