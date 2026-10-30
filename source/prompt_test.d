@@ -24,10 +24,10 @@ static assert(toolOf("echo") == "echo");
 // back to be read, a name and a uri each; a block of another kind has no text
 // to give, and its type is said instead of dropped. libacp reads the blocks.
 private struct Read {
-    Reply text, other, links, embedded, said;
+    Reply text, other, links, embedded, images, said;
     Blocks blocks;
-    this(string params) { blocks = promptText(params, text, other, links, embedded, said); }
-    void dispose() { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); said.dispose(); }
+    this(string params) { blocks = promptText(params, text, other, links, embedded, images, said); }
+    void dispose() { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); said.dispose(); }
 }
 private bool textIs()(string params, string want) {
     auto p = Read(params); scope(exit) p.dispose();
