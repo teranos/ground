@@ -732,14 +732,17 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
         r.add(`}}`);
     }
     if (sessions.input is null) return error(-32603, "ground code reads no input here, so it cannot ask the client");
-    if (sessions.node.url.length == 0) return error(-32603, "the qntx block names no url, so there is no node to sign in to");
-    auto named = qntxTokenFile(sessions.node.token);
+    // Auth is q's, the block's gateway, and its token is kept in ~/.qntx/token: the block's url and
+    // token file are k's, the hooks' node for attestations, and are left alone.
+    auto q = sessions.node.gateway.length > 0 ? sessions.node.gateway : sessions.node.url;
+    if (q.length == 0) return error(-32603, "the qntx block names no node, so there is none to sign in to");
+    auto named = qntxTokenFile("");
     if (named is null) return error(-32603, "the token is kept in a home, and HOME names none");
     Reply file, why, token, pid, text, answered;
     SignIn s;
     scope(exit) { file.dispose(); why.dispose(); token.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
     file.add(named[0 .. strlen(named)]); file.add("\0");
-    if (startSignIn(sessions.node.url, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
+    if (startSignIn(q, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
 
     sessions.asked++;
     pid.add(`"login-`); putNumber(pid, sessions.asked); pid.add(`"`);
@@ -785,7 +788,7 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     while (true) {
         if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
         why.len = 0;
-        auto got = pollSignIn(sessions.node.url, s, token, why);
+        auto got = pollSignIn(q, s, token, why);
         if (got == 1) break;
         if (got < 0) return error(-32000, "the node did not sign ground code in", why.slice());
         // "the minimum amount of time in seconds that the client SHOULD wait between polling requests"
@@ -1411,11 +1414,12 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             import attest : qntxTokenFile;
             import code.login : dropToken;
             import errors : getenv;
-            if (sessions.node.token.length == 0 && getenv("QNTX_TOKEN\0".ptr) !is null) {
+            // q's token, the one ground code signed in with, in ~/.qntx/token; k's is the hooks'.
+            if (getenv("QNTX_TOKEN\0".ptr) !is null) {
                 put(`,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
                 return true;
             }
-            auto file = qntxTokenFile(sessions.node.token);
+            auto file = qntxTokenFile("");
             if (file is null) { put(`,"error":{"code":-32603,"message":"the token is kept in a home, and HOME names none"}}`); return true; }
             Reply why;
             scope(exit) why.dispose();
