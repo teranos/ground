@@ -30,9 +30,9 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
 # modules the entry point reaches, so no list of them is kept by hand.
 BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
-# -betterC is for the hooks, started once an event. ground code runs a whole client session,
-# so it starts the D runtime once and keeps it.
-ground_code: BIN_FLAGS = --lowmem -O -release -J=. -I=source -i
+# -betterC and -O are for the hooks, started once an event. ground code runs a whole client
+# session and waits on the network, not the CPU: unoptimised, it compiles in 16 s, not 45 s.
+ground_code: BIN_FLAGS = --lowmem -release -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
 	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lm -L-lpthread -L-ldl \

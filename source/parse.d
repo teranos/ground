@@ -3,7 +3,7 @@ module parse;
 // Hook input is one JSON object on stdin. Its fields, per event and version, are
 // the pinned agent binaries' own schemas: `ground parity <Event>` lists them.
 
-import matcher : indexOf;
+import scan : indexOf;
 import core.stdc.stdio : stdout, fputs, fwrite;
 
 // The top-level hook input field an extractor reads. `ground parity` counts a
@@ -200,7 +200,7 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
 @Reads("last_assistant_message") const(char)[] extractLastAssistantMessage(const(char)[] json) {
     __gshared char[8192] buf = 0;
     // last_assistant_message is near the end of the JSON — search backwards
-    import matcher : lastIndexOf;
+    import scan : lastIndexOf;
     auto idx = lastIndexOf(json, `"last_assistant_message"`);
     if (idx < 0) return null;
     return extractJsonStringAt(json, idx, `"last_assistant_message"`, &buf[0], buf.length);

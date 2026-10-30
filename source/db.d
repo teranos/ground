@@ -2,9 +2,20 @@ module db;
 
 // BOOK_GLOSSARY **Attestation**: The record of one event with its full payload, in the store ground refuses to operate without.
 
-import matcher : indexOf, contains;
+import scan : indexOf, contains;
 import core.stdc.stdio : FILE;
 import core.stdc.time : time, time_t, tm, gmtime;
+
+// The path an edit's record names, whole or after decay. The index on it is
+// partial on PostToolUse, so a query must say both alike.
+enum EDIT_PATH = "coalesce(json_extract(attributes, '$.tool_input.file_path'), json_extract(attributes, '$.file_path'))";
+enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON attestations(" ~ EDIT_PATH
+    ~ ") WHERE json_extract(predicates, '$[0]') = 'PostToolUse'\0";
+
+// "today will be the day of recording to parquet, so its a clean slate in that regard"
+// A unix second no post ever lands at, so a reader of "landed" (> BEFORE_STREAM)
+// and of "claimed" (< 0) is never fooled by it.
+enum BEFORE_STREAM = 1;
 
 // --- sqlite3 C bindings (minimal) ---
 
@@ -96,7 +107,7 @@ unittest {
 
     auto msg = dbFailureMessage();
     assert(msg !is null);
-    import matcher : contains;
+    import scan : contains;
     assert(contains(msg, "ground.db"), "must name the file");
     assert(contains(msg, ".recover"), "must carry the recovery path");
     resetDbFailure();
@@ -366,7 +377,6 @@ bool applySchema(sqlite3* db) {
     // column arrives are stamped BEFORE_STREAM, once, and never sent: "today
     // will be the day of recording to parquet, so its a clean slate".
     if (!hasColumn(db, "attestations", "qntx_at")) {
-        import stream : BEFORE_STREAM;
         if (ensureColumn(db, "attestations", "qntx_at", "INTEGER NOT NULL DEFAULT 0")) {
             enum stamp = "UPDATE attestations SET qntx_at = " ~ BEFORE_STREAM.stringof ~ "\0";
             if (sqlite3_exec(db, stamp.ptr, null, null, null) != SQLITE_OK)
@@ -595,10 +605,7 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, idxSubject.ptr, null, null, null);
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
     sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
-    {
-        import sessiontrail : EDIT_INDEX;
-        sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
-    }
+    sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
 
     return true;
 }
@@ -1162,7 +1169,6 @@ unittest {
     // The rows a hook writes from now on are the stream's: qntx_at 0 until the
     // sky posts one. The rows that were there when the column arrived are not:
     // stamped BEFORE_STREAM once, by the migration, and never claimed.
-    import stream : BEFORE_STREAM;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
     assert(applySchema(db));
