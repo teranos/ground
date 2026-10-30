@@ -4,7 +4,7 @@ module code.prompt;
 // completions with the session's tools, a tool_calls answer is run through
 // the session's own MCP servers and handed back, until the model stops.
 
-import matcher : indexOf;
+import scan : indexOf;
 import parse : Reads;
 import code.reply : Reply, putEscaped, putNumber;
 

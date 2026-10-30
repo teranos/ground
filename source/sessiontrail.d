@@ -7,7 +7,7 @@ module sessiontrail;
 // file since that file was last committed. Ground writes them; nobody types one.
 
 import db : sqlite3;
-import matcher : shellHome;
+import scan : shellHome;
 
 private struct Word {
     const(char)[] raw;    // as typed, quotes and all
@@ -75,7 +75,7 @@ bool isCommit(const(char)[] cmd) { return findCommit(cmd).ok; }
 // Where `to` leads from `here`: an absolute path replaces it, and ~ and ~/…
 // are home as the shell expands them (matcher's tildeExpanded), as is a bare cd.
 private size_t joinDir(const(char)[] here, const(char)[] to, const(char)[] home, char[] into) {
-    import matcher : tildeExpanded;
+    import scan : tildeExpanded;
     char[1024] expanded = 0;
     if (to.length == 0 && home.length > 0) to = home;
     else to = tildeExpanded(to, home, expanded[]);
@@ -329,11 +329,8 @@ void describe(sqlite3* db, ref Editors found) {
     }
 }
 
-// The path an edit's record names, whole or after decay. The index on it is
-// partial on PostToolUse, so a query must say both alike.
-enum EDIT_PATH = "coalesce(json_extract(attributes, '$.tool_input.file_path'), json_extract(attributes, '$.file_path'))";
-enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON attestations(" ~ EDIT_PATH
-    ~ ") WHERE json_extract(predicates, '$[0]') = 'PostToolUse'\0";
+// The path an edit's record names, and its index, are the store's schema: db keeps them.
+import db : EDIT_PATH;
 
 // Every session that edited `path` after `since`, in unix seconds.
 Editors editorsSince(sqlite3* db, const(char)[] path, long since) {

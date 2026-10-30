@@ -13,10 +13,10 @@ ground_code login
 EOS";
 
 import parse : extractJsonString, extractBool;
-import matcher : indexOf;
+import scan : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
-import proto : ParsedQntx;
+import qntxblock : ParsedQntx;
 import code.store : storeAddCost, storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
     storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
@@ -721,7 +721,7 @@ private const(char)* authMethods(ref const Sessions sessions) {
 // ground reads its token. The client can call it off while it waits.
 private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     import code.login : SignIn, startSignIn, pollSignIn, keepToken, LABEL;
-    import attest : qntxTokenFile;
+    import token : qntxTokenFile;
     import libacp : acp_elicitation_url_write, acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
     import core.sys.posix.sys.time : gettimeofday, timeval;
@@ -1411,9 +1411,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (__ctfe) assert(0, "a token file is dropped at runtime");
         else {
-            import attest : qntxTokenFile;
+            import token : qntxTokenFile;
             import code.login : dropToken;
-            import errors : getenv;
+            import core.stdc.stdlib : getenv;
             // q's token, the one ground code signed in with, in ~/.qntx/token; k's is the hooks'.
             if (getenv("QNTX_TOKEN\0".ptr) !is null) {
                 put(`,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
@@ -2027,7 +2027,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         if (__ctfe) assert(0, "the gateway is spoken to at runtime");
         else {
-            import attest : qntxToken;
+            import token : qntxToken;
             import http : httpPostInto;
             import core.stdc.stdlib : malloc;
             auto o = &sessions.open[cast(size_t) at];
@@ -2459,7 +2459,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 int handleCode() {
     import core.stdc.time : time;
     import db : openDb, sqlite3_close;
-    import controls : qntxNode;
+    import code.node : qntxNode;
     auto sessions = Sessions(cast(ulong) time(null), cast(uint) getpid());
     sessions.settingsEffort = true;
     sessions.node = qntxNode;
