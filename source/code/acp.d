@@ -1335,7 +1335,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         acp_buffer result;
         scope(exit) acp_buffer_free(&result);
         auto wrote = acp_initialize_result(got.selected_version, "ground", version_.slice().ptr,
-            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true},"auth":{"logout":{}}}`,
+            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true},"auth":{"logout":{}}}`,
             authMethods(sessions), &result);
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
@@ -1988,15 +1988,31 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // type, not dropped from what the model is told.
         auto params = objectValue(line, `"params"`);
         if (params is null) params = "{}";
-        Reply text, other, links, embedded, said;
-        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); said.dispose(); }
-        auto blocks = promptText(params, text, other, links, embedded, said);
+        Reply text, other, links, embedded, images, said;
+        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); said.dispose(); }
+        auto blocks = promptText(params, text, other, links, embedded, images, said);
         if (blocks == Blocks.refused) { put(`,"error":`); put(said.slice()); put(`}`); return true; }
         if (blocks == Blocks.other) {
-            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block `);
+            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links, resources holding text and images, and the prompt holds a block `);
             if (other.len == 0) put(`that names no type"}}`);
             else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }
             return true;
+        }
+        // An image goes to the model in a data URL; one that URL cannot carry is
+        // refused by what is wrong with it, before anything is asked.
+        for (size_t at_ = 0, field = 0, from = 0, mimeFrom = 0, mimeTo = 0; at_ < images.len; at_++) {
+            if (images.slice()[at_] != '\0') continue;
+            if (field++ % 2 == 0) { mimeFrom = from; mimeTo = at_; }
+            else {
+                auto mime = images.slice()[mimeFrom .. mimeTo];
+                auto wrong = unusableImage(mime, images.slice()[from .. at_]);
+                if (wrong !is null) {
+                    put(`,"error":{"code":-32602,"message":"ground code cannot give the model an image whose `);
+                    put(wrong[4 .. $]); put(`: `); putEscaped(r, mime); put(`"}}`);
+                    return true;
+                }
+            }
+            from = at_ + 1;
         }
         // A file:// resource_link is read through the client, "Only available
         // if the client supports the fs.readTextFile capability", and only one
@@ -2184,8 +2200,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 }
                 if (o.history.len > 0 && given.len > 0) o.history.add(",");
                 o.history.add(given.slice());
-                if (text.len > typedLen) userMessage(*o.history, text.slice()[typedLen .. $]);
-            } else userMessage(*o.history, text.slice());
+                if (text.len > typedLen || images.len > 0) userMessage(*o.history, text.slice()[typedLen .. $], images.slice());
+            } else userMessage(*o.history, text.slice(), images.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
                 return true;

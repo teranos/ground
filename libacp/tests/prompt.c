@@ -40,6 +40,23 @@ static void kinds(void) {
     CHECK(in.blocks == NULL && in.count == 0);
 }
 
+// "Agent supports ContentBlock::Image": an image's data, "Base64-encoded media payload", and its
+// mimeType, both required; its uri is optional. Either missing, it is another kind, told by its type.
+static void images(void) {
+    acp_prompt in;
+    acp_buffer error;
+    CHECK(read_prompt("{\"prompt\":[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgo=\"},"
+                      "{\"type\":\"image\",\"mimeType\":\"image/jpeg\",\"data\":\"/9j/\",\"uri\":\"file:///shot.jpg\"},"
+                      "{\"type\":\"image\",\"mimeType\":\"image/png\"}]}", &in, &error) == ACP_OK);
+    CHECK(in.count == 3);
+    if (in.count == 3) {
+        CHECK(in.blocks[0].kind == ACP_BLOCK_IMAGE && is(in.blocks[0].mime_type, "image/png") && is(in.blocks[0].data, "iVBORw0KGgo="));
+        CHECK(in.blocks[1].kind == ACP_BLOCK_IMAGE && is(in.blocks[1].mime_type, "image/jpeg") && is(in.blocks[1].data, "/9j/"));
+        CHECK(in.blocks[2].kind == ACP_BLOCK_OTHER && is(in.blocks[2].type, "image"));
+    }
+    acp_prompt_free(&in);
+}
+
 // "required": a link's name and uri, a resource's uri, and a block's type. Missing one, it is
 // another kind, told by the type it names, or none.
 static void incomplete(void) {
@@ -124,6 +141,7 @@ static void stop_reasons(void) {
 
 int main(void) {
     kinds();
+    images();
     cancels();
     stop_reasons();
     incomplete();
