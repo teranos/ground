@@ -266,16 +266,8 @@ struct ParsedSentry {
 
 // "no double or split config, they all need to go to the same call from the same token"
 // "isnt there a top level place where its actually defined"
-// The qntx { } block. At the top level it names the node: url, and token, the
-// path of the file holding what the node is spoken to with — empty means
-// QNTX_TOKEN, then ~/.qntx/token.
-struct ParsedQntx {
-    bool present;
-    string url;
-    string token;
-    string model;   // what ground code prompts through the gateway
-    string gateway; // the node a prompt goes through; url when empty
-}
+// The qntx { } block and its reader, in a module of their own for ground code.
+public import qntxblock : ParsedQntx, parseQntxBlock;
 
 // A ritual is the only thing that can be invoked, and it lives inside the
 // project whose env its rites read.
@@ -1444,32 +1436,6 @@ ParsedOrg parseOrg(ref string input, ref size_t pos, string name) {
         else assert(0, "Unknown org field");
     }
     assert(0, "Unterminated org block");
-}
-
-// url:, token:, model: and gateway:, and nothing else.
-ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
-    ParsedQntx q;
-    q.present = true;
-
-    while (pos < input.length) {
-        skipWS(input, pos);
-        if (pos >= input.length) break;
-        if (input[pos] == '#') { skipLine(input, pos); continue; }
-        if (input[pos] == '}') { pos++; return q; }
-
-        auto key = readWord(input, pos);
-        skipWS(input, pos);
-        expect(input, pos, ':');
-        skipWS(input, pos);
-        auto val = readValue(input, pos);
-
-        if (key == "token") q.token = val;
-        else if (key == "url") q.url = val;
-        else if (key == "model") q.model = val;
-        else if (key == "gateway") q.gateway = val;
-        else assert(0, "Unknown qntx field");
-    }
-    assert(0, "Unterminated qntx block");
 }
 
 // A dsn:, and nothing else. An unknown key is refused rather than skipped: a

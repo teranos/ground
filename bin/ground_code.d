@@ -21,9 +21,9 @@ int main(string[] args) {
 // ~/.qntx/token. The block's url and token file are the hooks' node for attestations, k, and stay its.
 int signIn() {
     import code.login : login;
-    import controls : qntxNode;
-    import attest : qntxTokenFile;
-    import errors : getenv;
+    import code.node : qntxNode;
+    import token : qntxTokenFile;
+    import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fwrite, fflush, stdout;
     void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); fflush(stdout); }
     auto status = login(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url, qntxTokenFile(""), &say);

@@ -89,7 +89,7 @@ const(char)[] repoFromGitdir(const(char)[] line) {
 // A submodule's .git is a file pointing into the parent's modules directory.
 // It is its own repository, with its own origin, so it is not the parent.
 bool isModuleGitdir(const(char)[] line) {
-    import matcher : indexOf;
+    import scan : indexOf;
     enum prefix = "gitdir: ";
     if (line.length <= prefix.length || line[0 .. prefix.length] != prefix) return false;
     return indexOf(line, ".git/modules/") >= 0;

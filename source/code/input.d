@@ -9,7 +9,7 @@ import core.stdc.stdlib : realloc, free;
 import core.stdc.string : memmove, memcpy;
 import core.stdc.errno : errno, EINTR, EAGAIN;
 import core.sys.posix.unistd : read;
-import exec : pollfd, poll, POLLIN; // the one declaration of poll the binary has
+import polling : pollfd, poll, POLLIN;
 
 struct Input {
     int fd;

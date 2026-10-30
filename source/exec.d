@@ -21,18 +21,9 @@ extern (C) {
     int setpgid(int pid, int pgid);
     int getpid();
     int setsid();
-
-    struct pollfd {
-        int fd;
-        short events;
-        short revents;
-    }
-    int poll(pollfd* fds, uint nfds, int timeout);
 }
 
-enum POLLIN  = 0x001;
-enum POLLHUP = 0x010;
-enum POLLERR = 0x008;
+public import polling : pollfd, poll, POLLIN, POLLHUP, POLLERR;
 enum SIGTERM = 15;
 enum SIGKILL = 9;
 enum WNOHANG = 1;

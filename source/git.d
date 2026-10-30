@@ -533,7 +533,7 @@ const(char)[] getBranch(const(char)[] cwd) {
 // reads the rate limit: one field, no jq. Anything that is not a plain
 // `"private": true` or `"private": false` is unknown.
 Visibility visibilityIn(const(char)[] json) {
-    import matcher : indexOf;
+    import scan : indexOf;
     enum key = `"private":`;
     auto at = indexOf(json, key);
     if (at < 0) return Visibility.Unknown;
