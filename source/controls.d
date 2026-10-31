@@ -7,6 +7,11 @@ import permission : buildPermissions, PermissionSet;
 // --- Parsed pbt (CTFE) ---
 // Pre-build: cat controls/*.pbt > .ctfe/sand
 
+// "only the compiled controls being their own thing shipped to the user"
+
+// The sand is data: a control names its handlers, and the engine that holds
+// them resolves the name. Nothing here imports the engine.
+
 enum allParsed = parsePbt(import(".ctfe/sand"));
 
 // The parse, held once. A function that reads it at run time names this one:
