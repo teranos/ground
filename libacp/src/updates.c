@@ -38,18 +38,28 @@ acp_status acp_text_chunk_write(acp_chunk_kind kind, const char *text, size_t le
     return acp_finish(update, update_json);
 }
 
-acp_status acp_image_chunk_write(acp_chunk_kind kind, const char *mime_type, const char *data, acp_buffer *update_json) {
+// A chunk holding media of type, "image" or "audio": its mimeType and its base64 data.
+static acp_status media_chunk(acp_chunk_kind kind, const char *type, const char *mime_type, const char *data,
+    acp_buffer *update_json) {
     static const char *const named[] = {"agent_message_chunk", "agent_thought_chunk", "user_message_chunk"};
     if (mime_type == NULL || data == NULL || update_json == NULL || (unsigned) kind >= sizeof named / sizeof *named)
         return ACP_INVALID_ARGUMENT;
     json_object *content = json_object_new_object();
-    add_string(content, "type", "image");
+    add_string(content, "type", type);
     add_string(content, "mimeType", mime_type);
     add_string(content, "data", data);
     json_object *update = json_object_new_object();
     add_string(update, "sessionUpdate", named[kind]);
     json_object_object_add(update, "content", content);
     return acp_finish(update, update_json);
+}
+
+acp_status acp_image_chunk_write(acp_chunk_kind kind, const char *mime_type, const char *data, acp_buffer *update_json) {
+    return media_chunk(kind, "image", mime_type, data, update_json);
+}
+
+acp_status acp_audio_chunk_write(acp_chunk_kind kind, const char *mime_type, const char *data, acp_buffer *update_json) {
+    return media_chunk(kind, "audio", mime_type, data, update_json);
 }
 
 // ToolCallContent: the terminal when there is one, then each block written as content, or the text as one
