@@ -162,19 +162,18 @@ scope {
   }
 }
 
-# git merge — always squashes. A merge lands on the target as one commit.
-# Not in ground: a branch here is the record of how it was built.
-scope {
-  event: "PreToolUse"
-  path: "!/ground"
-
-  control {
-    name: "git-merge-always-squash"
-    cmd: "git merge"
-    arg: "--squash"
-    msg: "--squash added; a merge lands as one commit."
-  }
-}
+# "disable the squash hook please"
+# scope {
+#   event: "PreToolUse"
+#   path: "!/ground"
+#
+#   control {
+#     name: "git-merge-always-squash"
+#     cmd: "git merge"
+#     arg: "--squash"
+#     msg: "--squash added; a merge lands as one commit."
+#   }
+# }
 
 scope {
   event: "PostToolUse"
