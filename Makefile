@@ -65,6 +65,8 @@ sand: wind
 	ldc2 -betterC --lowmem -O -release -shared -fvisibility=hidden --function-sections --data-sections \
 		$(if $(filter Darwin,$(shell uname -s)),-L-dead_strip,-relocation-model=pic -L--gc-sections -L-zdefs) \
 		-J=. -I=source -i=builtin_sand -i=sandview -of=$(SAND_LIB) bin/sand.d
+	ldc2 -betterC --lowmem -J=. -I=source -i=sandview -of=build/sandabi tools/sandabi.d
+	build/sandabi > build/libground_sand.abi
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
