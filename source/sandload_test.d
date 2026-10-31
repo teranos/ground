@@ -10,15 +10,16 @@ import builtin_sand : builtinSand;
 version (OSX) enum BUILT = "build/libground_sand.dylib\0";
 else enum BUILT = "build/libground_sand.so\0";
 
-// make sand's library, loaded, answers what the built-in sand answers.
+// make sand's library, loaded, answers with the user's controls on top of the floor the engine holds:
+// wind folds controls/ first, then controls/local and each project's, so the floor is where a sand starts.
 unittest {
     scope (exit) holdSand(null);
     auto r = loadSand(BUILT.ptr);
     assert(r.what == SandHeld.landed, r.why());
     assert(sand() !is &builtinSand);
     assert(sand().abi == SAND_ABI);
-    assert(allScopes.length == builtinSand.preToolUse.length);
-    assert(sand().parsed.ritualCount == builtinSand.parsed.ritualCount);
+    assert(allScopes.length >= builtinSand.preToolUse.length);
+    assert(sand().parsed.ritualCount >= builtinSand.parsed.ritualCount);
 }
 
 // make sand says beside the library which engine ABI it was built for, as a node keeps it.

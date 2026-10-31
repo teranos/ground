@@ -23,16 +23,17 @@ $(wordlist 2,$(words $(GOALS)),$(GOALS)):
 endif
 else
 
-wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
-	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d -L-lgit2
+wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d source/libgit2.d
+	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d source/libgit2.d -L-lgit2
 
 # "ground_hook as the hooks binary"
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
 # modules the entry point reaches, so no list of them is kept by hand.
-BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
+# -d-version=Floor: an engine is built from ground's tracked controls alone (source/sandtext.d).
+BIN_FLAGS = -betterC --lowmem -O -release -d-version=Floor -J=. -I=source -i
 # -betterC and -O are for the hooks, started once an event. ground code runs a whole client
 # session and waits on the network, not the CPU: unoptimised, it compiles in 16 s, not 45 s.
-ground_code: BIN_FLAGS = --lowmem -release -J=. -I=source -i
+ground_code: BIN_FLAGS = --lowmem -release -d-version=Floor -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
 	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lm -L-lpthread -L-ldl \
@@ -126,7 +127,7 @@ test: wind build/libgroundc.a sand
 	echo "test: $$tests"; \
 	date -u +%Y-%m-%dT%H:%M:%SZ > .builddate; tools/wind; \
 	mkdir -p build; \
-	ldc2 --lowmem -J=. -I=source -i -unittest -main -of=build/touched-test $$tests $(BIN_LIBS) && build/touched-test
+	ldc2 --lowmem -d-version=Floor -J=. -I=source -i -unittest -main -of=build/touched-test $$tests $(BIN_LIBS) && build/touched-test
 
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
@@ -176,6 +177,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d tools/editor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
+	ldc2 -c -od=/tmp -I=tools tools/floor.d tools/floor_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
 
 # Same shape for ug/*_test.d.
