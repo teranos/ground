@@ -70,6 +70,13 @@ on PATH, one engine path-matching every project. Per project it is one sand per
 repository, `make sand`'s library, which the engine loads when its ABI is the
 engine's (source/sandload.d); a hook per repository is not built.
 
+"so give it a config per ground per node"
+
+The engine is built from ground's tracked controls alone (source/sandtext.d),
+the same for everyone. It names no node: the node it streams to and lands its
+sand from is a qntx block in nodes.pbt beside its store (source/nodeconfig.d),
+read when the sand it holds names none.
+
 ## Landing
 
 "Yes, custoner uses ground, but they dont think about it because it just lands via comet"

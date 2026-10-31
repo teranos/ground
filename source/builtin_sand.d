@@ -12,7 +12,8 @@ import permission : buildPermissions, PermissionSet;
 // The sand is data: a control names its handlers, and the engine that holds
 // them resolves the name. Nothing here imports the engine.
 
-enum allParsed = parsePbt(import(".ctfe/sand"));
+import sandtext : SAND_TEXT;
+enum allParsed = parsePbt(SAND_TEXT);
 
 // The parse, held once. A function that reads it at run time names this one:
 // a static immutable copy of allParsed in each function that wanted it was

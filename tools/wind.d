@@ -180,6 +180,37 @@ void main() {
     write(".ctfe/sand", sand);
     stderr.writefln("wind: .ctfe/sand (%d bytes, %d files from %d projects)",
         sand.length, totalFiles, projects.length);
+
+    auto fl = floorText();
+    write(".ctfe/floor", fl);
+    stderr.writefln("wind: .ctfe/floor (%d bytes)", fl.length);
+}
+
+// "but the floor is always the same, everyonne get;s the same nice things by default. but you get way more with the real sand"
+// What every engine is built from: ground's tracked controls/*.pbt, and nothing beside them.
+string floorText() {
+    import floor : floorNames;
+    string[] present;
+    if (exists("controls")) {
+        foreach (e; dirEntries("controls", "*.pbt", SpanMode.shallow)) present ~= baseName(e.name);
+    }
+    string[] tracked;
+    bool repo = false;
+    Repo g;
+    if (g.open(".")) {
+        repo = true;
+        auto buf = new char[](1 << 24);
+        auto names = g.tracked(buf);
+        g.close();
+        if (names is null) throw new Exception("wind: git ls-files of ground's own tree did not answer");
+        foreach (line; splitLines(names)) tracked ~= line.idup;
+    }
+    string out_;
+    foreach (name; floorNames(present, tracked, repo)) {
+        out_ ~= cast(string) read("controls/" ~ name);
+        if (out_.length > 0 && out_[$ - 1] != '\n') out_ ~= '\n';
+    }
+    return out_;
 }
 
 struct ProjectInfo {
