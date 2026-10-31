@@ -1233,6 +1233,25 @@ private void libacpSent()(ref CodeSides cs) {
 }
 
 private static immutable CodeSides codeSides = buildCodeSides();
+
+// The methods code/acp.d has a branch for, which it handles; the rest of codeSides it sends.
+private struct CodeHandles { string[32] items; size_t count; }
+
+private CodeHandles buildCodeHandles()() {
+    import acpmethods : wireOf;
+    CodeHandles h;
+    enum key = `method == `;
+    for (auto at = indexIn(codeSource, key); at >= 0; at = indexIn(codeSource, key, cast(size_t) at + 1)) {
+        auto nameFrom = cast(size_t) at + key.length;
+        auto nameEnd = nameFrom;
+        while (nameEnd < codeSource.length && (isIdent(codeSource[nameEnd]) || codeSource[nameEnd] == '.')) nameEnd++;
+        auto wire = wireOf(codeSource[nameFrom .. nameEnd]);
+        if (wire !is null && h.count < h.items.length) h.items[h.count++] = wire;
+    }
+    return h;
+}
+
+private static immutable CodeHandles codeHandles = buildCodeHandles();
 private static immutable GroundSide codeSide = GroundSide(null, GroundKeys.init, GroundKeys.init);
 
 // --- mcp: libmcp's side, read out of its C at compile time ---
@@ -1955,6 +1974,41 @@ private void readMcp(const(char)[] text) {
     }
 }
 
+// --- reading a shipped agent's source ---
+
+import shipped : ShippedPin, ShippedSet, readShipped, SdkMap, Found, readSdk, measureAgent;
+
+private static immutable ShippedSet shippedSet = readShipped(import("flake.nix"));
+private __gshared SdkMap shippedMap;
+private __gshared Found shippedFound;
+
+// make install links the pinned sources here from the store, and each SDK beside them.
+private void shippedPath(ref Measured m, const(char)[] tail1, const(char)[] tail2, const(char)[] tail3) {
+    import db : getenv;
+    auto home = getenv("HOME\0".ptr);
+    size_t n = 0;
+    void add(const(char)[] s) { foreach (c; s) if (n + 1 < m.path.length) m.path[n++] = c; }
+    if (home !is null) { size_t hl = 0; while (home[hl] != 0) hl++; add(home[0 .. hl]); }
+    add(tail1); add(tail2); add(tail3);
+    m.path[n] = 0;
+    m.pathLen = n;
+}
+
+// Live when the agent's source and its SDK's were both read; absent names the one that was not.
+private Measured measureShipped(ref const ShippedPin pin) {
+    Measured m;
+    shippedMap = SdkMap.init;
+    shippedFound = Found.init;
+    shippedPath(m, "/.local/lib/ground/acp-sdk/", pin.sdk, "/src");
+    if (!readSdk(m.path[0 .. m.pathLen], shippedMap)) return m;
+    shippedPath(m, "/.local/lib/ground/shipped/", pin.name, "/");
+    foreach (c; pin.dir) if (m.pathLen + 1 < m.path.length) m.path[m.pathLen++] = c;
+    m.path[m.pathLen] = 0;
+    if (!measureAgent(m.path[0 .. m.pathLen], shippedMap, shippedFound)) return m;
+    m.access = shippedMap.full ? Access.empty : Access.live;
+    return m;
+}
+
 private Measured measure(ref const Pin pin) {
     Measured m;
     specCount = 0;
@@ -2045,6 +2099,34 @@ bool storeSpecs(sqlite3* db, const(char)[] agent, const(char)[] release, const(c
     return ok;
 }
 
+// A shipped agent read live replaces what the store held for it, whole or not at all.
+bool storeShipped(sqlite3* db, const(char)[] agent, const(char)[] rev, ref const SdkMap map, ref const Found f, long now) {
+    if (sqlite3_exec(db, "BEGIN IMMEDIATE\0".ptr, null, null, null) != SQLITE_OK) return false;
+    bool ok = false;
+    sqlite3_stmt* del;
+    if (sqlite3_prepare_v2(db, "DELETE FROM parity_shipped WHERE agent = ?1\0".ptr, -1, &del, null) == SQLITE_OK) {
+        bind(del, 1, agent);
+        ok = sqlite3_step(del) == SQLITE_DONE;
+        sqlite3_finalize(del);
+    }
+    foreach (i; 0 .. map.methodCount) {
+        if (!ok) break;
+        if (!f.handles[i] && !f.sends[i]) continue;
+        sqlite3_stmt* ins;
+        enum sql = "INSERT INTO parity_shipped (agent, rev, method, how, measured_at) VALUES (?1, ?2, ?3, ?4, ?5)\0";
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &ins, null) != SQLITE_OK) { ok = false; break; }
+        bind(ins, 1, agent);
+        bind(ins, 2, rev);
+        bind(ins, 3, map.methods[i].name);
+        bind(ins, 4, f.handles[i] ? "handles" : "sends");
+        sqlite3_bind_int64(ins, 5, now);
+        ok = sqlite3_step(ins) == SQLITE_DONE;
+        sqlite3_finalize(ins);
+    }
+    sqlite3_exec(db, ok ? "COMMIT\0".ptr : "ROLLBACK\0".ptr, null, null, null);
+    return ok;
+}
+
 unittest {
     import db : sqlite3_open, sqlite3_close, applySchema;
     sqlite3* db;
@@ -2076,6 +2158,41 @@ unittest {
     sqlite3_finalize(st);
     sqlite3_close(db);
     specCount = 0;
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema;
+    import shipped : readSchema;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    SdkMap map;
+    readSchema("AGENT_METHODS = {\n  session_new: \"session/new\",\n}\n"
+        ~ "CLIENT_METHODS = {\n  session_update: \"session/update\",\n  fs_read: \"fs/read_text_file\",\n}\n", map);
+    Found f;
+    f.handles[map.indexOf("session/new")] = true;
+    f.sends[map.indexOf("session/update")] = true;
+    assert(storeShipped(db, "pi-acp", "aa", map, f, 100));
+
+    // A second read replaces the first whole: what it no longer sends is gone.
+    f.sends[map.indexOf("session/update")] = false;
+    f.sends[map.indexOf("fs/read_text_file")] = true;
+    assert(storeShipped(db, "pi-acp", "bb", map, f, 200));
+
+    sqlite3_stmt* st;
+    assert(sqlite3_prepare_v2(db, "SELECT method, how, rev, measured_at FROM parity_shipped ORDER BY method\0".ptr, -1, &st, null) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(cstr(sqlite3_column_text(st, 0)) == "fs/read_text_file");
+    assert(cstr(sqlite3_column_text(st, 1)) == "sends");
+    assert(cstr(sqlite3_column_text(st, 2)) == "bb");
+    assert(sqlite3_column_int64(st, 3) == 200);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(cstr(sqlite3_column_text(st, 0)) == "session/new");
+    assert(cstr(sqlite3_column_text(st, 1)) == "handles");
+    assert(sqlite3_step(st) == SQLITE_DONE);
+    sqlite3_finalize(st);
+    sqlite3_close(db);
 }
 
 private const(char)[] cstr(const(char)* p) {
@@ -2329,6 +2446,8 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
     if (only.length == 0 && !texOut) {
         table("");
         put("\n");
+        shippedTable(db);
+        put("\n");
         table("mcp");
     }
 
@@ -2379,6 +2498,109 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
         if (m.access != Access.live && measuredAt[pi] > 0) { put(", measured "); putTime(measuredAt[pi]); }
         put("\n");
     }
+    foreach (si; 0 .. shippedSet.count) {
+        auto pin = &shippedSet.items[si];
+        auto m = &shippedStatus[si];
+        long at = 0;
+        sqlite3_stmt* st;
+        if (sqlite3_prepare_v2(db, "SELECT max(measured_at) FROM parity_shipped WHERE agent = ?1\0".ptr, -1, &st, null) == SQLITE_OK) {
+            bind(st, 1, pin.name);
+            if (sqlite3_step(st) == SQLITE_ROW) at = sqlite3_column_int64(st, 0);
+            sqlite3_finalize(st);
+        }
+        put("shipped "); put(pin.name); put(" "); put(pin.rev[0 .. 12]); put(" sdk "); put(pin.sdk); put("  ");
+        if (m.access == Access.live) put("live    ");
+        else put(at > 0 ? "stored  " : "never   ");
+        if (m.access == Access.empty) put("more methods than parity holds in ");
+        else if (m.access == Access.absent) put("no source at ");
+        put(m.path[0 .. m.pathLen]);
+        if (m.access != Access.live && at > 0) { put(", measured "); putTime(at); }
+        put("\n");
+    }
+}
+
+private __gshared Measured[maxShipped] shippedStatus;
+
+import shipped : maxShipped;
+
+// "and compare us against real shipped software instyead of comparing against a number that might not be real"
+// Per ACP method, ground code's coverage beside what each shipped agent's source does with it.
+private void shippedTable(sqlite3* db) {
+    static struct ShipRow { char[48] method = 0; size_t len; ubyte[maxShipped] how; }
+    static ShipRow[96] srows;
+    size_t n = 0;
+    ShipRow* rowOf(const(char)[] method) {
+        foreach (i; 0 .. n) if (srows[i].method[0 .. srows[i].len] == method) return &srows[i];
+        if (n >= srows.length || method.length > srows[0].method.length) return null;
+        auto r = &srows[n++];
+        *r = ShipRow.init;
+        foreach (i, c; method) r.method[i] = c;
+        r.len = method.length;
+        return r;
+    }
+
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, "SELECT agent, method, how FROM parity_shipped\0".ptr, -1, &st, null) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            auto agent = cstr(sqlite3_column_text(st, 0));
+            auto how = cstr(sqlite3_column_text(st, 2));
+            foreach (si; 0 .. shippedSet.count) {
+                if (shippedSet.items[si].name != agent) continue;
+                auto r = rowOf(cstr(sqlite3_column_text(st, 1)));
+                if (r is null) break;
+                r.how[si] = how == "handles" ? 1 : 2;
+            }
+        }
+        sqlite3_finalize(st);
+    }
+    foreach (ref s; codeSides.items[0 .. codeSides.count]) rowOf(s.event);
+
+    // In method order, so a namespace reads together.
+    foreach (i; 1 .. n)
+        for (size_t j = i; j > 0 && srows[j].method[0 .. srows[j].len] < srows[j - 1].method[0 .. srows[j - 1].len]; j--) {
+            auto t = srows[j]; srows[j] = srows[j - 1]; srows[j - 1] = t;
+        }
+
+    // Ground code's cell is its coverage under the acp pin, where the pinned schema names the method.
+    ptrdiff_t acpPin = -1;
+    foreach (pi, ref pin; pins) if (pin.agent == "acp" && acpPin < 0) acpPin = cast(ptrdiff_t) pi;
+
+    size_t width = 7;
+    foreach (i; 0 .. n) if (srows[i].len + 1 > width) width = srows[i].len + 1;
+    enum groundWidth = 13;
+    putPad("Method:", width);
+    cell(); putPad("ground code", groundWidth);
+    foreach (si; 0 .. shippedSet.count) { cell(); put(shippedSet.items[si].name); put(" "); }
+    eol();
+    foreach (i; 0 .. n) {
+        auto r = &srows[i];
+        auto method = r.method[0 .. r.len];
+        putName(method, width);
+        cell();
+        bool ground = false;
+        foreach (ref s; codeSides.items[0 .. codeSides.count]) if (s.event == method) ground = true;
+        char[16] gb = 0;
+        size_t gn = 0;
+        void g(const(char)[] s) { foreach (c; s) if (gn < gb.length) gb[gn++] = c; }
+        if (ground) {
+            bool handles = false;
+            foreach (w; codeHandles.items[0 .. codeHandles.count]) if (w == method) handles = true;
+            g(handles ? "handles" : "sends");
+            foreach (j; 0 .. rowCount) {
+                if (acpPin < 0 || rows[j].event[0 .. rows[j].len] != method || rows[j].cells[acpPin] < 0) continue;
+                char[8] pb;
+                g(" ");
+                g(percentText(rows[j].cells[acpPin], pb));
+            }
+        } else g("-");
+        putPad(gb[0 .. gn], groundWidth);
+        foreach (si; 0 .. shippedSet.count) {
+            cell();
+            auto h = r.how[si];
+            putPad(h == 1 ? "handles" : h == 2 ? "sends" : "-", shippedSet.items[si].name.length + 1);
+        }
+        eol();
+    }
 }
 
 private void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stderr); }
@@ -2419,6 +2641,24 @@ int handleParity(int argc, const(char)** argv) {
             say("ground_parity:the store refused "); say(pin.agent); say(" "); say(pin.release);
             say("'s contract; the stored one stands\n");
             status[pi].access = Access.empty;
+            rc = 1;
+        }
+    }
+
+    foreach (si; 0 .. shippedSet.count) {
+        if (texOut || only.length > 0) break;
+        auto pin = &shippedSet.items[si];
+        shippedStatus[si] = measureShipped(*pin);
+        if (shippedStatus[si].access == Access.empty) {
+            say("ground_parity:shipped "); say(pin.name); say(" with sdk "); say(pin.sdk);
+            say(" names more than parity holds; nothing stored for it\n");
+            rc = 1;
+            continue;
+        }
+        if (shippedStatus[si].access != Access.live) continue;
+        if (!storeShipped(db, pin.name, pin.rev, shippedMap, shippedFound, cast(long) time(null))) {
+            say("ground_parity:the store refused shipped "); say(pin.name); say("; the stored one stands\n");
+            shippedStatus[si].access = Access.empty;
             rc = 1;
         }
     }

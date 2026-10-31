@@ -210,6 +210,8 @@ install: build $(BINS) install-ug
 	nix build .#acp-schemas --out-link $(PREFIX)/lib/ground/acp
 	nix build .#mcp-schemas --out-link $(PREFIX)/lib/ground/mcp
 	nix build .#dsh-hooks --out-link $(PREFIX)/lib/ground/dsh
+	nix build .#shipped-sources --out-link $(PREFIX)/lib/ground/shipped
+	nix build .#acp-sdks --out-link $(PREFIX)/lib/ground/acp-sdk
 	$(MAKE) prune-dub-cache
 	./ground attest
 # Every install by someone who has built parity is a run of it, so the series

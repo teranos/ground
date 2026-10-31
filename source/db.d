@@ -684,6 +684,13 @@ bool applySchema(sqlite3* db) {
         ~ "output TEXT NOT NULL, measured_at INTEGER NOT NULL, PRIMARY KEY (agent, release, event))\0";
     sqlite3_exec(db, paritySpecSchema.ptr, null, null, null);
 
+    // "and compare us against real shipped software instyead of comparing against a number that might not be real"
+    // What each shipped ACP agent does with a method at the commit pinned, `handles` or `sends`.
+    enum parityShippedSchema = "CREATE TABLE IF NOT EXISTS parity_shipped (agent TEXT NOT NULL, "
+        ~ "rev TEXT NOT NULL, method TEXT NOT NULL, how TEXT NOT NULL, measured_at INTEGER NOT NULL, "
+        ~ "PRIMARY KEY (agent, method))\0";
+    sqlite3_exec(db, parityShippedSchema.ptr, null, null, null);
+
     // Ground code's sessions: one a process opened and never closed is there
     // for the next process to resume. closed_at is 0 while it is open.
     enum codeSessionSchema = "CREATE TABLE IF NOT EXISTS code_session (id TEXT PRIMARY KEY, "
