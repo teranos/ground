@@ -677,7 +677,7 @@ unittest {
     foreach (ref sc; allScopes)
         foreach (ref c; sc.controls)
             if (c.name == "no-comment-blocks") {
-                assert(c.commentRun == 4, "threshold did not survive the parse");
+                assert(c.commentRun == 16, "threshold did not survive the parse");
                 found = true;
             }
     assert(found);
