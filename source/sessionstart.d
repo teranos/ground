@@ -192,8 +192,11 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 continue;
             foreach (ref c; sc.controls) {
                 const(char)[] checkObserved = null;
-                if (c.sessionstart.check !is null) {
-                    auto verdict = c.sessionstart.check(cwd, null);
+                if (c.sessionstart.check.length > 0) {
+                    import handlers : resolveCheck, unheld;
+                    auto check = resolveCheck(c.sessionstart.check);
+                    if (check is null) { unheld("check", c.sessionstart.check, c.name); continue; }
+                    auto verdict = check(cwd, null);
                     if (!verdict.fired) continue;
                     checkObserved = verdict.observed;
                 }
@@ -221,8 +224,11 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                     }
                 }
 
-                if (c.sessionstart.deliver !is null) {
-                    auto delivered = c.sessionstart.deliver(cwd);
+                if (c.sessionstart.deliver.length > 0) {
+                    import handlers : resolveDeliver, unheld;
+                    auto deliver = resolveDeliver(c.sessionstart.deliver);
+                    if (deliver is null) { unheld("deliver", c.sessionstart.deliver, c.name); continue; }
+                    auto delivered = deliver(cwd);
                     if (delivered is null) continue;
                     if (any) ctx.put(" | ");
                     ctx.put(delivered);

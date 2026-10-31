@@ -194,10 +194,10 @@ alias DelayFn = int function(const(char)[] cwd);
 alias DeliverFn = const(char)[] function(const(char)[] cwd);
 
 struct Defer {
-    int delaySec;         // fixed delay (used when delayFn is null)
-    DelayFn delayFn;      // dynamic delay computation (null = use delaySec)
-    DeliverFn deliverFn;  // runs at delivery time, output becomes the message (null = deliver msg as-is)
-    string msg;           // deferred message (full message if no deliverFn, ignored if deliverFn set)
+    int delaySec;         // fixed delay (used when delay is empty)
+    string delay;         // the delay handler's name (empty = use delaySec)
+    string deliver;       // the deliver handler's name; its output becomes the message (empty = msg as-is)
+    string msg;           // deferred message (full message if no deliver, ignored if deliver set)
 }
 
 
@@ -239,8 +239,8 @@ CheckResult passes()    { return CheckResult(false, null); }
 alias CheckFn = CheckResult function(const(char)[] cwd, const(char)[] input);
 
 struct SessionStartTrigger {
-    CheckFn check;     // null = always fire
-    DeliverFn deliver; // null = use static msg
+    string check;      // the check handler's name (empty = always fire)
+    string deliver;    // the deliver handler's name (empty = use static msg)
 }
 
 Trigger stop() { return Trigger.init; }
@@ -250,7 +250,7 @@ Trigger posttool(string s) { Trigger t; t._buf[0] = s; t.len = 1; return t; }
 
 UserPrompt userprompt(string s) { UserPrompt u; u._buf[0] = s; u.len = 1; return u; }
 SessionStartTrigger sessionstart() { return SessionStartTrigger(null); }
-SessionStartTrigger sessionstart(CheckFn fn) { return SessionStartTrigger(fn); }
+SessionStartTrigger sessionstart(string check) { return SessionStartTrigger(check); }
 FilePath filepath(string s) { return FilePath(s); }
 Msg msg(string s) { return Msg(s); }
 Bg bg() { return Bg(true); }
@@ -258,8 +258,8 @@ Tmo tmo(int ms) { return Tmo(ms); }
 Defer defer(int sec, string msg) {
     return Defer(sec, null, null, msg);
 }
-Defer defer(DelayFn fn, DeliverFn deliver, string msg) {
-    return Defer(0, fn, deliver, msg);
+Defer defer(string delay, string deliver, string msg) {
+    return Defer(0, delay, deliver, msg);
 }
 
 struct Control {
@@ -302,6 +302,22 @@ struct Control {
     int commentRun; // fire at this many consecutive comment lines (0 = off)
     bool timing; // the timing regression notice is asked for here (false = silent)
 }
+
+// Whether T holds a function pointer anywhere in it, field by field.
+private bool holdsCode(T)() {
+    import std.traits : isFunctionPointer;
+    static foreach (field; T.tupleof) {
+        static if (isFunctionPointer!(typeof(field))) return true;
+        else static if (is(typeof(field) == struct)) {
+            if (holdsCode!(typeof(field))()) return true;
+        }
+    }
+    return false;
+}
+
+// A control the sand carries points at no code: a sand built apart from the
+// engine could not hold an address of the engine's.
+static assert(!holdsCode!Control(), "a Control holds a function pointer, so the sand carries the engine's code");
 
 Control control(string name, Cmd c, Arg a, Msg m) {
     Control ctrl; ctrl.name = name; ctrl.cmd = c; ctrl.arg = a; ctrl.msg = m; return ctrl;
