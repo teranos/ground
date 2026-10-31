@@ -265,7 +265,7 @@ private void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stderr); }
 private void out_(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); }
 
 int handleCtfe(int argc, const(char)** argv) {
-    import controls : qntxNode;
+    import nodeconfig : nodeHere;
     import attest : qntxToken;
     import http : httpGet;
     import db : ZBuf;
@@ -277,19 +277,25 @@ int handleCtfe(int argc, const(char)** argv) {
         return 2;
     }
 
-    if (qntxNode.url.length == 0) {
-        say("ground ctfe: no qntx block names a node, and the rows are on one\n");
+    __gshared typeof(nodeHere()) node;
+    node = nodeHere();
+    if (node.why().length > 0) {
+        say("ground ctfe: "); say(node.why()); say("\n");
         return 1;
     }
-    auto token = qntxToken(qntxNode.token);
+    if (node.url.length == 0) {
+        say("ground ctfe: no qntx block and no nodes.pbt names a node, and the rows are on one\n");
+        return 1;
+    }
+    auto token = qntxToken(node.token);
     if (token.length == 0) {
-        say("ground ctfe: no token at "); say(qntxNode.token); say(" for "); say(qntxNode.url); say("\n");
+        say("ground ctfe: no token at "); say(node.token); say(" for "); say(node.url); say("\n");
         return 1;
     }
 
     __gshared ZBuf url;
     url.reset();
-    url.put(qntxNode.url);
+    url.put(node.url);
     url.put("/api/attestations?predicate=bench:ctfe&limit=");
     {
         Text p; putNum(p, PAGE); url.put(p.text());
