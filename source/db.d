@@ -595,6 +595,10 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, idxSubject.ptr, null, null, null);
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
     sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
+    // Whether a typed line is stored already, asked for each one in a
+    // transcript's tail on every prompt (queued.d).
+    enum idxQueuedPrompt = "CREATE INDEX IF NOT EXISTS idx_attestations_queued_prompt ON attestations(json_extract(contexts, '$[0]'), json_extract(attributes, '$.prompt')) WHERE json_extract(predicates, '$[0]') = 'QueuedPromptSubmit'\0";
+    sqlite3_exec(db, idxQueuedPrompt.ptr, null, null, null);
     {
         import sessiontrail : EDIT_INDEX;
         sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
