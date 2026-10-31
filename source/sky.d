@@ -696,6 +696,18 @@ int handleSky(int argc, const(char)** argv) {
                 heldReset();
                 if (held.length > 0) toSentry("sky.hold", cast(string) held, -1, sessionId, "");
             }
+            // No close checkpoints any more (db.d), so the pass does, off every hook's path.
+            {
+                import db : walSettle, SQLITE_OK, SQLITE_BUSY;
+                auto settled = walSettle(db);
+                if (settled.rc != SQLITE_OK && settled.rc != SQLITE_BUSY) {
+                    __gshared ZBuf why;
+                    why.reset();
+                    why.put("the pass's checkpoint failed, sqlite said ");
+                    why.putUint(cast(ulong) settled.rc);
+                    toSentry("sky.settle", cast(string) why.slice(), settled.rc, sessionId, "");
+                }
+            }
             sqlite3_close(db);
             askDue(due, sessionId, now);
 
