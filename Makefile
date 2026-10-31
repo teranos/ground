@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
+.PHONY: build sand test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
 
 PREFIX ?= $(HOME)/.local
 
@@ -58,6 +58,17 @@ install-parity: ground_parity
 	cp ground_parity $(PREFIX)/bin/ground_parity.new
 	mv -f $(PREFIX)/bin/ground_parity.new $(PREFIX)/bin/ground_parity
 
+# "only the compiled controls being their own thing shipped to the user"
+# The sand alone, for an engine to load (ADR-050): its data, and ground_sand to
+# hand it over. The engine's modules are read for their types and never linked.
+SAND_LIB = build/libground_sand.$(if $(filter Darwin,$(shell uname -s)),dylib,so)
+sand: wind
+	tools/wind
+	mkdir -p build
+	ldc2 -betterC --lowmem -O -release -shared -fvisibility=hidden --function-sections --data-sections \
+		$(if $(filter Darwin,$(shell uname -s)),-L-dead_strip,-relocation-model=pic -L--gc-sections -L-zdefs) \
+		-J=. -I=source -i=builtin_sand -i=sandview -of=$(SAND_LIB) bin/sand.d
+
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
 # build including release. Measured 2026-07-28 with ldc2 -ftime-trace: semantic
@@ -106,7 +117,7 @@ ug: $(UG_SOURCES)
 # "make test should be the fast version"
 # "and ci does slower shit"
 # What a change against origin/main can reach runs here, compiled once; CI runs every suite.
-test: wind build/libgroundc.a
+test: wind build/libgroundc.a sand
 	@git diff --quiet origin/main -- ug || $(MAKE) test-ug
 	@tests=`sh tools/touched.sh origin/main`; \
 	if [ -z "$$tests" ]; then echo "test: no module or control changed against origin/main"; exit 0; fi; \
