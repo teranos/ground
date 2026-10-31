@@ -180,6 +180,8 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d source/http.d source/zbuf.d ug/fable_test.d
+	ldc2 -betterC -of=/tmp/ug-close-test -I=ug ug/sql.d ug/close_test.d -L-lsqlite3
+	/tmp/ug-close-test
 
 # ug the way Claude Code runs it: frames cancelled mid-run, against a QNTX that
 # never answers. Not part of make test, because it waits on curl's timeout.
