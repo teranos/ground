@@ -7,7 +7,7 @@
     "sourcePaths": ["source"],
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
-    "dflags": ["-betterC", "--lowmem"],
+    "dflags": ["-betterC", "--lowmem", "-d-version=Floor"],
     "libs": ["sqlite3", "curl", "git2", "mcp", "json-c", "phonenumber"],
     "libs-posix": ["m", "pthread"],
     "libs-linux": ["dl", "stdc++"],
