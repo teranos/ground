@@ -402,7 +402,14 @@ unittest {
     assert(size("-wal") > 0, "the last close took the -wal with it");
     assert(size("-shm") > 0, "the last close took the -shm with it");
 
+    // With no close to do it, a sky pass copies the WAL back, so no hook reads
+    // through one that only grows: on l it reached 56MB and PreToolUse 122ms.
     db = openStandaloneDb();
+    auto settled = walSettle(db);
+    assert(settled.rc == SQLITE_OK, "the pass's checkpoint did not run");
+    assert(settled.log > 0 && settled.copied == settled.log, "the pass left frames in the WAL");
+    assert(size("") > before, "the pass did not write the WAL back into the store");
+
     sqlite3_exec(db, "DROP TABLE close_test\0".ptr, null, null, null);
     walCheckpoint(db);
     sqlite3_close(db);
@@ -737,6 +744,20 @@ void mkdirP(const(char)[] path) {
 
 void walCheckpoint(sqlite3* db) {
     sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)\0".ptr, null, null, null);
+}
+
+extern (C) int sqlite3_wal_checkpoint_v2(sqlite3* db, const(char)* zDb, int eMode, int* pnLog, int* pnCkpt);
+enum SQLITE_CHECKPOINT_PASSIVE = 0;
+
+// What one pass's checkpoint did: the frames in the WAL, the frames copied
+// back, and what sqlite said. SQLITE_BUSY is another checkpoint already running.
+struct Settled { int rc; int log; int copied; }
+
+// PASSIVE waits on nobody and blocks nobody, so a pass can run it every time.
+Settled walSettle(sqlite3* db) {
+    Settled s;
+    s.rc = sqlite3_wal_checkpoint_v2(db, null, SQLITE_CHECKPOINT_PASSIVE, &s.log, &s.copied);
+    return s;
 }
 
 // Check if a Grounded attestation exists for a control in this session,
