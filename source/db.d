@@ -355,8 +355,9 @@ sqlite3* openStandaloneDb() {
     // Per connection, so said on every open. The measure is at its test.
     sqlite3_exec(db, "PRAGMA synchronous = NORMAL\0".ptr, null, null, null);
 
-    // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
-    // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
+    // Explicit checkpoints in SessionStart/PreCompact only, none when a WAL crosses
+    // 4MB (1-2s stalls on a large db) and none at a close, which leaves the -wal
+    // and -shm where they are: the last close used to write the whole WAL back.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
 
     // Up to 5s of waiting on another writer, in 1ms sleeps ground counts
