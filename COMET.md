@@ -66,8 +66,9 @@ the agent's token.
 "Well, each user has different preferences, so in reality you build ground per user per their project"
 
 One sand for one user, one project and one platform. The hook is `exec ground`
-on PATH, one binary path-matching every project. Per project it is one binary
-per repository, and a hook per repository is not built.
+on PATH, one engine path-matching every project. Per project it is one sand per
+repository, `make sand`'s library, which the engine loads when its ABI is the
+engine's (source/sandload.d); a hook per repository is not built.
 
 ## Landing
 
