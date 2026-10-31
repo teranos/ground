@@ -760,7 +760,7 @@ ScopeSet buildScopes(alias holds = holdsNone)(const ParseResult parsed, string e
             }
 
             if (pc.checkHandler.length > 0) {
-                assert(holds("check", pc.checkHandler), "no check handler " ~ pc.checkHandler);
+                assert(holds("check", pc.checkHandler), "a control names a check handler this build does not hold");
                 c.sessionstart = SessionStartTrigger(pc.checkHandler, null);
             }
 
@@ -781,7 +781,7 @@ ScopeSet buildScopes(alias holds = holdsNone)(const ParseResult parsed, string e
             c.ritual = pc.ritual;
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
-                assert(holds("deliver", pc.deliverHandler), "no deliver handler " ~ pc.deliverHandler);
+                assert(holds("deliver", pc.deliverHandler), "a control names a deliver handler this build does not hold");
                 c.sessionstart.deliver = pc.deliverHandler;
             }
 
@@ -792,9 +792,9 @@ ScopeSet buildScopes(alias holds = holdsNone)(const ParseResult parsed, string e
 
             if (pc.delayHandler.length > 0 || pc.deliverHandler.length > 0) {
                 assert(pc.delayHandler.length == 0 || holds("delay", pc.delayHandler),
-                    "no delay handler " ~ pc.delayHandler);
+                    "a control names a delay handler this build does not hold");
                 assert(pc.deliverHandler.length == 0 || holds("deliver", pc.deliverHandler),
-                    "no deliver handler " ~ pc.deliverHandler);
+                    "a control names a deliver handler this build does not hold");
                 c.defer.delay = pc.delayHandler;
                 c.defer.deliver = pc.deliverHandler;
                 c.defer.msg = pc.deferMsg;
