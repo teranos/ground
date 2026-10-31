@@ -140,13 +140,14 @@ typedef struct acp_session_info {
 acp_status acp_session_info_write(const acp_session_info *info, acp_buffer *out_json);
 
 // A session/prompt block, by what it gives: text, a resource link to read, a resource
-// holding text, an image, or another kind, told by its type.
+// holding text, an image, audio, or another kind, told by its type.
 typedef enum acp_block_kind {
     ACP_BLOCK_TEXT,
     ACP_BLOCK_RESOURCE_LINK,
     ACP_BLOCK_RESOURCE,
     ACP_BLOCK_OTHER,
-    ACP_BLOCK_IMAGE
+    ACP_BLOCK_IMAGE,
+    ACP_BLOCK_AUDIO
 } acp_block_kind;
 
 typedef struct acp_prompt_block {
@@ -156,8 +157,8 @@ typedef struct acp_prompt_block {
     char *name;     // RESOURCE_LINK's
     char *uri;      // RESOURCE_LINK's, or RESOURCE's
     int holds_blob; // OTHER: a resource holding a blob, not text
-    char *mime_type; // IMAGE's mimeType
-    char *data;      // IMAGE's data, base64 as the client sent it
+    char *mime_type; // IMAGE's or AUDIO's mimeType
+    char *data;      // IMAGE's or AUDIO's data, base64 as the client sent it
 } acp_prompt_block;
 
 // session/prompt's prompt, in order. libacp owns the blocks until acp_prompt_free.
@@ -327,6 +328,8 @@ typedef enum acp_chunk_kind {
 acp_status acp_text_chunk_write(acp_chunk_kind kind, const char *text, size_t length, acp_buffer *update_json);
 // The same chunk holding an image: its mimeType and its base64 data.
 acp_status acp_image_chunk_write(acp_chunk_kind kind, const char *mime_type, const char *data, acp_buffer *update_json);
+// The same chunk holding audio: its mimeType and its base64 data.
+acp_status acp_audio_chunk_write(acp_chunk_kind kind, const char *mime_type, const char *data, acp_buffer *update_json);
 
 // tool_call, or tool_call_update when update is set; a NULL field is not written. Raw input and output are
 // JSON text, or a string when not JSON. content_blocks is a ContentBlock array, each written as content;

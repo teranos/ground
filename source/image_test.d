@@ -14,18 +14,18 @@ enum PNG = "iVBORw0KGgo=";
 // The prompt's images, each a mimeType and its data, ended by a NUL, in order,
 // beside its text: an image is something given, not a block refused.
 unittest {
-    Reply text, other, links, embedded, images, said;
-    scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); said.dispose(); }
+    Reply text, other, links, embedded, images, audio, said;
+    scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); audio.dispose(); said.dispose(); }
     auto blocks = promptText(`{"prompt":[{"type":"text","text":"what is this"},`
         ~ `{"type":"image","mimeType":"image/png","data":"` ~ PNG ~ `"},{"type":"text","text":"and this"},`
-        ~ `{"type":"image","mimeType":"image/jpeg","data":"/9j/"}]}`, text, other, links, embedded, images, said);
+        ~ `{"type":"image","mimeType":"image/jpeg","data":"/9j/"}]}`, text, other, links, embedded, images, audio, said);
     assert(blocks == Blocks.read);
     assert(text.slice() == "what is this\nand this");
     assert(images.slice() == "image/png\0" ~ PNG ~ "\0image/jpeg\0/9j/\0");
     // An image missing its data is still another kind, said by its type.
-    Reply t2, o2, l2, e2, i2, s2;
-    scope(exit) { t2.dispose(); o2.dispose(); l2.dispose(); e2.dispose(); i2.dispose(); s2.dispose(); }
-    assert(promptText(`{"prompt":[{"type":"image","mimeType":"image/png"}]}`, t2, o2, l2, e2, i2, s2) == Blocks.other);
+    Reply t2, o2, l2, e2, i2, a2, s2;
+    scope(exit) { t2.dispose(); o2.dispose(); l2.dispose(); e2.dispose(); i2.dispose(); a2.dispose(); s2.dispose(); }
+    assert(promptText(`{"prompt":[{"type":"image","mimeType":"image/png"}]}`, t2, o2, l2, e2, i2, a2, s2) == Blocks.other);
     assert(o2.slice() == "image");
 }
 
@@ -79,7 +79,7 @@ unittest {
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`, r, s));
-    assert(indexOf(r.slice(), `"promptCapabilities":{"embeddedContext":true,"image":true}`) >= 0);
+    assert(indexOf(r.slice(), `"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true}`) >= 0);
 }
 
 // An image the data URL cannot carry is refused before the model is asked, by

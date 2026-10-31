@@ -136,6 +136,14 @@ static void image_chunk(void) {
     CHECK(acp_image_chunk_write((acp_chunk_kind) 9, "image/png", "x", &out) == ACP_INVALID_ARGUMENT);
 }
 
+// Audio the user gave, told back as a user_message_chunk: "Audio provided to or from an LLM."
+static void audio_chunk(void) {
+    acp_buffer out = {0};
+    CHECK(acp_audio_chunk_write(ACP_CHUNK_USER_MESSAGE, "audio/wav", "UklGRg==", &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"audio\",\"mimeType\":\"audio/wav\",\"data\":\"UklGRg==\"}}"));
+    CHECK(acp_audio_chunk_write(ACP_CHUNK_USER_MESSAGE, "audio/wav", NULL, &out) == ACP_INVALID_ARGUMENT);
+}
+
 // An elicitation "tied to a specific JSON-RPC request outside of a session (e.g., during
 // auth/configuration phases before any session is started)": url mode, scoped by requestId.
 static void request_scoped(void) {
@@ -158,6 +166,7 @@ int main(void) {
     envelope();
     request_scoped();
     image_chunk();
+    audio_chunk();
     chunks();
     tool_calls();
     others();
