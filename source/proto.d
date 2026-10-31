@@ -670,11 +670,10 @@ string envLookup(PR)(const PR parsed, string cwd, string key) {
     return null;
 }
 
-// --- Default (no-op) handler resolvers ---
+// --- Which handler names a build holds ---
 
-private CheckFn defaultResolveCheck(string) { return null; }
-private DelayFn defaultResolveDelay(string) { return null; }
-private DeliverFn defaultResolveDeliver(string) { return null; }
+// By default none: a pbt naming a handler fails the build that cannot run it.
+private bool holdsNone(string kind, string name) { return false; }
 
 // --- Build Scope[] from parsed pbt, filtered by event ---
 // Uses fixed-size buffers to avoid GC (required by -betterC).
@@ -688,11 +687,7 @@ struct ScopeSet {
     const(Scope)[] opSlice() const return { return items[0 .. len]; }
 }
 
-ScopeSet buildScopes(
-    alias resolveCheck = defaultResolveCheck,
-    alias resolveDelay = defaultResolveDelay,
-    alias resolveDeliver = defaultResolveDeliver,
-)(const ParseResult parsed, string eventFilter) {
+ScopeSet buildScopes(alias holds = holdsNone)(const ParseResult parsed, string eventFilter) {
     ScopeSet result;
     size_t poolLen = 0;
 
@@ -757,9 +752,8 @@ ScopeSet buildScopes(
             }
 
             if (pc.checkHandler.length > 0) {
-                auto fn = resolveCheck(pc.checkHandler);
-                assert(fn !is null);
-                c.sessionstart = SessionStartTrigger(fn, null);
+                assert(holds("check", pc.checkHandler), "no check handler " ~ pc.checkHandler);
+                c.sessionstart = SessionStartTrigger(pc.checkHandler, null);
             }
 
             if (pc.paramCount > 0) {
@@ -779,9 +773,8 @@ ScopeSet buildScopes(
             c.ritual = pc.ritual;
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
-                auto dfn = resolveDeliver(pc.deliverHandler);
-                assert(dfn !is null);
-                c.sessionstart.deliver = dfn;
+                assert(holds("deliver", pc.deliverHandler), "no deliver handler " ~ pc.deliverHandler);
+                c.sessionstart.deliver = pc.deliverHandler;
             }
 
             c.interval = pc.interval;
@@ -790,10 +783,12 @@ ScopeSet buildScopes(
             c.stropIdx = pc.stropIdx;
 
             if (pc.delayHandler.length > 0 || pc.deliverHandler.length > 0) {
-                c.defer.delayFn = pc.delayHandler.length > 0
-                    ? resolveDelay(pc.delayHandler) : null;
-                c.defer.deliverFn = pc.deliverHandler.length > 0
-                    ? resolveDeliver(pc.deliverHandler) : null;
+                assert(pc.delayHandler.length == 0 || holds("delay", pc.delayHandler),
+                    "no delay handler " ~ pc.delayHandler);
+                assert(pc.deliverHandler.length == 0 || holds("deliver", pc.deliverHandler),
+                    "no deliver handler " ~ pc.deliverHandler);
+                c.defer.delay = pc.delayHandler;
+                c.defer.deliver = pc.deliverHandler;
                 c.defer.msg = pc.deferMsg;
             } else if (pc.deferSec > 0 || pc.deferMsg.length > 0) {
                 c.defer.delaySec = pc.deferSec;

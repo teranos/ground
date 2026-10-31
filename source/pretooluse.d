@@ -1295,16 +1295,19 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                     if (!anyMatch) continue;
                 } else {
                     // File-path / check_handler controls
-                    if (c.filepath.value.length == 0 && c.sessionstart.check is null) continue;
+                    if (c.filepath.value.length == 0 && c.sessionstart.check.length == 0) continue;
                     if (c.filepath.value.length > 0 && (filePath is null || !contains(filePath, c.filepath.value))) continue;
-                    if (c.sessionstart.check !is null) {
+                    if (c.sessionstart.check.length > 0) {
+                        import handlers : resolveCheck, unheld;
+                        auto check = resolveCheck(c.sessionstart.check);
+                        if (check is null) { unheld("check", c.sessionstart.check, c.name); continue; }
                         import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
                         g_paramKeys = c.paramKeys;
                         g_paramValues = c.paramValues;
                         g_paramCount = c.paramCount;
                         import hookrun : usecNow;
                         auto checkAt = usecNow();
-                        auto verdict = c.sessionstart.check(cwd, input);
+                        auto verdict = check(cwd, input);
                         auto took = usecNow() - checkAt;
                         checksUs += took;
                         if (took > slowestUs) {
