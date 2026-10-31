@@ -21,6 +21,21 @@ unittest {
     assert(sand().parsed.ritualCount == builtinSand.parsed.ritualCount);
 }
 
+// make sand says beside the library which engine ABI it was built for, as a node keeps it.
+unittest {
+    import core.stdc.stdio : fopen, fread, fclose;
+    import zbuf : ZBuf;
+    auto f = fopen("build/libground_sand.abi", "rb");
+    assert(f !is null, "make sand writes build/libground_sand.abi");
+    char[32] got = 0;
+    auto n = fread(got.ptr, 1, got.length, f);
+    fclose(f);
+    ZBuf want;
+    want.putUint(SAND_ABI);
+    want.put("\n");
+    assert(got[0 .. n] == want.slice(), got[0 .. n]);
+}
+
 // No sand landed is the built-in sand, and nothing to say.
 unittest {
     auto r = loadSand("build/no-such-sand\0".ptr);
