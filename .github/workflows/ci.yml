@@ -84,7 +84,7 @@
           "run": "nix develop .#default --command make test-mcp"
         },
         {
-          "run": "nix develop .#default --command sh -c 'make wind && dub test'"
+          "run": "nix develop .#default --command sh -c 'make wind sand && dub test'"
         },
         {
           "run": "nix develop .#default --command sh -c 'make ug && make test-ug'"
