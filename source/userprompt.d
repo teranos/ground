@@ -39,6 +39,7 @@ const(char)[] extractPrompt(const(char)[] json) {
     return extractJsonString(json, `"prompt"`, &buf[0], buf.length);
 }
 
+// Its timing row names each step it walked: sweep, ingest, said, controls, bill.
 int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     auto prompt = extractPrompt(input);
     if (prompt is null) return 0;
