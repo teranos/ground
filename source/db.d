@@ -141,7 +141,11 @@ extern (C) {
     int sqlite3_errcode(sqlite3* db);
     const(char)* sqlite3_errmsg(sqlite3* db);
     long sqlite3_last_insert_rowid(sqlite3* db);
+    int sqlite3_db_config(sqlite3* db, int op, ...);
+    int sqlite3_file_control(sqlite3* db, const(char)* dbName, int op, void* arg);
 }
+enum SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE = 1006;
+enum SQLITE_FCNTL_PERSIST_WAL = 10;
 
 extern (C) {
     FILE* popen(const(char)* command, const(char)* type);
@@ -351,9 +355,13 @@ sqlite3* openStandaloneDb() {
     // every open; a no-op when the file is already WAL.
     sqlite3_exec(db, "PRAGMA journal_mode = WAL\0".ptr, null, null, null);
 
-    // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
-    // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
+    // Explicit checkpoints in SessionStart/PreCompact only, none when a WAL crosses
+    // 4MB (1-2s stalls on a large db) and none at a close, which leaves the -wal
+    // and -shm where they are: the last close used to write the whole WAL back.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
+    sqlite3_db_config(db, SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, 1, null);
+    int persist = 1;
+    sqlite3_file_control(db, "main\0".ptr, SQLITE_FCNTL_PERSIST_WAL, &persist);
 
     // Up to 5s of waiting on another writer, in 1ms sleeps ground counts
     // itself, so a hook's timing row can say it slept and for how long.
@@ -366,6 +374,45 @@ sqlite3* openStandaloneDb() {
     }
 
     return db;
+}
+
+// "doing 1 makes sense anyways, and 2 as well"
+unittest {
+    import core.sys.posix.sys.stat : stat_t, stat;
+    long size(const(char)[] suffix) {
+        __gshared ZBuf p;
+        p.reset();
+        auto store = storePath();
+        size_t n;
+        while (store[n] != 0) n++;
+        p.put(store[0 .. n]);
+        p.put(suffix);
+        stat_t st;
+        return stat(p.ptr(), &st) == 0 ? st.st_size : -1;
+    }
+    auto db = openStandaloneDb();
+    assert(db !is null);
+    walCheckpoint(db);
+    auto before = size("");
+    enum bulk = "CREATE TABLE close_test (b BLOB); WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL "
+        ~ "SELECT n + 1 FROM c WHERE n < 256) INSERT INTO close_test SELECT randomblob(4096) FROM c\0";
+    assert(sqlite3_exec(db, bulk.ptr, null, null, null) == SQLITE_OK);
+    sqlite3_close(db);
+    assert(size("") == before, "the last close wrote the WAL back into the store");
+    assert(size("-wal") > 0, "the last close took the -wal with it");
+    assert(size("-shm") > 0, "the last close took the -shm with it");
+
+    // With no close to do it, a sky pass copies the WAL back, so no hook reads
+    // through one that only grows: on l it reached 56MB and PreToolUse 122ms.
+    db = openStandaloneDb();
+    auto settled = walSettle(db);
+    assert(settled.rc == SQLITE_OK, "the pass's checkpoint did not run");
+    assert(settled.log > 0 && settled.copied == settled.log, "the pass left frames in the WAL");
+    assert(size("") > before, "the pass did not write the WAL back into the store");
+
+    sqlite3_exec(db, "DROP TABLE close_test\0".ptr, null, null, null);
+    walCheckpoint(db);
+    sqlite3_close(db);
 }
 
 // The schema, in one place, applied to whatever handle is given. openDb calls
@@ -697,6 +744,20 @@ void mkdirP(const(char)[] path) {
 
 void walCheckpoint(sqlite3* db) {
     sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)\0".ptr, null, null, null);
+}
+
+extern (C) int sqlite3_wal_checkpoint_v2(sqlite3* db, const(char)* zDb, int eMode, int* pnLog, int* pnCkpt);
+enum SQLITE_CHECKPOINT_PASSIVE = 0;
+
+// What one pass's checkpoint did: the frames in the WAL, the frames copied
+// back, and what sqlite said. SQLITE_BUSY is another checkpoint already running.
+struct Settled { int rc; int log; int copied; }
+
+// PASSIVE waits on nobody and blocks nobody, so a pass can run it every time.
+Settled walSettle(sqlite3* db) {
+    Settled s;
+    s.rc = sqlite3_wal_checkpoint_v2(db, null, SQLITE_CHECKPOINT_PASSIVE, &s.log, &s.copied);
+    return s;
 }
 
 // Check if a Grounded attestation exists for a control in this session,
