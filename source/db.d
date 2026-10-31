@@ -141,7 +141,11 @@ extern (C) {
     int sqlite3_errcode(sqlite3* db);
     const(char)* sqlite3_errmsg(sqlite3* db);
     long sqlite3_last_insert_rowid(sqlite3* db);
+    int sqlite3_db_config(sqlite3* db, int op, ...);
+    int sqlite3_file_control(sqlite3* db, const(char)* dbName, int op, void* arg);
 }
+enum SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE = 1006;
+enum SQLITE_FCNTL_PERSIST_WAL = 10;
 
 extern (C) {
     FILE* popen(const(char)* command, const(char)* type);
@@ -359,6 +363,9 @@ sqlite3* openStandaloneDb() {
     // 4MB (1-2s stalls on a large db) and none at a close, which leaves the -wal
     // and -shm where they are: the last close used to write the whole WAL back.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
+    sqlite3_db_config(db, SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, 1, null);
+    int persist = 1;
+    sqlite3_file_control(db, "main\0".ptr, SQLITE_FCNTL_PERSIST_WAL, &persist);
 
     // Up to 5s of waiting on another writer, in 1ms sleeps ground counts
     // itself, so a hook's timing row can say it slept and for how long.
@@ -389,6 +396,38 @@ unittest {
     scope (exit) sqlite3_finalize(stmt);
     assert(sqlite3_step(stmt) == SQLITE_ROW);
     assert(sqlite3_column_int64(stmt, 0) == 1, "NORMAL: a commit does not wait on the disk");
+}
+
+// "doing 1 makes sense anyways, and 2 as well"
+unittest {
+    import core.sys.posix.sys.stat : stat_t, stat;
+    long size(const(char)[] suffix) {
+        __gshared ZBuf p;
+        p.reset();
+        auto store = storePath();
+        size_t n;
+        while (store[n] != 0) n++;
+        p.put(store[0 .. n]);
+        p.put(suffix);
+        stat_t st;
+        return stat(p.ptr(), &st) == 0 ? st.st_size : -1;
+    }
+    auto db = openStandaloneDb();
+    assert(db !is null);
+    walCheckpoint(db);
+    auto before = size("");
+    enum bulk = "CREATE TABLE close_test (b BLOB); WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL "
+        ~ "SELECT n + 1 FROM c WHERE n < 256) INSERT INTO close_test SELECT randomblob(4096) FROM c\0";
+    assert(sqlite3_exec(db, bulk.ptr, null, null, null) == SQLITE_OK);
+    sqlite3_close(db);
+    assert(size("") == before, "the last close wrote the WAL back into the store");
+    assert(size("-wal") > 0, "the last close took the -wal with it");
+    assert(size("-shm") > 0, "the last close took the -shm with it");
+
+    db = openStandaloneDb();
+    sqlite3_exec(db, "DROP TABLE close_test\0".ptr, null, null, null);
+    walCheckpoint(db);
+    sqlite3_close(db);
 }
 
 // The schema, in one place, applied to whatever handle is given. openDb calls
