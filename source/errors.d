@@ -140,6 +140,34 @@ void reportQuietly(const ref GroundError err) {
     reportDetached(dsn, logEnvelope(dsn, it), err.sessionId, err.origin);
 }
 
+/// An error of the store itself, with the store refusing: a hook's own row
+/// refused, or a store that would not open for it. The session's chat is not
+/// where contention lands, and neither is sentry's errors: the breadcrumb is
+/// left where the screen reads it, and the wait goes to sentry as a measurement.
+///
+/// "its kind of wastefull to spam the session chats like this, we have sentry for that kind of observability. and ramen should show me visually"
+const(char)[] deliverAside(const ref GroundError err) {
+    if (writeBreadcrumb(err)) return "breadcrumb";
+    // No breadcrumb could be left: the axiom still holds, so stderr it is.
+    if (writeStderr(err)) return "stderr";
+    return "";
+}
+
+/// deliverAside, spelled the way emitError is.
+void sayAside(string origin, string message, int exitCode,
+              const(char)[] sessionId, const(char)[] controlName, const(char)[] detail) {
+    import core.stdc.time : time;
+    GroundError err;
+    err.origin      = origin;
+    err.message     = message;
+    err.exitCode    = exitCode;
+    err.sessionId   = cast(string) sessionId;
+    err.controlName = cast(string) controlName;
+    err.timestamp   = cast(long) time(null);
+    err.stdout      = cast(string) detail;
+    cast(void) deliverAside(err);
+}
+
 /// The quiet path, spelled the way emitError is: a worker says what went
 /// wrong in its own ask, sentry is told, and no session is woken for it.
 void sayQuietly(string origin, string message, int exitCode,

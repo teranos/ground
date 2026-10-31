@@ -160,12 +160,25 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
     import db : openDb, sqlite3_close, SQLITE_DONE, dbFailureCode;
     import hooktiming : insertTiming;
 
+    // The store's own refusal is said aside: the breadcrumb for the screen, and
+    // the wait to sentry as a measurement. Never into the session.
+    void refused(string message, int code) {
+        import controls : dsnHere;
+        import core.stdc.time : time;
+        import errors : sayAside;
+        import hooktiming : refusedEnvelope;
+        import sentry : reportDetached;
+        sayAside("hook.timing", message, code, sessionId, "hook.timing", phases);
+        auto dsn = dsnHere(cwd);
+        if (dsn.length > 0)
+            reportDetached(dsn, refusedEnvelope(dsn, cast(long) time(null), project, hookEvent, phases, code),
+                           sessionId, "hook.timing");
+    }
+
     auto db = openDb();
     if (db is null) {
         // Corruption is said by openDb's chain; a store busy past the wait is not.
-        import exec : emitError;
-        emitError("hook.timing", "the store would not open for this hook's timing row", 0, dbFailureCode(),
-                  cast(string) sessionId, "hook.timing", "", cast(string) phases, "");
+        refused("the store would not open for this hook's timing row", dbFailureCode());
         return;
     }
     auto rc = insertTiming(db, elapsedUs, hookEvent, project, phases);
@@ -176,17 +189,13 @@ void recordTiming(long elapsedUs, const(char)[] hookEvent, const(char)[] project
     }
     sqlite3_close(db);
     if (rc != SQLITE_DONE) {
-        import exec : emitError;
-        __gshared char[640] said = 0;
+        __gshared char[64] said = 0;
         size_t n;
         void put(const(char)[] s) { foreach (c; s) if (n < said.length) said[n++] = c; }
         put("the store refused this hook's timing row: sqlite code ");
         char[3] d = [cast(char)('0' + rc / 100 % 10), cast(char)('0' + rc / 10 % 10), cast(char)('0' + rc % 10)];
         put(d[]);
-        put("\n");
-        put(phases);
-        emitError("hook.timing", cast(string) said[0 .. n], 0, rc,
-                  cast(string) sessionId, "hook.timing", "", "", "");
+        refused(cast(string) said[0 .. n], rc);
     }
 }
 
