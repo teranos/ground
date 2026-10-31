@@ -111,7 +111,7 @@ unittest {
     {
         import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_text,
                     sqlite3_stmt, SQLITE_ROW;
-        import sessiontrail : EDIT_PATH;
+        import db : EDIT_PATH;
         enum plan = "EXPLAIN QUERY PLAN SELECT 1 FROM attestations WHERE json_extract(predicates, '$[0]') = 'PostToolUse' AND "
             ~ EDIT_PATH ~ " = '/r/a.d'\0";
         sqlite3_stmt* stmt;

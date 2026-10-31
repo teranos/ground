@@ -545,9 +545,17 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                     // One queue: an immediate row with a gate, handed in by
                     // sky when the gate opens, instead of a second queue the
                     // Stop hook read back itself.
-                    auto delay = c.defer.delayFn !is null
-                        ? c.defer.delayFn(cwd)
-                        : c.defer.delaySec;
+                    int delay = c.defer.delaySec;
+                    if (c.defer.delay.length > 0) {
+                        import handlers : resolveDelay, unheld;
+                        auto delayFor = resolveDelay(c.defer.delay);
+                        if (delayFor is null) {
+                            unheld("delay", c.defer.delay, c.name);
+                            sqlite3_close(ddb);
+                            continue;
+                        }
+                        delay = delayFor(cwd);
+                    }
                     cast(void) writeNote(ddb, sessionId, c.name, c.defer.msg, delay);
 
                     {

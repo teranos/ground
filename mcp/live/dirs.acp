@@ -1,0 +1,21 @@
+# A session's additionalDirectories: a relative one refused, a list only in _meta not the request's,
+# kept in order and decoded, replaced by a resume, cleared by a resume naming none.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[],"additionalDirectories":["/lib","rel"]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[],"_meta":{"additionalDirectories":["rel"]}}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[],"additionalDirectories":["/lib/café","/lib/b"]}}
+wait 3
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"$SID","cwd":"$CWD","additionalDirectories":["/srv/other"]}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/list","params":{"cwd":"$CWD"}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"$SID","cwd":"$CWD"}}
+wait 6
+{"jsonrpc":"2.0","id":7,"method":"session/list","params":{"cwd":"$CWD"}}
+wait 7

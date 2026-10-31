@@ -480,7 +480,9 @@ Move decide(bool held, const(char)[] wanted, const(char)[] wrote,
 
 // The settings file whole into dest, or 0.
 size_t settingsInto(char[] dest) {
-    import errors : getenv, open, read, close, O_RDONLY;
+    import core.stdc.stdlib : getenv;
+    import core.sys.posix.fcntl : open, O_RDONLY;
+    import core.sys.posix.unistd : read, close;
     auto home = getenv("HOME\0".ptr);
     if (home is null) return 0;
     __gshared ZBuf path;
@@ -506,7 +508,9 @@ size_t settingsInto(char[] dest) {
 extern (C) int rename(const(char)* from, const(char)* to);
 
 bool settingsWrite(const(char)[] text) {
-    import errors : getenv, open, write, close, unlink, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.stdc.stdlib : getenv;
+    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.unistd : write, close, unlink;
     auto home = getenv("HOME\0".ptr);
     if (home is null) return false;
     __gshared ZBuf path;

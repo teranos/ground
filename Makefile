@@ -30,9 +30,12 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
 # modules the entry point reaches, so no list of them is kept by hand.
 BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
+# -betterC and -O are for the hooks, started once an event. ground code runs a whole client
+# session and waits on the network, not the CPU: unoptimised, it compiles in 16 s, not 45 s.
+ground_code: BIN_FLAGS = --lowmem -release -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
-	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl \
+	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lm -L-lpthread -L-ldl \
 	$(if $(filter Darwin,$(shell uname -s)),-L-lc++,-L-lstdc++)
 
 # What make install puts beside ground; ground_parity is for whoever develops ground.
@@ -40,7 +43,7 @@ BINS = ground_hook ground_code ground_sky ground_drive
 
 build/libgroundc.a: phone/phone.cc
 	mkdir -p build
-	c++ -std=c++17 -O2 -c phone/phone.cc -o build/phone.o
+	c++ -std=c++20 -O2 -c phone/phone.cc -o build/phone.o
 	ar rcs $@ build/phone.o
 
 $(BINS) ground_parity: wind build/libgroundc.a
@@ -134,6 +137,19 @@ test-mcp: build ground_code
 	ldc2 -betterC -I=source -of=build/abort-test mcp/abort.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	python3 mcp/test_abort.py build/abort-test
 
+# The live checks' driver and the MCP servers they hand a session: C11 and POSIX, under libacp's warnings.
+LIVE_CFLAGS = -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes \
+	-Wmissing-prototypes -Wcast-qual -Wformat=2 -Wundef -Wvla -Wnull-dereference -Wimplicit-fallthrough
+build/acp_live: mcp/live/acp_live.c
+	mkdir -p build
+	cc $(LIVE_CFLAGS) $< -o $@
+build/echo_server: mcp/live/echo_server.c
+	mkdir -p build
+	cc $(LIVE_CFLAGS) $< -o $@
+build/elicit_server: mcp/live/elicit_server.c
+	mkdir -p build
+	cc $(LIVE_CFLAGS) $< -o $@
+
 # CTFE assertions in tools/*_test.d — failure shows as compile error.
 test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/filelist.d tools/filelist_test.d
@@ -163,6 +179,8 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d ug/fable_test.d
+	ldc2 -betterC -of=/tmp/ug-close-test -I=ug ug/sql.d ug/close_test.d -L-lsqlite3
+	/tmp/ug-close-test
 
 # ug the way Claude Code runs it: frames cancelled mid-run, against a QNTX that
 # never answers. Not part of make test, because it waits on curl's timeout.

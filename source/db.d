@@ -2,9 +2,23 @@ module db;
 
 // BOOK_GLOSSARY **Attestation**: The record of one event with its full payload, in the store ground refuses to operate without.
 
-import matcher : indexOf, contains;
+import scan : indexOf, contains;
 import core.stdc.stdio : FILE;
 import core.stdc.time : time, time_t, tm, gmtime;
+
+// The path an edit's record names, whole or after decay. The index on it is
+// partial on PostToolUse, so a query must say both alike.
+enum EDIT_PATH = "coalesce(json_extract(attributes, '$.tool_input.file_path'), json_extract(attributes, '$.file_path'))";
+enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON attestations(" ~ EDIT_PATH
+    ~ ") WHERE json_extract(predicates, '$[0]') = 'PostToolUse'\0";
+
+// "today will be the day of recording to parquet, so its a clean slate in that regard"
+// A unix second no post ever lands at, so a reader of "landed" (> BEFORE_STREAM)
+// and of "claimed" (< 0) is never fooled by it.
+enum BEFORE_STREAM = 1;
+
+// The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.
+enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
 
 // --- sqlite3 C bindings (minimal) ---
 
@@ -96,7 +110,7 @@ unittest {
 
     auto msg = dbFailureMessage();
     assert(msg !is null);
-    import matcher : contains;
+    import scan : contains;
     assert(contains(msg, "ground.db"), "must name the file");
     assert(contains(msg, ".recover"), "must carry the recovery path");
     resetDbFailure();
@@ -125,8 +139,13 @@ extern (C) {
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
     int sqlite3_changes(sqlite3* db);
     int sqlite3_errcode(sqlite3* db);
+    const(char)* sqlite3_errmsg(sqlite3* db);
     long sqlite3_last_insert_rowid(sqlite3* db);
+    int sqlite3_db_config(sqlite3* db, int op, ...);
+    int sqlite3_file_control(sqlite3* db, const(char)* dbName, int op, void* arg);
 }
+enum SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE = 1006;
+enum SQLITE_FCNTL_PERSIST_WAL = 10;
 
 extern (C) {
     FILE* popen(const(char)* command, const(char)* type);
@@ -212,6 +231,63 @@ unittest {
     attemptUs = 0;
 }
 
+extern (C) {
+    int sqlite3_trace_v2(sqlite3* db, uint mask, int function(uint, void*, void*, void*) cb, void* ctx);
+    const(char)* sqlite3_sql(sqlite3_stmt* stmt);
+    int sqlite3_stmt_readonly(sqlite3_stmt* stmt);
+}
+enum SQLITE_TRACE_STMT = 1;
+enum SQLITE_TRACE_PROFILE = 2;
+
+// The longest one write of this process held the store's write lock, and the
+// write: its run less what it slept in groundBusy waiting to get the lock.
+__gshared long heldUs;
+__gshared char[256] heldSqlBuf = 0;
+__gshared size_t heldSqlLen;
+__gshared long waitAtStart;
+
+long heldLongestUs() { return heldUs; }
+const(char)[] heldLongestSql() { return heldSqlBuf[0 .. heldSqlLen]; }
+void heldReset() { heldUs = 0; heldSqlLen = 0; }
+
+extern (C) int heldTrace(uint what, void*, void* p, void* x) {
+    auto stmt = cast(sqlite3_stmt*) p;
+    if (sqlite3_stmt_readonly(stmt)) return 0;
+    if (what == SQLITE_TRACE_STMT) { waitAtStart = lockWaitUs; return 0; }
+    auto held = *cast(long*) x / 1000 - (lockWaitUs - waitAtStart);
+    if (held <= heldUs) return 0;
+    heldUs = held;
+    heldSqlLen = 0;
+    auto sql = sqlite3_sql(stmt);
+    if (sql !is null)
+        while (sql[heldSqlLen] != 0 && heldSqlLen < heldSqlBuf.length) { heldSqlBuf[heldSqlLen] = sql[heldSqlLen]; heldSqlLen++; }
+    return 0;
+}
+
+void traceWrites(sqlite3* db) {
+    sqlite3_trace_v2(db, SQLITE_TRACE_STMT | SQLITE_TRACE_PROFILE, &heldTrace, null);
+}
+
+// A write slow enough to be measured is the longest this process held the lock;
+// a read takes no write lock and is not counted.
+unittest {
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    traceWrites(db);
+    heldReset();
+    sqlite3_exec(db, "CREATE TABLE t (n INTEGER)\0".ptr, null, null, null);
+    enum many = "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 300000) "
+        ~ "INSERT INTO t SELECT n FROM c\0";
+    assert(sqlite3_exec(db, many.ptr, null, null, null) == SQLITE_OK);
+    assert(heldLongestUs() > 0, "a write that ran is a hold that is measured");
+    assert(contains(heldLongestSql(), "INSERT INTO t"), "and the write is named by its own SQL");
+    auto write = heldLongestUs();
+    sqlite3_exec(db, "SELECT count(*) FROM t, t AS u WHERE u.n < 3\0".ptr, null, null, null);
+    assert(heldLongestUs() == write, "a read holds no write lock");
+    sqlite3_close(db);
+    heldReset();
+}
+
 // Open ground's own db at ~/.local/share/ground/ground.db
 sqlite3* openDb() {
     return openStandaloneDb();
@@ -279,13 +355,18 @@ sqlite3* openStandaloneDb() {
     // every open; a no-op when the file is already WAL.
     sqlite3_exec(db, "PRAGMA journal_mode = WAL\0".ptr, null, null, null);
 
-    // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
-    // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
+    // Explicit checkpoints in SessionStart/PreCompact only, none when a WAL crosses
+    // 4MB (1-2s stalls on a large db) and none at a close, which leaves the -wal
+    // and -shm where they are: the last close used to write the whole WAL back.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
+    sqlite3_db_config(db, SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, 1, null);
+    int persist = 1;
+    sqlite3_file_control(db, "main\0".ptr, SQLITE_FCNTL_PERSIST_WAL, &persist);
 
     // Up to 5s of waiting on another writer, in 1ms sleeps ground counts
     // itself, so a hook's timing row can say it slept and for how long.
     sqlite3_busy_handler(db, &groundBusy, null);
+    traceWrites(db);
 
     if (!applySchema(db)) {
         sqlite3_close(db);
@@ -293,6 +374,45 @@ sqlite3* openStandaloneDb() {
     }
 
     return db;
+}
+
+// "doing 1 makes sense anyways, and 2 as well"
+unittest {
+    import core.sys.posix.sys.stat : stat_t, stat;
+    long size(const(char)[] suffix) {
+        __gshared ZBuf p;
+        p.reset();
+        auto store = storePath();
+        size_t n;
+        while (store[n] != 0) n++;
+        p.put(store[0 .. n]);
+        p.put(suffix);
+        stat_t st;
+        return stat(p.ptr(), &st) == 0 ? st.st_size : -1;
+    }
+    auto db = openStandaloneDb();
+    assert(db !is null);
+    walCheckpoint(db);
+    auto before = size("");
+    enum bulk = "CREATE TABLE close_test (b BLOB); WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL "
+        ~ "SELECT n + 1 FROM c WHERE n < 256) INSERT INTO close_test SELECT randomblob(4096) FROM c\0";
+    assert(sqlite3_exec(db, bulk.ptr, null, null, null) == SQLITE_OK);
+    sqlite3_close(db);
+    assert(size("") == before, "the last close wrote the WAL back into the store");
+    assert(size("-wal") > 0, "the last close took the -wal with it");
+    assert(size("-shm") > 0, "the last close took the -shm with it");
+
+    // With no close to do it, a sky pass copies the WAL back, so no hook reads
+    // through one that only grows: on l it reached 56MB and PreToolUse 122ms.
+    db = openStandaloneDb();
+    auto settled = walSettle(db);
+    assert(settled.rc == SQLITE_OK, "the pass's checkpoint did not run");
+    assert(settled.log > 0 && settled.copied == settled.log, "the pass left frames in the WAL");
+    assert(size("") > before, "the pass did not write the WAL back into the store");
+
+    sqlite3_exec(db, "DROP TABLE close_test\0".ptr, null, null, null);
+    walCheckpoint(db);
+    sqlite3_close(db);
 }
 
 // The schema, in one place, applied to whatever handle is given. openDb calls
@@ -366,7 +486,6 @@ bool applySchema(sqlite3* db) {
     // column arrives are stamped BEFORE_STREAM, once, and never sent: "today
     // will be the day of recording to parquet, so its a clean slate".
     if (!hasColumn(db, "attestations", "qntx_at")) {
-        import stream : BEFORE_STREAM;
         if (ensureColumn(db, "attestations", "qntx_at", "INTEGER NOT NULL DEFAULT 0")) {
             enum stamp = "UPDATE attestations SET qntx_at = " ~ BEFORE_STREAM.stringof ~ "\0";
             if (sqlite3_exec(db, stamp.ptr, null, null, null) != SQLITE_OK)
@@ -380,6 +499,11 @@ bool applySchema(sqlite3* db) {
     // The pending set is small against the table, so the index is partial.
     enum idxStream = "CREATE INDEX IF NOT EXISTS idx_attestations_stream ON attestations(qntx_at) WHERE qntx_at <= 0\0";
     sqlite3_exec(db, idxStream.ptr, null, null, null);
+    // The claim's own, without the refused rows: 45870 of them sat at qntx_at 0
+    // beside 6 pending, and each claim read them all under the write lock, 1356ms.
+    enum idxOpen = "CREATE INDEX IF NOT EXISTS idx_attestations_stream_open ON attestations(qntx_at) "
+        ~ "WHERE qntx_at <= 0 AND NOT " ~ REFUSED_SQL ~ "\0";
+    sqlite3_exec(db, idxOpen.ptr, null, null, null);
 
     enum sessionProjectSchema = "CREATE TABLE IF NOT EXISTS session_project ("
         ~ "session_id TEXT PRIMARY KEY, project TEXT NOT NULL)\0";
@@ -595,10 +719,7 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, idxSubject.ptr, null, null, null);
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
     sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
-    {
-        import sessiontrail : EDIT_INDEX;
-        sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
-    }
+    sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
 
     return true;
 }
@@ -623,6 +744,20 @@ void mkdirP(const(char)[] path) {
 
 void walCheckpoint(sqlite3* db) {
     sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)\0".ptr, null, null, null);
+}
+
+extern (C) int sqlite3_wal_checkpoint_v2(sqlite3* db, const(char)* zDb, int eMode, int* pnLog, int* pnCkpt);
+enum SQLITE_CHECKPOINT_PASSIVE = 0;
+
+// What one pass's checkpoint did: the frames in the WAL, the frames copied
+// back, and what sqlite said. SQLITE_BUSY is another checkpoint already running.
+struct Settled { int rc; int log; int copied; }
+
+// PASSIVE waits on nobody and blocks nobody, so a pass can run it every time.
+Settled walSettle(sqlite3* db) {
+    Settled s;
+    s.rc = sqlite3_wal_checkpoint_v2(db, null, SQLITE_CHECKPOINT_PASSIVE, &s.log, &s.copied);
+    return s;
 }
 
 // Check if a Grounded attestation exists for a control in this session,
@@ -1162,7 +1297,6 @@ unittest {
     // The rows a hook writes from now on are the stream's: qntx_at 0 until the
     // sky posts one. The rows that were there when the column arrived are not:
     // stamped BEFORE_STREAM once, by the migration, and never claimed.
-    import stream : BEFORE_STREAM;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
     assert(applySchema(db));
@@ -1171,8 +1305,9 @@ unittest {
 
     attestEventAt(db, "PreToolUse", "/tmp", "sess-old", `{"probe":"old"}`, "2026-09-19T09:00:00Z", 1);
     // The store as it stood before the stream: the column gone, the row there.
-    // The index names the column, so it goes first.
+    // The indexes name the column, so they go first.
     assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream\0".ptr, null, null, null) == SQLITE_OK);
+    assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream_open\0".ptr, null, null, null) == SQLITE_OK);
     assert(sqlite3_exec(db, "ALTER TABLE attestations DROP COLUMN qntx_at\0".ptr, null, null, null) == SQLITE_OK);
     assert(applySchema(db), "the migration runs against a store that has rows");
     attestEventAt(db, "PreToolUse", "/tmp", "sess-new", `{"probe":"new"}`, "2026-09-19T09:00:01Z", 2);

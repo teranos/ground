@@ -1097,18 +1097,26 @@ string sentBlock()(string src, string method) {
 
 private CodeSides buildCodeSides()() {
     CodeSides cs;
-    enum key = `method == "`;
+    // A method code/acp.d handles is tested by its name in meta.json's tables, AGENT_METHODS.session_new;
+    // a method tested by any other name is not ACP's.
+    import acpmethods : wireOf;
+    enum key = `method == `;
     size_t from = 0;
     while (true) {
         auto at = indexIn(codeSource, key, from);
         if (at < 0) break;
         auto nameFrom = cast(size_t) at + key.length;
-        auto nameEnd = indexIn(codeSource, `"`, nameFrom);
-        assert(nameEnd >= 0, "code/acp.d tests a method it does not close");
-        from = cast(size_t) nameEnd;
+        auto nameEnd = nameFrom;
+        while (nameEnd < codeSource.length && (isIdent(codeSource[nameEnd]) || codeSource[nameEnd] == '.')) nameEnd++;
+        from = nameFrom;
+        auto wire = wireOf(codeSource[nameFrom .. nameEnd]);
+        if (wire is null) continue;
         auto block = codeSource[cast(size_t) at .. branchEnd(codeSource, cast(size_t) at)];
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
-        cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
+        auto side = GroundSide(wire, readsIn(block), writesIn(block));
+        libacpKeys(block, side);
+        helperKeys(block, side);
+        cs.items[cs.count++] = side;
     }
     // A method sent to the client has no branch: what ground code writes is
     // the message its sending function builds.
@@ -1129,7 +1137,99 @@ private CodeSides buildCodeSides()() {
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         cs.items[cs.count++] = GroundSide(name, readsIn(block), writesIn(block, true));
     }
+    libacpSent(cs);
     return cs;
+}
+
+// --- acp: the part of a method ground code reads and writes through libacp ---
+
+// The library as ground links it, kept in this repository at libacp/.
+private static immutable string[10] libacpSources = [
+    import("libacp/src/acp.c"), import("libacp/src/initialize.c"), import("libacp/src/session.c"),
+    import("libacp/src/modes.c"), import("libacp/src/config.c"), import("libacp/src/prompt.c"),
+    import("libacp/src/permission.c"), import("libacp/src/fs.c"), import("libacp/src/terminal.c"),
+    import("libacp/src/updates.c"),
+];
+
+private LibFns libacpFns()() {
+    LibFns all;
+    foreach (i, s; libacpSources) {
+        auto fns = cFunctions(s);
+        foreach (f; fns.items[0 .. fns.count]) {
+            assert(all.count < all.items.length, "libacp has more functions than parity holds");
+            all.items[all.count++] = LibFn(i, f);
+        }
+    }
+    return all;
+}
+
+// Every libacp function a block calls, and one level of the library's own it calls in turn.
+private void libacpKeys()(const(char)[] block, ref GroundSide side) {
+    auto lib = libacpFns();
+    foreach (f; lib.items[0 .. lib.count]) {
+        if (named(block, f.fn.name) < 0) continue;
+        auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
+        cKeys(body_, acpReader, side);
+        foreach (g; lib.items[0 .. lib.count])
+            if (g.fn.name != f.fn.name && named(body_, g.fn.name) >= 0)
+                cKeys(libacpSources[g.src][g.fn.from .. g.fn.to], acpReader, side);
+    }
+}
+
+// ground code's own helpers a block calls, one level: libacp read through them counts for the block.
+private void helperKeys()(const(char)[] block, ref GroundSide side) {
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(codeSource, "\nprivate ", from);
+        if (at < 0) return;
+        from = cast(size_t) at + 1;
+        auto paren = indexIn(codeSource, "(", from), eol = indexIn(codeSource, "\n", from);
+        if (paren < 0 || paren > eol) continue;
+        size_t b = cast(size_t) paren;
+        while (b > from && isIdent(codeSource[b - 1])) b--;
+        auto name = codeSource[b .. cast(size_t) paren];
+        if (name.length == 0 || named(block, name) < 0) continue;
+        auto close = indexIn(codeSource, "\n}\n", from);
+        assert(close >= 0, "code/acp.d has a helper it does not close");
+        libacpKeys(codeSource[from .. cast(size_t) close], side);
+    }
+}
+
+// A request libacp writes for ground code: the method its writer names, measured through each
+// helper of code/acp.d that calls the writer, and the helpers that one calls in turn.
+private void libacpSent()(ref CodeSides cs) {
+    import acpmethods : wireOfMacro;
+    enum mark = `"method", json_object_new_string(`;
+    auto lib = libacpFns();
+    foreach (f; lib.items[0 .. lib.count]) {
+        auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
+        auto at = indexIn(body_, mark);
+        if (at < 0) continue;
+        // The writer's method by its name in acp_methods.h, ACP_CLIENT_TERMINAL_KILL, generated from meta.json.
+        auto nameFrom = cast(size_t) at + mark.length;
+        auto nameEnd = nameFrom;
+        while (nameEnd < body_.length && isIdent(body_[nameEnd])) nameEnd++;
+        auto name = wireOfMacro(body_[nameFrom .. nameEnd]);
+        assert(name !is null, "a libacp writer names a method meta.json does not");
+        size_t k = cs.count;
+        foreach (i; 0 .. cs.count) if (cs.items[i].event == name) k = i;
+        if (k == cs.count) {
+            assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
+            cs.items[cs.count++] = GroundSide(name, GroundKeys.init, GroundKeys.init);
+        }
+        size_t from = 0;
+        while (true) {
+            auto h = indexIn(codeSource, "\nprivate ", from);
+            if (h < 0) break;
+            from = cast(size_t) h + 1;
+            auto close = indexIn(codeSource, "\n}\n", from);
+            assert(close >= 0, "code/acp.d has a helper it does not close");
+            auto helper = codeSource[from .. cast(size_t) close];
+            if (named(helper, f.fn.name) < 0) continue;
+            libacpKeys(helper, cs.items[k]);
+            helperKeys(helper, cs.items[k]);
+        }
+    }
 }
 
 private static immutable CodeSides codeSides = buildCodeSides();
@@ -1258,7 +1358,8 @@ private ptrdiff_t named(const(char)[] s, const(char)[] ident, size_t from = 0) {
     }
 }
 
-// The second argument of each call to fn in a region, when it is a literal.
+// Every literal in the second argument of each call to fn in a region: a
+// ternary between two keys reads either.
 private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys) {
     size_t from = 0;
     while (true) {
@@ -1267,18 +1368,21 @@ private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys
         from = cast(size_t) at + fn.length;
         if (from >= region.length || region[from] != '(') continue;
         auto args = cArgs(region, from);
-        if (args.count >= 2) keys.add(literalOf(args.items[1]));
+        if (args.count >= 2) literalsIn(args.items[1], keys);
     }
 }
 
-private void cReads(const(char)[] region, ref GroundKeys keys) {
-    keyArgs(region, "mcp_field", keys);
-    keyArgs(region, "mcp_has", keys);
-    keyArgs(region, "json_object_object_get_ex", keys);
-}
+// The one way a C library's side is read: json-c's own calls, and the wrappers
+// the library reads and writes a key through, the key their second argument.
+private struct CReader { string[] reads; string[] writes; }
+private static immutable CReader mcpReader = CReader(["mcp_field", "mcp_has"], ["mcp_add"]);
+private static immutable CReader acpReader = CReader(["acp_field", "acp_offered", "acp_flag", "acp_string"], ["add_string"]);
 
-private void cWrites(const(char)[] region, ref GroundKeys keys) {
-    keyArgs(region, "mcp_add", keys);
+private void cKeys()(const(char)[] region, const CReader reader, ref GroundSide side) {
+    keyArgs(region, "json_object_object_get_ex", side.reads);
+    foreach (fn; reader.reads) keyArgs(region, fn, side.reads);
+    keyArgs(region, "json_object_object_add", side.writes);
+    foreach (fn; reader.writes) keyArgs(region, fn, side.writes);
 }
 
 // Every string literal in an argument: `v ? "cursor" : NULL` passes cursor.
@@ -1312,8 +1416,7 @@ private LibFns libmcpFns()() {
 // sits in that a read was kept in, and one level of the library's own functions
 // it calls.
 private void gather(const(LibFn)[] lib, const(char)[] src, CFn fn, const(char)[] region, ref GroundSide side) {
-    cReads(region, side.reads);
-    cWrites(region, side.writes);
+    cKeys(region, mcpReader, side);
     auto body_ = src[fn.from .. fn.to];
     enum kept = "= mcp_field(";
     size_t from = 0;
@@ -1334,9 +1437,7 @@ private void gather(const(LibFn)[] lib, const(char)[] src, CFn fn, const(char)[]
         auto c = named(region, l.fn.name);
         if (c < 0 || cast(size_t) c + l.fn.name.length >= region.length
             || region[cast(size_t) c + l.fn.name.length] != '(') continue;
-        auto calleeBody = libmcpSources[l.src][l.fn.from .. l.fn.to];
-        cReads(calleeBody, side.reads);
-        cWrites(calleeBody, side.writes);
+        cKeys(libmcpSources[l.src][l.fn.from .. l.fn.to], mcpReader, side);
     }
 }
 
@@ -1473,11 +1574,15 @@ private GroundSide mcpCommon()(const(LibFn)[] lib) {
     GroundSide common;
     foreach (ref l; lib) {
         auto body_ = libmcpSources[l.src][l.fn.from .. l.fn.to];
+        GroundSide read;
         if (l.fn.name == "mcp_dispatch") {
             auto first = indexIn(body_, "strcmp(r->method");
-            cReads(first < 0 ? body_ : body_[0 .. cast(size_t) first], common.reads);
-        } else if (l.fn.name == "build_message" || l.fn.name == "mcp_request_resume")
-            cWrites(body_, common.writes);
+            cKeys(first < 0 ? body_ : body_[0 .. cast(size_t) first], mcpReader, read);
+            addAll(common.reads, read.reads.slice());
+        } else if (l.fn.name == "build_message" || l.fn.name == "mcp_request_resume") {
+            cKeys(body_, mcpReader, read);
+            addAll(common.writes, read.writes.slice());
+        }
     }
     return common;
 }

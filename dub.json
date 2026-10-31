@@ -8,13 +8,13 @@
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC", "--lowmem"],
-    "libs": ["sqlite3", "curl", "git2", "mcp", "json-c", "phonenumber"],
+    "libs": ["sqlite3", "curl", "git2", "mcp", "acp", "json-c", "phonenumber"],
     "libs-posix": ["m", "pthread"],
     "libs-linux": ["dl", "stdc++"],
     "libs-osx": ["iconv", "c++"],
     "sourceFiles": ["build/phone.o"],
     "extraDependencyFiles": [".ctfe/sand", "phone/phone.cc"],
-    "preBuildCommands": ["date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind", "mkdir -p build", "c++ -std=c++17 -O2 -c phone/phone.cc -o build/phone.o"],
+    "preBuildCommands": ["date -u +%Y-%m-%dT%H:%M:%SZ > .builddate", "tools/wind", "mkdir -p build", "c++ -std=c++20 -O2 -c phone/phone.cc -o build/phone.o"],
 
     "configurations": [
         {

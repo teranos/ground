@@ -376,8 +376,12 @@ static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
 // hook side would have claimed session/new's cwd: main.d reads a cwd from
 // every hook payload, and that is not ground code handling session/new.
 static assert(has(sideFor("claude", "session/new").reads, "cwd"));
+// logout carries nothing to read, and is answered with its result.
 static assert(sideFor("acp", "logout").reads.slice() == "");
-static assert(sideFor("acp", "logout").writes.slice() == "");
+static assert(has(sideFor("acp", "logout").writes, "result"));
+// authenticate's sign-in is an elicitation tied to its request.
+static assert(has(sideFor("acp", "authenticate").writes, "requestId"));
+static assert(has(sideFor("acp", "authenticate").writes, "url"));
 static assert(has(sideFor("acp", "session/load").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/load").reads, "mcpServers"));
 static assert(has(sideFor("acp", "session/load").writes, "configOptions"));
@@ -407,6 +411,10 @@ static assert(has(sideFor("acp", "session/list").writes, "sessions"));
 static assert(has(sideFor("acp", "session/resume").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/resume").reads, "cwd"));
 static assert(has(sideFor("acp", "session/delete").reads, "sessionId"));
+// Part 15: the creation reader and result writer count through libacp.
+static assert(has(sideFor("acp", "session/new").reads, "cwd"));
+static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
+static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(has(sideFor("acp", "session/new").writes, "modes"));
 static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
@@ -416,14 +424,42 @@ static assert(has(sideFor("acp", "session/new").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/resume").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/set_config_option").reads, "configId"));
 static assert(has(sideFor("acp", "session/set_config_option").writes, "configOptions"));
-// initialize writes protocolVersion and agentInfo, and reads the client's
-// capabilities, not its protocolVersion: there is one version to answer
-// whatever the client asked for.
+// initialize is read and written by libacp, out of its C: it reads the version
+// asked for and the client's capabilities in either shape, and writes the
+// selected version, the agent's capabilities and its info.
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
 static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
 static assert(has(sideFor("acp", "initialize").reads, "clientCapabilities"));
-static assert(!has(sideFor("acp", "initialize").reads, "protocolVersion"));
+static assert(has(sideFor("acp", "initialize").reads, "capabilities"));
+static assert(has(sideFor("acp", "initialize").reads, "protocolVersion"));
 static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
+static assert(has(sideFor("acp", "fs/read_text_file").reads, "content"));
+static assert(has(sideFor("acp", "fs/write_text_file").writes, "sessionId"));
+static assert(has(sideFor("acp", "fs/write_text_file").writes, "path"));
+static assert(has(sideFor("acp", "fs/write_text_file").writes, "content"));
+// Each terminal/* method is measured through its own helper, so one's keys are not another's.
+static assert(has(sideFor("acp", "terminal/create").writes, "command"));
+static assert(has(sideFor("acp", "terminal/create").writes, "cwd"));
+static assert(has(sideFor("acp", "terminal/create").reads, "terminalId"));
+static assert(!has(sideFor("acp", "terminal/create").reads, "output"));
+static assert(has(sideFor("acp", "terminal/output").reads, "output"));
+static assert(has(sideFor("acp", "terminal/output").reads, "truncated"));
+static assert(has(sideFor("acp", "terminal/wait_for_exit").reads, "exitCode"));
+static assert(has(sideFor("acp", "terminal/kill").writes, "terminalId"));
+static assert(has(sideFor("acp", "terminal/release").writes, "terminalId"));
+// A turn's answer is libacp's, through putStop: still measured as session/prompt's.
+static assert(has(sideFor("acp", "session/prompt").writes, "stopReason"));
+// What libacp writes for a session's MCP server: elicitation/create's message, and the update's own fields.
+static assert(has(sideFor("acp", "elicitation/create").writes, "message"));
+static assert(has(sideFor("acp", "session/update").writes, "update"));
+// A request libacp writes for ground code is measured through the helper that
+// sends it: the method's own fields, and those of the answer it reads.
+static assert(has(sideFor("acp", "session/request_permission").writes, "toolCall"));
+static assert(has(sideFor("acp", "session/request_permission").writes, "options"));
+static assert(has(sideFor("acp", "session/request_permission").reads, "outcome"));
+// A notification ground code passes on is written with its own fields, so
+// they are measured: elicitation/complete's elicitationId.
+static assert(has(sideFor("acp", "elicitation/complete").writes, "elicitationId"));
 
 // "i want it"
 // MCP's pins are each released schema.json at one spec commit, the version as

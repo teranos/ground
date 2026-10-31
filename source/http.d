@@ -1,6 +1,6 @@
 module http;
 
-import db : ZBuf;
+import zbuf : ZBuf;
 
 // Everything over HTTP goes through libcurl, in this process. It was the curl
 // program behind a pipe, which cost a fork per request, put the token and the
@@ -50,17 +50,9 @@ struct Abort {
 }
 enum CURLE_ABORTED_BY_CALLBACK = 42;
 
-// Strip surrounding whitespace from a credential. A token read from a file
-// carries the newline the file ends with, and a newline inside a header value
-// is a malformed request, not a bad token.
-const(char)[] trimToken(const(char)[] s) {
-    size_t b = 0;
-    size_t e = s.length;
-    static bool ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
-    while (b < e && ws(s[b])) b++;
-    while (e > b && ws(s[e - 1])) e--;
-    return s[b .. e];
-}
+// A token read from a file carries the newline the file ends with, and a newline
+// inside a header value is a malformed request, not a bad token.
+public import token : trimToken;
 
 // An absent token is an absent header. Sending `Authorization: Bearer ` with
 // nothing after it earns a 401, which reads as "your token was rejected" when

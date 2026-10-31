@@ -4,7 +4,7 @@ module code.prompt;
 // completions with the session's tools, a tool_calls answer is run through
 // the session's own MCP servers and handed back, until the model stops.
 
-import matcher : indexOf;
+import scan : indexOf;
 import parse : Reads;
 import code.reply : Reply, putEscaped, putNumber;
 
@@ -29,6 +29,27 @@ const(char)[] serverOf(const(char)[] name) {
 const(char)[] toolOf(const(char)[] name) {
     auto at = indexOf(name, TOOL_MARK);
     return at < 0 ? name : name[cast(size_t) at + TOOL_MARK.length .. $];
+}
+
+// ground code's own tool, fs/write_text_file's request as the model calls it, in the schema's words.
+// Its name has no TOOL_MARK, so no server's tool is named the same.
+enum WRITE_TOOL = "write_text_file";
+
+void putWriteTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ WRITE_TOOL ~ `","description":"Request to write content to a text file.",`
+        ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
+        ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}`);
+}
+
+// ground code's other own tool, terminal/create's request as the model calls it, in the schema's words.
+enum RUN_TOOL = "run_command";
+
+void putRunTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ RUN_TOOL ~ `","description":"Request to create a new terminal and execute a command.",`
+        ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}}`);
 }
 
 // --- the prompt's text, read from the ACP line ---
@@ -111,96 +132,60 @@ size_t skipValue(const(char)[] json, size_t pos) {
     return pos;
 }
 
-private size_t blanks(const(char)[] json, size_t pos) {
-    while (pos < json.length && (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\t' || json[pos] == '\r')) pos++;
-    return pos;
-}
+// What a prompt's blocks are: all read, one of another kind, or no prompt libacp reads.
+enum Blocks { read, other, refused }
 
-// The prompt's text blocks, in order, one line each. A resource_link goes into
-// links to be read, its name and its uri each ended by a NUL. A resource
-// embedded with its text, "for pieces of context that are referenced in the
-// message", goes into embedded, its uri and its text each ended by a NUL. A
-// block of another kind has no text to give the model, and is not pretended
-// to: false, and other gets the type of the first such block, empty when it
-// names none; a resource holding a blob is "resource holding a blob".
-@Reads("prompt") bool promptText(const(char)[] line, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded) {
-    auto at = indexOf(line, `"prompt"`);
-    if (at < 0) return true;
-    size_t pos = blanks(line, cast(size_t) at + `"prompt"`.length);
-    if (pos >= line.length || line[pos] != ':') return true;
-    pos = blanks(line, pos + 1);
-    if (pos >= line.length || line[pos] != '[') return true;
-    pos = blanks(line, pos + 1);
-    bool first = true, all = true;
-    while (pos < line.length && line[pos] == '{') {
-        auto end = skipValue(line, pos);
-        auto block = line[pos .. end];
-        bool text;
-        Reply value, kind, name, uri;
-        scope(exit) { value.dispose(); kind.dispose(); name.dispose(); uri.dispose(); }
-        bool named, located;
-        Reply held, heldUri;
-        scope(exit) { held.dispose(); heldUri.dispose(); }
-        bool holdsText, holdsUri, holdsBlob;
-        size_t p = 1;
-        while (p < block.length) {
-            p = blanks(block, p);
-            if (p >= block.length || block[p] != '"') break;
-            Reply key;
-            p = copyString(block, p, key);
-            p = blanks(block, p);
-            if (p >= block.length || block[p] != ':') break;
-            p = blanks(block, p + 1);
-            if (key.slice() == "type" && p < block.length && block[p] == '"') {
-                kind.len = 0; copyString(block, p, kind);
-                text = kind.slice() == "text";
-            }
-            if (key.slice() == "text" && p < block.length && block[p] == '"') { value.len = 0; copyString(block, p, value); }
-            if (key.slice() == "name" && p < block.length && block[p] == '"') { name.len = 0; copyString(block, p, name); named = true; }
-            if (key.slice() == "uri" && p < block.length && block[p] == '"') { uri.len = 0; copyString(block, p, uri); located = true; }
-            // EmbeddedResource's resource: its uri, and its text or its blob.
-            if (key.slice() == "resource" && p < block.length && block[p] == '{') {
-                auto inner = block[p .. skipValue(block, p)];
-                size_t q = 1;
-                while (q < inner.length) {
-                    q = blanks(inner, q);
-                    if (q >= inner.length || inner[q] != '"') break;
-                    Reply field;
-                    q = copyString(inner, q, field);
-                    q = blanks(inner, q);
-                    if (q >= inner.length || inner[q] != ':') break;
-                    q = blanks(inner, q + 1);
-                    if (field.slice() == "uri" && q < inner.length && inner[q] == '"') { heldUri.len = 0; copyString(inner, q, heldUri); holdsUri = true; }
-                    if (field.slice() == "text" && q < inner.length && inner[q] == '"') { held.len = 0; copyString(inner, q, held); holdsText = true; }
-                    if (field.slice() == "blob") holdsBlob = true;
-                    field.dispose();
-                    q = skipValue(inner, q);
-                    q = blanks(inner, q);
-                    if (q < inner.length && inner[q] == ',') q++;
-                }
-            }
-            p = skipValue(block, p);
-            p = blanks(block, p);
-            if (p < block.length && block[p] == ',') p++;
-        }
-        // "required": name and uri. A link missing one is no link to read.
-        bool link = kind.slice() == "resource_link" && named && located;
-        if (link) { links.add(name.slice()); links.add("\0"); links.add(uri.slice()); links.add("\0"); }
-        bool resource = kind.slice() == "resource" && holdsUri && holdsText;
-        if (resource) { embedded.add(heldUri.slice()); embedded.add("\0"); embedded.add(held.slice()); embedded.add("\0"); }
-        if (!text && !link && !resource && all) {
-            all = false;
-            other.add(kind.slice() == "resource" && holdsUri && holdsBlob ? "resource holding a blob" : kind.slice());
-        }
-        if (text) {
-            if (!first) r.add("\n");
-            first = false;
-            r.add(value.slice());
-        }
-        pos = blanks(line, end);
-        if (pos < line.length && line[pos] == ',') pos = blanks(line, pos + 1);
+// The prompt's text blocks, in order, one line each, as libacp reads params. A
+// resource_link goes into links to be read, its name and its uri each ended by
+// a NUL. A resource embedded with its text, "for pieces of context that are
+// referenced in the message", goes into embedded, its uri and its text each
+// ended by a NUL. An image, "Agent supports ContentBlock::Image", goes into
+// images, its mimeType and its data each ended by a NUL; audio, "Agent
+// supports ContentBlock::Audio", goes into audio the same way. A block of another kind has no text to give the model, and
+// is not pretended to: other gets the type of the first such block, empty when
+// it names none; a resource holding a blob is "resource holding a blob".
+// refused: libacp's refusal of the prompt itself is in said.
+@Reads("prompt") Blocks promptText(const(char)[] params, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded,
+        ref Reply images, ref Reply audio, ref Reply said) {
+    import libacp : acp_prompt, acp_prompt_read, acp_prompt_free, acp_block_kind, acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    acp_prompt prompt;
+    scope(exit) acp_prompt_free(&prompt);
+    acp_buffer refusal;
+    scope(exit) acp_buffer_free(&refusal);
+    if (acp_prompt_read(params.ptr, params.length, &prompt, &refusal) != acp_status.ACP_OK) {
+        if (refusal.data !is null) said.add(refusal.data[0 .. refusal.length]);
+        else said.add(`{"code":-32603,"message":"libacp could not read session/prompt's prompt"}`);
+        return Blocks.refused;
     }
-    return all;
+    static const(char)[] of(const(char)* s) { return s is null ? "" : s[0 .. strlen(s)]; }
+    bool first = true, all = true;
+    foreach (ref b; prompt.blocks[0 .. prompt.count]) {
+        final switch (b.kind) {
+            case acp_block_kind.ACP_BLOCK_TEXT:
+                if (!first) r.add("\n");
+                first = false;
+                r.add(of(b.text));
+                break;
+            case acp_block_kind.ACP_BLOCK_RESOURCE_LINK:
+                links.add(of(b.name)); links.add("\0"); links.add(of(b.uri)); links.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_RESOURCE:
+                embedded.add(of(b.uri)); embedded.add("\0"); embedded.add(of(b.text)); embedded.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_IMAGE:
+                images.add(of(b.mime_type)); images.add("\0"); images.add(of(b.data)); images.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_AUDIO:
+                audio.add(of(b.mime_type)); audio.add("\0"); audio.add(of(b.data)); audio.add("\0");
+                break;
+            case acp_block_kind.ACP_BLOCK_OTHER:
+                if (all) other.add(b.holds_blob ? "resource holding a blob" : of(b.type));
+                all = false;
+                break;
+        }
+    }
+    return all ? Blocks.read : Blocks.other;
 }
 
 // "Absolute path to the file to read": a file:// uri on this machine, its
@@ -236,38 +221,6 @@ bool fileUriPath(const(char)[] uri, ref Reply path) {
 }
 
 // --- elicitation: what a session's MCP server asks the user ---
-
-// What a server's elicitation/create asked, as ACP's elicitation/create asks
-// it of the client: "Elicitations are tied to a session (optionally a tool
-// call)", so the session and the call it came in lead; then its mode, "form"
-// when the server names none, as a legacy one may; then everything else it
-// asked, in its order. 1 form, 2 url, 0 another mode, -1 not an object.
-int elicitationParams(const(char)[] params, const(char)[] sid, const(char)[] callId, ref Reply asked) {
-    auto root = parseJson(params);
-    scope(exit) json_object_put(root);
-    if (json_object_get_type(root) != json_type.object) return -1;
-    auto named = jsonField(root, "mode");
-    const(char)[] mode = "form";
-    if (named !is null) {
-        if (json_object_get_type(named) != json_type.string_) return -1;
-        auto m = json_object_get_string(named);
-        mode = m[0 .. strlen(m)];
-    }
-    asked.add(`{"sessionId":"`); putEscaped(asked, sid);
-    asked.add(`","toolCallId":"`); putEscaped(asked, callId);
-    asked.add(`","mode":"`); putEscaped(asked, mode); asked.add(`"`);
-    auto end = json_object_iter_end(root);
-    for (auto it = json_object_iter_begin(root); !json_object_iter_equal(&it, &end); json_object_iter_next(&it)) {
-        auto key = json_object_iter_peek_name(&it);
-        auto k = key[0 .. strlen(key)];
-        if (k == "mode" || k == "sessionId" || k == "toolCallId") continue;
-        auto value = json_object_to_json_string_ext(json_object_iter_peek_value(&it),
-            JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
-        asked.add(`,"`); putEscaped(asked, k); asked.add(`":`); asked.add(value[0 .. strlen(value)]);
-    }
-    asked.add("}");
-    return mode == "form" ? 1 : mode == "url" ? 2 : 0;
-}
 
 // --- cost ---
 
@@ -479,9 +432,100 @@ int promptMessages(const(char)[] response, ref Reply history, ref Reply why) {
 
 private void comma(ref Reply h) { if (h.len > 0) h.add(","); }
 
-void userMessage(ref Reply h, const(char)[] text) {
+// The gateway's audio formats, "wav, mp3, flac, m4a, ogg, aiff, aac", each by
+// the mimeTypes it goes by; the first is the one a format is told back as.
+private static immutable string[][] AUDIO_FORMATS = [
+    ["wav", "audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"],
+    ["mp3", "audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"],
+    ["flac", "audio/flac", "audio/x-flac"],
+    ["m4a", "audio/mp4", "audio/m4a", "audio/x-m4a"],
+    ["ogg", "audio/ogg"],
+    ["aiff", "audio/aiff", "audio/x-aiff"],
+    ["aac", "audio/aac"],
+];
+
+// The gateway's format for audio of this mimeType, as it names it; null for
+// a mimeType ground code knows no format of. A type is the same in any case.
+const(char)[] audioFormat(const(char)[] mimeType) {
+    static bool same(const(char)[] a, const(char)[] b) {
+        if (a.length != b.length) return false;
+        foreach (i; 0 .. a.length) {
+            char x = a[i] >= 'A' && a[i] <= 'Z' ? cast(char)(a[i] + 32) : a[i];
+            if (x != b[i]) return false;
+        }
+        return true;
+    }
+    foreach (f; AUDIO_FORMATS) foreach (m; f[1 .. $]) if (same(mimeType, m)) return f[0];
+    return null;
+}
+
+// The mimeType a format is told back as, on session/load.
+private const(char)[] audioMimeOf(const(char)[] format) {
+    foreach (f; AUDIO_FORMATS) if (f[0] == format) return f[1];
+    return null;
+}
+
+// The user's words, and the images and audio they gave, each a mimeType and
+// its data ended by a NUL: words alone are a string; with either, the content
+// is the gateway's parts, a text part when there are words, then each image
+// as an image_url holding a data URL, then each audio as an input_audio
+// holding its base64 data and its format.
+void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null, const(char)[] audio = null) {
     comma(h);
-    h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`);
+    if (images.length == 0 && audio.length == 0) { h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`); return; }
+    h.add(`{"role":"user","content":[`);
+    bool first = true;
+    if (text.length > 0) { h.add(`{"type":"text","text":"`); putEscaped(h, text); h.add(`"}`); first = false; }
+    for (size_t at = 0, from = 0, field = 0; at < images.length; at++) {
+        if (images[at] != '\0') continue;
+        if (field++ % 2 == 0) {
+            if (!first) h.add(",");
+            first = false;
+            h.add(`{"type":"image_url","image_url":{"url":"data:`); putEscaped(h, images[from .. at]); h.add(`;base64,`);
+        } else { putEscaped(h, images[from .. at]); h.add(`"}}`); }
+        from = at + 1;
+    }
+    const(char)[] format;
+    for (size_t at = 0, from = 0, field = 0; at < audio.length; at++) {
+        if (audio[at] != '\0') continue;
+        if (field++ % 2 == 0) format = audioFormat(audio[from .. at]);
+        else {
+            if (!first) h.add(",");
+            first = false;
+            h.add(`{"type":"input_audio","input_audio":{"data":"`); putEscaped(h, audio[from .. at]);
+            h.add(`","format":"`); putEscaped(h, format); h.add(`"}}`);
+        }
+        from = at + 1;
+    }
+    h.add(`]}`);
+}
+
+// Whether data is base64, as the gateway takes an image's or audio's data.
+bool isBase64(const(char)[] data) {
+    if (data.length == 0) return false;
+    foreach (c; data)
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='))
+            return false;
+    return true;
+}
+
+// What would keep an image out of a data URL, "data:" mimeType ";base64," data:
+// a mimeType that is no type/subtype, or data that is not base64. null when
+// nothing does. Whether the model takes the image is the gateway's to say.
+const(char)[] unusableImage(const(char)[] mimeType, const(char)[] data) {
+    static bool token(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+            || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-';
+    }
+    size_t slashes = 0, slash = 0;
+    foreach (i, c; mimeType) {
+        if (c == '/') { slashes++; slash = i; }
+        else if (!token(c)) return "its mimeType is not a type/subtype";
+    }
+    if (slashes != 1 || slash == 0 || slash + 1 == mimeType.length) return "its mimeType is not a type/subtype";
+    if (data.length == 0) return "its data is empty";
+    if (!isBase64(data)) return "its data is not base64";
+    return null;
 }
 
 // The model's own message, as the gateway gave it, so its tool_calls come
@@ -591,33 +635,6 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
     return false;
 }
 
-// The client's answer to session/request_permission: 1 an option was selected,
-// its optionId in optionId; 0 "The prompt turn was cancelled before the user
-// responded"; -1 an answer of neither kind, or an error.
-int permissionOutcome(const(char)[] line, ref Reply optionId) {
-    auto root = parseJson(line);
-    scope(exit) json_object_put(root);
-    auto outcome = jsonField(jsonField(root, "result"), "outcome");
-    auto kind = text(jsonField(outcome, "outcome"));
-    if (kind == "cancelled") return 0;
-    if (kind != "selected") return -1;
-    auto id = text(jsonField(outcome, "optionId"));
-    if (id is null) return -1;
-    optionId.add(id);
-    return 1;
-}
-
-// The client's answer to fs/read_text_file: 1 and the file's text in content,
-// or -1 for an answer of any other kind, an error among them.
-int readTextContent(const(char)[] line, ref Reply content) {
-    auto root = parseJson(line);
-    scope(exit) json_object_put(root);
-    auto text_ = jsonField(jsonField(root, "result"), "content");
-    if (json_object_get_type(text_) != json_type.string_) return -1;
-    content.add(text(text_));
-    return content.full ? -1 : 1;
-}
-
 // A conversation told back to the client, a session/update a step, as the
 // turns that made it told them live: what the user said, what the model said,
 // each call it asked for, and how each one came out. A call came out completed
@@ -625,48 +642,118 @@ int readTextContent(const(char)[] line, ref Reply content) {
 // false when the history is not one ground code wrote, or send failed.
 // --- what a tool call shows the user ---
 
-// ToolCall content, "Content produced by the tool call", from what a call
-// answered as the history keeps it: its MCP content blocks as they came, since
-// ContentBlock is "compatible with the Model Context Protocol (MCP), enabling
-// agents to seamlessly forward content from MCP tool outputs without
-// transformation"; or what failed it as text: the server's error, a tool's
-// error content, ground code's message, or why it was not run. Nothing to
-// show adds nothing.
-void putToolContent(ref Reply u, const(char)[] output) {
+// What a call shows, from what it answered as the history keeps it, MCP's content blocks as they came:
+// "enabling agents to seamlessly forward content from MCP tool outputs without transformation"
+// Or what failed it, as text. Blocks go into blocks as their array, the text into said.
+void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
     auto root = parseJson(output);
     scope(exit) json_object_put(root);
     json_object* inner;
     scope(exit) json_object_put(inner);
-    json_object* blocks;
-    const(char)[] said;
-    if (root is null) said = output;
-    else if (jsonField(root, "result") !is null) blocks = jsonField(jsonField(root, "result"), "content");
-    else if (jsonField(root, "error") !is null) said = text(jsonField(jsonField(root, "error"), "message"));
+    json_object* found;
+    const(char)[] text_;
+    if (root is null) text_ = output;
+    else if (jsonField(root, "result") !is null) found = jsonField(jsonField(root, "result"), "content");
+    else if (jsonField(root, "error") !is null) text_ = text(jsonField(jsonField(root, "error"), "message"));
     else {
         // ground code's own: the response it failed on, when there was one.
         auto response = text(jsonField(root, "response"));
         if (response.length > 0) inner = parseJson(response);
-        if (jsonField(inner, "result") !is null) blocks = jsonField(jsonField(inner, "result"), "content");
-        else if (jsonField(inner, "error") !is null) said = text(jsonField(jsonField(inner, "error"), "message"));
-        if (blocks is null && said.length == 0) {
-            said = text(jsonField(root, "why"));
-            if (said.length == 0) said = text(jsonField(root, "message"));
+        if (jsonField(inner, "result") !is null) found = jsonField(jsonField(inner, "result"), "content");
+        else if (jsonField(inner, "error") !is null) text_ = text(jsonField(jsonField(inner, "error"), "message"));
+        if (found is null && text_.length == 0) {
+            text_ = text(jsonField(root, "why"));
+            if (text_.length == 0) text_ = text(jsonField(root, "message"));
+            // A command run in the client's terminal: what it printed.
+            if (text_.length == 0) text_ = text(jsonField(root, "output"));
         }
     }
-    if (json_object_get_type(blocks) == json_type.array && json_object_array_length(blocks) > 0) {
-        u.add(`,"content":[`);
-        foreach (i; 0 .. json_object_array_length(blocks)) {
-            if (i > 0) u.add(",");
-            u.add(`{"type":"content","content":`);
-            auto block = json_object_to_json_string_ext(json_object_array_get_idx(blocks, i),
-                JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
-            u.add(block[0 .. strlen(block)]);
-            u.add(`}`);
-        }
-        u.add(`]`);
-    } else if (said.length > 0) {
-        u.add(`,"content":[{"type":"content","content":{"type":"text","text":"`); putEscaped(u, said); u.add(`"}}]`);
+    if (json_object_get_type(found) == json_type.array && json_object_array_length(found) > 0) {
+        auto array = json_object_to_json_string_ext(found, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+        blocks.add(array[0 .. strlen(array)]);
+    } else said.add(text_);
+}
+
+// A tool_call, or a tool_call_update when update, as libacp writes it, into u. A field that is
+// null is not written; rawOutput, when given, also gives what the call shows. false when libacp
+// could not write it.
+bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title, const(char)[] name,
+        const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput,
+        const(char)[] terminalId = null) {
+    import libacp : acp_tool_call, acp_tool_call_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply blocks, said, text_;
+    scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
+    // A call that shows a terminal shows it alone: the terminal holds what the call printed.
+    if (rawOutput !is null && terminalId is null) toolContentOf(rawOutput, blocks, said);
+    // Each field as C reads it, its own bytes and a NUL; size_t.max is one not given.
+    size_t at(const(char)[] s) {
+        if (s is null) return size_t.max;
+        auto from = text_.len; text_.add(s); text_.add("\0"); return from;
     }
+    auto idAt = at(id), titleAt = at(title), nameAt = at(name), kindAt = at(kind), statusAt = at(status);
+    auto inputAt = at(rawInput), outputAt = at(rawOutput);
+    auto blocksAt = at(blocks.len > 0 ? blocks.slice() : null), saidAt = at(said.len > 0 ? said.slice() : null);
+    auto terminalAt = at(terminalId);
+    if (text_.full || blocks.full || said.full) return false;
+    const(char)* c(size_t from) { return from == size_t.max ? null : text_.slice().ptr + from; }
+    auto call = acp_tool_call(update, c(idAt), c(titleAt), c(nameAt), c(kindAt), c(statusAt), c(inputAt), c(outputAt),
+        c(blocksAt), c(saidAt), c(terminalAt));
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_tool_call_write(&call, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// A text chunk, the agent's message, its thought or the user's, as libacp writes it, into u.
+bool putChunk(ref Reply u, int kind, const(char)[] text_) {
+    import libacp : acp_chunk_kind, acp_text_chunk_write, acp_buffer, acp_buffer_free, acp_status;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_text_chunk_write(cast(acp_chunk_kind) kind, text_.ptr, text_.length, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// The user's image, from the data URL it was given to the model in, as libacp
+// writes a user_message_chunk holding it, into u.
+private bool putImageChunk(ref Reply u, const(char)[] url) {
+    import libacp : acp_chunk_kind, acp_image_chunk_write, acp_buffer, acp_buffer_free, acp_status;
+    enum head = "data:", tail = ";base64,";
+    if (url.length < head.length || url[0 .. head.length] != head) return false;
+    size_t at = head.length;
+    while (at + tail.length <= url.length && url[at .. at + tail.length] != tail) at++;
+    if (at + tail.length > url.length) return false;
+    Reply z;
+    scope(exit) z.dispose();
+    z.add(url[head.length .. at]); z.add("\0");
+    auto dataAt = z.len; z.add(url[at + tail.length .. $]); z.add("\0");
+    if (z.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_image_chunk_write(acp_chunk_kind.ACP_CHUNK_USER_MESSAGE, z.slice().ptr, z.slice().ptr + dataAt, &written) != acp_status.ACP_OK)
+        return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// The user's audio, by the mimeType its format is told back as, as libacp
+// writes a user_message_chunk holding it, into u.
+private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data) {
+    import libacp : acp_chunk_kind, acp_audio_chunk_write, acp_buffer, acp_buffer_free, acp_status;
+    auto mime = audioMimeOf(format);
+    if (mime is null || data is null) return false;
+    Reply z;
+    scope(exit) z.dispose();
+    z.add(mime); z.add("\0");
+    auto dataAt = z.len; z.add(data); z.add("\0");
+    if (z.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_audio_chunk_write(acp_chunk_kind.ACP_CHUNK_USER_MESSAGE, z.slice().ptr, z.slice().ptr + dataAt, &written) != acp_status.ACP_OK)
+        return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
 }
 
 // The history, told again. readOnly, when given, says which of the calls'
@@ -689,14 +776,30 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
         auto reasoning = role == "assistant" ? text(jsonField(m, "reasoning")) : null;
         if (reasoning.length > 0) {
             Reply u;
-            u.add(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`); putEscaped(u, reasoning); u.add(`"}}`);
-            if (!told(u)) return false;
+            scope(exit) u.dispose();
+            if (!putChunk(u, 1, reasoning) || !told(u)) return false;
         }
-        if (role == "user" || (role == "assistant" && content.length > 0)) {
+        auto parts = jsonField(m, "content");
+        if (role == "user" && json_object_get_type(parts) == json_type.array) {
+            // The words and images the user gave, each as it was given.
+            foreach (j; 0 .. json_object_array_length(parts)) {
+                auto part = json_object_array_get_idx(parts, j);
+                auto type = text(jsonField(part, "type"));
+                Reply u;
+                scope(exit) u.dispose();
+                if (type == "text") { if (!putChunk(u, 2, text(jsonField(part, "text"))) || !told(u)) return false; }
+                else if (type == "image_url") { if (!putImageChunk(u, text(jsonField(jsonField(part, "image_url"), "url"))) || !told(u)) return false; }
+                else if (type == "input_audio") {
+                    auto given = jsonField(part, "input_audio");
+                    if (!putAudioChunk(u, text(jsonField(given, "format")), text(jsonField(given, "data"))) || !told(u)) return false;
+                }
+                else return false;
+            }
+        }
+        else if (role == "user" || (role == "assistant" && content.length > 0)) {
             Reply u;
-            u.add(role == "user" ? `{"sessionUpdate":"user_message_chunk"` : `{"sessionUpdate":"agent_message_chunk"`);
-            u.add(`,"content":{"type":"text","text":"`); putEscaped(u, content); u.add(`"}}`);
-            if (!told(u)) return false;
+            scope(exit) u.dispose();
+            if (!putChunk(u, role == "user" ? 2 : 0, content) || !told(u)) return false;
         }
         if (role == "assistant") {
             auto calls = jsonField(m, "tool_calls");
@@ -706,12 +809,9 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 auto id = text(jsonField(call, "id")), name = text(jsonField(fn, "name")), args = text(jsonField(fn, "arguments"));
                 if (id is null || name is null || args is null) return false;
                 Reply u;
-                u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, id);
-                u.add(`","title":"`); putEscaped(u, name);
-                u.add(`","name":"`); putEscaped(u, name);
-                if (readOnly !is null && readOnly(name)) u.add(`","kind":"read`);
-                u.add(`","rawInput":`); u.add(args); u.add(`}`);
-                if (!told(u)) return false;
+                scope(exit) u.dispose();
+                auto kind = readOnly !is null && readOnly(name) ? "read" : null;
+                if (!putToolCall(u, false, id, name, name, kind, null, args, null) || !told(u)) return false;
             }
         }
         else if (role == "tool") {
@@ -719,15 +819,13 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             if (id is null || content is null) return false;
             auto answer = parseJson(content);
             scope(exit) json_object_put(answer);
-            bool completed = jsonField(answer, "result") !is null;
+            // A command completed as it did live, by exiting 0.
+            auto exitCode = jsonField(answer, "exitCode");
+            bool completed = jsonField(answer, "result") !is null
+                || (json_object_get_type(exitCode) == json_type.int_ && json_object_get_int64(exitCode) == 0);
             Reply u;
-            u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, id);
-            u.add(completed ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`);
-            if (answer !is null) u.add(content);
-            else { u.add(`"`); putEscaped(u, content); u.add(`"`); }
-            putToolContent(u, content);
-            u.add(`}`);
-            if (!told(u)) return false;
+            scope(exit) u.dispose();
+            if (!putToolCall(u, true, id, null, null, null, completed ? "completed" : "failed", null, content) || !told(u)) return false;
         }
         else if (role != "user" && role != "assistant") return false;
     }

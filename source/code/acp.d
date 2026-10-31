@@ -8,21 +8,25 @@ module code.acp;
 enum BOOK_COMMAND = q"EOS
 # an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
 ground_code
+# sign in to the qntx block's node: approve the link it prints with your passkey:
+ground_code login
 EOS";
 
 import parse : extractJsonString, extractBool;
-import matcher : indexOf;
+import scan : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
-import proto : ParsedQntx;
+import qntxblock : ParsedQntx;
 import code.store : storeAddCost, storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
     storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
+import acpmethods : AGENT_METHODS, PROTOCOL_METHODS;
 import core.stdc.stdio : stdout, stderr, fputs, fwrite, fflush;
 import code.mcp : McpGroup, openMcp, closeMcp, callMcpTool;
 import code.prompt;
+import libacp : acp_stop_reason;
 public import code.reply : Reply, putEscaped, putNumber;
-public import code.input : Input, nextLine, take, more;
+public import code.input : Input, nextLine, take, more, within;
 
 extern (C) void free(void* p);
 extern (C) int getpid();
@@ -93,8 +97,12 @@ struct Sessions {
     long clock;      // the time, when one is given; otherwise the system's
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
+    bool clientWritesFiles; // initialize said the client answers fs/write_text_file
+    bool clientRunsCommands; // initialize said the client answers terminal/*
+    Reply unreleased; // terminal/create asked by a turn called off before the answer, its id and session a line
     bool clientTakesNotices; // initialize said the client presents notice session updates
     bool elicitsForms, elicitsUrls; // initialize said the client answers elicitation/create in these modes
+    bool clientRunsAuth; // initialize said the client runs a terminal auth method itself
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
     Reply after;     // what is told the client once the answer it follows is written
@@ -110,14 +118,16 @@ private struct Turn {
 }
 
 // session/cancel for this turn's session, or $/cancel_request naming the
-// request that asked for it.
+// request that asked for it, as libacp reads the line.
 private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
-    char[64] mb;
-    auto method = extractJsonString(line, `"method"`, &mb[0], mb.length);
-    if (method == "$/cancel_request") return rawValue(line, `"requestId"`) == id;
-    if (method != "session/cancel") return false;
-    char[256] sb;
-    return extractJsonString(line, `"sessionId"`, &sb[0], sb.length) == sid;
+    import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_cancel_kind, acp_status;
+    import core.stdc.string : strlen;
+    acp_cancel c;
+    scope(exit) acp_cancel_free(&c);
+    if (acp_cancel_read(line.ptr, line.length, &c) != acp_status.ACP_OK) return false;
+    if (c.kind == acp_cancel_kind.ACP_CANCEL_REQUEST) return c.request_id !is null && c.request_id[0 .. strlen(c.request_id)] == id;
+    if (c.kind == acp_cancel_kind.ACP_CANCEL_SESSION) return c.session_id !is null && c.session_id[0 .. strlen(c.session_id)] == sid;
+    return false;
 }
 
 // Whether the client has called the turn off, taking the line that did.
@@ -140,10 +150,10 @@ private bool listed(const(char)[] names, const(char)[] name) {
 }
 
 // What a session's mode makes of a call its turn asks for. Manual asks the
-// client; acceptEdits and auto have no meaning of their own for ground code,
-// which has no edit tools and no classifier, so they ask as Manual does.
+// client; acceptEdits runs an edit unasked, unless the user always rejects it,
+// and asks the rest as Manual does; auto has no classifier, so it asks as well.
 private enum Verdict { run, ask, refuse }
-private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref const(char)[] why) {
+private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, bool edit, ref const(char)[] why) {
     final switch (o.mode) {
         case SessionMode.bypassPermissions: return Verdict.run;
         case SessionMode.plan:
@@ -159,6 +169,7 @@ private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, ref con
             if (listed(o.always.slice(), tool)) return Verdict.run;
             why = "the user rejected it";
             if (listed(o.never.slice(), tool)) return Verdict.refuse;
+            if (o.mode == SessionMode.acceptEdits && edit) return Verdict.run;
             return Verdict.ask;
     }
 }
@@ -183,6 +194,18 @@ private int awaitAnswer(ref Turn turn, const(char)[] pid, ref Reply answered) {
     return 1;
 }
 
+// The client's answer to fs/read_text_file: 1 and the file's text in content,
+// every byte of it, or -1 for an answer of any other kind, an error among
+// them. libacp reads it.
+private int readTextContent(const(char)[] line, ref Reply content) {
+    import libacp : acp_text_file, acp_read_text_file_result_read, acp_text_file_free, acp_status;
+    acp_text_file file;
+    scope(exit) acp_text_file_free(&file);
+    if (acp_read_text_file_result_read(line.ptr, line.length, &file) != acp_status.ACP_OK || file.content is null) return -1;
+    content.add(file.content[0 .. file.length]);
+    return content.full ? -1 : 1;
+}
+
 // "Request to read content from a text file", asked of the client for path.
 // 1 and the file's text in content; 2 the turn was called off; -1 no text,
 // why the reason, the client's own answer when it gave one.
@@ -193,14 +216,21 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     Reply pid;
     scope(exit) pid.dispose();
     pid.add(`"read-`); putNumber(pid, sessions.asked); pid.add(`"`);
-    Reply n;
-    scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
-    n.add(`,"method":"fs/read_text_file","params":{"sessionId":"`); putEscaped(n, sid);
-    n.add(`","path":"`); putEscaped(n, path); n.add(`"}}` ~ "\n");
-    if (n.full) { why.add(`"could not allocate fs/read_text_file"`); return -1; }
-    auto out_ = n.slice();
-    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+    // libacp writes the request from these, each its own bytes and a NUL.
+    import libacp : acp_read_text_file_request_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), pathAt = at(path);
+    if (text.full) { why.add(`"could not allocate fs/read_text_file"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_read_text_file_request_write(t + idAt, t + sidAt, t + pathAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write fs/read_text_file"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
         why.add(`"could not write fs/read_text_file"`);
         return -1;
     }
@@ -214,6 +244,376 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     return -1;
 }
 
+// fs/write_text_file, asked of the client for what a write_text_file call gives: 1 answered, its answer in
+// answered; 0 not asked, the arguments being no absolute path and text, said in answered; 2 the turn was
+// called off; -1 the client could not be asked, why the reason.
+private int writeThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
+        const(char)[] arguments, ref Reply answered, ref Reply why) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
+        json_object_get_string, json_object_get_string_len;
+    import core.stdc.string : strlen;
+    auto args = parseJson(arguments);
+    scope(exit) json_object_put(args);
+    auto path = jsonField(args, "path"), content = jsonField(args, "content");
+    // A path is a C string to libacp, so one holding a NUL would name another file.
+    if (json_object_get_type(path) != json_type.string_ || json_object_get_type(content) != json_type.string_
+            || json_object_get_string(path)[0] != '/' || strlen(json_object_get_string(path)) != cast(size_t) json_object_get_string_len(path)) {
+        answered.add(`{"status":"not run","why":"write_text_file takes path, an absolute path, and content, text"}`);
+        return 0;
+    }
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    sessions.asked++;
+    Reply pid;
+    scope(exit) pid.dispose();
+    pid.add(`"write-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    // libacp writes the request from these, each its own bytes and a NUL; content goes by its length.
+    import libacp : acp_write_text_file_request_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid);
+    if (text.full) { why.add(`"could not allocate fs/write_text_file"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_write_text_file_request_write(t + idAt, t + sidAt, json_object_get_string(path), json_object_get_string(content),
+            cast(size_t) json_object_get_string_len(content), &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write fs/write_text_file"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+        why.add(`"could not write fs/write_text_file"`);
+        return -1;
+    }
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on the write"`); return -1; }
+    return waited;
+}
+
+// Whether the client's answer to fs/write_text_file is a result, the file written. libacp reads it.
+private bool clientWrote(const(char)[] line) {
+    import libacp : acp_write_text_file_result_read, acp_status;
+    int written;
+    return acp_write_text_file_result_read(line.ptr, line.length, &written) == acp_status.ACP_OK && written == 1;
+}
+
+// How much of a command's output the client keeps for ground code, cut from its start.
+enum OUTPUT_BYTE_LIMIT = 65536;
+
+// The id of the next request ground code asks of the client about a terminal.
+private void termId(ref Sessions sessions, ref Reply pid) {
+    sessions.asked++;
+    pid.add(`"term-`); putNumber(pid, sessions.asked); pid.add(`"`);
+}
+
+// A terminal/* request libacp wrote, sent as pid and its answer waited on: 1 answered, into
+// answered; 2 the turn was called off; -1 not, why the reason.
+private int askTerminal(ref Turn turn, const(char)[] pid, const(char)[] request, const(char)[] method,
+        ref Reply answered, ref Reply why) {
+    if (fwrite(request.ptr, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+        why.add(`"could not write `); why.add(method); why.add(`"`);
+        return -1;
+    }
+    auto waited = awaitAnswer(turn, pid, answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on `); why.add(method); why.add(`"`); }
+    return waited;
+}
+
+// terminal/create for command and its args, in cwd, asked as pid: 1 created, its id in terminalId; 0 the
+// client answered with none, its answer in answered; 2 the turn was called off; -1 not asked, why the reason.
+private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
+        const(char)* command, const(const(char)*)[] args, ref Reply pid, ref Reply terminalId, ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_create_request_write, acp_terminal_create_result_read, acp_terminal_id_free,
+        acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    Reply text;
+    scope(exit) text.dispose();
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), cwdAt = at(cwd);
+    if (text.full) { why.add(`"could not allocate terminal/create"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_create_request_write(t + idAt, t + sidAt, command, args.ptr, args.length, t + cwdAt,
+            OUTPUT_BYTE_LIMIT, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/create"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/create", answered, why);
+    if (waited != 1) return waited;
+    char* id;
+    scope(exit) acp_terminal_id_free(id);
+    if (acp_terminal_create_result_read(answered.slice().ptr, answered.len, &id) != acp_status.ACP_OK || id is null) return 0;
+    terminalId.add(id[0 .. strlen(id)]);
+    return 1;
+}
+
+// terminal/wait_for_exit: 1 exited, how into code, hasCode and signal; 0 the client answered
+// otherwise, into answered; 2 the turn was called off; -1 not asked, why the reason.
+private int terminalWait(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref bool hasCode, ref ulong code, ref Reply signal, ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_wait_for_exit_request_write, acp_terminal_exit_read, acp_terminal_exit_free,
+        acp_terminal_exit, acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/wait_for_exit"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_wait_for_exit_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/wait_for_exit"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/wait_for_exit", answered, why);
+    if (waited != 1) return waited;
+    acp_terminal_exit e;
+    scope(exit) acp_terminal_exit_free(&e);
+    if (acp_terminal_exit_read(answered.slice().ptr, answered.len, &e) != acp_status.ACP_OK || !e.exited) return 0;
+    hasCode = e.has_exit_code != 0;
+    code = e.exit_code;
+    if (e.signal !is null) signal.add(e.signal[0 .. strlen(e.signal)]);
+    return 1;
+}
+
+// terminal/output: 1 read, every byte into output and whether the client cut it into truncated; 0
+// the client answered otherwise, into answered; 2 the turn was called off; -1 not asked, why the reason.
+private int terminalOutput(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref Reply output, ref bool truncated, ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_output_request_write, acp_terminal_output_result_read, acp_terminal_output_free,
+        acp_terminal_output, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/output"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_output_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/output"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/output", answered, why);
+    if (waited != 1) return waited;
+    acp_terminal_output o;
+    scope(exit) acp_terminal_output_free(&o);
+    if (acp_terminal_output_result_read(answered.slice().ptr, answered.len, &o) != acp_status.ACP_OK || o.output is null) return 0;
+    output.add(o.output[0 .. o.length]);
+    truncated = o.truncated != 0;
+    return output.full ? -1 : 1;
+}
+
+// terminal/kill: 1 the client killed it; 0 it answered otherwise, into answered; 2 the turn was called
+// off; -1 not asked, why the reason.
+private int terminalKill(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_kill_request_write, acp_terminal_answered_read, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/kill"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_kill_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/kill"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/kill", answered, why);
+    if (waited != 1) return waited;
+    int done;
+    return acp_terminal_answered_read(answered.slice().ptr, answered.len, &done) == acp_status.ACP_OK && done ? 1 : 0;
+}
+
+// terminal/release: 1 the client released it; 0 it answered otherwise, into answered; 2 the turn was
+// called off; -1 not asked, why the reason.
+private int terminalRelease(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] terminalId,
+        ref Reply answered, ref Reply why) {
+    import libacp : acp_terminal_release_request_write, acp_terminal_answered_read, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    termId(sessions, pid);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), termAt = at(terminalId);
+    if (text.full) { why.add(`"could not allocate terminal/release"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_terminal_release_request_write(t + idAt, t + sidAt, t + termAt, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write terminal/release"`);
+        return -1;
+    }
+    auto waited = askTerminal(turn, pid.slice(), request.data[0 .. request.length], "terminal/release", answered, why);
+    if (waited != 1) return waited;
+    int done;
+    return acp_terminal_answered_read(answered.slice().ptr, answered.len, &done) == acp_status.ACP_OK && done ? 1 : 0;
+}
+
+// The answer to a terminal/create a turn was called off before: the terminal it names is released, its
+// own answer left to arrive as one no turn waits on. false when line answers no such request.
+private bool releaseUnreleased(ref Sessions sessions, const(char)[] id, const(char)[] line) {
+    import libacp : acp_terminal_create_result_read, acp_terminal_id_free, acp_terminal_release_request_write,
+        acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    auto all = sessions.unreleased.slice();
+    for (size_t from = 0; from < all.length; ) {
+        auto end = from;
+        while (end < all.length && all[end] != '\n') end++;
+        auto entry = all[from .. end];
+        auto tab = indexOf(entry, "\t");
+        if (tab >= 0 && entry[0 .. cast(size_t) tab] == id) {
+            Reply sid, pid, text;
+            scope(exit) { sid.dispose(); pid.dispose(); text.dispose(); }
+            sid.add(entry[cast(size_t) tab + 1 .. $]);
+            // Out of the list first: an answer is released once, whatever comes of it.
+            Reply rest;
+            scope(exit) rest.dispose();
+            rest.add(all[0 .. from]); if (end < all.length) rest.add(all[end + 1 .. $]);
+            sessions.unreleased.len = 0; sessions.unreleased.add(rest.slice());
+            char* terminal;
+            scope(exit) acp_terminal_id_free(terminal);
+            if (acp_terminal_create_result_read(line.ptr, line.length, &terminal) != acp_status.ACP_OK || terminal is null) {
+                fputs("ground code: a called-off turn's terminal/create made no terminal to release: ", stderr);
+                fwrite(line.ptr, 1, line.length, stderr); fputs("\n", stderr);
+                return true;
+            }
+            termId(sessions, pid);
+            size_t at(const(char)[] s) { auto f = text.len; text.add(s); text.add("\0"); return f; }
+            auto idAt = at(pid.slice()), sidAt = at(sid.slice());
+            acp_buffer request;
+            scope(exit) acp_buffer_free(&request);
+            if (text.full || acp_terminal_release_request_write(text.slice().ptr + idAt, text.slice().ptr + sidAt, terminal, &request) != acp_status.ACP_OK
+                    || fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+                fputs("ground code: could not release the terminal a called-off turn's terminal/create made: ", stderr);
+                fwrite(line.ptr, 1, line.length, stderr); fputs("\n", stderr);
+            }
+            return true;
+        }
+        from = end + 1;
+    }
+    return false;
+}
+
+// A run_command call, run in the client's terminal in the session's cwd: shown in the call, waited on, read
+// and released, killed first when the turn is called off. 1 it ran, into result, ok when it exited 0; 0 not
+// asked, said in result; 2 the turn was called off, said in result; -1 not asked, why the reason.
+private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
+        const(char)[] callId, const(char)[] arguments, ref Reply result, ref bool ok, ref Reply terminalId, ref Reply why) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type, json_object_get_string,
+        json_object_get_string_len, json_object_array_length, json_object_array_get_idx;
+    import core.stdc.string : strlen;
+    import core.stdc.stdlib : malloc, free;
+    ok = false;
+    auto root = parseJson(arguments);
+    scope(exit) json_object_put(root);
+    // Each a C string to libacp, so one holding a NUL would run something else.
+    bool whole(typeof(root) v) {
+        return json_object_get_type(v) == json_type.string_
+            && strlen(json_object_get_string(v)) == cast(size_t) json_object_get_string_len(v);
+    }
+    auto command = jsonField(root, "command"), list = jsonField(root, "args");
+    bool usable = whole(command) && json_object_get_string_len(command) > 0
+        && (list is null || json_object_get_type(list) == json_type.array);
+    size_t count = usable && list !is null ? json_object_array_length(list) : 0;
+    foreach (i; 0 .. count) if (!whole(json_object_array_get_idx(list, i))) usable = false;
+    if (!usable) {
+        result.add(`{"status":"not run","why":"run_command takes command, text, and args, a list of text"}`);
+        return 0;
+    }
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    auto args = cast(const(char)**) malloc((count > 0 ? count : 1) * (const(char)*).sizeof);
+    if (args is null) { why.add(`"could not allocate run_command's args"`); return -1; }
+    scope(exit) free(args);
+    foreach (i; 0 .. count) args[i] = json_object_get_string(json_object_array_get_idx(list, i));
+
+    Reply answered, asked;
+    scope(exit) { answered.dispose(); asked.dispose(); }
+    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], asked, terminalId, answered, why);
+    if (made < 0) return -1;
+    // Called off before the client answered: the terminal it makes is released when its answer comes.
+    if (made == 2) {
+        sessions.unreleased.add(asked.slice()); sessions.unreleased.add("\t"); sessions.unreleased.add(sid); sessions.unreleased.add("\n");
+        result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to run the command"}`);
+        return 2;
+    }
+    if (made == 0) { result.add(answered.slice()); return 1; }
+    // The terminal is shown in the call before it is released:
+    // "The terminal must be added before calling `terminal/release`."
+    {
+        Reply u;
+        scope(exit) u.dispose();
+        if (!putToolCall(u, true, callId, null, null, null, "in_progress", null, null, terminalId.slice()) || !notify(sid, u.slice())) {
+            why.add(`"could not write session/update"`);
+            return -1;
+        }
+    }
+    bool hasCode, truncated;
+    ulong code;
+    Reply signal, output, released;
+    scope(exit) { signal.dispose(); output.dispose(); released.dispose(); }
+    answered.len = 0;
+    auto exited = terminalWait(sessions, turn, sid, terminalId.slice(), hasCode, code, signal, answered, why);
+    if (exited < 0) return -1;
+    // Called off: killed, and what it printed so far read, before it is released.
+    if (exited == 2) {
+        Reply killed;
+        scope(exit) killed.dispose();
+        if (terminalKill(sessions, turn, sid, terminalId.slice(), killed, why) < 0) return -1;
+    }
+    Reply readAnswer;
+    scope(exit) readAnswer.dispose();
+    auto read = terminalOutput(sessions, turn, sid, terminalId.slice(), output, truncated, readAnswer, why);
+    if (read < 0) return -1;
+    auto freed = terminalRelease(sessions, turn, sid, terminalId.slice(), released, why);
+    if (freed < 0) return -1;
+    void tail() {
+        result.add(`"truncated":`); result.add(truncated ? "true" : "false");
+        result.add(`,"output":"`); putEscaped(result, output.slice()); result.add(`"`);
+        if (freed == 0) { result.add(`,"release":`); result.add(released.len > 0 ? released.slice() : "null"); }
+        result.add(`}`);
+    }
+    if (exited == 2) {
+        result.add(`{"status":"cancelled","why":"the client cancelled the turn while the command ran",`);
+        tail();
+        return 2;
+    }
+    // An answer that is no exit, or no output, is what came of the call, as the client gave it.
+    if (exited == 0) { result.add(answered.slice()); return 1; }
+    if (read == 0) { result.add(readAnswer.slice()); return 1; }
+    result.add(`{"exitCode":`);
+    if (hasCode) putNumber(result, cast(uint) code); else result.add("null");
+    result.add(`,"signal":`);
+    if (signal.len > 0) { result.add(`"`); putEscaped(result, signal.slice()); result.add(`"`); } else result.add("null");
+    result.add(`,`);
+    tail();
+    ok = hasCode && code == 0;
+    return result.full ? -1 : 1;
+}
+
+// The client's answer to session/request_permission: 1 an option was selected,
+// its optionId in optionId; 0 "The prompt turn was cancelled before the user
+// responded"; -1 an answer of neither kind, or an error. libacp reads it.
+private int permissionOutcome(const(char)[] line, ref Reply optionId) {
+    import libacp : acp_permission_outcome, acp_permission_outcome_read, acp_permission_outcome_free,
+        acp_permission_kind, acp_status;
+    import core.stdc.string : strlen;
+    acp_permission_outcome o;
+    scope(exit) acp_permission_outcome_free(&o);
+    if (acp_permission_outcome_read(line.ptr, line.length, &o) != acp_status.ACP_OK) return -1;
+    if (o.kind == acp_permission_kind.ACP_PERMISSION_CANCELLED) return 0;
+    if (o.kind != acp_permission_kind.ACP_PERMISSION_SELECTED) return -1;
+    optionId.add(o.option_id[0 .. strlen(o.option_id)]);
+    return 1;
+}
+
 // "Request for user permission to execute a tool call." Asked of the client,
 // the turn waiting on its answer, and still on a cancel: 1 allowed, 0
 // rejected, 2 the turn was called off, -1 no answer ground code can read,
@@ -225,22 +625,32 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     Reply pid;
     scope(exit) pid.dispose();
     pid.add(`"perm-`); putNumber(pid, sessions.asked); pid.add(`"`);
-    Reply n;
-    scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
-    n.add(`,"method":"session/request_permission","params":{"sessionId":"`); putEscaped(n, sid);
-    n.add(`","toolCall":{"toolCallId":"`); putEscaped(n, callId);
-    n.add(`","title":"`); putEscaped(n, tool);
-    n.add(`","name":"`); putEscaped(n, tool);
-    if (readOnlyTool(o.mcp, tool)) n.add(`","kind":"read`);
-    n.add(`","status":"pending","rawInput":`); n.add(arguments);
-    n.add(`},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},`);
-    n.add(`{"optionId":"allow_always","name":"Always allow `); putEscaped(n, tool); n.add(`","kind":"allow_always"},`);
-    n.add(`{"optionId":"reject_once","name":"Reject once","kind":"reject_once"},`);
-    n.add(`{"optionId":"reject_always","name":"Always reject `); putEscaped(n, tool); n.add(`","kind":"reject_always"}]}}` ~ "\n");
-    if (n.full) { why.add(`"could not allocate the permission request"`); return -1; }
-    auto out_ = n.slice();
-    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+    // libacp writes the request from these, each its own bytes and a NUL.
+    import libacp : acp_permission_option, acp_permission_request, acp_permission_request_write, acp_buffer,
+        acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), callAt = at(callId), toolAt = at(tool), inputAt = at(arguments);
+    auto allowAt = text.len; text.add("Always allow "); text.add(tool); text.add("\0");
+    auto rejectAt = text.len; text.add("Always reject "); text.add(tool); text.add("\0");
+    if (text.full) { why.add(`"could not allocate the permission request"`); return -1; }
+    auto t = text.slice().ptr;
+    acp_permission_option[4] options = [
+        acp_permission_option("allow_once", "Allow once", "allow_once"),
+        acp_permission_option("allow_always", t + allowAt, "allow_always"),
+        acp_permission_option("reject_once", "Reject once", "reject_once"),
+        acp_permission_option("reject_always", t + rejectAt, "reject_always"),
+    ];
+    auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + toolAt, t + toolAt,
+        readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_permission_request_write(&asked, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write session/request_permission"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
         why.add(`"could not write session/request_permission"`);
         return -1;
     }
@@ -273,9 +683,133 @@ private void announceCommands(ref Sessions sessions, const(char)[] sid, ref McpG
     scope(exit) commands.dispose();
     commandsOf(group, commands);
     if (commands.slice() == "[]") return;
-    sessions.after.add(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`); putEscaped(sessions.after, sid);
-    sessions.after.add(`","update":{"sessionUpdate":"available_commands_update","availableCommands":`);
-    sessions.after.add(commands.slice()); sessions.after.add("}}}\n");
+    import libacp : acp_available_commands_update_write, acp_buffer, acp_buffer_free, acp_status;
+    commands.add("\0");
+    acp_buffer update;
+    scope(exit) acp_buffer_free(&update);
+    if (commands.full || acp_available_commands_update_write(commands.slice().ptr, &update) != acp_status.ACP_OK
+        || !sessionUpdate(sessions.after, sid, update.data[0 .. update.length])) {
+        fputs("ground code: libacp could not write available_commands_update\n", stderr);
+        return;
+    }
+    sessions.after.add("\n");
+}
+
+// ground code's auth methods: qntx it runs itself through authenticate,
+// qntx-terminal the client runs as `ground_code login`.
+enum AGENT_METHOD = "qntx";
+enum TERMINAL_METHOD = "qntx-terminal";
+private enum AGENT_AUTH = `{"id":"qntx","name":"Sign in to QNTX","description":"Open the link ground code gives, and approve it at your QNTX node with your passkey"}`;
+private enum TERMINAL_AUTH = `{"type":"terminal","id":"qntx-terminal","name":"Sign in to QNTX in a terminal","description":"Runs ground_code login, which prints the link to approve at your QNTX node with your passkey","args":["login"]}`;
+
+// "Authentication methods supported by the agent": qntx to a client that can
+// send the person to a link, and qntx-terminal only to one that said it runs
+// terminal methods: "Agents MUST advertise this method only when the client
+// enabled its terminal authentication capability."
+private const(char)* authMethods(ref const Sessions sessions) {
+    if (sessions.elicitsUrls && sessions.clientRunsAuth) return "[" ~ AGENT_AUTH ~ "," ~ TERMINAL_AUTH ~ "]";
+    if (sessions.elicitsUrls) return "[" ~ AGENT_AUTH ~ "]";
+    if (sessions.clientRunsAuth) return "[" ~ TERMINAL_AUTH ~ "]";
+    return "[]";
+}
+
+// authenticate qntx, its answer added to r after its id: the node starts a
+// sign-in, the person is sent to its link by an elicitation "tied to a
+// specific JSON-RPC request outside of a session (e.g., during
+// auth/configuration phases before any session is started)", the node is
+// asked until they said yes, and the token it gives is kept where every
+// ground reads its token. The client can call it off while it waits.
+private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
+    import code.login : SignIn, startSignIn, pollSignIn, keepToken, LABEL;
+    import token : qntxTokenFile;
+    import libacp : acp_elicitation_url_write, acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
+    import core.stdc.string : strlen;
+    import core.sys.posix.sys.time : gettimeofday, timeval;
+    void error(int code, const(char)[] message, const(char)[] data = null) {
+        r.add(`,"error":{"code":`); r.add(code == -32000 ? "-32000" : code == -32800 ? "-32800" : "-32603");
+        r.add(`,"message":"`); putEscaped(r, message); r.add(`"`);
+        if (data !is null) { r.add(`,"data":`); r.add(data); }
+        r.add(`}}`);
+    }
+    if (sessions.input is null) return error(-32603, "ground code reads no input here, so it cannot ask the client");
+    // Auth is q's, the block's gateway, and its token is kept in ~/.qntx/token: the block's url and
+    // token file are k's, the hooks' node for attestations, and are left alone.
+    auto q = sessions.node.gateway.length > 0 ? sessions.node.gateway : sessions.node.url;
+    if (q.length == 0) return error(-32603, "the qntx block names no node, so there is none to sign in to");
+    auto named = qntxTokenFile("");
+    if (named is null) return error(-32603, "the token is kept in a home, and HOME names none");
+    Reply file, why, token, pid, text, answered;
+    SignIn s;
+    scope(exit) { file.dispose(); why.dispose(); token.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
+    file.add(named[0 .. strlen(named)]); file.add("\0");
+    if (startSignIn(q, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
+
+    sessions.asked++;
+    pid.add(`"login-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    size_t at(const(char)[] part) { auto from = text.len; text.add(part); text.add("\0"); return from; }
+    auto pidAt = at(pid.slice()), idAt = at(id);
+    auto eidAt = text.len; text.add("qntx-"); text.add(s.userCode.slice()); text.add("\0");
+    auto linkAt = at(s.link.slice());
+    auto messageAt = text.len; text.add("Sign in to QNTX as "); text.add(LABEL); text.add(". The code there is ");
+    text.add(s.userCode.slice()); text.add(".\0");
+    if (text.full || file.full) return error(-32603, "could not allocate the sign-in");
+    auto t = text.slice().ptr;
+    acp_buffer asked;
+    scope(exit) acp_buffer_free(&asked);
+    if (acp_elicitation_url_write(t + pidAt, t + idAt, t + eidAt, t + linkAt, t + messageAt, &asked) != acp_status.ACP_OK)
+        return error(-32603, "libacp could not write elicitation/create");
+    if (fwrite(asked.data, 1, asked.length, stdout) != asked.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0)
+        return error(-32603, "could not write elicitation/create");
+
+    Turn turn = Turn(sessions.input, "", id);
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) return error(-32603, "the client's input ended while ground code waited on the sign-in");
+    if (waited == 2) return error(-32800, "the client cancelled the sign-in");
+    auto refused = objectValue(answered.slice(), `"error"`);
+    if (refused !is null) return error(-32000, "the client did not send the person to sign in", refused);
+    auto result = objectValue(answered.slice(), `"result"`);
+    char[32] actionBuf;
+    auto action = result is null ? null : extractJsonString(result, `"action"`, &actionBuf[0], actionBuf.length);
+    if (action != "accept") {
+        Reply data;
+        scope(exit) data.dispose();
+        if (action is null) { data.add(`"`); putEscaped(data, answered.slice()); data.add(`"`); }
+        else { data.add(`{"action":"`); putEscaped(data, action); data.add(`"}`); }
+        return error(-32000, "the person did not sign in to QNTX", data.slice());
+    }
+
+    // gettimeofday, as the rest of ground reads the time: druntime declares
+    // it on Darwin and Linux alike, where clock_gettime it does not.
+    long nowMs() {
+        timeval tv;
+        gettimeofday(&tv, null);
+        return cast(long) tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    }
+    while (true) {
+        if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
+        why.len = 0;
+        auto got = pollSignIn(q, s, token, why);
+        if (got == 1) break;
+        if (got < 0) return error(-32000, "the node did not sign ground code in", why.slice());
+        // "the minimum amount of time in seconds that the client SHOULD wait between polling requests"
+        auto until = nowMs() + cast(long) s.interval * 1000;
+        while (true) {
+            if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
+            auto left = until - nowMs();
+            if (left <= 0) break;
+            if (!within(*turn.input, left > 1000 ? 1000 : cast(int) left))
+                return error(-32603, "the client's input ended while ground code waited on the sign-in");
+        }
+    }
+    why.len = 0;
+    if (!keepToken(file.slice().ptr, token.slice(), why)) return error(-32603, "signed in, but the token could not be kept", why.slice());
+    // "Notification sent by the agent when a URL-based elicitation is complete."
+    acp_buffer done;
+    scope(exit) acp_buffer_free(&done);
+    if (acp_elicitation_complete_write(t + eidAt, &done) != acp_status.ACP_OK
+        || fwrite(done.data, 1, done.length, stdout) != done.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0)
+        fputs("ground code: signed in, but could not write elicitation/complete\n", stderr);
+    r.add(`,"result":{}}`);
 }
 
 // What a session's MCP servers are told they may ask, as MCP's client
@@ -297,11 +831,23 @@ private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, cons
         const(char)[] method, const(char)[] params, ref Reply answer) {
     if (method == "notifications/elicitation/complete") {
         // "Notification sent by the agent when a URL-based elicitation is complete."
-        Reply n;
-        scope(exit) n.dispose();
-        n.add(`{"jsonrpc":"2.0","method":"elicitation/complete","params":`); n.add(params); n.add("}\n");
-        auto out_ = n.slice();
-        if (!n.full && fwrite(out_.ptr, 1, out_.length, stdout) == out_.length && fflush(stdout) == 0) return 1;
+        // Its one field is read from the server's and written, not the server's passed on unread.
+        char[256] idBuf;
+        auto elicitationId = extractJsonString(params, `"elicitationId"`, &idBuf[0], idBuf.length);
+        if (elicitationId is null) {
+            fputs("ground code: a server's elicitation/complete names no elicitationId: ", stderr);
+            fwrite(params.ptr, 1, params.length, stderr);
+            fputs("\n", stderr);
+            return -1;
+        }
+        import libacp : acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
+        Reply id;
+        scope(exit) id.dispose();
+        id.add(elicitationId); id.add("\0");
+        acp_buffer n;
+        scope(exit) acp_buffer_free(&n);
+        if (!id.full && acp_elicitation_complete_write(id.slice().ptr, &n) == acp_status.ACP_OK
+            && fwrite(n.data, 1, n.length, stdout) == n.length && fputs("\n", stdout) >= 0 && fflush(stdout) == 0) return 1;
         fputs("ground code: could not write elicitation/complete\n", stderr);
         return -1;
     }
@@ -309,26 +855,32 @@ private int elicit(ref Sessions sessions, ref Turn turn, const(char)[] sid, cons
         answer.add(`{"code":-32601,"message":"ground code answers a server's elicitation/create, and nothing else it asks"}`);
         return 0;
     }
-    Reply asked;
-    scope(exit) asked.dispose();
-    auto mode = elicitationParams(params, sid, callId, asked);
-    if (mode < 0) { answer.add(`"the server's elicitation/create names no object to ask"`); return -1; }
-    if ((mode == 1 && !sessions.elicitsForms) || (mode == 2 && !sessions.elicitsUrls) || mode == 0) {
+    // libacp writes the client's elicitation/create from what the server asked: the session and
+    // the call lead, then its mode, form when it names none, then everything else it asked.
+    import libacp : acp_elicitation_create_write, acp_elicit_mode, acp_buffer, acp_buffer_free, acp_status;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    pid.add(`"elicit-`); putNumber(pid, sessions.asked + 1); pid.add(`"`);
+    auto idAt = text.len; text.add(pid.slice()); text.add("\0");
+    auto sidAt = text.len; text.add(sid); text.add("\0");
+    auto callAt = text.len; text.add(callId); text.add("\0");
+    if (text.full) { answer.add(`"could not allocate elicitation/create"`); return -1; }
+    auto t = text.slice().ptr;
+    int mode;
+    acp_buffer n;
+    scope(exit) acp_buffer_free(&n);
+    if (acp_elicitation_create_write(t + idAt, t + sidAt, t + callAt, params.ptr, params.length, &mode, &n) != acp_status.ACP_OK) {
+        answer.add(`"the server's elicitation/create names no object to ask"`);
+        return -1;
+    }
+    if ((mode == acp_elicit_mode.ACP_ELICIT_FORM && !sessions.elicitsForms) || (mode == acp_elicit_mode.ACP_ELICIT_URL && !sessions.elicitsUrls)
+        || mode == acp_elicit_mode.ACP_ELICIT_OTHER) {
         answer.add(`{"code":-32602,"message":"the client offers no elicitation in the mode the server asked"}`);
         return 0;
     }
     if (turn.input is null) { answer.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
     sessions.asked++;
-    Reply pid;
-    scope(exit) pid.dispose();
-    pid.add(`"elicit-`); putNumber(pid, sessions.asked); pid.add(`"`);
-    Reply n;
-    scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","id":`); n.add(pid.slice());
-    n.add(`,"method":"elicitation/create","params":`); n.add(asked.slice()); n.add("}\n");
-    if (n.full || asked.full) { answer.add(`"could not allocate elicitation/create"`); return -1; }
-    auto out_ = n.slice();
-    if (fwrite(out_.ptr, 1, out_.length, stdout) != out_.length || fflush(stdout) != 0) {
+    if (fwrite(n.data, 1, n.length, stdout) != n.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
         answer.add(`"could not write elicitation/create"`);
         return -1;
     }
@@ -357,15 +909,22 @@ private bool tellUser(ref Sessions sessions, const(char)[] sid, const(char)[] se
         fputs("ground code: ", stderr); fwrite(title.ptr, 1, title.length, stderr);
         fputs(": ", stderr); fwrite(description.ptr, 1, description.length, stderr); fputs("\n", stderr);
     }
-    Reply u;
-    scope(exit) u.dispose();
+    Reply u, text;
+    scope(exit) { u.dispose(); text.dispose(); }
     if (sessions.clientTakesNotices) {
-        u.add(`{"sessionUpdate":"notice","severity":"`); u.add(severity);
-        u.add(`","title":"`); putEscaped(u, title);
-        u.add(`","description":"`); putEscaped(u, description); u.add(`"}`);
+        import libacp : acp_notice_write, acp_buffer, acp_buffer_free, acp_status;
+        auto severityAt = text.len; text.add(severity); text.add("\0");
+        auto titleAt = text.len; text.add(title); text.add("\0");
+        auto descriptionAt = text.len; text.add(description); text.add("\0");
+        if (text.full) return false;
+        auto t = text.slice().ptr;
+        acp_buffer notice;
+        scope(exit) acp_buffer_free(&notice);
+        if (acp_notice_write(t + severityAt, t + titleAt, t + descriptionAt, &notice) != acp_status.ACP_OK) return false;
+        u.add(notice.data[0 .. notice.length]);
     } else {
-        u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
-        putEscaped(u, title); u.add(": "); putEscaped(u, description); u.add(`\n"}}`);
+        text.add(title); text.add(": "); text.add(description); text.add("\n");
+        if (text.full || !putChunk(u, 0, text.slice())) return false;
     }
     return notify(sid, u.slice());
 }
@@ -445,21 +1004,52 @@ string effortDefault()(const(char)[] settings) {
 // "Agents that provide mode-like configuration SHOULD send both": configOptions
 // with a category mode option, and modes, kept in sync by being one value.
 // "Agents SHOULD place higher-priority options first in the list."
-private void putConfig(ref Reply r, SessionMode mode, size_t effort) {
-    r.add(`[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"`);
-    r.add(nameOf(mode)); r.add(`","options":[`);
-    foreach (i, m; offered) {
-        if (i > 0) r.add(",");
-        r.add(`{"value":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
-        r.add(`","description":"`); putModeDescription(r, m); r.add(`"}`);
+// libacp writes them; false when it could not.
+private bool putConfig(ref Reply r, SessionMode mode, size_t effort) {
+    import libacp : acp_config_value, acp_config_select, acp_config_options_write, acp_buffer, acp_buffer_free,
+        acp_status;
+    OptionTexts t;
+    scope(exit) t.dispose();
+    if (!t.fill()) return false;
+    auto current = modeAt(mode);
+    if (current == offered.length) return false;
+    acp_config_value[offered.length] modes;
+    foreach (i; 0 .. offered.length) modes[i] = acp_config_value(t.at(t.idAt[i]), t.at(t.nameAt[i]), t.at(t.describedAt[i]));
+    acp_config_value[efforts.length] levels;
+    foreach (i; 0 .. efforts.length) levels[i] = acp_config_value(t.at(t.effortAt[i]), t.at(t.effortNameAt[i]), null);
+    acp_config_select[2] selects = [
+        acp_config_select("mode", "Mode", "mode", t.at(t.idAt[current]), modes.ptr, modes.length),
+        acp_config_select("effort", "Effort", "thought_level", t.at(t.effortAt[effort]), levels.ptr, levels.length),
+    ];
+    acp_buffer options;
+    scope(exit) acp_buffer_free(&options);
+    if (acp_config_options_write(selects.ptr, selects.length, &options) != acp_status.ACP_OK) return false;
+    r.add(options.data[0 .. options.length]);
+    return true;
+}
+
+// The rest of set_config_option's answer, from its configOptions on: "The full
+// set of configuration options and their current values". head is where it began.
+private bool putOptions(ref Reply r, size_t head, const(char)[] sid, SessionMode mode, size_t effort) {
+    if (!putConfig(r, mode, effort)) {
+        r.len = head;
+        r.add(`,"error":{"code":-32603,"message":"libacp could not write the configOptions of `); putEscaped(r, sid); r.add(`"}}`);
+        return true;
     }
-    r.add(`]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"`);
-    r.add(efforts[effort]); r.add(`","options":[`);
-    foreach (i, e; efforts) {
-        if (i > 0) r.add(",");
-        r.add(`{"value":"`); r.add(e); r.add(`","name":"`); r.add(effortNames[i]); r.add(`"}`);
+    r.add(`}}`);
+    return true;
+}
+
+// The rest of session/prompt's answer, from its result on: why the turn stopped, as libacp writes it.
+private void putStop(ref Reply r, acp_stop_reason reason) {
+    import libacp : acp_prompt_result_write, acp_buffer, acp_buffer_free, acp_status;
+    acp_buffer result;
+    scope(exit) acp_buffer_free(&result);
+    if (acp_prompt_result_write(reason, &result) != acp_status.ACP_OK) {
+        r.add(`,"error":{"code":-32603,"message":"libacp could not write the turn's stop reason"}}`);
+        return;
     }
-    r.add("]}]");
+    r.add(`,"result":`); r.add(result.data[0 .. result.length]); r.add(`}`);
 }
 
 // A live session: its id, the cwd it is in and its additional roots, each kept
@@ -484,109 +1074,23 @@ struct Open {
     Reply never;    // and to always reject
 }
 
-// The additionalDirectories a request names, into list as the JSON array a
-// client is answered with: in order, each path re-escaped, [] when it names
-// none or null. 1 read; -1 not a list of strings; -2 a path not absolute,
-// written into bad; -3 a path longer than ground code reads.
-private int dirsOf(const(char)[] json, const(char)[] key, ref Reply list, ref Reply bad) {
-    auto at = indexOf(json, key);
-    if (at < 0) { list.add("[]"); return 1; }
-    size_t p = cast(size_t) at + key.length;
-    void ws() { while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++; }
-    ws();
-    if (p >= json.length || json[p] != ':') return -1;
-    p++;
-    ws();
-    if (p + 4 <= json.length && json[p .. p + 4] == "null") { list.add("[]"); return 1; }
-    if (p >= json.length || json[p] != '[') return -1;
-    p++;
-    ws();
-    list.add("[");
-    if (p < json.length && json[p] == ']') { list.add("]"); return 1; }
-    for (bool first = true;; first = false) {
-        if (p >= json.length || json[p] != '"') return -1;
-        p++;
-        char[4096] buf;
-        size_t n = 0;
-        bool put1(char c) { if (n >= buf.length) return false; buf[n++] = c; return true; }
-        while (true) {
-            if (p >= json.length) return -1;
-            char c = json[p++];
-            if (c == '"') break;
-            if (c != '\\') { if (!put1(c)) return -3; continue; }
-            if (p >= json.length) return -1;
-            char e = json[p++];
-            char o;
-            switch (e) {
-                case '"': o = '"'; break;
-                case '\\': o = '\\'; break;
-                case '/': o = '/'; break;
-                case 'n': o = '\n'; break;
-                case 't': o = '\t'; break;
-                case 'r': o = '\r'; break;
-                case 'b': o = '\b'; break;
-                case 'f': o = '\f'; break;
-                case 'u': {
-                    uint cp;
-                    if (!hex4(json, p, cp)) return -1;
-                    if (cp >= 0xD800 && cp < 0xDC00) {
-                        uint lo;
-                        if (p + 2 > json.length || json[p] != '\\' || json[p + 1] != 'u') return -1;
-                        p += 2;
-                        if (!hex4(json, p, lo) || lo < 0xDC00 || lo >= 0xE000) return -1;
-                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                    } else if (cp >= 0xDC00 && cp < 0xE000) return -1;
-                    if (cp < 0x80) { if (!put1(cast(char) cp)) return -3; }
-                    else if (cp < 0x800) {
-                        if (!put1(cast(char)(0xC0 | (cp >> 6))) || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
-                    } else if (cp < 0x10000) {
-                        if (!put1(cast(char)(0xE0 | (cp >> 12))) || !put1(cast(char)(0x80 | ((cp >> 6) & 0x3F)))
-                            || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
-                    } else {
-                        if (!put1(cast(char)(0xF0 | (cp >> 18))) || !put1(cast(char)(0x80 | ((cp >> 12) & 0x3F)))
-                            || !put1(cast(char)(0x80 | ((cp >> 6) & 0x3F))) || !put1(cast(char)(0x80 | (cp & 0x3F)))) return -3;
-                    }
-                    continue;
-                }
-                default: return -1;
-            }
-            if (!put1(o)) return -3;
-        }
-        auto path = buf[0 .. n];
-        if (n == 0 || path[0] != '/') { bad.add(path); return -2; }
-        if (!first) list.add(",");
-        list.add(`"`); putEscaped(list, path); list.add(`"`);
-        ws();
-        if (p < json.length && json[p] == ',') { p++; ws(); continue; }
-        if (p < json.length && json[p] == ']') { list.add("]"); return 1; }
-        return -1;
-    }
-}
-
-private bool hex4(const(char)[] json, ref size_t p, ref uint cp) {
-    if (p + 4 > json.length) return false;
-    cp = 0;
-    foreach (c; json[p .. p + 4]) {
-        cp <<= 4;
-        if (c >= '0' && c <= '9') cp |= c - '0';
-        else if (c >= 'a' && c <= 'f') cp |= c - 'a' + 10;
-        else if (c >= 'A' && c <= 'F') cp |= c - 'A' + 10;
-        else return false;
-    }
-    p += 4;
-    return true;
-}
-
-// The error a dirsOf refusal is said to the client as, or false when it read.
-private bool refuseDirs(int got, ref Reply bad, ref Reply r, const(char)[] kept) {
-    if (got == -1) { r.add(`,"error":{"code":-32602,"message":"additionalDirectories must be a list of paths"}}`); return true; }
-    if (got == -2) {
-        r.add(`,"error":{"code":-32602,"message":"additionalDirectories must be absolute paths: `);
-        putEscaped(r, bad.slice()); r.add(`"}}`);
+// The additionalDirectories a request names, read by libacp into dirs as the JSON array
+// a client is answered with; true when it was refused, the refusal said in r.
+private bool readDirs(const(char)[] line, ref Reply dirs, ref Reply r) {
+    import libacp : acp_directories_read, acp_buffer, acp_buffer_free, acp_status;
+    auto params = objectValue(line, `"params"`);
+    if (params is null) params = "{}";
+    acp_buffer list, said;
+    scope(exit) { acp_buffer_free(&list); acp_buffer_free(&said); }
+    if (acp_directories_read(params.ptr, params.length, &list, &said) != acp_status.ACP_OK) {
+        r.add(`,"error":`);
+        if (said.data !is null) r.add(said.data[0 .. said.length]);
+        else r.add(`{"code":-32603,"message":"libacp could not read additionalDirectories"}`);
+        r.add(`}`);
         return true;
     }
-    if (got == -3) { r.add(`,"error":{"code":-32602,"message":"a path in additionalDirectories is longer than the 4096 bytes ground code reads"}}`); return true; }
-    if (kept.length > Open.init.dirs.length) {
+    dirs.add(list.data[0 .. list.length]);
+    if (dirs.len > Open.init.dirs.length) {
         r.add(`,"error":{"code":-32602,"message":"additionalDirectories are longer than the 2048 bytes ground code keeps"}}`);
         return true;
     }
@@ -616,18 +1120,56 @@ private string shownAs(SessionMode m) {
 private void putModeDescription(ref Reply r, SessionMode m) {
     char[1] letter = [letterOf(m)];
     r.add(letter[]); r.add(` in a permission block`);
-    // Neither has a meaning of its own for ground code's tool calls yet.
-    if (m == SessionMode.acceptEdits || m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
+    // write_text_file is the one edit ground code has, and auto no classifier to run on.
+    if (m == SessionMode.acceptEdits) r.add(`; ground code writes files without asking, and asks the rest as Manual does`);
+    if (m == SessionMode.auto_) r.add(`; ground code asks, as Manual does`);
 }
 
-private void putModes(ref Reply r, SessionMode current) {
-    r.add(`{"currentModeId":"`); r.add(nameOf(current)); r.add(`","availableModes":[`);
-    foreach (i, m; offered) {
-        if (i > 0) r.add(",");
-        r.add(`{"id":"`); r.add(nameOf(m)); r.add(`","name":"`); r.add(shownAs(m));
-        r.add(`","description":"`); putModeDescription(r, m); r.add(`"}`);
+// Where a mode stands among those offered, or offered.length for one it does not.
+private size_t modeAt(SessionMode m) {
+    foreach (i, o; offered) if (o == m) return i;
+    return offered.length;
+}
+
+// The modes and efforts as C reads them: each string its own bytes, then a NUL.
+// at() is taken once fill() is done, as text may move while it grows.
+private struct OptionTexts {
+    Reply text;
+    size_t[offered.length] idAt, nameAt, describedAt;
+    size_t[efforts.length] effortAt, effortNameAt;
+
+    bool fill() {
+        foreach (i, m; offered) {
+            idAt[i] = text.len; text.add(nameOf(m)); text.add("\0");
+            nameAt[i] = text.len; text.add(shownAs(m)); text.add("\0");
+            describedAt[i] = text.len; putModeDescription(text, m); text.add("\0");
+        }
+        foreach (i; 0 .. efforts.length) {
+            effortAt[i] = text.len; text.add(efforts[i]); text.add("\0");
+            effortNameAt[i] = text.len; text.add(effortNames[i]); text.add("\0");
+        }
+        return !text.full;
     }
-    r.add("]}");
+
+    const(char)* at(size_t from) { return text.slice().ptr + from; }
+    void dispose() { text.dispose(); }
+}
+
+// libacp writes the SessionModeState; false when it could not.
+private bool putModes(ref Reply r, SessionMode current) {
+    import libacp : acp_mode, acp_modes_write, acp_buffer, acp_buffer_free, acp_status;
+    OptionTexts t;
+    scope(exit) t.dispose();
+    if (!t.fill()) return false;
+    auto at = modeAt(current);
+    if (at == offered.length) return false;
+    acp_mode[offered.length] modes;
+    foreach (i; 0 .. offered.length) modes[i] = acp_mode(t.at(t.idAt[i]), t.at(t.nameAt[i]), t.at(t.describedAt[i]));
+    acp_buffer state;
+    scope(exit) acp_buffer_free(&state);
+    if (acp_modes_write(t.at(t.idAt[at]), modes.ptr, modes.length, &state) != acp_status.ACP_OK) return false;
+    r.add(state.data[0 .. state.length]);
+    return true;
 }
 
 private void forget(ref Open o) {
@@ -636,15 +1178,62 @@ private void forget(ref Open o) {
 }
 
 // A session/update to the client, written as it happens: a turn's steps are
-// not held until the turn ends.
+// not held until the turn ends. libacp writes the notification around update.
 private bool notify(const(char)[] sid, const(char)[] update) {
     Reply n;
     scope(exit) n.dispose();
-    n.add(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`); putEscaped(n, sid);
-    n.add(`","update":`); n.add(update); n.add(`}}` ~ "\n");
+    if (!sessionUpdate(n, sid, update)) return false;
+    n.add("\n");
     if (n.full) return false;
     auto s = n.slice();
     return fwrite(s.ptr, 1, s.length, stdout) == s.length && fflush(stdout) == 0;
+}
+
+// session_info_update, as libacp writes it, into u: the title when one is given, and updatedAt.
+private bool sessionInfo(ref Reply u, const(char)[] title, long updatedAt) {
+    import libacp : acp_session_info_update_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    auto titleAt = text.len; if (title !is null) { text.add(title); text.add("\0"); }
+    auto isoAt = text.len; putIso(text, updatedAt); text.add("\0");
+    if (text.full) return false;
+    auto t = text.slice().ptr;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_session_info_update_write(title is null ? null : t + titleAt, t + isoAt, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// usage_update, as libacp writes it, into u: the cost when amount, a decimal, is given, in dollars.
+private bool usageUpdate(ref Reply u, ulong used, ulong size, const(char)[] amount) {
+    import libacp : acp_usage_update_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    if (amount !is null) { text.add(amount); text.add("\0"); }
+    if (text.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_usage_update_write(used, size, amount is null ? null : text.slice().ptr, amount is null ? null : "USD".ptr, &written)
+        != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
+// The session/update notification around update, as libacp writes it, into n.
+private bool sessionUpdate(ref Reply n, const(char)[] sid, const(char)[] update) {
+    import libacp : acp_session_update_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply text;
+    scope(exit) text.dispose();
+    auto sidAt = text.len; text.add(sid); text.add("\0");
+    auto updateAt = text.len; text.add(update); text.add("\0");
+    if (text.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    auto t = text.slice().ptr;
+    if (acp_session_update_write(t + sidAt, t + updateAt, &written) != acp_status.ACP_OK) return false;
+    n.add(written.data[0 .. written.length]);
+    return !n.full;
 }
 
 // The gateway's answer, kept whole: a completion that did not fit is not the
@@ -699,6 +1288,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // An answer to a question ground code asked and stopped waiting on, as a
     // turn called off while asking leaves: no request, so no answer to give.
     if (method is null && (rawValue(line, `"result"`) !is null || rawValue(line, `"error"`) !is null)) {
+        if (!__ctfe && releaseUnreleased(sessions, id, line)) return true;
         if (!__ctfe) {
             fputs("ground code: an answer to a request no turn is waiting on: ", stderr);
             fwrite(line.ptr, 1, line.length, stderr);
@@ -712,23 +1302,44 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
-    // ACP's version is 1 for all of v1, and there is no other to offer: the
-    // client's is answered with it whatever it asked for.
-    if (method == "initialize") {
-        // "Whether the Client supports fs/read_text_file requests."
-        auto caps = objectValue(line, `"clientCapabilities"`);
-        auto fs = caps is null ? null : objectValue(caps, `"fs"`);
-        sessions.clientReadsFiles = fs !is null && extractBool(fs, `"readTextFile"`);
-        // "Supplying {} means the client can present notices to the user."
-        auto session = caps is null ? null : objectValue(caps, `"session"`);
-        sessions.clientTakesNotices = session !is null && objectValue(session, `"notices"`) !is null;
-        // "Supplying {} explicitly advertises form support", and url's the same.
-        auto elicits = caps is null ? null : objectValue(caps, `"elicitation"`);
-        sessions.elicitsForms = elicits !is null && objectValue(elicits, `"form"`) !is null;
-        sessions.elicitsUrls = elicits !is null && objectValue(elicits, `"url"`) !is null;
+    // libacp reads the client's offer in the shape of the version it asked for,
+    // selects the version the connection speaks, and writes the result in its
+    // shape. ground code speaks v1 alone, until its v2 surface stands.
+    if (method == AGENT_METHODS.initialize) {
+        import libacp : acp_initialize, acp_buffer, acp_status, acp_initialize_read,
+                        acp_initialize_result, acp_buffer_free;
+        static immutable uint[1] speaks = [1];
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_initialize got;
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
+        auto read = acp_initialize_read(params.ptr, params.length, speaks.ptr, speaks.length, &got, &said);
+        if (read != acp_status.ACP_OK) {
+            put(`{"jsonrpc":"2.0","id":`); put(id); put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else { put(`{"code":-32603,"message":"libacp could not read initialize"}`); }
+            put(`}`);
+            return true;
+        }
+        sessions.clientReadsFiles = got.capabilities.fs_read_text_file != 0;
+        sessions.clientWritesFiles = got.capabilities.fs_write_text_file != 0;
+        sessions.clientRunsCommands = got.capabilities.terminal != 0;
+        sessions.clientTakesNotices = got.capabilities.session_notices != 0;
+        sessions.elicitsForms = got.capabilities.elicitation_form != 0;
+        sessions.elicitsUrls = got.capabilities.elicitation_url != 0;
+        sessions.clientRunsAuth = got.capabilities.auth_terminal != 0;
+        Reply version_;
+        scope(exit) version_.dispose();
+        version_.add(versionString()); version_.add("\0");
+        acp_buffer result;
+        scope(exit) acp_buffer_free(&result);
+        auto wrote = acp_initialize_result(got.selected_version, "ground", version_.slice().ptr,
+            `{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true},"auth":{"logout":{}}}`,
+            authMethods(sessions), &result);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        put(`,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`);
-        put(versionString()); put(`"}}}`);
+        if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
+        put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
         return true;
     }
 
@@ -736,64 +1347,120 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // session/cancel notification". A turn takes its own cancel while it runs;
     // one read here found no turn running, and has nothing to stop. A
     // notification is answered with nothing, so it is said on stderr.
-    if (method == "session/cancel") {
-        char[256] sb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        if (!__ctfe) {
-            fputs("ground code: session/cancel for ", stderr);
-            if (sid is null) fputs("no sessionId", stderr); else fwrite(sid.ptr, 1, sid.length, stderr);
-            fputs(", with no turn running\n", stderr);
-        }
-        return true;
-    }
     // "Notification to cancel an ongoing request." Every request but a turn is
     // answered before the next line is read, so only a turn's can be ongoing.
-    if (method == "$/cancel_request") {
-        auto rid = rawValue(line, `"requestId"`);
-        if (!__ctfe) {
-            fputs("ground code: $/cancel_request for ", stderr);
-            if (rid is null) fputs("no requestId", stderr); else fwrite(rid.ptr, 1, rid.length, stderr);
-            fputs(", which no turn is answering\n", stderr);
-        }
+    // libacp reads either cancel's id.
+    if (method == AGENT_METHODS.session_cancel || method == PROTOCOL_METHODS.cancel_request) {
+        import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_status;
+        import core.stdc.string : strlen;
+        acp_cancel c;
+        scope(exit) acp_cancel_free(&c);
+        bool read = acp_cancel_read(line.ptr, line.length, &c) == acp_status.ACP_OK;
+        bool session = method == AGENT_METHODS.session_cancel;
+        auto named = session ? c.session_id : c.request_id;
+        fputs(session ? "ground code: session/cancel for " : "ground code: $/cancel_request for ", stderr);
+        if (!read) fputs("a message libacp could not read", stderr);
+        else if (named is null) fputs(session ? "no sessionId" : "no requestId", stderr);
+        else fwrite(named, 1, strlen(named), stderr);
+        fputs(session ? ", with no turn running\n" : ", which no turn is answering\n", stderr);
         return true;
     }
 
     // "Must be one of the methods advertised in the initialize response."
-    // initialize advertises none: the model is reached through the QNTX node,
-    // whose credentials ground code never holds.
-    if (method == "authenticate") {
-        char[256] ab;
-        auto mid = extractJsonString(line, `"methodId"`, &ab[0], ab.length);
+    // qntx signs in to the node; qntx-terminal is the client's to run.
+    if (method == AGENT_METHODS.authenticate) {
+        // libacp reads the methodId, and refuses a request with none in its words.
+        import libacp : acp_authenticate_read, acp_authenticate_free, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        char* named;
+        scope(exit) acp_authenticate_free(&named);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (mid is null) { put(`,"error":{"code":-32602,"message":"authenticate needs methodId"}}`); return true; }
-        put(`,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named `);
-        putEscaped(r, mid); put(`"}}`);
+        if (acp_authenticate_read(params.ptr, params.length, &named, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read authenticate"}`);
+            put(`}`);
+            return true;
+        }
+        auto mid = named[0 .. strlen(named)];
+        if (mid == TERMINAL_METHOD) {
+            put(`,"error":{"code":-32602,"message":"qntx-terminal is a terminal method: the client runs ground_code login itself, and does not pass it to authenticate"}}`);
+            return true;
+        }
+        if (mid != AGENT_METHOD) {
+            put(`,"error":{"code":-32602,"message":"ground code's auth method is qntx, and authenticate named `);
+            putEscaped(r, mid); put(`"}}`);
+            return true;
+        }
+        if (!sessions.elicitsUrls) {
+            put(`,"error":{"code":-32602,"message":"qntx sends the person to their node's link, and the client offers no url elicitation"}}`);
+            return true;
+        }
+        if (__ctfe) assert(0, "the node is signed in to at runtime");
+        else signIn(sessions, id, r);
+        return true;
+    }
+
+    // "Terminates the current authenticated session": the token ground code
+    // was given is dropped. The node keeps it until the person revokes it there.
+    if (method == AGENT_METHODS.logout) {
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        if (__ctfe) assert(0, "a token file is dropped at runtime");
+        else {
+            import token : qntxTokenFile;
+            import code.login : dropToken;
+            import core.stdc.stdlib : getenv;
+            // q's token, the one ground code signed in with, in ~/.qntx/token; k's is the hooks'.
+            if (getenv("QNTX_TOKEN\0".ptr) !is null) {
+                put(`,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
+                return true;
+            }
+            auto file = qntxTokenFile("");
+            if (file is null) { put(`,"error":{"code":-32603,"message":"the token is kept in a home, and HOME names none"}}`); return true; }
+            Reply why;
+            scope(exit) why.dispose();
+            if (dropToken(file, why) < 0) {
+                put(`,"error":{"code":-32603,"message":"logout could not drop the token","data":`); put(why.slice()); put(`}}`);
+                return true;
+            }
+        }
+        put(`,"result":{}}`);
         return true;
     }
 
     // Ground owns each session's MCP clients, including discovery and close.
-    if (method == "session/new") {
-        char[4096] cb;
-        auto cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
-        auto mcp = emptyArray(line, `"mcpServers"`);
+    if (method == AGENT_METHODS.session_new) {
+        import libacp : acp_session_new, acp_session_new_read, acp_session_new_free,
+            acp_session_new_result, acp_buffer, acp_buffer_free, acp_status;
+        import libjsonc : parseJson, jsonField, json_object_put, json_object_to_json_string_ext;
+        import core.stdc.string : strlen;
+        // Only the envelope's own params: a nested _meta.params is not the request.
+        auto root = parseJson(line);
+        scope(exit) json_object_put(root);
+        auto params = json_object_to_json_string_ext(jsonField(root, "params"), 0);
+        if (params is null) params = "null";
+        acp_session_new asked;
+        scope(exit) acp_session_new_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (cwd is null) { put(`,"error":{"code":-32602,"message":"session/new needs cwd"}}`); return true; }
-        if (cwd.length == 0 || cwd[0] != '/') {
-            char[8192] eb;
-            auto n = jsonEscapeInto(cwd, eb[]);
-            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
-            put(n < 0 ? "one too long to name" : eb[0 .. cast(size_t) n]);
-            put(`"}}`);
+        if (acp_session_new_read(params, strlen(params), &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/new"}`);
+            put(`}`);
             return true;
         }
-        if (mcp < 0) { put(`,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`); return true; }
+        auto cwd = asked.cwd[0 .. strlen(asked.cwd)];
+        auto dirs = asked.additional_directories.data[0 .. asked.additional_directories.length];
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
-        Reply dirs, bad;
-        scope(exit) { dirs.dispose(); bad.dispose(); }
-        if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
         if (sessions.openLen == sessions.open.length) {
             put(`,"error":{"code":-32603,"message":"ground code holds 64 open sessions; close one first"}}`);
             return true;
@@ -809,9 +1476,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 put(detail.slice()); put(`}}`);
                 return true;
             }
-        } else if (mcp == 0) assert(0, "MCP processes are tested at runtime");
+        }
         sessions.count++;
         Reply sid;
+        scope(exit) sid.dispose();
         putSessionId(sid, sessions, sessions.count);
         size_t effort = MEDIUM;
         if (sessions.settingsEffort && !__ctfe) {
@@ -819,26 +1487,35 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             __gshared char[65536] settings;
             effort = effortAt(effortDefault(settings[0 .. settingsInto(settings[])]));
         }
-        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs.slice(), efforts[effort], now(sessions))) {
+        if (sessions.db !is null && !storeOpen(sessions.db, sid.slice(), cwd, dirs, efforts[effort], now(sessions))) {
             Reply detail;
             scope(exit) detail.dispose();
             if (!__ctfe) closeMcp(o.mcp, detail);
             put(`,"error":{"code":-32603,"message":"the store refused the session ground code opened"}}`);
             return true;
         }
-        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs.slice(), effort);
+        keep(*o, sid.slice(), cwd, SessionMode.manual, dirs, effort);
         o.updatedAt = now(sessions);
         sessions.openLen++;
         announceCommands(sessions, sid.slice(), o.mcp);
-        put(`,"result":{"sessionId":"`); put(sid.slice());
-        put(`","modes":`); putModes(r, SessionMode.manual);
-        put(`,"configOptions":`); putConfig(r, SessionMode.manual, effort); put(`}}`);
+        Reply modes, config;
+        scope(exit) { modes.dispose(); config.dispose(); }
+        acp_buffer result;
+        scope(exit) acp_buffer_free(&result);
+        bool written = putModes(modes, SessionMode.manual) && putConfig(config, SessionMode.manual, effort);
+        modes.add("\0"); config.add("\0"); sid.add("\0");
+        if (!written || modes.full || config.full || sid.full ||
+            acp_session_new_result(sid.slice().ptr, modes.slice().ptr, config.slice().ptr, &result) != acp_status.ACP_OK) {
+            put(`,"error":{"code":-32603,"message":"libacp could not write session/new"}}`);
+            return true;
+        }
+        put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
         return true;
     }
 
     // Close owns every MCP child. The session is removed even if a child needs
     // forced termination, and that failure is returned to the ACP client.
-    if (method == "session/close") {
+    if (method == AGENT_METHODS.session_close) {
         char[256] sb;
         auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
         put(`{"jsonrpc":"2.0","id":`); put(id);
@@ -872,40 +1549,60 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // Only the sessions of this process: nothing is kept past it yet. Ground
     // code never gives a nextCursor, so there is no cursor of its to page from.
-    if (method == "session/list") {
-        char[4096] fb;
-        auto cwd = extractJsonString(line, `"cwd"`, &fb[0], fb.length);
-        auto cursor = rawValue(line, `"cursor"`);
+    if (method == AGENT_METHODS.session_list) {
+        // libacp reads the cwd and the cursor, refuses either as not a string, and a cwd not absolute.
+        import libacp : acp_session_list, acp_session_list_read, acp_session_list_free, acp_session_info,
+            acp_session_info_write, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_session_list asked;
+        scope(exit) acp_session_list_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (cwd !is null && (cwd.length == 0 || cwd[0] != '/')) {
-            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
-            putEscaped(r, cwd); put(`"}}`);
+        if (acp_session_list_read(params.ptr, params.length, &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/list"}`);
+            put(`}`);
             return true;
         }
-        if (cursor !is null && cursor != "null") {
+        const(char)[] cwd = asked.cwd is null ? null : asked.cwd[0 .. strlen(asked.cwd)];
+        if (asked.cursor !is null) {
             put(`,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`);
             return true;
         }
+        auto head = r.len;
         put(`,"result":{"sessions":[`);
         bool first = true;
-        // "Omitted and empty values are equivalent", so a session with no
-        // additional roots lists none.
-        // updatedAt is "ISO 8601 timestamp of last activity".
-        // title: "Human-readable title for the session. May be auto-generated
-        // from the first prompt." One not named yet lists none.
+        bool unwritten = false;
+        Reply named; // the session libacp could not write
+        scope(exit) named.dispose();
+        // libacp writes each SessionInfo. updatedAt is "ISO 8601 timestamp of
+        // last activity". title: "Human-readable title for the session. May be
+        // auto-generated from the first prompt." One not named yet lists none.
         void entry(const(char)[] sid, const(char)[] at, const(char)[] dirs, const(char)[] title, long updatedAt) {
+            if (unwritten) return;
+            Reply text;
+            scope(exit) text.dispose();
+            size_t sidAt = text.len; text.add(sid); text.add("\0");
+            size_t cwdAt = text.len; text.add(at); text.add("\0");
+            size_t dirsAt = text.len; text.add(dirs.length ? dirs : "[]"); text.add("\0");
+            size_t titleAt = text.len; text.add(title); text.add("\0");
+            size_t isoAt = text.len; putIso(text, updatedAt); text.add("\0");
+            acp_buffer info;
+            scope(exit) acp_buffer_free(&info);
+            auto p = text.slice().ptr;
+            auto fields = acp_session_info(p + sidAt, p + cwdAt, p + dirsAt, p + titleAt, p + isoAt);
+            if (text.full || acp_session_info_write(&fields, &info) != acp_status.ACP_OK) { unwritten = true; named.add(sid); return; }
             if (!first) put(",");
             first = false;
-            put(`{"sessionId":"`); putEscaped(r, sid);
-            put(`","cwd":"`); putEscaped(r, at); put(`"`);
-            if (dirs != "[]") { put(`,"additionalDirectories":`); put(dirs); }
-            if (title.length > 0) { put(`,"title":"`); putEscaped(r, title); put(`"`); }
-            put(`,"updatedAt":"`); putIso(r, updatedAt); put(`"}`);
+            put(info.data[0 .. info.length]);
         }
         if (sessions.db !is null) {
             if (!storeList(sessions.db, cwd, &entry)) {
-                r.len = 0;
-                put(`{"jsonrpc":"2.0","id":`); put(id);
+                r.len = head;
                 put(`,"error":{"code":-32603,"message":"the store refused to list sessions"}}`);
                 return true;
             }
@@ -915,6 +1612,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 auto at = o.cwd[0 .. o.cwdLen];
                 if (cwd is null || at == cwd) entry(o.id[0 .. o.idLen], at, o.dirs[0 .. o.dirsLen], o.title[0 .. o.titleLen], o.updatedAt);
             }
+        }
+        if (unwritten) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the session `); putEscaped(r, named.slice()); put(`"}}`);
+            return true;
         }
         put(`]}}`);
         return true;
@@ -929,30 +1631,41 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // session/load is session/resume that also tells the conversation back:
     // "Unlike session/load, the Agent MUST NOT replay the conversation history
     // via session/update notifications before responding."
-    if (method == "session/resume" || method == "session/load") {
-        bool load = method == "session/load";
+    if (method == AGENT_METHODS.session_resume || method == AGENT_METHODS.session_load) {
+        bool load = method == AGENT_METHODS.session_load;
         auto verb = load ? "load" : "resume";
-        char[256] sb;
-        char[4096] cb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        auto cwd = extractJsonString(line, `"cwd"`, &cb[0], cb.length);
+        // libacp reads the request, load's servers required too, and refuses it in its words.
+        import libacp : acp_session_resume, acp_session_resume_read, acp_session_load_read, acp_session_resume_free,
+            acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        acp_session_resume resumed;
+        scope(exit) acp_session_resume_free(&resumed);
+        {
+            auto params = objectValue(line, `"params"`);
+            if (params is null) params = "{}";
+            acp_buffer said;
+            scope(exit) acp_buffer_free(&said);
+            auto read = load ? acp_session_load_read(params.ptr, params.length, &resumed, &said)
+                : acp_session_resume_read(params.ptr, params.length, &resumed, &said);
+            if (read != acp_status.ACP_OK) {
+                put(`{"jsonrpc":"2.0","id":`); put(id); put(`,"error":`);
+                if (said.data !is null) put(said.data[0 .. said.length]);
+                else { put(`{"code":-32603,"message":"libacp could not read `); put(method); put(`"}`); }
+                put(`}`);
+                return true;
+            }
+        }
+        auto sid = resumed.session_id[0 .. strlen(resumed.session_id)];
+        auto cwd = resumed.cwd[0 .. strlen(resumed.cwd)];
         auto mcp = emptyArray(line, `"mcpServers"`);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"`); put(method); put(` needs sessionId"}}`); return true; }
-        if (cwd is null) { put(`,"error":{"code":-32602,"message":"`); put(method); put(` needs cwd"}}`); return true; }
-        if (cwd[0] != '/') {
-            put(`,"error":{"code":-32602,"message":"cwd must be an absolute path: `);
-            putEscaped(r, cwd); put(`"}}`);
-            return true;
-        }
-        if (load && mcp < 0) { put(`,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`); return true; }
         if (cwd.length > sessions.open[0].cwd.length) {
             put(`,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
             return true;
         }
-        Reply dirs, bad;
-        scope(exit) { dirs.dispose(); bad.dispose(); }
-        if (refuseDirs(dirsOf(line, `"additionalDirectories"`, dirs, bad), bad, r, dirs.slice())) return true;
+        Reply dirs;
+        scope(exit) dirs.dispose();
+        if (readDirs(line, dirs, r)) return true;
         auto at = openAt(sessions, sid);
         bool live = at >= 0;
         if (at < 0 && sessions.openLen == sessions.open.length) {
@@ -1061,22 +1774,46 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             auto opened = openAt(sessions, sid);
             if (opened >= 0) announceCommands(sessions, sid, sessions.open[cast(size_t) opened].mcp);
         }
-        put(`,"result":{"modes":`); putModes(r, mode);
-        put(`,"configOptions":`); putConfig(r, mode, effort); put(`}}`);
+        auto head = r.len;
+        put(`,"result":{"modes":`);
+        if (!putModes(r, mode)) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the modes of `); putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        put(`,"configOptions":`);
+        if (!putConfig(r, mode, effort)) {
+            r.len = head;
+            put(`,"error":{"code":-32603,"message":"libacp could not write the configOptions of `); putEscaped(r, sid); put(`"}}`);
+            return true;
+        }
+        put(`}}`);
         return true;
     }
 
     // A mode is one a session offers, set on a session live here. It is kept
     // with the session, so a resume comes back in it. The client chose it, so
     // there is no current_mode_update to tell it what it already knows.
-    if (method == "session/set_mode") {
-        char[256] sb;
-        char[64] mb2;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        auto want = extractJsonString(line, `"modeId"`, &mb2[0], mb2.length);
+    if (method == AGENT_METHODS.session_set_mode) {
+        // libacp reads the session and the mode, and refuses either missing in its words.
+        import libacp : acp_set_mode, acp_set_mode_read, acp_set_mode_free, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_set_mode asked;
+        scope(exit) acp_set_mode_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`); return true; }
-        if (want is null) { put(`,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`); return true; }
+        if (acp_set_mode_read(params.ptr, params.length, &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/set_mode"}`);
+            put(`}`);
+            return true;
+        }
+        auto sid = asked.session_id[0 .. strlen(asked.session_id)];
+        auto want = asked.mode_id[0 .. strlen(asked.mode_id)];
         auto at = openAt(sessions, sid);
         if (at < 0) {
             put(`,"error":{"code":-32002,"message":"no open session `);
@@ -1106,20 +1843,32 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     // Effort is the one option a session offers, a select over the five
     // levels. Set, it is kept with the session, and the answer is "The full
     // set of configuration options and their current values".
-    if (method == "session/set_config_option") {
-        char[256] sb;
-        char[64] cb;
-        char[64] vb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
-        auto config = extractJsonString(line, `"configId"`, &cb[0], cb.length);
-        auto value = extractJsonString(line, `"value"`, &vb[0], vb.length);
+    if (method == AGENT_METHODS.session_set_config_option) {
+        // libacp reads the session, the option and its value, and refuses any missing in its words.
+        import libacp : acp_set_config_option, acp_set_config_option_read, acp_set_config_option_free, acp_buffer,
+            acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        acp_set_config_option asked;
+        scope(exit) acp_set_config_option_free(&asked);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`); return true; }
-        if (config is null) { put(`,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`); return true; }
-        if (value is null) {
+        if (acp_set_config_option_read(params.ptr, params.length, &asked, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/set_config_option"}`);
+            put(`}`);
+            return true;
+        }
+        if (asked.is_boolean) {
             put(`,"error":{"code":-32602,"message":"session/set_config_option needs a value: mode and effort are selects, not booleans"}}`);
             return true;
         }
+        auto sid = asked.session_id[0 .. strlen(asked.session_id)];
+        auto config = asked.config_id[0 .. strlen(asked.config_id)];
+        auto value = asked.value[0 .. strlen(asked.value)];
         auto at = openAt(sessions, sid);
         if (at < 0) {
             put(`,"error":{"code":-32002,"message":"no open session `);
@@ -1143,8 +1892,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
             o.mode = mode;
             o.updatedAt = now(sessions);
-            put(`,"result":{"configOptions":`); putConfig(r, o.mode, o.effort); put(`}}`);
-            return true;
+            auto head = r.len;
+            put(`,"result":{"configOptions":`);
+            return putOptions(r, head, sid, o.mode, o.effort);
         }
         if (config != "effort") {
             put(`,"error":{"code":-32602,"message":"no config option `); putEscaped(r, config);
@@ -1164,18 +1914,33 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         o.effort = effort;
         o.updatedAt = now(sessions);
-        put(`,"result":{"configOptions":`); putConfig(r, o.mode, effort); put(`}}`);
-        return true;
+        auto head = r.len;
+        put(`,"result":{"configOptions":`);
+        return putOptions(r, head, sid, o.mode, effort);
     }
 
     // "deleting an existing session from `session/list`": what list would show
     // is what delete takes. Gone from the store, it is gone for every process,
     // and one live here is no longer live.
-    if (method == "session/delete") {
-        char[256] sb;
-        auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
+    if (method == AGENT_METHODS.session_delete) {
+        // libacp reads the session session/delete names, and refuses it in its words.
+        import libacp : acp_session_target_read, acp_session_target_free, acp_buffer, acp_buffer_free, acp_status;
+        import core.stdc.string : strlen;
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        char* named;
+        scope(exit) acp_session_target_free(&named);
+        acp_buffer said;
+        scope(exit) acp_buffer_free(&said);
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (sid is null) { put(`,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`); return true; }
+        if (acp_session_target_read("session/delete", params.ptr, params.length, &named, &said) != acp_status.ACP_OK) {
+            put(`,"error":`);
+            if (said.data !is null) put(said.data[0 .. said.length]);
+            else put(`{"code":-32603,"message":"libacp could not read session/delete"}`);
+            put(`}`);
+            return true;
+        }
+        auto sid = named[0 .. strlen(named)];
         auto at = openAt(sessions, sid);
         int gone = sessions.db is null ? (at < 0 ? 0 : 1) : storeDelete(sessions.db, sid);
         if (gone < 0) {
@@ -1206,7 +1971,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 
     // "we use the qntx openrouter plugin"
     // "as the endpoint"
-    if (method == "session/prompt") {
+    if (method == AGENT_METHODS.session_prompt) {
         auto qntxNode = &sessions.node;
         char[256] sb;
         auto sid = extractJsonString(line, `"sessionId"`, &sb[0], sb.length);
@@ -1221,13 +1986,53 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
         // ground code reads text only: a block it cannot read is refused by its
         // type, not dropped from what the model is told.
-        Reply text, other, links, embedded;
-        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); }
-        if (!promptText(line, text, other, links, embedded)) {
-            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block `);
+        auto params = objectValue(line, `"params"`);
+        if (params is null) params = "{}";
+        Reply text, other, links, embedded, images, audio, said;
+        scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); audio.dispose(); said.dispose(); }
+        auto blocks = promptText(params, text, other, links, embedded, images, audio, said);
+        if (blocks == Blocks.refused) { put(`,"error":`); put(said.slice()); put(`}`); return true; }
+        if (blocks == Blocks.other) {
+            put(`,"error":{"code":-32602,"message":"ground code reads text blocks, resource links, resources holding text, images and audio, and the prompt holds a block `);
             if (other.len == 0) put(`that names no type"}}`);
             else { put(`of type `); putEscaped(r, other.slice()); put(`"}}`); }
             return true;
+        }
+        // An image goes to the model in a data URL; one that URL cannot carry is
+        // refused by what is wrong with it, before anything is asked.
+        for (size_t at_ = 0, field = 0, from = 0, mimeFrom = 0, mimeTo = 0; at_ < images.len; at_++) {
+            if (images.slice()[at_] != '\0') continue;
+            if (field++ % 2 == 0) { mimeFrom = from; mimeTo = at_; }
+            else {
+                auto mime = images.slice()[mimeFrom .. mimeTo];
+                auto wrong = unusableImage(mime, images.slice()[from .. at_]);
+                if (wrong !is null) {
+                    put(`,"error":{"code":-32602,"message":"ground code cannot give the model an image whose `);
+                    put(wrong[4 .. $]); put(`: `); putEscaped(r, mime); put(`"}}`);
+                    return true;
+                }
+            }
+            from = at_ + 1;
+        }
+        // Audio goes to the model by the gateway's format for its mimeType, its
+        // data base64; audio that names no such format, or is not base64, is refused.
+        for (size_t at_ = 0, field = 0, from = 0, mimeFrom = 0, mimeTo = 0; at_ < audio.len; at_++) {
+            if (audio.slice()[at_] != '\0') continue;
+            if (field++ % 2 == 0) { mimeFrom = from; mimeTo = at_; }
+            else {
+                auto mime = audio.slice()[mimeFrom .. mimeTo];
+                if (audioFormat(mime) is null) {
+                    put(`,"error":{"code":-32602,"message":"ground code knows no gateway audio format for the mimeType `);
+                    putEscaped(r, mime); put(`"}}`);
+                    return true;
+                }
+                if (!isBase64(audio.slice()[from .. at_])) {
+                    put(`,"error":{"code":-32602,"message":"ground code cannot give the model audio whose data is not base64: `);
+                    putEscaped(r, mime); put(`"}}`);
+                    return true;
+                }
+            }
+            from = at_ + 1;
         }
         // A file:// resource_link is read through the client, "Only available
         // if the client supports the fs.readTextFile capability", and only one
@@ -1258,7 +2063,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         if (__ctfe) assert(0, "the gateway is spoken to at runtime");
         else {
-            import attest : qntxToken;
+            import token : qntxToken;
             import http : httpPostInto;
             import core.stdc.stdlib : malloc;
             auto o = &sessions.open[cast(size_t) at];
@@ -1291,15 +2096,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             Turn turn = Turn(sessions.input, sid, id);
             // "the Agent MUST respond to the original session/prompt request
             // with the cancelled stop reason"; the history keeps what happened.
-            void stopCancelled() { put(`,"result":{"stopReason":"cancelled"}}`); }
+            void stopCancelled() { putStop(r, acp_stop_reason.ACP_STOP_CANCELLED); }
             // "Agents typically send this notification after the first meaningful
             // exchange to auto-generate a title": the first prompt that types
             // something names the session, in the store and to the client.
             // updatedAt, "ISO 8601 timestamp of last activity", is told with
             // every turn, so a client's list keeps "in sync without polling".
-            Reply info;
-            scope(exit) info.dispose();
-            info.add(`{"sessionUpdate":"session_info_update"`);
+            Reply newTitle, info;
+            scope(exit) { newTitle.dispose(); info.dispose(); }
             if (!o.titled) {
                 Reply title;
                 scope(exit) title.dispose();
@@ -1315,12 +2119,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (named == 1) {
                         o.titleLen = 0;
                         foreach (c; title.slice()) if (o.titleLen < o.title.length) o.title[o.titleLen++] = c;
-                        info.add(`,"title":"`); putEscaped(info, title.slice()); info.add(`"`);
+                        newTitle.add(title.slice());
                     }
                 }
             }
-            info.add(`,"updatedAt":"`); putIso(info, o.updatedAt); info.add(`"}`);
-            if (!notify(sid, info.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+            if (!sessionInfo(info, newTitle.len > 0 ? newTitle.slice() : null, o.updatedAt) || !notify(sid, info.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
             // What was typed, before any linked file joins it: what a command is read from.
             auto typedLen = text.len;
             // Each linked file is read before the model is asked, and its text
@@ -1417,14 +2220,18 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 }
                 if (o.history.len > 0 && given.len > 0) o.history.add(",");
                 o.history.add(given.slice());
-                if (text.len > typedLen) userMessage(*o.history, text.slice()[typedLen .. $]);
-            } else userMessage(*o.history, text.slice());
+                if (text.len > typedLen || images.len > 0 || audio.len > 0)
+                    userMessage(*o.history, text.slice()[typedLen .. $], images.slice(), audio.slice());
+            } else userMessage(*o.history, text.slice(), images.slice(), audio.slice());
             if (!toolsOf(o.mcp, tools, detail)) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
                 return true;
             }
+            if (sessions.clientWritesFiles) putWriteTool(tools);
+            if (sessions.clientRunsCommands) putRunTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
-            auto token = qntxToken(qntxNode.token);
+            // One token: what ground code signed in to q with, ~/.qntx/token. The block's file is k's.
+            auto token = qntxToken("");
             auto dest = cast(char*) malloc(GATEWAY_BODY);
             if (dest is null) { put(`,"error":{"code":-32603,"message":"could not allocate the gateway's answer"}}`); return true; }
             scope(exit) free(dest);
@@ -1439,7 +2246,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 models.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); models.add(MODELS_PATH);
                 auto listed = httpGet(models.slice(), token, dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
                 if (listed.code != 0 || listed.overran || listed.status != 200) {
-                    put(`,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
+                    // "Authentication required": the node did not take the token, and a sign-in gives it one it does.
+                    put(listed.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
+                        : `,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
                     putEscaped(r, models.slice());
                     put(`","status":`); putNumber(r, cast(uint) listed.status);
                     put(`,"curl":`); putNumber(r, cast(uint) listed.code);
@@ -1467,7 +2276,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     "application/json", Abort(&stopIfCancelled, &turn));
                 if (turn.cancelled) { stopCancelled(); return true; }
                 if (http.code != 0 || http.overran || http.status != 200) {
-                    put(`,"error":{"code":-32603,"message":"the gateway did not answer the prompt","data":{"url":"`);
+                    put(http.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
+                        : `,"error":{"code":-32603,"message":"the gateway did not answer the prompt","data":{"url":"`);
                     putEscaped(r, url.slice());
                     put(`","status":`); putNumber(r, cast(uint) http.status);
                     put(`,"curl":`); putNumber(r, cast(uint) http.code);
@@ -1488,24 +2298,18 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 if (c.reasoning.length > 0) {
                     Reply u;
                     scope(exit) u.dispose();
-                    u.add(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`);
-                    putEscaped(u, c.reasoning); u.add(`"}}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!putChunk(u, 1, c.reasoning) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 if (c.content.length > 0) {
                     Reply u;
                     scope(exit) u.dispose();
-                    u.add(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`);
-                    putEscaped(u, c.content); u.add(`"}}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!putChunk(u, 0, c.content) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 // "Context window and cost update for a session": what the
                 // conversation holds now, of the model's window.
                 if (c.hasUsage) {
-                    Reply u;
-                    scope(exit) u.dispose();
-                    u.add(`{"sessionUpdate":"usage_update","used":`); putNumber(u, c.used);
-                    u.add(`,"size":`); putNumber(u, sessions.contextSize);
+                    Reply u, amount;
+                    scope(exit) { u.dispose(); amount.dispose(); }
                     // cost: "Cumulative session cost (optional)", every answer's
                     // added to the session's; OpenRouter's credits are dollars.
                     if (c.hasCost) {
@@ -1516,10 +2320,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                             return true;
                         }
                         o.costNano = total;
-                        u.add(`,"cost":{"amount":`); putAmount(u, total); u.add(`,"currency":"USD"}`);
+                        putAmount(amount, total);
                     }
-                    u.add(`}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    if (!usageUpdate(u, c.used, sessions.contextSize, c.hasCost ? amount.slice() : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
                 // "max_tokens": the answer was cut off at the model's token
                 // limit. The calls it asked for are not run, and the history
@@ -1527,10 +2330,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 if (c.finish == "length") {
                     foreach (i; 0 .. c.callCount)
                         toolMessage(*o.history, c.calls[i].id, `{"status":"not run","why":"the answer asking for it was cut off at the model's token limit"}`);
-                    put(`,"result":{"stopReason":"max_tokens"}}`);
+                    putStop(r, acp_stop_reason.ACP_STOP_MAX_TOKENS);
                     return true;
                 }
-                if (c.callCount == 0) { put(`,"result":{"stopReason":"end_turn"}}`); return true; }
+                if (c.callCount == 0) { putStop(r, acp_stop_reason.ACP_STOP_END_TURN); return true; }
                 foreach (i; 0 .. c.callCount) {
                     auto call = c.calls[i];
                     // A call the turn was called off before is not run; the
@@ -1546,19 +2349,21 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // The session's mode decides whether the call runs, and
                     // Manual asks the client. "pending": "awaiting approval".
                     const(char)[] why;
-                    auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), why);
-                    u.add(`{"sessionUpdate":"tool_call","toolCallId":"`); putEscaped(u, call.id);
-                    u.add(`","title":"`); putEscaped(u, call.name);
+                    bool own = call.name == WRITE_TOOL && sessions.clientWritesFiles;
+                    bool runs = call.name == RUN_TOOL && sessions.clientRunsCommands;
+                    auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), own, why);
                     // "Agents SHOULD include it in the first report when available
                     // and SHOULD NOT change it later": the name the model called,
                     // here and in no update after.
-                    u.add(`","name":"`); putEscaped(u, call.name);
                     // "Helps clients choose appropriate icons and UI
                     // treatment": read, when the tool's annotations say it only reads.
-                    if (readOnlyTool(o.mcp, call.name)) u.add(`","kind":"read`);
-                    u.add(verdict == Verdict.run ? `","status":"in_progress","rawInput":` : `","status":"pending","rawInput":`);
-                    u.add(call.arguments); u.add(`}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    // edit, for ground code's own write:
+                    // "Modifying files or content."
+                    // execute, for ground code's own command:
+                    // "Running commands or code."
+                    auto kind = own ? "edit" : runs ? "execute" : readOnlyTool(o.mcp, call.name) ? "read" : null;
+                    auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
+                    if (!putToolCall(u, false, call.id, call.name, call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
                         Reply asking;
                         scope(exit) asking.dispose();
@@ -1580,9 +2385,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         verdict = got == 1 ? Verdict.run : Verdict.refuse;
                         if (verdict == Verdict.run) {
                             u.len = 0;
-                            u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                            u.add(`","status":"in_progress"}`);
-                            if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                            if (!putToolCall(u, true, call.id, null, null, null, "in_progress", null, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         }
                     }
                     // Not run: the model is told why, and so is the client.
@@ -1592,55 +2395,81 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         refused.add(`{"status":"not run","why":"`); putEscaped(refused, why); refused.add(`"}`);
                         toolMessage(*o.history, call.id, refused.slice());
                         u.len = 0;
-                        u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                        u.add(`","status":"failed","rawOutput":`); u.add(refused.slice());
-                        putToolContent(u, refused.slice()); u.add(`}`);
-                        if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                        if (!putToolCall(u, true, call.id, null, null, null, "failed", null, refused.slice()) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         continue;
                     }
-                    server.add(serverOf(call.name)); server.add("\0");
-                    tool.add(toolOf(call.name)); tool.add("\0");
-                    args.add(call.arguments); args.add("\0");
-                    import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
-                    import core.stdc.string : strlen;
-                    mcp_response response, validation;
-                    mcp_error error;
-                    scope(exit) { mcp_response_free(&response); mcp_response_free(&validation); }
-                    // "Abort all tool call invocations in progress": a cancel
-                    // that arrives while the call runs cancels it at the server.
-                    bool stopCall() { return cancelAsked(turn); }
-                    // What the server asks while it runs is asked of the client, tied to this call.
-                    int askClient(const(char)[] method, const(char)[] params, ref Reply answer) {
-                        return elicit(sessions, turn, sid, call.id, method, params, answer);
-                    }
-                    // What the server logs at warning or above while it runs, the user is told.
-                    void hearServer(const(char)[] name, const(char)[] level, const(char)[] data) {
-                        Reply title;
-                        scope(exit) title.dispose();
-                        title.add("MCP server "); title.add(name); title.add(" logged ");
-                        title.add(level == "warning" ? "a warning" : level == "error" ? "an error"
-                            : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
-                        tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
-                    }
-                    auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient, &hearServer);
-                    bool ok = status == mcp_status.MCP_OK;
-                    if (ok) result.add(response.json[0 .. response.length]);
-                    else {
-                        result.add(`{"status":"`); result.add(mcp_status_string(status)[0 .. strlen(mcp_status_string(status))]);
-                        result.add(`","message":"`); if (error.message !is null) putEscaped(result, error.message[0 .. strlen(error.message)]);
-                        result.add(`","response":"`); if (response.json !is null) putEscaped(result, response.json[0 .. response.length]);
-                        result.add(`","validation":`);
-                        if (validation.json !is null) result.add(validation.json[0 .. validation.length]);
-                        else result.add("null");
-                        result.add(`}`);
+                    bool ok;
+                    Reply shown; // the terminal the call shows, when it ran a command
+                    scope(exit) shown.dispose();
+                    if (own) {
+                        // What the client answered is what the call answered.
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto wrote = writeThroughClient(sessions, turn, sid, call.arguments, result, asking);
+                        if (wrote < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client to write the file","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
+                        if (wrote == 2) result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to write the file"}`);
+                        ok = wrote == 1 && clientWrote(result.slice());
+                    } else if (runs) {
+                        // What the command printed, and how it exited, is what the call answered.
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto ran = runThroughClient(sessions, turn, sid, o.cwd[0 .. o.cwdLen], call.id, call.arguments, result, ok, shown, asking);
+                        if (ran < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client to run the command","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
+                    } else {
+                        server.add(serverOf(call.name)); server.add("\0");
+                        tool.add(toolOf(call.name)); tool.add("\0");
+                        args.add(call.arguments); args.add("\0");
+                        import libmcp : mcp_response, mcp_error, mcp_status, mcp_response_free, mcp_status_string;
+                        import core.stdc.string : strlen;
+                        mcp_response response, validation;
+                        mcp_error error;
+                        scope(exit) { mcp_response_free(&response); mcp_response_free(&validation); }
+                        // A cancel that arrives while the call runs cancels it at the server:
+                        // "Abort all tool call invocations in progress"
+                        bool stopCall() { return cancelAsked(turn); }
+                        // What the server asks while it runs is asked of the client, tied to this call.
+                        int askClient(const(char)[] method, const(char)[] params, ref Reply answer) {
+                            return elicit(sessions, turn, sid, call.id, method, params, answer);
+                        }
+                        // What the server logs at warning or above while it runs, the user is told.
+                        void hearServer(const(char)[] name, const(char)[] level, const(char)[] data) {
+                            Reply title;
+                            scope(exit) title.dispose();
+                            title.add("MCP server "); title.add(name); title.add(" logged ");
+                            title.add(level == "warning" ? "a warning" : level == "error" ? "an error"
+                                : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
+                            tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
+                        }
+                        auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient, &hearServer);
+                        ok = status == mcp_status.MCP_OK;
+                        if (ok) result.add(response.json[0 .. response.length]);
+                        else {
+                            result.add(`{"status":"`); result.add(mcp_status_string(status)[0 .. strlen(mcp_status_string(status))]);
+                            result.add(`","message":"`); if (error.message !is null) putEscaped(result, error.message[0 .. strlen(error.message)]);
+                            result.add(`","response":"`); if (response.json !is null) putEscaped(result, response.json[0 .. response.length]);
+                            result.add(`","validation":`);
+                            if (validation.json !is null) result.add(validation.json[0 .. validation.length]);
+                            else result.add("null");
+                            result.add(`}`);
+                        }
                     }
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
-                    u.add(`{"sessionUpdate":"tool_call_update","toolCallId":"`); putEscaped(u, call.id);
-                    u.add(ok ? `","status":"completed","rawOutput":` : `","status":"failed","rawOutput":`); u.add(result.slice());
-                    // "Content produced by the tool call", as MCP gave it.
-                    putToolContent(u, result.slice()); u.add(`}`);
-                    if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    // What the tool call produced, as MCP gave it, is its content.
+                    if (!putToolCall(u, true, call.id, null, null, null, ok ? "completed" : "failed", null, result.slice(),
+                            shown.len > 0 ? shown.slice() : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     // Cancelled in the call: the calls after it are not run,
                     // and the turn answers cancelled now.
                     if (turn.cancelled) {
@@ -1667,7 +2496,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
 int handleCode() {
     import core.stdc.time : time;
     import db : openDb, sqlite3_close;
-    import controls : qntxNode;
+    import code.node : qntxNode;
     auto sessions = Sessions(cast(ulong) time(null), cast(uint) getpid());
     sessions.settingsEffort = true;
     sessions.node = qntxNode;
