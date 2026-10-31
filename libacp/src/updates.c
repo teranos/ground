@@ -158,6 +158,15 @@ acp_status acp_session_info_update_write(const char *title, const char *updated_
     return acp_finish(update, update_json);
 }
 
+acp_status acp_session_title_clear_write(const char *updated_at, acp_buffer *update_json) {
+    if (updated_at == NULL || update_json == NULL) return ACP_INVALID_ARGUMENT;
+    json_object *update = json_object_new_object();
+    add_string(update, "sessionUpdate", "session_info_update");
+    json_object_object_add(update, "title", NULL);
+    add_string(update, "updatedAt", updated_at);
+    return acp_finish(update, update_json);
+}
+
 acp_status acp_available_commands_update_write(const char *commands_json, acp_buffer *update_json) {
     if (commands_json == NULL || update_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *commands = acp_parse(commands_json, strlen(commands_json));
