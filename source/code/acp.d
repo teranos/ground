@@ -2150,6 +2150,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 text.add(embedded.slice()[from .. at_]);
                 from = at_ + 1;
             }
+            // Where the conversation stood before this prompt: a refusal takes it back here.
+            auto promptAt = o.history.len;
             // "Commands are included as regular user messages in prompt
             // requests": one the turn starts with asks the model what its
             // prompt gives, in place of what was typed; linked files follow.
@@ -2271,6 +2273,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     putEscaped(r, dest[0 .. http.len]); put(`"}}`);
                     return true;
                 }
+                auto answerAt = o.history.len;
                 assistantMessage(*o.history, c.message);
                 // "A chunk of the agent's internal reasoning being streamed": what
                 // the model reasoned, which the effort asked for, before its words.
@@ -2302,6 +2305,23 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         putAmount(amount, total);
                     }
                     if (!usageUpdate(u, c.used, sessions.contextSize, c.hasCost ? amount.slice() : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                }
+                // What the answer cost is counted above, however it ended.
+                // "error": the gateway says the model's answer failed. That ends
+                // no turn: the answer is the error's data, and is not kept.
+                if (c.finish == "error") {
+                    o.history.len = answerAt;
+                    put(`,"error":{"code":-32603,"message":"the gateway says the model's answer ended in error","data":`);
+                    put(dest[0 .. http.len]); put(`}}`);
+                    return true;
+                }
+                // "refusal": "The user prompt and everything that comes after it
+                // won't be included in the next prompt", so the conversation is
+                // what it was before the prompt, and is stored so as the turn ends.
+                if (c.finish == "content_filter") {
+                    o.history.len = promptAt;
+                    putStop(r, acp_stop_reason.ACP_STOP_REFUSAL);
+                    return true;
                 }
                 // "max_tokens": the answer was cut off at the model's token
                 // limit. The calls it asked for are not run, and the history
