@@ -89,6 +89,10 @@ static void others(void) {
     CHECK(acp_usage_update_write(1, 2, "lots", "USD", &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_session_info_update_write("Fix the build", "2026-10-27T17:03:27Z", &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"session_info_update\",\"title\":\"Fix the build\",\"updatedAt\":\"2026-10-27T17:03:27Z\"}"));
+    // "Set to null to clear."
+    CHECK(acp_session_title_clear_write("2026-10-27T17:03:27Z", &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"session_info_update\",\"title\":null,\"updatedAt\":\"2026-10-27T17:03:27Z\"}"));
+    CHECK(acp_session_title_clear_write(NULL, &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_session_info_update_write(NULL, "2026-10-27T17:03:27Z", &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"session_info_update\",\"updatedAt\":\"2026-10-27T17:03:27Z\"}"));
     CHECK(acp_available_commands_update_write("[{\"name\":\"echo\",\"description\":\"d\"}]", &out) == ACP_OK);

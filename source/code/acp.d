@@ -17,7 +17,7 @@ import scan : indexOf;
 import provenance : jsonEscapeInto;
 import db : versionString, sqlite3;
 import qntxblock : ParsedQntx;
-import code.store : storeAddCost, storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
+import code.store : storeAddCost, storeClearTitle, storeOpen, storeClose, storeResume, storeList, storeDelete, storeSetMode, storeSetEffort, storeTouch, storeTitle,
     storeHistory, storeHistoryOf;
 import sessionmode : SessionMode, parseSessionMode, nameOf, letterOf;
 import acpmethods : AGENT_METHODS, PROTOCOL_METHODS;
@@ -1205,6 +1205,20 @@ private bool sessionInfo(ref Reply u, const(char)[] title, long updatedAt) {
     return !u.full;
 }
 
+// session_info_update clearing the title, "Set to null to clear.", as libacp writes it, into u.
+private bool titleCleared(ref Reply u, long updatedAt) {
+    import libacp : acp_session_title_clear_write, acp_buffer, acp_buffer_free, acp_status;
+    Reply iso;
+    scope(exit) iso.dispose();
+    putIso(iso, updatedAt); iso.add("\0");
+    if (iso.full) return false;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_session_title_clear_write(iso.slice().ptr, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
 // usage_update, as libacp writes it, into u: the cost when amount, a decimal, is given, in dollars.
 private bool usageUpdate(ref Reply u, ulong used, ulong size, const(char)[] amount) {
     import libacp : acp_usage_update_write, acp_buffer, acp_buffer_free, acp_status;
@@ -2298,12 +2312,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 assistantMessage(*o.history, c.message);
                 // "A chunk of the agent's internal reasoning being streamed": what
                 // the model reasoned, which the effort asked for, before its words.
-                if (c.reasoning.length > 0) {
+                // An answer the gateway says failed is not shown: the turn reports it as an error.
+                if (c.reasoning.length > 0 && c.finish != "error") {
                     Reply u;
                     scope(exit) u.dispose();
                     if (!putChunk(u, 1, c.reasoning) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                 }
-                if (c.content.length > 0) {
+                if (c.content.length > 0 && c.finish != "error") {
                     Reply u;
                     scope(exit) u.dispose();
                     if (!putChunk(u, 0, c.content) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
@@ -2341,6 +2356,20 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 // what it was before the prompt, and is stored so as the turn ends.
                 if (c.finish == "content_filter") {
                     o.history.len = promptAt;
+                    // A title this prompt gave is cleared, "Set to null to clear.",
+                    // so the session is named by a prompt that is in it.
+                    if (newTitle.len > 0) {
+                        if (sessions.db !is null && storeClearTitle(sessions.db, sid) < 0) {
+                            put(`,"error":{"code":-32603,"message":"the store refused to clear the title of `);
+                            putEscaped(r, sid); put(`"}}`);
+                            return true;
+                        }
+                        o.titled = false;
+                        o.titleLen = 0;
+                        Reply u;
+                        scope(exit) u.dispose();
+                        if (!titleCleared(u, o.updatedAt) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    }
                     putStop(r, acp_stop_reason.ACP_STOP_REFUSAL);
                     return true;
                 }

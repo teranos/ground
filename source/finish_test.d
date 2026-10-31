@@ -73,7 +73,11 @@ private Gateway gateway(string[] answers...) {
     return g;
 }
 
-// One prompt, its updates to stdout thrown away; the answer into r.
+// What the client was told by the last prompt.
+private __gshared char[65536] told;
+private __gshared size_t toldLen;
+
+// One prompt, its updates kept in told; the answer into r.
 private void prompt(ref Sessions s, string text, ref Reply r) {
     import core.stdc.stdio : fflush, stdout;
     import core.sys.posix.fcntl : open, O_WRONLY;
@@ -82,17 +86,25 @@ private void prompt(ref Sessions s, string text, ref Reply r) {
     Input input = Input(p[0]);
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); s.input = null; }
+    int[2] o;
+    assert(pipe(o) == 0);
     fflush(stdout);
     auto saved = dup(1);
-    auto sink = open("/dev/null", O_WRONLY);
-    dup2(sink, 1);
+    dup2(o[1], 1);
     r.len = 0;
     Reply line;
     scope(exit) line.dispose();
     line.add(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"`);
     line.add(text); line.add(`"}]}}`);
     code.answer(line.slice(), r, s);
-    fflush(stdout); dup2(saved, 1); close(saved); close(sink);
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
+    toldLen = 0;
+    while (true) {
+        auto got = read(o[0], told.ptr + toldLen, told.length - toldLen);
+        if (got <= 0) break;
+        toldLen += cast(size_t) got;
+    }
+    close(o[0]);
 }
 
 private void opened(ref Sessions s, string url) {
@@ -151,6 +163,9 @@ unittest {
     assert(r.slice() == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the gateway says the model's answer ended in error","data":`
         ~ sayingOf!("error", "half an") ~ `}}`);
     assert(s.open[0].history.slice() == `{"role":"user","content":"hi"}`);
+    // The client is not shown an answer the turn says failed.
+    assert(indexOf(told[0 .. toldLen], `agent_message_chunk`) < 0);
+    assert(indexOf(told[0 .. toldLen], `half an`) < 0);
     s.open[0].history.dispose();
 }
 
@@ -172,4 +187,42 @@ unittest {
     assert(s.open[0].costNano == 200_000);
     assert(s.open[0].history.len == 0);
     if (s.open[0].history !is null) s.open[0].history.dispose();
+}
+
+// A refused first prompt does not name the session: the title it gave is
+// cleared, "Set to null to clear", in the store and to the client, and the
+// next prompt names the session.
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import code.store : storeList;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope(exit) sqlite3_close(db);
+    auto g = gateway(completion!("content_filter", ""), completion!("stop", "hello"));
+    scope(exit) { kill(g.pid, SIGKILL); waitpid(g.pid, null, 0); }
+    Sessions s = Sessions(100, 7);
+    s.db = db;
+    opened(s, cast(string) g.url);
+    Reply r;
+    scope(exit) r.dispose();
+    prompt(s, "something refused", r);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"refusal"}}`);
+    assert(indexOf(told[0 .. toldLen], `"title":"something refused"`) >= 0);
+    assert(indexOf(told[0 .. toldLen], `{"sessionUpdate":"session_info_update","title":null,"updatedAt":"2023-11-14T22:13:20Z"}`) >= 0);
+    __gshared char[64] stored;
+    __gshared size_t storedLen;
+    storedLen = 0;
+    void each(const(char)[] id, const(char)[] cwd, const(char)[] dirs, const(char)[] title, long at) {
+        foreach (c; title) stored[storedLen++] = c;
+    }
+    assert(storeList(db, null, &each));
+    assert(storedLen == 0);
+    prompt(s, "hi", r);
+    assert(r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(told[0 .. toldLen], `"title":"hi"`) >= 0);
+    storedLen = 0;
+    assert(storeList(db, null, &each));
+    assert(stored[0 .. storedLen] == "hi");
+    s.open[0].history.dispose();
 }

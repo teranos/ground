@@ -173,6 +173,19 @@ int storeTitle(sqlite3* db, const(char)[] id, const(char)[] title) {
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
+// Clears an open session's title, so the next prompt names it. 1 cleared, 0
+// no open session by that id, -1 the store refused.
+int storeClearTitle(sqlite3* db, const(char)[] id) {
+    sqlite3_stmt* st;
+    enum sql = "UPDATE code_session SET title = '' WHERE id = ?1 AND closed_at = 0\0";
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
+    bind(st, 1, id);
+    auto rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+    return sqlite3_changes(db) > 0 ? 1 : 0;
+}
+
 // Adds an answer's cost, in billionths of a dollar, to what an open session
 // has cost so far, into total. 1 added, 0 no open session by that id, -1 the
 // store refused.
