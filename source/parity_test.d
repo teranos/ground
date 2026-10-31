@@ -158,6 +158,106 @@ static assert(sideOf("agy", "Stop").writes.slice() == "");
 // codex runs the handlers Claude Code does.
 static assert(sideOf("codex", "PostToolUse").writes.slice() == sideOf("claude", "PostToolUse").writes.slice());
 
+// "Pin the latest stable deepseek harness In parity"
+// dsh has no hook contract of its own: it runs Claude Code's and Codex's hooks,
+// each a plugin of its own. Its pins are those bridges' bundles, the same on
+// every platform, each beside the hook-protocol bundle that reads a hook's reply.
+static assert(pins[10].agent == "dsh-claude" && pins[10].release == "0.2.1-rc.5");
+static assert(pins[10].sha256 == "c4f3f5d92c82e790593d977d95eef0afa4ffad07bb9b9d1609ae613fe6a76283");
+static assert(pins[10].protocol == "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132");
+static assert(pins[11].agent == "dsh-codex" && pins[11].release == "0.2.1-rc.5");
+static assert(pins[11].sha256 == "4f245084fa3a90f6740446e124962a2037c8a8be5f1daf3085ee1c1004a6fa86");
+static assert(pins[11].protocol == "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132");
+
+// A bridge's bundle, as dsh-hooks-claude-code 0.2.1-rc.5 and dsh-hooks-codex
+// carry it: every hook runs through runPoint, whose payload the run widens.
+private enum dshSample = `
+			const { output, durationMs } = await runHook(ctx.shell, hook, {
+				payload: {
+					...payload,
+					cwd: workdir ?? process.cwd()
+				},
+				timeoutMs: 600000
+			});
+		const merged = await runPoint("UserPromptSubmit", "", {
+			...turnBase(ctx, agent, "UserPromptSubmit", model),
+			prompt: blocksToText(messages.flatMap((message) => message.content))
+		}, {
+			agent,
+			signal
+		});
+		const merged = await runPoint("PreToolUse", exec.name, preToolPayload(exec), {
+			...exec.agent ? { agent: exec.agent } : {},
+			signal: exec.signal
+		});
+		detached.track(runPoint("SubagentStart", SUBAGENT_TYPE, subagentPayload("SubagentStart", info, child), {
+			signal: detached.signal
+		}));
+		detached.track(runPoint("SubagentStop", SUBAGENT_TYPE, subagentPayload("SubagentStop", info, child), {
+			signal: detached.signal
+		}));
+function base(agent, event) {
+	return {
+		session_id: agent?.session.header.id ?? "",
+		transcript_path: "",
+		hook_event_name: event
+	};
+}
+function turnBase(ctx, agent, event, model) {
+	return {
+		...base(agent, event),
+		turn_id: String(lastTurn(ctx, agent))
+	};
+}
+function preToolPayload(exec) {
+	return {
+		...base(exec.agent, "PreToolUse"),
+		tool_name: exec.name,
+		tool_input: { command: commandOf(exec.arguments) },
+		tool_use_id: exec.callId
+	};
+}
+function subagentPayload(event, info, child) {
+	return {
+		...base(child, event),
+		agent_id: info.id,
+		agent_type: SUBAGENT_TYPE,
+		...event === "SubagentStop" ? { stop_hook_active: false } : {}
+	};
+}
+`;
+static assert(dshEvents(dshSample).slice() == "UserPromptSubmit,PreToolUse,SubagentStart,SubagentStop");
+static assert(dshInputKeys(dshSample, "UserPromptSubmit").slice() == "cwd,session_id,transcript_path,hook_event_name,turn_id,prompt");
+// A key nested in a value is the value's, not the payload's.
+static assert(dshInputKeys(dshSample, "PreToolUse").slice() == "cwd,session_id,transcript_path,hook_event_name,tool_name,tool_input,tool_use_id");
+// A spread that tests the event is the event's alone.
+static assert(!has(dshInputKeys(dshSample, "SubagentStart"), "stop_hook_active"));
+static assert(has(dshInputKeys(dshSample, "SubagentStop"), "stop_hook_active"));
+static assert(dshInputKeys(dshSample, "Stop").slice() == "");
+
+// What dsh-hook-protocol reads of a hook's reply, the same for every event.
+private enum dshProtocolSample = `
+function applyStructured(output, parsed, expectedEventName) {
+	const cont = bool(parsed, "continue");
+	if (cont !== void 0) output.continue = cont;
+	const topDecision = topLevelDecisionOf(str(parsed, "decision"));
+	const hso = obj(parsed.hookSpecificOutput);
+	if (hso) {
+		const eventName = str(hso, "hookEventName");
+		if (eventName !== void 0) output.hookEventName = eventName;
+		const permission = permissionDecisionOf(str(hso, "permissionDecision"));
+		const updated = obj(hso.updatedInput);
+		if (updated !== void 0) output.updatedInput = updated;
+	}
+}
+function other(parsed) { return str(parsed, "notRead"); }
+`;
+static assert(dshOutputKeys(dshProtocolSample).slice() == "continue,decision,hookSpecificOutput,hookEventName,permissionDecision,updatedInput");
+
+// dsh runs the hooks ground installs for Claude Code and codex, in their dialects.
+static assert(sideOf("dsh-claude", "PreToolUse").reads.slice() == sideOf("claude", "PreToolUse").reads.slice());
+static assert(sideOf("dsh-codex", "Stop").writes.slice() == sideOf("codex", "Stop").writes.slice());
+
 // The ACP schema, as its release publishes it: every request, response and
 // notification names its method and the side that handles it. A key nested in
 // one of them is not the method's.
@@ -328,7 +428,7 @@ static assert(has(sideFor("acp", "fs/read_text_file").writes, "path"));
 // "i want it"
 // MCP's pins are each released schema.json at one spec commit, the version as
 // the release. libmcp is the client the table measures.
-static assert(pins.length == 10);
+static assert(pins.length == 12);
 static assert(pins[5].agent == "mcp" && pins[5].release == "2024-11-05");
 static assert(pins[5].sha256 == "61cea2392d4f284092d09bc84b9ac488c0d5618ac2b38a56942fc5b99fd960ce");
 static assert(pins[9].agent == "mcp" && pins[9].release == "2026-07-28");
