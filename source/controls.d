@@ -19,66 +19,38 @@ enum allParsed = parsePbt(import(".ctfe/sand"));
 // fifteen copies of the same ParseResult in the binary.
 static immutable parsedOnce = allParsed;
 
-// --- Handler resolvers (CTFE) ---
+// --- Handler names (CTFE) ---
 
-import control_handlers;
+import handler_names : checkNames, delayNames, deliverNames, named;
 
-CheckFn resolveCheck(string name) {
-    switch (name) {
-        case "binaryShadowed": return &control_handlers.binaryShadowed;
-        case "commitNotRequested": return &control_handlers.commitNotRequested;
-        case "mergeNotRequested": return &control_handlers.mergeNotRequested;
-        case "killNotRequested": return &control_handlers.killNotRequested;
-        case "branchNotRequested": return &control_handlers.branchNotRequested;
-        case "prNotRequested": return &control_handlers.prNotRequested;
-        case "quoteProvenance": return &control_handlers.quoteProvenance;
-        case "quoteStandsAlone": return &control_handlers.quoteStandsAlone;
-        case "quoteChronology": return &control_handlers.quoteChronology;
-        case "strikethrough": return &control_handlers.strikethroughCheck;
-        case "unanalyzableBash": return &control_handlers.unanalyzableBash;
-        case "deepAndChain": return &control_handlers.deepAndChain;
-        case "stagedNamesPerson": return &control_handlers.stagedNamesPerson;
-        case "pushNamesPerson": return &control_handlers.pushNamesPerson;
-        default: return null;
-    }
-}
-
-// No delay handler is named by any control today. The one there was asked
-// github how long a branch's runs take, from inside PostToolUse, to time the
-// delivery of a wait that now happens on the node.
-DelayFn resolveDelay(string name) {
-    switch (name) {
-        default: return null;
-    }
-}
-
-DeliverFn resolveDeliver(string name) {
-    switch (name) {
-        case "upstreamBriefingDeliver": return &control_handlers.upstreamBriefingDeliver;
-        default: return null;
-    }
+// A name the engine holds, by kind; handlers.d holds the code for each.
+bool holds(string kind, string name) {
+    if (kind == "check") return named(checkNames, name);
+    if (kind == "delay") return named(delayNames, name);
+    if (kind == "deliver") return named(deliverNames, name);
+    return false;
 }
 
 // --- Scope arrays (CTFE) ---
 
 // TODO: catch hardcoded URLs in error messages that claim to report runtime values
 
-private static immutable _preToolSet = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(allParsed, "PreToolUse");
+private static immutable _preToolSet = buildScopes!holds(allParsed, "PreToolUse");
 static immutable allScopes = _preToolSet.items[0 .. _preToolSet.len];
 
 private static immutable _upSet = buildScopes(allParsed, "UserPromptSubmit");
 static immutable userPromptScopes = _upSet.items[0 .. _upSet.len];
 
-private static immutable _stopSet = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(allParsed, "Stop");
+private static immutable _stopSet = buildScopes!holds(allParsed, "Stop");
 static immutable stopScopes = _stopSet.items[0 .. _stopSet.len];
 
-private static immutable _ssSet = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(allParsed, "SessionStart");
+private static immutable _ssSet = buildScopes!holds(allParsed, "SessionStart");
 static immutable sessionStartScopes = _ssSet.items[0 .. _ssSet.len];
 
 private static immutable _ptuSet = buildScopes(allParsed, "PostToolUse");
 static immutable postToolUseScopes = _ptuSet.items[0 .. _ptuSet.len];
 
-private static immutable _ptudSet = buildScopes!(resolveCheck, resolveDelay, resolveDeliver)(allParsed, "PostToolUseDeferred");
+private static immutable _ptudSet = buildScopes!holds(allParsed, "PostToolUseDeferred");
 static immutable postToolUseDeferredScopes = _ptudSet.items[0 .. _ptudSet.len];
 
 private static immutable _ptufSet = buildScopes(allParsed, "PostToolUseFailure");

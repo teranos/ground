@@ -590,12 +590,15 @@ Match checkCommand(const(char)[] command, const(char)[] cwd) {
                         if (c.content.len > 0 && !contentMatchesAny(command, c.content))
                             continue;
                         const(char)[] observed = null;
-                        if (c.sessionstart.check !is null) {
+                        if (c.sessionstart.check.length > 0) {
+                            import handlers : resolveCheck, unheld;
+                            auto check = resolveCheck(c.sessionstart.check);
+                            if (check is null) { unheld("check", c.sessionstart.check, c.name); continue; }
                             import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
                             g_paramKeys = c.paramKeys;
                             g_paramValues = c.paramValues;
                             g_paramCount = c.paramCount;
-                            auto verdict = c.sessionstart.check(effectiveCwd(segment, cwd, shellHome()), segment);
+                            auto verdict = check(effectiveCwd(segment, cwd, shellHome()), segment);
                             if (!verdict.fired)
                                 continue;
                             observed = verdict.observed;
@@ -706,12 +709,15 @@ MatchSet checkAllCommands(const(char)[] command, const(char)[] cwd) {
                         if (c.content.len > 0 && !contentMatchesAny(command, c.content))
                             continue;
                         const(char)[] observed = null;
-                        if (c.sessionstart.check !is null) {
+                        if (c.sessionstart.check.length > 0) {
+                            import handlers : resolveCheck, unheld;
+                            auto check = resolveCheck(c.sessionstart.check);
+                            if (check is null) { unheld("check", c.sessionstart.check, c.name); continue; }
                             import control_handlers : g_paramKeys, g_paramValues, g_paramCount;
                             g_paramKeys = c.paramKeys;
                             g_paramValues = c.paramValues;
                             g_paramCount = c.paramCount;
-                            auto verdict = c.sessionstart.check(effectiveCwd(segment, effCwd, shellHome()), segment);
+                            auto verdict = check(effectiveCwd(segment, effCwd, shellHome()), segment);
                             if (!verdict.fired)
                                 continue;
                             observed = verdict.observed;
