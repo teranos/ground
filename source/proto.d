@@ -13,7 +13,8 @@ import strop : parseStropBlock, Strop, MAX_STROP_POOL;
 
 import count : countPbt, PbtCounts;
 
-private enum _sand = import(".ctfe/sand");
+import sandtext : SAND_TEXT;
+private enum _sand = SAND_TEXT;
 enum pbtCounts = countPbt(_sand);
 
 // --- Intermediate structs — sized by pass 1 ---
