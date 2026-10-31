@@ -1,10 +1,6 @@
 module proto_test;
 
 import proto : parsePbt, buildScopes, ParseResult;
-import hooks : CheckFn, DelayFn, DeliverFn;
-
-private CheckFn noopResolveCheck(string) { return null; }
-private DelayFn noopResolveDelay(string) { return null; }
 
 // Pool accessors for readability
 auto ctrl(PR)(const PR r, size_t sc, size_t i) { return r.ctrlPool[r.scopes[sc].controlStart + i]; }
@@ -220,16 +216,12 @@ static assert(ctrl(stopDeliverParsed, 0, 0).deliverHandler == "testDeliver");
 static assert(ctrl(stopDeliverParsed, 0, 0).interval == 604800);
 static assert(ctrl(stopDeliverParsed, 0, 0).triggerCount == 0);
 
-// buildScopes for Stop with deliver_handler — wires defer.deliverFn
-private const(char)[] testDeliverFn(const(char)[]) { return "test"; }
-private DeliverFn testResolveDeliver(string name) {
-    if (name == "testDeliver") return &testDeliverFn;
-    return null;
-}
-enum stopDeliverBuilt = buildScopes!(noopResolveCheck, noopResolveDelay, testResolveDeliver)(stopDeliverParsed, "Stop");
+// buildScopes for Stop with deliver_handler — carries the handler by its name
+private bool holdsTestDeliver(string kind, string name) { return kind == "deliver" && name == "testDeliver"; }
+enum stopDeliverBuilt = buildScopes!holdsTestDeliver(stopDeliverParsed, "Stop");
 static assert(stopDeliverBuilt.len == 1);
 static assert(stopDeliverBuilt.items[0].controls[0].name == "upstream-briefing-stop");
-static assert(stopDeliverBuilt.items[0].controls[0].defer.deliverFn !is null);
+static assert(stopDeliverBuilt.items[0].controls[0].defer.deliver == "testDeliver");
 static assert(stopDeliverBuilt.items[0].controls[0].interval == 604800);
 static assert(stopDeliverBuilt.items[0].controls[0].trigger.len == 0);
 
@@ -924,12 +916,9 @@ enum handlerParamsAbsentParsed = parsePbt(handlerParamsAbsentInput);
 static assert(ctrl(handlerParamsAbsentParsed, 0, 0).paramCount == 0);
 
 // buildScopes wires the pairs through to the runtime Control.
-// A stub resolveCheck is required because the test pbt references a
-// check_handler name; without it, buildScopes asserts on the null resolution.
-import hooks : CheckFn, CheckResult, passes;
-CheckResult stubCheck(const(char)[] cwd, const(char)[] input) { return passes(); }
-CheckFn stubResolveCheck(string) { return &stubCheck; }
-enum handlerParamsBuilt = buildScopes!(stubResolveCheck)(handlerParamsParsed, "PreToolUse");
+// The test pbt names a check_handler, so the build must hold it, or buildScopes asserts.
+bool holdsAnyCheck(string kind, string) { return kind == "check"; }
+enum handlerParamsBuilt = buildScopes!holdsAnyCheck(handlerParamsParsed, "PreToolUse");
 static assert(handlerParamsBuilt.items[0].controls[0].paramCount == 1);
 static assert(handlerParamsBuilt.items[0].controls[0].paramKeys[0] == "depth");
 static assert(handlerParamsBuilt.items[0].controls[0].paramValues[0] == "4");

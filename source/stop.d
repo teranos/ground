@@ -15,7 +15,6 @@ long usecNow() {
     gettimeofday(&tv, null);
     return tv.tv_sec * 1_000_000 + tv.tv_usec;
 }
-import hooks : DeliverFn;
 
 void putInt(ref ZBuf buf, long v) {
     char[20] digits = 0;
@@ -371,13 +370,16 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     continue;
                 foreach (ref c; sc.controls) {
                     if (c.trigger.len > 0) continue;       // skip trigger-based (handled above)
-                    if (c.defer.deliverFn is null) continue; // nothing to deliver
+                    if (c.defer.deliver.length == 0) continue; // nothing to deliver
 
                     import db : attestationExists, attestControlFire;
                     if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
 
-                    auto delivered = c.defer.deliverFn(cwd);
+                    import handlers : resolveDeliver, unheld;
+                    auto deliver = resolveDeliver(c.defer.deliver);
+                    if (deliver is null) { unheld("deliver", c.defer.deliver, c.name); continue; }
+                    auto delivered = deliver(cwd);
                     if (delivered is null) continue;
 
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
