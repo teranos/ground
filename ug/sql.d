@@ -23,7 +23,12 @@ extern (C) {
     int sqlite3_exec(sqlite3* db, const(char)* sql, void* callback, void* arg, char** errmsg);
     int sqlite3_changes(sqlite3* db);
     long sqlite3_last_insert_rowid(sqlite3* db);
+    int sqlite3_db_config(sqlite3* db, int op, ...);
+    int sqlite3_file_control(sqlite3* db, const(char)* dbName, int op, void* arg);
 }
+
+enum SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE = 1006;
+enum SQLITE_FCNTL_PERSIST_WAL = 10;
 
 enum SQLITE_OK   = 0;
 enum SQLITE_ROW  = 100;
@@ -38,6 +43,24 @@ enum SQLITE_READWRITE = 0x00000002;
 // BUSY — a lock ug declined to wait for, not a table it cannot read. 50ms sits
 // inside the 300ms debounce, so it costs no frame.
 enum BUSY_MS = 50;
+
+// Every open of ground's store in ug, so each one is set up the same way.
+// What sqlite said, and a handle only when that is SQLITE_OK.
+int openGround(const(char)* path, ref sqlite3* db) {
+    auto rc = sqlite3_open_v2(path, &db, SQLITE_READWRITE, null);
+    if (rc != SQLITE_OK) {
+        sqlite3_close(db);
+        db = null;
+        return rc;
+    }
+    sqlite3_busy_timeout(db, BUSY_MS);
+    // As ground's own opens: a close that is the last neither checkpoints nor
+    // takes the -wal and -shm (source/db.d).
+    sqlite3_db_config(db, SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, 1, null);
+    int persist = 1;
+    sqlite3_file_control(db, "main\0".ptr, SQLITE_FCNTL_PERSIST_WAL, &persist);
+    return SQLITE_OK;
+}
 
 // Where the store is. Built from HOME because a fresh process knows nothing
 // else about who it belongs to.
@@ -120,12 +143,8 @@ Reading readPerformances(const(char)[] home, const(char)[] sessionId, Row[] rows
     fclose(probe);
 
     sqlite3* db;
-    auto rc = sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null);
-    if (rc != SQLITE_OK) {
-        sqlite3_close(db);
-        return Reading(Read.cannotOpen, rc, 0);
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    auto rc = openGround(&path[0], db);
+    if (rc != SQLITE_OK) return Reading(Read.cannotOpen, rc, 0);
 
     sqlite3_stmt* stmt;
     rc = sqlite3_prepare_v2(db, PERFORMANCE_SQL.ptr, cast(int) PERFORMANCE_SQL.length, &stmt, null);
@@ -193,11 +212,7 @@ size_t readOrgMinutes(const(char)[] home, OrgMinutes[] rows) {
     fclose(probe);
 
     sqlite3* db;
-    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return 0;
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    if (openGround(&path[0], db) != SQLITE_OK) return 0;
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, ORG_MINUTES_SQL.ptr, cast(int) ORG_MINUTES_SQL.length, &stmt, null) != SQLITE_OK) {
@@ -239,11 +254,7 @@ Week readWindow(const(char)[] home, const(char)[] window) {
     fclose(probe);
 
     sqlite3* db;
-    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return w;
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    if (openGround(&path[0], db) != SQLITE_OK) return w;
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, WINDOW_SQL.ptr, cast(int) WINDOW_SQL.length, &stmt, null) != SQLITE_OK) {
@@ -280,11 +291,7 @@ size_t readPlan(const(char)[] home, char[] dest) {
     fclose(probe);
 
     sqlite3* db;
-    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return 0;
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    if (openGround(&path[0], db) != SQLITE_OK) return 0;
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, PLAN_SQL.ptr, cast(int) PLAN_SQL.length, &stmt, null) != SQLITE_OK) {
@@ -375,11 +382,7 @@ bool newsSeen(const(char)[] home, const(char)[] id) {
     auto n = newsIdInto(id, rowId[]);
 
     sqlite3* db;
-    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return true;
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    if (openGround(&path[0], db) != SQLITE_OK) return true;
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, NEWS_SEEN_SQL.ptr, cast(int) NEWS_SEEN_SQL.length, &stmt, null) != SQLITE_OK) {
@@ -417,11 +420,7 @@ bool leaveNews(const(char)[] home, const(char)[] id, const(char)[] session,
     foreach (c; `","after":0}`) if (a < attrs.length) attrs[a++] = c;
 
     sqlite3* db;
-    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return false;
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    if (openGround(&path[0], db) != SQLITE_OK) return false;
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, NEWS_SQL.ptr, cast(int) NEWS_SQL.length, &stmt, null) != SQLITE_OK) {
