@@ -5,7 +5,7 @@ module comet;
 // "or like, a generalised project, like universal ground"
 
 // The universal ground answers its own global controls; a repository with a comet
-// landed for it is handed to that comet, which is that project's ground (ADR-050).
+// landed for it is answered from that comet's sand, the engine held in ground (ADR-050).
 
 import zbuf : ZBuf;
 
@@ -21,6 +21,23 @@ version (linux) {
     version (X86_64) enum PLATFORM = "x86_64-linux";
 }
 static assert(is(typeof(PLATFORM)), "ground's flake names four platforms, and this is none of them");
+
+// The file a comet is, as make sand names it.
+version (OSX) enum SAND_FILE = "libground_sand.dylib";
+else enum SAND_FILE = "libground_sand.so";
+
+/// The node's comet of origin for this platform and this engine's ABI, into url.
+void cometUrlInto(ref ZBuf url, const(char)[] node, const(char)[] origin) {
+    import sandview : SAND_ABI;
+    url.reset();
+    url.put(node);
+    url.put("/comet/");
+    url.put(origin);
+    url.put("/");
+    url.put(PLATFORM);
+    url.put("/");
+    url.putUint(SAND_ABI);
+}
 
 /// What a pass asking the node for this repository's comet came to.
 enum Landed {
@@ -53,12 +70,7 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     if (path.length == 0) return r;
 
     __gshared ZBuf url;
-    url.reset();
-    url.put(node);
-    url.put("/comet/");
-    url.put(origin);
-    url.put("/");
-    url.put(PLATFORM);
+    cometUrlInto(url, node, origin);
     auto bare = url.len;
     url.put("?digest");
 
@@ -164,9 +176,9 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
         return r;
     }
 
-    if (chmod(staged.ptr(), 493) != 0) {
+    if (chmod(staged.ptr(), 420) != 0) { // 0644: a sand is loaded, never run
         r.what = Landed.failed;
-        r.said.put("the downloaded comet could not be made executable: ");
+        r.said.put("the downloaded comet could not be made readable: ");
         r.said.put(staged.slice());
         return r;
     }
@@ -254,11 +266,11 @@ private int runQuiet(const(char)*[] args, const(char)* last) {
     return (status >> 8) & 0xff;
 }
 
-/// Where a repository's comet lands: ~/.local/share/ground/comets/<owner>/<repo>/ground.
+/// Where a repository's comet lands: ~/.local/share/ground/comets/<owner>/<repo>/SAND_FILE.
 /// Empty for no origin: a repository with no name has no comet.
 const(char)[] cometPathInto(const(char)[] home, const(char)[] origin, char[] buf) {
     enum middle = "/.local/share/ground/comets/";
-    enum tail = "/ground";
+    enum tail = "/" ~ SAND_FILE;
     if (origin.length == 0 || home.length == 0) return buf[0 .. 0];
     auto need = home.length + middle.length + origin.length + tail.length;
     if (need >= buf.length) return buf[0 .. 0];
@@ -268,60 +280,4 @@ const(char)[] cometPathInto(const(char)[] home, const(char)[] origin, char[] buf
     }
     buf[n] = 0;
     return buf[0 .. n];
-}
-
-/// Runs the comet at path with input on its stdin, GROUND_COMET=1 in its environment
-/// so it never hands off again, and its stdout and stderr ground's own. Its exit code
-/// is the answer; one that could not be started answers 1 and says why on stderr.
-int handOff(const(char)[] path, const(char)[] input) {
-    import core.stdc.stdio : fputs, stderr;
-    // ground declares these once, in exec; a second declaration is a second mangled name.
-    import exec : fork, pipe, dup2, close, write, execv, _exit, setenv, waitpid;
-
-    __gshared char[1024] cpath = 0;
-    if (path.length >= cpath.length) {
-        fputs("ground: the comet's path is too long to run\n", stderr);
-        return 1;
-    }
-    foreach (i, c; path) cpath[i] = c;
-    cpath[path.length] = 0;
-
-    int[2] fds;
-    if (pipe(fds.ptr) != 0) {
-        fputs("ground: no pipe to hand the event to the comet\n", stderr);
-        return 1;
-    }
-    auto pid = fork();
-    if (pid < 0) {
-        fputs("ground: the comet could not be forked\n", stderr);
-        return 1;
-    }
-    if (pid == 0) {
-        dup2(fds[0], 0);
-        close(fds[0]);
-        close(fds[1]);
-        setenv("GROUND_COMET", "1", 1);
-        const(char)*[2] argv = [cpath.ptr, null];
-        execv(cpath.ptr, argv.ptr);
-        fputs("ground: the comet did not start: ", stderr);
-        fputs(cpath.ptr, stderr);
-        fputs("\n", stderr);
-        _exit(1);
-    }
-    close(fds[0]);
-    size_t sent = 0;
-    while (sent < input.length) {
-        auto w = write(fds[1], input.ptr + sent, input.length - sent);
-        if (w <= 0) break;
-        sent += cast(size_t) w;
-    }
-    close(fds[1]);
-    int status;
-    waitpid(pid, &status, 0);
-    // POSIX: the low seven bits are the signal that ended it, zero when it exited; the next byte is the code.
-    if ((status & 0x7f) != 0) {
-        fputs("ground: the comet ended without an exit code\n", stderr);
-        return 1;
-    }
-    return (status >> 8) & 0xff;
 }

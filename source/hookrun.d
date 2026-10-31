@@ -247,23 +247,29 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     import db : cwdTail;
     outProject = cwdTail(cwd);
 
-    // "or like, a generalised project, like universal ground"
-    // A repository with a comet landed for it is answered by that comet, which
-    // attests and times the event itself. A comet never hands off again.
+    // "A comet held for the harness is checked there."
+    // A repository with a comet landed for it is answered from that comet's sand;
+    // one this engine cannot hold is said, and the built-in sand answers.
     {
         import core.stdc.stdlib : getenv;
-        import core.sys.posix.unistd : access, X_OK;
         import git : originOf;
-        import comet : cometPathInto, handOff;
+        import sandload : holdLanded, SandHeld;
         auto home = getenv("HOME");
-        if (getenv("GROUND_COMET") is null && home !is null) {
+        if (home !is null) {
             size_t hl = 0;
             while (home[hl] != 0) hl++;
-            __gshared char[1024] cometBuf = 0;
-            auto path = cometPathInto(home[0 .. hl], originOf(cwd), cometBuf[]);
-            if (path.length > 0 && access(cometBuf.ptr, X_OK) == 0) {
-                outSkipTiming = true;
-                return handOff(path, input);
+            __gshared typeof(holdLanded("", "")) held;
+            held = holdLanded(home[0 .. hl], originOf(cwd));
+            if (held.what == SandHeld.refused) {
+                import errors : GroundError, deliverError;
+                import core.stdc.time : time;
+                GroundError err;
+                err.origin    = "sandload";
+                err.message   = cast(string) held.why();
+                err.exitCode  = -1;
+                err.sessionId = cast(string) sessionId;
+                err.timestamp = cast(long) time(null);
+                cast(void) deliverError(err);
             }
         }
     }

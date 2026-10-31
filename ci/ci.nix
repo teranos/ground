@@ -37,8 +37,9 @@ in
         # ground's side of libmcp, against the input's library and test server.
         { run = "nix develop .#default --command make test-mcp"; }
         # The Makefile's wind rule is the one list of wind's files. A copy of
-        # it here fell behind and CI linked wind without openapi.d.
-        { run = "nix develop .#default --command sh -c 'make wind && dub test'"; }
+        # it here fell behind and CI linked wind without openapi.d. sandload's
+        # test loads the library make sand builds, as an engine loads a comet.
+        { run = "nix develop .#default --command sh -c 'make wind sand && dub test'"; }
         # ug is built by ldc2 rather than dub, so `dub test` compiles no line of
         # it. `make ug` is here too because test-ug never links.
         { run = "nix develop .#default --command sh -c 'make ug && make test-ug'"; }

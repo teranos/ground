@@ -2,7 +2,7 @@ module comet_test;
 
 // "i want a coment per project essentially"
 
-import comet : cometPathInto, handOff, digestOf, land, Landed;
+import comet : cometPathInto, cometUrlInto, digestOf, land, Landed, PLATFORM, SAND_FILE;
 
 // The digest is read from the node's answer, and nothing that is not 64 hex characters is one.
 unittest {
@@ -21,48 +21,26 @@ unittest {
     assert(land("http://127.0.0.1:1", "t", "/tmp", "").what == Landed.none);
 }
 
-// A repository's comet sits under ground's home, by owner and repo.
+// A repository's comet sits under ground's home, by owner and repo: the sand, as make sand names it.
 unittest {
     char[512] buf;
     auto p = cometPathInto("/home/x", "abcd-nl/grove", buf[]);
-    assert(p == "/home/x/.local/share/ground/comets/abcd-nl/grove/ground", p);
+    assert(p == "/home/x/.local/share/ground/comets/abcd-nl/grove/" ~ SAND_FILE, p);
 
     // No origin is no comet, never a path made of nothing.
     assert(cometPathInto("/home/x", "", buf[]).length == 0);
 }
 
-// The comet is given the hook's input whole, and its exit code is ground's.
+// The node is asked for the sand of this platform and of this engine's ABI.
 unittest {
-    import core.stdc.stdio : fopen, fputs, fclose;
-    import exec : chmod;
-    import core.sys.posix.stdlib : mkdtemp;
-
-    char[64] dir = "/tmp/ground-comet-XXXXXX\0";
-    assert(mkdtemp(dir.ptr) !is null);
-    size_t n = 0;
-    while (dir[n] != 0) n++;
-
-    // A stand-in comet: it writes what it was given beside itself, and answers 3.
-    char[128] script = 0;
-    foreach (i, c; dir[0 .. n]) script[i] = c;
-    foreach (i, c; "/comet") script[n + i] = c;
-    auto f = fopen(script.ptr, "w");
-    assert(f !is null);
-    fputs("#!/bin/sh\ncat > \"$0.got\"\ntest \"$GROUND_COMET\" = 1 || exit 9\nexit 3\n", f);
-    fclose(f);
-    assert(chmod(script.ptr, 493) == 0); // 0755
-
-    auto code = handOff(script[0 .. n + 6], `{"hook_event_name":"Stop"}`);
-    assert(code == 3, "the comet's exit code is ground's, and the comet knows it is one");
-
-    char[128] got = 0;
-    foreach (i, c; script[0 .. n + 6]) got[i] = c;
-    foreach (i, c; ".got") got[n + 6 + i] = c;
-    auto g = fopen(got.ptr, "r");
-    assert(g !is null);
-    char[64] read = 0;
-    import core.stdc.stdio : fread;
-    auto len = fread(read.ptr, 1, read.length, g);
-    fclose(g);
-    assert(read[0 .. len] == `{"hook_event_name":"Stop"}`);
+    import sandview : SAND_ABI;
+    import zbuf : ZBuf;
+    ZBuf want;
+    want.put("https://n/comet/abcd-nl/grove/");
+    want.put(PLATFORM);
+    want.put("/");
+    want.putUint(SAND_ABI);
+    ZBuf url;
+    cometUrlInto(url, "https://n", "abcd-nl/grove");
+    assert(url.slice() == want.slice(), url.slice());
 }
