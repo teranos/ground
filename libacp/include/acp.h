@@ -353,6 +353,8 @@ acp_status acp_usage_update_write(unsigned long long used, unsigned long long si
 
 // session_info_update: the title when one is given, and updatedAt.
 acp_status acp_session_info_update_write(const char *title, const char *updated_at, acp_buffer *update_json);
+// session_info_update clearing the title, "Set to null to clear.", and updatedAt.
+acp_status acp_session_title_clear_write(const char *updated_at, acp_buffer *update_json);
 
 // available_commands_update: commands_json is the AvailableCommand array.
 acp_status acp_available_commands_update_write(const char *commands_json, acp_buffer *update_json);
