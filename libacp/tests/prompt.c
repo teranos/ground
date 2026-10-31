@@ -57,6 +57,20 @@ static void images(void) {
     acp_prompt_free(&in);
 }
 
+// "Agent supports ContentBlock::Audio": an audio block's data and mimeType, both required.
+static void audio(void) {
+    acp_prompt in;
+    acp_buffer error;
+    CHECK(read_prompt("{\"prompt\":[{\"type\":\"audio\",\"mimeType\":\"audio/wav\",\"data\":\"UklGRg==\"},"
+                      "{\"type\":\"audio\",\"data\":\"UklGRg==\"}]}", &in, &error) == ACP_OK);
+    CHECK(in.count == 2);
+    if (in.count == 2) {
+        CHECK(in.blocks[0].kind == ACP_BLOCK_AUDIO && is(in.blocks[0].mime_type, "audio/wav") && is(in.blocks[0].data, "UklGRg=="));
+        CHECK(in.blocks[1].kind == ACP_BLOCK_OTHER && is(in.blocks[1].type, "audio"));
+    }
+    acp_prompt_free(&in);
+}
+
 // "required": a link's name and uri, a resource's uri, and a block's type. Missing one, it is
 // another kind, told by the type it names, or none.
 static void incomplete(void) {
@@ -142,6 +156,7 @@ static void stop_reasons(void) {
 int main(void) {
     kinds();
     images();
+    audio();
     cancels();
     stop_reasons();
     incomplete();
