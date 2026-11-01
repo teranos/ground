@@ -23,8 +23,8 @@ $(wordlist 2,$(words $(GOALS)),$(GOALS)):
 endif
 else
 
-wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d source/libgit2.d
-	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d source/libgit2.d -L-lgit2
+wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.d source/libgit2.d
+	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.d source/libgit2.d -L-lgit2
 
 # "ground_hook as the hooks binary"
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
@@ -178,6 +178,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d tools/editor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
 	ldc2 -c -od=/tmp -I=tools tools/floor.d tools/floor_test.d
+	ldc2 -c -od=/tmp -I=tools tools/machine.d tools/machine_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
 
 # Same shape for ug/*_test.d.
