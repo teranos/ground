@@ -216,9 +216,13 @@ install-ug: ug
 	cp ug/ug $(PREFIX)/bin/ug.new
 	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
 
-install: build $(BINS) install-ug
+install: build $(BINS) install-ug sand
 	mkdir -p $(PREFIX)/bin
 	for b in ground $(BINS); do cp $$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
+# "i want FLOOR+LOCALSAND+COMET"
+# This machine's own sand, held with the floor and any comet (source/sandload.d).
+	mkdir -p $(HOME)/.local/share/ground/sand
+	cp $(SAND_LIB) $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new && mv -f $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB))
 # The ACP schemas flake.nix pins, linked from the store; the link roots them
 # against a garbage collection. ground parity reads them under ~/.local, so a
 # PREFIX elsewhere shows the schema as absent rather than measuring another.

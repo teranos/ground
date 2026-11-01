@@ -287,8 +287,12 @@ PermissionResult agentPermission(
     const(char)[] cwd,
     SessionMode sessionMode,
 ) {
-    if (sessionMode != SessionMode.manual) return PermissionResult(Decision.none, "", "");
-    return evaluatePermission(scopes, cwd, "Agent", "", sessionMode);
+    auto r = evaluatePermission(scopes, cwd, "Agent", "", sessionMode);
+    // A deny holds in every mode, the question only in manual:
+    // "deny it even on auto"
+    if (sessionMode != SessionMode.manual && r.decision != Decision.deny)
+        return PermissionResult(Decision.none, "", "");
+    return r;
 }
 
 private const(char)[] trimSlice(const(char)[] s) {
