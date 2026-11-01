@@ -233,10 +233,12 @@ acp_status acp_read_text_file_request_write(const char *request_id, const char *
     acp_buffer *message_json);
 
 // The text a client answers fs/read_text_file with, every byte of it; content is NULL for any
-// other answer. libacp owns content until acp_text_file_free.
+// other answer. not_found is 1 for the error -32002, "Resource not found: A given resource, such as
+// a file, was not found". libacp owns content until acp_text_file_free.
 typedef struct acp_text_file {
     char *content;
     size_t length;
+    int not_found;
 } acp_text_file;
 
 acp_status acp_read_text_file_result_read(const char *message_json, size_t length, acp_text_file *out);
@@ -331,9 +333,20 @@ acp_status acp_image_chunk_write(acp_chunk_kind kind, const char *mime_type, con
 // The same chunk holding audio: its mimeType and its base64 data.
 acp_status acp_audio_chunk_write(acp_chunk_kind kind, const char *mime_type, const char *data, acp_buffer *update_json);
 
+// "File modification shown as a diff": path, absolute, and every byte of either text. old_text NULL is
+// a file that was not there, written as null.
+typedef struct acp_diff {
+    const char *path;
+    const char *old_text;
+    size_t old_length;
+    const char *new_text;
+    size_t new_length;
+} acp_diff;
+
 // tool_call, or tool_call_update when update is set; a NULL field is not written. Raw input and output are
 // JSON text, or a string when not JSON. content_blocks is a ContentBlock array, each written as content;
-// content_text, with no blocks, is one text block. terminal_id is a terminal shown ahead of either.
+// content_text, with no blocks, is one text block. terminal_id is a terminal shown ahead of either, and
+// diff a file the call modified, after the terminal and ahead of the rest.
 typedef struct acp_tool_call {
     int update;
     const char *tool_call_id;
@@ -346,6 +359,7 @@ typedef struct acp_tool_call {
     const char *content_blocks;
     const char *content_text;
     const char *terminal_id;
+    const acp_diff *diff;
 } acp_tool_call;
 
 acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json);

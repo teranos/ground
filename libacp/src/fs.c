@@ -25,6 +25,8 @@ acp_status acp_read_text_file_result_read(const char *message_json, size_t lengt
     memset(out, 0, sizeof *out);
     json_object *message = acp_parse(message_json, length);
     json_object *content = acp_field(acp_field(message, "result"), "content");
+    json_object *code = acp_field(acp_field(message, "error"), "code");
+    out->not_found = json_object_is_type(code, json_type_int) && json_object_get_int64(code) == -32002;
     acp_status status = ACP_OK;
     if (json_object_is_type(content, json_type_string)) {
         // Every byte, as the text may hold a NUL a C string would stop at.

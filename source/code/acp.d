@@ -195,22 +195,25 @@ private int awaitAnswer(ref Turn turn, const(char)[] pid, ref Reply answered) {
 }
 
 // The client's answer to fs/read_text_file: 1 and the file's text in content,
-// every byte of it, or -1 for an answer of any other kind, an error among
-// them. libacp reads it.
-private int readTextContent(const(char)[] line, ref Reply content) {
+// every byte of it, or 0 for an answer of any other kind, an error among
+// them; notFound when that error is -32002, "Resource not found". libacp reads it.
+private int readTextContent(const(char)[] line, ref Reply content, ref bool notFound) {
     import libacp : acp_text_file, acp_read_text_file_result_read, acp_text_file_free, acp_status;
     acp_text_file file;
     scope(exit) acp_text_file_free(&file);
-    if (acp_read_text_file_result_read(line.ptr, line.length, &file) != acp_status.ACP_OK || file.content is null) return -1;
+    if (acp_read_text_file_result_read(line.ptr, line.length, &file) != acp_status.ACP_OK) return 0;
+    notFound = file.not_found != 0;
+    if (file.content is null) return 0;
     content.add(file.content[0 .. file.length]);
-    return content.full ? -1 : 1;
+    return content.full ? 0 : 1;
 }
 
 // "Request to read content from a text file", asked of the client for path.
-// 1 and the file's text in content; 2 the turn was called off; -1 no text,
-// why the reason, the client's own answer when it gave one.
+// 1 and the file's text in content; 0 the client answered no text, its answer
+// in why, notFound when it said the file was not found; 2 the turn was called
+// off; -1 the client could not be asked, why the reason.
 private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
-        const(char)[] path, ref Reply content, ref Reply why) {
+        const(char)[] path, ref Reply content, ref Reply why, bool* notFound = null) {
     if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
     sessions.asked++;
     Reply pid;
@@ -239,16 +242,27 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     auto waited = awaitAnswer(turn, pid.slice(), answered);
     if (waited < 0) { why.add(`"the client's input ended while ground code waited on the file"`); return -1; }
     if (waited == 2) return 2;
-    if (readTextContent(answered.slice(), content) == 1) return 1;
+    bool missing;
+    scope(exit) if (notFound !is null) *notFound = missing;
+    if (readTextContent(answered.slice(), content, missing) == 1) return 1;
     why.add(answered.slice());
-    return -1;
+    return 0;
+}
+
+// What the file a write is asked for held before it, so the written call shows the change as a diff:
+// held 1 its text in before, 0 it was not there, -1 not known, and no diff shown.
+private struct Before {
+    Reply path, before, after;
+    int held = -1;
+    void dispose() { path.dispose(); before.dispose(); after.dispose(); }
 }
 
 // fs/write_text_file, asked of the client for what a write_text_file call gives: 1 answered, its answer in
 // answered; 0 not asked, the arguments being no absolute path and text, said in answered; 2 the turn was
-// called off; -1 the client could not be asked, why the reason.
+// called off; -1 the client could not be asked, why the reason. A client that reads files is first asked
+// what the file held, into was.
 private int writeThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
-        const(char)[] arguments, ref Reply answered, ref Reply why) {
+        const(char)[] arguments, ref Reply answered, ref Reply why, ref Before was) {
     import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
         json_object_get_string, json_object_get_string_len;
     import core.stdc.string : strlen;
@@ -262,6 +276,22 @@ private int writeThroughClient(ref Sessions sessions, ref Turn turn, const(char)
         return 0;
     }
     if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    if (sessions.clientReadsFiles) {
+        auto path_ = json_object_get_string(path)[0 .. cast(size_t) json_object_get_string_len(path)];
+        bool notFound;
+        auto read = readThroughClient(sessions, turn, sid, path_, was.before, why, &notFound);
+        if (read < 0) return -1;
+        if (read == 2) {
+            answered.add(`{"status":"cancelled","why":"the client cancelled the turn while ground code read the file it was to write"}`);
+            return 2;
+        }
+        // The client's answer is no text, but says nothing yet of the write, so it is not the call's.
+        why.len = 0;
+        was.held = read == 1 ? 1 : notFound ? 0 : -1;
+        was.path.add(path_);
+        was.after.add(json_object_get_string(content)[0 .. cast(size_t) json_object_get_string_len(content)]);
+        if (was.path.full || was.before.full || was.after.full) was.held = -1;
+    }
     sessions.asked++;
     Reply pid;
     scope(exit) pid.dispose();
@@ -2171,7 +2201,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 }
                 auto got = readThroughClient(sessions, turn, sid, path.slice(), content, why);
                 if (got == 2) { stopCancelled(); return true; }
-                if (got < 0) {
+                if (got != 1) {
                     put(`,"error":{"code":-32603,"message":"ground code could not read `); putEscaped(r, uri);
                     put(` through the client","data":`); put(why.slice()); put(`}}`);
                     return true;
@@ -2456,11 +2486,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     bool ok;
                     Reply shown; // the terminal the call shows, when it ran a command
                     scope(exit) shown.dispose();
+                    Before was; // what the file it writes held, when it is one ground code writes
+                    scope(exit) was.dispose();
                     if (own) {
                         // What the client answered is what the call answered.
                         Reply asking;
                         scope(exit) asking.dispose();
-                        auto wrote = writeThroughClient(sessions, turn, sid, call.arguments, result, asking);
+                        auto wrote = writeThroughClient(sessions, turn, sid, call.arguments, result, asking, was);
                         if (wrote < 0) {
                             foreach (j; i .. c.callCount)
                                 toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
@@ -2468,7 +2500,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                             put(asking.slice()); put(`}}`);
                             return true;
                         }
-                        if (wrote == 2) result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to write the file"}`);
+                        if (wrote == 2 && result.len == 0) result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to write the file"}`);
                         ok = wrote == 1 && clientWrote(result.slice());
                     } else if (runs) {
                         // What the command printed, and how it exited, is what the call answered.
@@ -2522,9 +2554,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     }
                     toolMessage(*o.history, call.id, result.slice());
                     u.len = 0;
-                    // What the tool call produced, as MCP gave it, is its content.
+                    // What the tool call produced, as MCP gave it, is its content; a file it wrote, the
+                    // change it made, shown as a diff.
+                    FileDiff changed = FileDiff(was.path.slice(), was.before.slice(), was.after.slice(), was.held == 1);
                     if (!putToolCall(u, true, call.id, null, null, null, ok ? "completed" : "failed", null, result.slice(),
-                            shown.len > 0 ? shown.slice() : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                            shown.len > 0 ? shown.slice() : null, ok && was.held >= 0 ? &changed : null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     // Cancelled in the call: the calls after it are not run,
                     // and the turn answers cancelled now.
                     if (turn.cancelled) {

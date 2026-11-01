@@ -29,7 +29,9 @@ static acp_status answer(const char *message, acp_text_file *out) {
     return acp_read_text_file_result_read(message, strlen(message), out);
 }
 
-// result.content and its every byte, a NUL among them; any other answer is no text.
+// result.content and its every byte, a NUL among them; any other answer is no text, and the one
+// whose error is -32002, "Resource not found: A given resource, such as a file, was not found",
+// says the file is not there.
 static void answers(void) {
     acp_text_file file;
     CHECK(answer("{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"result\":{\"content\":\"line one\\nline two\"}}", &file) == ACP_OK);
@@ -43,11 +45,16 @@ static void answers(void) {
         "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"error\":{\"code\":-32002,\"message\":\"no such file\"}}",
         "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"result\":{\"content\":7}}",
         "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"result\":{}}",
+        "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"error\":{\"code\":-32603,\"message\":\"no such file\"}}",
+        "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"error\":{\"code\":\"-32002\"}}",
+        "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"result\":{\"content\":7}}",
+        "{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"result\":{}}",
         "not json",
     };
     for (size_t i = 0; i < sizeof none / sizeof *none; i++) {
         CHECK(answer(none[i], &file) == ACP_OK);
         CHECK(file.content == NULL && file.length == 0);
+        CHECK(file.not_found == (i == 0));
     }
 }
 

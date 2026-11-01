@@ -117,6 +117,7 @@ extern (C) nothrow @nogc {
     struct acp_text_file {
         char* content;
         size_t length;
+        int not_found;
     }
 
     struct acp_terminal_exit {
@@ -151,6 +152,15 @@ extern (C) nothrow @nogc {
         const(char)* content_blocks;
         const(char)* content_text;
         const(char)* terminal_id;
+        const(acp_diff)* diff;
+    }
+
+    struct acp_diff {
+        const(char)* path;
+        const(char)* old_text;
+        size_t old_length;
+        const(char)* new_text;
+        size_t new_length;
     }
 
     enum acp_elicit_mode : int { ACP_ELICIT_FORM, ACP_ELICIT_URL, ACP_ELICIT_OTHER }

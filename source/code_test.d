@@ -1446,6 +1446,54 @@ version (Posix) unittest {
         ~ `"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
     assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{}}"}`) >= 0);
+    // A client that reads no files is not asked what the file held, so no diff is shown.
+    assert(indexOf(said[0 .. saidLen], `fs/read_text_file`) < 0);
+    assert(indexOf(said[0 .. saidLen], `"type":"diff"`) < 0);
+    s.open[0].history.dispose();
+
+    // "File modification shown as a diff": a client that reads files is asked what the file held before
+    // it is asked to write it, and the written call shows the change, "The original content" and "The
+    // new content after modification". The model is answered what the write answered, as before.
+    enum readsAndWrites = `{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true}}}`;
+    enum reading = `{"jsonrpc":"2.0","id":"read-1","method":"fs/read_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b"}}`;
+    enum writing = `{"jsonrpc":"2.0","id":"write-2","method":"fs/write_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b","content":"line one\nline \"two\""}}`;
+    enum wroteSecond = `{"jsonrpc":"2.0","id":"write-2","result":{}}`;
+    enum written = `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wroteSecond;
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","result":{"content":"line one\n"}}` ~ "\n" ~ wroteSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], reading) >= 0 && indexOf(said[0 .. saidLen], reading) < indexOf(said[0 .. saidLen], writing));
+    assert(indexOf(said[0 .. saidLen], written ~ `,"content":[{"type":"diff","path":"/tmp/a b","oldText":"line one\n","newText":"line one\nline \"two\""}]}`) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-2\",\"result\":{}}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // "The original content (null for new files)": the client says the file was not found, -32002.
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","error":{"code":-32002,"message":"no such file"}}` ~ "\n" ~ wroteSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], written ~ `,"content":[{"type":"diff","path":"/tmp/a b","oldText":null,"newText":"line one\nline \"two\""}]}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Any other answer says nothing of what the file held, so the write is shown without a diff.
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","error":{"code":-32603,"message":"busy"}}` ~ "\n" ~ wroteSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], writing) >= 0);
+    assert(indexOf(said[0 .. saidLen], written ~ `}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `"type":"diff"`) < 0);
+    s.open[0].history.dispose();
+
+    // A write the client did not make modified nothing, so it shows no diff.
+    enum refusedSecond = `{"jsonrpc":"2.0","id":"write-2","error":{"code":-32603,"message":"read-only"}}`;
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","result":{"content":"x"}}` ~ "\n" ~ refusedSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refusedSecond) >= 0);
+    assert(indexOf(said[0 .. saidLen], `"type":"diff"`) < 0);
+    s.open[0].history.dispose();
+
+    // Called off while the client reads it: the file is not written, and the history says why.
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n", s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(said[0 .. saidLen], reading) >= 0);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while ground code read the file it was to write\"}"}`) >= 0);
     s.open[0].history.dispose();
 
     // The client could not write it: the call failed with the client's own answer, and the model goes on.
