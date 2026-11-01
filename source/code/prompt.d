@@ -652,13 +652,18 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
 // A call's title, "Human-readable title describing what the tool is doing",
 // added to title: the tool's own as MCP orders it, its title ("Intended for
 // UI and end-user contexts"), else its annotations' title, else, as MCP says,
-// "the name should be used for display".
+// "the name should be used for display". A title holding a NUL is none: it is
+// written as a C string, which would end at the NUL.
 void toolTitle(ref McpGroup group, const(char)[] full, ref Reply title) {
     auto before = title.len;
+    static bool usable(const(char)[] t) {
+        foreach (c; t) if (c == '\0') return false;
+        return t.length > 0;
+    }
     withTool(group, full, (json_object* tool) {
         auto own = text(jsonField(tool, "title"));
-        if (own.length == 0) own = text(jsonField(jsonField(tool, "annotations"), "title"));
-        if (own.length > 0) title.add(own);
+        if (!usable(own)) own = text(jsonField(jsonField(tool, "annotations"), "title"));
+        if (usable(own)) title.add(own);
     });
     if (title.len == before) title.add(full);
 }
@@ -830,7 +835,7 @@ private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data
 // tools are read-only, so their replayed calls say kind read as they did live.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
         scope bool delegate(const(char)[] tool) readOnly = null,
-        scope void delegate(const(char)[] tool, ref Reply title) titled = null) {
+        scope void delegate(const(char)[] id, const(char)[] tool, ref Reply title) titled = null) {
     Reply all;
     scope(exit) all.dispose();
     all.add("["); all.add(history); all.add("]");
@@ -902,7 +907,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 auto kind = readOnly !is null && readOnly(name) ? "read" : null;
                 Reply title;
                 scope(exit) title.dispose();
-                if (titled !is null) titled(name, title); else title.add(name);
+                if (titled !is null) titled(id, name, title); else title.add(name);
                 if (!putToolCall(u, false, id, title.slice(), name, kind, null, args, null) || !told(u)) return false;
             }
         }

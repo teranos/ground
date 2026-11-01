@@ -1098,6 +1098,7 @@ struct Open {
     char[2048] dirs; // the JSON array a client is answered with
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
+    Reply titles;   // the title each call was shown with, "id":"title" pairs, so a load tells it back as shown
     char[TITLE_BYTES + 4] title; // what the first prompt named it, ellipsis and all
     long costNano;  // what it has cost, when no store keeps it
     size_t titleLen;
@@ -1206,7 +1207,7 @@ private bool putModes(ref Reply r, SessionMode current) {
 
 private void forget(ref Open o) {
     if (o.history !is null) { o.history.dispose(); free(o.history); o.history = null; }
-    o.always.dispose(); o.never.dispose();
+    o.always.dispose(); o.never.dispose(); o.titles.dispose();
 }
 
 // A session/update to the client, written as it happens: a turn's steps are
@@ -1772,12 +1773,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "it restores the session context": a session not live here gets its
         // conversation back from the store, so its next turn goes on from it.
         Reply* restored = null;
+        Reply restoredTitles; // given to the session when it is not live, else its own are kept
+        scope(exit) restoredTitles.dispose();
         if (!live && sessions.db !is null && !__ctfe) {
             import core.stdc.stdlib : malloc;
             restored = cast(Reply*) malloc(Reply.sizeof);
             if (restored is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
             *restored = Reply.init;
-            if (storeHistoryOf(sessions.db, sid, *restored) != 1) {
+            if (storeHistoryOf(sessions.db, sid, *restored, restoredTitles) != 1) {
                 restored.dispose(); free(restored);
                 put(`,"error":{"code":-32603,"message":"the store refused the conversation of `);
                 putEscaped(r, sid); put(`"}}`);
@@ -1797,7 +1800,12 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         scope(exit) shutdown.dispose();
         if (!__ctfe && o.mcp.count > 0) ended = closeMcp(o.mcp, shutdown);
         o.mcp = fresh;
-        if (!live) o.history = restored;
+        if (!live) {
+            o.history = restored;
+            o.titles.dispose();
+            o.titles = restoredTitles;
+            restoredTitles = Reply.init;
+        }
         keep(*o, sid, cwd, mode, dirs.slice(), effort);
         o.updatedAt = now(sessions);
         if (!ended) {
@@ -1810,7 +1818,22 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (load && !__ctfe && o.history !is null) {
             bool tell(const(char)[] update) { return notify(sid, update); }
             bool readOnly(const(char)[] tool) { return readOnlyTool(o.mcp, tool); }
-            void titled(const(char)[] tool, ref Reply title) { toolTitle(o.mcp, tool, title); }
+            // A call is told back with the title it was shown with live; one kept before titles
+            // were, as the catalogue it loads with titles it.
+            import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
+                json_object_get_string, json_object_get_string_len;
+            Reply all, key;
+            scope(exit) { all.dispose(); key.dispose(); }
+            all.add("{"); all.add(o.titles.slice()); all.add("}");
+            auto shown = all.full ? null : parseJson(all.slice());
+            scope(exit) json_object_put(shown);
+            void titled(const(char)[] callId, const(char)[] tool, ref Reply title) {
+                key.len = 0; key.add(callId); key.add("\0");
+                auto was = key.full ? null : jsonField(shown, key.slice().ptr);
+                if (json_object_get_type(was) == json_type.string_)
+                    title.add(json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)]);
+                else toolTitle(o.mcp, tool, title);
+            }
             if (!replayHistory(o.history.slice(), &tell, &readOnly, &titled)) {
                 put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
                 putEscaped(r, sid); put(` back"}}`);
@@ -2129,7 +2152,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // The conversation is the store's as the turn ends, however it
             // ends; a store that refuses it makes the turn's answer an error
             // carrying the answer it would have been.
-            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice()) != 1) {
+            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice(), o.titles.slice()) != 1) {
                 Reply would;
                 would.add(r.slice());
                 r.len = 0;
@@ -2462,6 +2485,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     Reply title;
                     scope(exit) title.dispose();
                     toolTitle(o.mcp, call.name, title);
+                    // Kept by the call's id, so a load tells it back as it is shown now.
+                    if (o.titles.len > 0) o.titles.add(",");
+                    o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
+                    putEscaped(o.titles, title.slice()); o.titles.add(`"`);
                     if (!putToolCall(u, false, call.id, title.slice(), call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
                         Reply asking;

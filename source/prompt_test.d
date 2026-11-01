@@ -175,7 +175,10 @@ unittest {
     import code.mcp : McpGroup, McpServer, McpPage;
     import code.prompt : toolTitle;
     enum page = `{"result":{"tools":[{"name":"look","title":"Look around","annotations":{"title":"Glance"}},`
-        ~ `{"name":"touch","annotations":{"title":"Touch a file"}},{"name":"plain"},{"name":"blank","title":""}]}}`;
+        ~ `{"name":"touch","annotations":{"title":"Touch a file"}},{"name":"plain"},{"name":"blank","title":""},`
+        // A title holding a NUL is none: the title is written as a C string, which would end at it.
+        ~ `{"name":"cut","title":"Cut\u0000here","annotations":{"title":"Cut it"}},{"name":"lead","title":"\u0000Lead"},`
+        ~ `{"name":"both","title":"a\u0000","annotations":{"title":"\u0000b"}}]}}`;
     McpPage p;
     p.response.json = cast(char*) page.ptr;
     p.response.length = page.length;
@@ -194,6 +197,9 @@ unittest {
     assert(titled("fs__plain", "fs__plain"));
     assert(titled("fs__blank", "fs__blank"));
     assert(titled("fs__missing", "fs__missing"));
+    assert(titled("fs__cut", "Cut it"));
+    assert(titled("fs__lead", "fs__lead"));
+    assert(titled("fs__both", "fs__both"));
 }
 
 // A call told back on session/load has the title it had live.
@@ -203,7 +209,8 @@ unittest {
     Reply told;
     scope(exit) told.dispose();
     bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
-    void title(const(char)[] tool, ref Reply t) { t.add(tool == "fs__look" ? "Look around" : tool); }
+    // The call's id comes with its tool, so the title it was shown with can be found.
+    void title(const(char)[] id, const(char)[] tool, ref Reply t) { t.add(id == "c1" && tool == "fs__look" ? "Look around" : tool); }
     assert(replayHistory(`{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"fs__look","arguments":"{}"}}]}`,
         &send, null, &title));
     assert(indexOf(told.slice(), `"toolCallId":"c1","title":"Look around","name":"fs__look"`) >= 0);
