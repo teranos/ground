@@ -267,15 +267,15 @@ struct ParsedSentry {
 
 // "no double or split config, they all need to go to the same call from the same token"
 // "isnt there a top level place where its actually defined"
-// The qntx { } block. At the top level it names the node: url, and token, the
-// path of the file holding what the node is spoken to with — empty means
-// QNTX_TOKEN, then ~/.qntx/token.
+// The qntx { } block. At the top level it names the nodes: url, where ground writes its
+// namespace, and token, the path of the file holding what url is spoken to with — empty
+// means QNTX_TOKEN, then ~/.qntx/token. gateway is the node signed in to with ~/.qntx/token.
 struct ParsedQntx {
     bool present;
     string url;
     string token;
     string model;   // what ground code prompts through the gateway
-    string gateway; // the node a prompt goes through; url when empty
+    string gateway; // the node signed in to: it answers prompts and gives the sand; url when empty
 }
 
 // A ritual is the only thing that can be invoked, and it lives inside the
