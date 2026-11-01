@@ -91,13 +91,14 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d
+             ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
+             source/http.d source/zbuf.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
 # reading from its input, which no hook is handed, every four hours and once
 # per new session. libgit2 reads the tree's status in its own process.
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2
+	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2 -L-lcurl
 
 # "make test should be the fast version"
 # "and ci does slower shit"
@@ -158,11 +159,11 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/perf.d ug/scan_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/sql.d ug/sql_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/qntx.d ug/json.d ug/qntx_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug ug/probe.d ug/qntx.d ug/json.d ug/probe_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/probe.d ug/qntx.d ug/json.d source/http.d source/zbuf.d ug/probe_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d ug/fable_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d source/http.d source/zbuf.d ug/fable_test.d
 
 # ug the way Claude Code runs it: frames cancelled mid-run, against a QNTX that
 # never answers. Not part of make test, because it waits on curl's timeout.

@@ -18,9 +18,9 @@ const(char)[] host() {
     return n > 0 ? e[0 .. n] : HOST;
 }
 
-// Pinned by absolute path: PATH belongs to whichever shell started the row,
-// and a credential must not be handed to whatever curl that PATH resolves.
-enum CURL = "/usr/bin/curl";
+// The request is made through libcurl in this process, the way ground makes
+// every request of its own. There is no program to find, so no path to pin and
+// no PATH to be wrong about.
 
 // Where the token is, under the home the row is running as. One file, so there
 // is one thing to rotate and nothing that can go stale unnoticed beside it.
@@ -85,109 +85,39 @@ Token readToken(const(char)[] home) {
     return Token(t, State.ok, true);
 }
 
-// The URL as one shell word. popen hands the line to sh, and an unquoted `&`
-// in `&plugin=` ended curl's command there: the row asked was the node's.
-// A path with a quote in it cannot be one word, so it gives nothing.
-size_t urlArgInto(const(char)[] host_, const(char)[] path, char[] dest) {
+// The URL, host then path. Nothing quotes it and nothing escapes it: the
+// request is made in this process, so there is no shell to mis-read an `&` in
+// `&plugin=` and no command line for another process to read.
+size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
     size_t o = 0;
-    if (dest.length == 0) return 0;
-    dest[o++] = '\'';
-    foreach (c; host_) { if (c == '\'' || o >= dest.length) return 0; dest[o++] = c; }
-    foreach (c; path) {
-        if (c == '\'' || o >= dest.length) return 0;
-        dest[o++] = c;
-    }
-    if (o >= dest.length) return 0;
-    dest[o++] = '\'';
+    foreach (c; host_) { if (o >= dest.length) return 0; dest[o++] = c; }
+    foreach (c; path)  { if (o >= dest.length) return 0; dest[o++] = c; }
     return o;
 }
 
-// One request. The token goes in a config file rather than on the argv: a
-// command line is readable by every process on the machine, and a credential
-// that leaks by being used is worse than one that is merely stored.
+// One request, made in this process. It was the curl program behind a pipe,
+// which meant a path to pin, a config file under /tmp to hold the token, and a
+// command line for a shell to read.
 Answer fetch(const(char)[] home, const(char)[] path) {
-    import core.stdc.stdio : FILE, fopen, fwrite, fclose, fread, remove;
-    import core.sys.posix.stdio : popen, pclose;
-    import core.sys.posix.unistd : getpid;
+    import http : httpGet;
 
     auto tok = readToken(home);
     if (!tok.ok) return Answer(tok.fault, 0, "");
 
-    __gshared char[256] conf = void;
-    size_t c = 0;
-    foreach (ch; "/tmp/ug-qntx-") conf[c++] = ch;
-    {
-        auto pid = getpid();
-        char[12] d = void;
-        size_t dl = 0;
-        int v = pid < 0 ? 0 : pid;
-        if (v == 0) { d[dl++] = '0'; }
-        else { while (v > 0 && dl < 11) { d[dl++] = cast(char)('0' + v % 10); v /= 10; } }
-        foreach_reverse (i; 0 .. dl) conf[c++] = d[i];
-    }
-    foreach (ch; ".conf") conf[c++] = ch;
-    conf[c] = 0;
-
-    {
-        auto f = fopen(&conf[0], "wb");
-        if (f is null) return Answer(State.probeError, 0, "");
-
-        void line(const(char)[] s) { fwrite(s.ptr, 1, s.length, f); }
-        line("silent\nshow-error\nmax-time = ");
-        {
-            char[8] d = void;
-            size_t dl = 0;
-            int v = MAX_TIME;
-            if (v <= 0) { d[dl++] = '0'; }
-            else { while (v > 0 && dl < 7) { d[dl++] = cast(char)('0' + v % 10); v /= 10; } }
-            foreach_reverse (i; 0 .. dl) fwrite(&d[i], 1, 1, f);
-        }
-        line("\nheader = \"Authorization: Bearer ");
-        line(tok.value);
-        line("\"\n");
-        fclose(f);
-    }
-
-    __gshared char[512] cmd = void;
-    size_t m = 0;
-    bool overflowed = false;
-
-    // Every piece is bounded and short, so this cannot overflow today. It is
-    // checked anyway, because the thing being built is a command line.
-    void putCmd(const(char)[] s) {
-        if (m + s.length + 1 > cmd.length) { overflowed = true; return; }
-        foreach (ch; s) cmd[m++] = ch;
-    }
-
-    putCmd(CURL);
-    putCmd(" --config ");
-    putCmd(conf[0 .. c]);
-    putCmd(" --write-out '\\nHTTP %{http_code}' ");
     __gshared char[400] url = void;
-    auto u = urlArgInto(host(), path, url[]);
-    if (u == 0) overflowed = true;
-    putCmd(url[0 .. u]);
-    putCmd(" 2>/dev/null");
-    cmd[m] = 0;
-    if (overflowed) { remove(&conf[0]); return Answer(State.probeError, 0, ""); }
-
-    auto pipe = popen(&cmd[0], "r");
-    if (pipe is null) { remove(&conf[0]); return Answer(State.probeError, 0, ""); }
+    auto u = urlInto(host(), path, url[]);
+    if (u == 0) return Answer(State.probeError, 0, "");
 
     __gshared char[262144] out_ = void;
-    size_t total = 0;
-    while (total < out_.length) {
-        auto n = fread(&out_[total], 1, out_.length - total, cast(FILE*) pipe);
-        if (n == 0) break;
-        total += n;
-    }
+    auto r = httpGet(url[0 .. u], tok.value, out_[], MAX_TIME);
 
-    // pclose hands back a wait status, and the exit code is its high byte.
-    auto status = pclose(pipe);
-    remove(&conf[0]);
-    auto curlExit = (status & 0x7f) == 0 ? (status >> 8) & 0xff : status;
+    // A body larger than the buffer is neither the far end failing nor a
+    // failure to reach it, so it is read as neither.
+    if (r.overran) return Answer(State.malformedBody, r.status, "");
 
-    return split(out_[0 .. total], curlExit);
+    // libcurl's CURLcode and the curl program's exit status carry the same
+    // numbers for every step classify reads, so the reading is unchanged.
+    return Answer(classify(r.code, r.status), r.status, out_[0 .. r.len]);
 }
 
 // What a POST came back with. curlExit is -1 when no token was there to send,
@@ -197,88 +127,21 @@ struct Posted {
     int curlExit;
 }
 
-// One POST of a JSON body. The token and the body both go through files, so
-// neither is on a command line another process can read.
+// One POST of a JSON body, made in this process. The token and the body were
+// written to files under /tmp to keep them off a command line; now there is no
+// command line, so there is nothing to keep them off and nothing left behind.
 Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
-    import core.stdc.stdio : FILE, fopen, fwrite, fclose, fread, remove;
-    import core.sys.posix.stdio : popen, pclose;
-    import core.sys.posix.unistd : getpid;
+    import http : httpPost;
 
     auto tok = readToken(home);
     if (!tok.ok) return Posted(0, -1);
 
-    __gshared char[256] conf = void;
-    __gshared char[256] data = void;
-    size_t c = 0, b = 0;
-    {
-        char[12] d = void;
-        size_t dl = 0;
-        int v = getpid();
-        if (v <= 0) d[dl++] = '0';
-        while (v > 0 && dl < 11) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
-        foreach (ch; "/tmp/ug-post-") { conf[c++] = ch; data[b++] = ch; }
-        foreach_reverse (i; 0 .. dl) { conf[c++] = d[i]; data[b++] = d[i]; }
-        foreach (ch; ".conf") conf[c++] = ch;
-        foreach (ch; ".json") data[b++] = ch;
-        conf[c] = 0;
-        data[b] = 0;
-    }
-
-    {
-        auto f = fopen(&data[0], "wb");
-        if (f is null) return Posted(0, 0);
-        fwrite(body_.ptr, 1, body_.length, f);
-        fclose(f);
-    }
-    {
-        auto f = fopen(&conf[0], "wb");
-        if (f is null) { remove(&data[0]); return Posted(0, 0); }
-        void line(const(char)[] s) { fwrite(s.ptr, 1, s.length, f); }
-        line("silent\nshow-error\nmax-time = 3\nrequest = \"POST\"\n");
-        line("header = \"Content-Type: application/json\"\n");
-        line("header = \"Authorization: Bearer ");
-        line(tok.value);
-        line("\"\ndata-binary = \"@");
-        line(data[0 .. b]);
-        line("\"\n");
-        fclose(f);
-    }
-
-    __gshared char[512] cmd = void;
-    size_t m = 0;
-    bool overflowed = false;
-    void putCmd(const(char)[] s) {
-        if (m + s.length + 1 > cmd.length) { overflowed = true; return; }
-        foreach (ch; s) cmd[m++] = ch;
-    }
-    putCmd(CURL);
-    putCmd(" --config ");
-    putCmd(conf[0 .. c]);
-    putCmd(" --write-out '\\nHTTP %{http_code}' ");
     __gshared char[400] url = void;
-    auto u = urlArgInto(host(), path, url[]);
-    if (u == 0) overflowed = true;
-    putCmd(url[0 .. u]);
-    putCmd(" 2>/dev/null");
-    cmd[m] = 0;
-    if (overflowed) { remove(&conf[0]); remove(&data[0]); return Posted(0, 0); }
+    auto u = urlInto(host(), path, url[]);
+    if (u == 0) return Posted(0, 0);
 
-    auto pipe = popen(&cmd[0], "r");
-    if (pipe is null) { remove(&conf[0]); remove(&data[0]); return Posted(0, 0); }
-
-    __gshared char[4096] out_ = void;
-    size_t total = 0;
-    while (total < out_.length) {
-        auto n = fread(&out_[total], 1, out_.length - total, cast(FILE*) pipe);
-        if (n == 0) break;
-        total += n;
-    }
-    auto status = pclose(pipe);
-    remove(&conf[0]);
-    remove(&data[0]);
-    auto curlExit = (status & 0x7f) == 0 ? (status >> 8) & 0xff : status;
-
-    return Posted(split(out_[0 .. total], curlExit).status, curlExit);
+    auto r = httpPost(url[0 .. u], body_, tok.value, MAX_TIME);
+    return Posted(r.status, r.code);
 }
 
 // Surrounding whitespace is not part of a credential; a file written by echo

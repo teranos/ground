@@ -1,6 +1,8 @@
 module http;
 
-import db : ZBuf;
+// The buffer, from where it is defined rather than through the store: nothing
+// about making a request needs the schema, the controls, or what a hook wrote.
+import zbuf : ZBuf;
 
 // Everything over HTTP goes through libcurl, in this process. It was the curl
 // program behind a pipe, which cost a fork per request, put the token and the

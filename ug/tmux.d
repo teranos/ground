@@ -7,6 +7,7 @@ module tmux;
 
 import json : jsonString, jsonNumber;
 import statusline : nextObject, itemsAt, lastAnswer, keepAnswer, QUIET;
+import qntx : State, standing;
 
 enum GREEN = "#[fg=colour34]";
 enum RED   = "#[fg=colour160]";
@@ -314,6 +315,10 @@ int tmuxMain(const(char)[] home, long now) {
         // The node answered and the answer was a refusal. That is not silence,
         // and it must not wait out the quiet window pretending it might pass.
         n = statusInto(answer.status, line[]);
+    } else if (standing(answer.state)) {
+        // Nothing was sent, and nothing about waiting will change that. Held
+        // behind the quiet window, a key nobody set read as a passing silence.
+        n = stateInto(answer.state, line[]);
     } else {
         auto seen = lastAnswer(home);
         if (seen.at > 0) {
@@ -734,6 +739,26 @@ size_t deploysOverInto(const(char)[] line, const(char)[] body_, long now, char[]
 
     size_t o = 0;
     foreach (c; work[0 .. w]) if (o < dest.length) dest[o++] = c;
+    return o;
+}
+
+// A state the bar can draw. The words are qntx.d's and the colours are tmux's,
+// so what the row says and how tmux paints it stay separable. Every word there
+// was written, tested, and asked for by nothing until this.
+size_t stateInto(State s, char[] dest) {
+    import qntx : word, colourOf, ANSI_YELLOW = YELLOW;
+
+    if (s == State.ok) return 0;
+
+    size_t o = 0;
+    void put(const(char)[] t) {
+        foreach (c; t) if (o < dest.length) dest[o++] = c;
+    }
+
+    put(colourOf(s) == ANSI_YELLOW ? YELLOW : RED);
+    put("QNTX ");
+    put(word(s));
+    put(PLAIN);
     return o;
 }
 
