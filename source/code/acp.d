@@ -2553,7 +2553,19 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                                 : level == "critical" ? "a critical error" : level == "alert" ? "an alert" : "an emergency");
                             tellUser(sessions, sid, level == "warning" ? "warning" : "error", title.slice(), data);
                         }
-                        auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error, &stopCall, &askClient, &hearServer);
+                        // "As tools execute, Agents send updates to report progress": what the server says
+                        // of the call's progress is its content while it runs, and only that changes.
+                        // One that could not be written is said as the turn's error once the call is back.
+                        bool unsaid;
+                        void progressed(const(char)[] message) {
+                            Reply update;
+                            scope(exit) update.dispose();
+                            if (!putToolCall(update, true, call.id, null, null, null, null, null, null, null, null, message) || !notify(sid, update.slice()))
+                                unsaid = true;
+                        }
+                        auto status = callMcpTool(o.mcp, server.slice().ptr, tool.slice().ptr, args.slice().ptr, response, validation, error,
+                            &stopCall, &askClient, &hearServer, &progressed, call.id);
+                        if (unsaid) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                         ok = status == mcp_status.MCP_OK;
                         if (ok) result.add(response.json[0 .. response.length]);
                         else {
