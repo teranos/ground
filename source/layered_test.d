@@ -2,10 +2,10 @@ module layered_test;
 
 // "i want FLOOR+LOCALSAND+COMET"
 
-import layered : layer;
-import sandview : Sand;
+import sand.layered : layer;
+import sand.view : Sand;
 import hooks : Scope;
-import builtin_sand : builtinSand;
+import sand.builtin : builtinSand;
 
 // Every sand starts from the floor, so the floor held three times is seen once.
 unittest {

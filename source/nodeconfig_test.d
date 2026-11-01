@@ -58,8 +58,8 @@ unittest {
 unittest {
     import nodeconfig : nodeHere;
     import controls : holdSand;
-    import sandview : Sand;
-    import builtin_sand : builtinSand;
+    import sand.view : Sand;
+    import sand.builtin : builtinSand;
     import core.stdc.stdio : fopen, fputs, fclose;
     import zbuf : ZBuf;
     scope (exit) holdSand(null);

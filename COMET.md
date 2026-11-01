@@ -68,11 +68,11 @@ the agent's token.
 One sand for one user, one project and one platform. The hook is `exec ground`
 on PATH, one engine path-matching every project. Per project it is one sand per
 repository, `make sand`'s library, which the engine loads when its ABI is the
-engine's (source/sandload.d); a hook per repository is not built.
+engine's (source/sand/load.d); a hook per repository is not built.
 
 "so give it a config per ground per node"
 
-The engine is built from ground's tracked controls alone (source/sandtext.d),
+The engine is built from ground's tracked controls alone (source/sand/text.d),
 the same for everyone. It names no node: the node it streams to and lands its
 sand from is a qntx block in nodes.pbt beside its store (source/nodeconfig.d),
 read when the sand it holds names none.

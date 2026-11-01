@@ -3,7 +3,7 @@ module sandabi;
 
 // "A comet held for the harness is checked there."
 
-import sandview : SAND_ABI;
+import sand.view : SAND_ABI;
 
 extern (C) int main() {
     import core.stdc.stdio : printf;

@@ -2,10 +2,10 @@ module sandload_test;
 
 // "A comet held for the harness is checked there."
 
-import sandload : loadSand, acceptSand, holdLanded, SandHeld;
-import sandview : Sand, SAND_ABI;
+import sand.load : loadSand, acceptSand, holdLanded, SandHeld;
+import sand.view : Sand, SAND_ABI;
 import controls : sand, holdSand, allScopes;
-import builtin_sand : builtinSand;
+import sand.builtin : builtinSand;
 
 version (OSX) enum BUILT = "build/libground_sand.dylib\0";
 else enum BUILT = "build/libground_sand.so\0";

@@ -6,15 +6,15 @@ module controls;
 // or the one that landed for this repository when its ABI is the engine's.
 
 public import hooks;
-import sandview : Sand, ParsedView;
+import sand.view : Sand, ParsedView;
 import permission : PermissionScope;
 import proto : ParsedRites, ParsedRitual, ParsedAttestation, ParsedOrg, ParsedRoute, ParsedQntx;
 import backend : Posting;
 import strop : Strop;
-import builtin_sand : builtinSand;
+import sand.builtin : builtinSand;
 
 // Compile-time readers (checks.d, playbill.d) read the floor's parse, as they always did.
-public import builtin_sand : allParsed, holds;
+public import sand.builtin : allParsed, holds;
 
 private __gshared const(Sand)* held = &builtinSand;
 

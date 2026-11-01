@@ -491,7 +491,7 @@ int handleSky(int argc, const(char)** argv) {
     // "A comet held for the harness is checked there."
     // The sand landed for this tree, held as the hooks hold it: where it reports and its node are its.
     {
-        import sandload : holdLanded, SandHeld;
+        import sand.load : holdLanded, SandHeld;
         auto held = holdLanded(getHome(), originBuf[0 .. originLen]);
         if (held.what == SandHeld.refused)
             toSentry("sky.sand", cast(string) held.why(), -1, sessionId, "");

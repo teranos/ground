@@ -1,4 +1,4 @@
-module sandload;
+module sand.load;
 
 // "A comet held for the harness is checked there."
 
@@ -6,7 +6,7 @@ module sandload;
 // holds it when its ABI is the engine's; otherwise the built-in sand, and why.
 
 import zbuf : ZBuf;
-import sandview : Sand, SAND_ABI;
+import sand.view : Sand, SAND_ABI;
 
 enum SandHeld {
     builtin,  // no sand landed at the path
@@ -26,8 +26,8 @@ struct SandLoad {
 SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     import comet : cometPathInto, localSandPathInto;
     import controls : holdSand;
-    import layered : layer;
-    import builtin_sand : builtinSand;
+    import sand.layered : layer;
+    import sand.builtin : builtinSand;
     __gshared char[1024] localBuf = 0;
     __gshared char[1024] cometBuf = 0;
 

@@ -262,7 +262,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     {
         import core.stdc.stdlib : getenv;
         import git : originOf;
-        import sandload : holdLanded, SandHeld;
+        import sand.load : holdLanded, SandHeld;
         auto home = getenv("HOME");
         if (home !is null) {
             size_t hl = 0;

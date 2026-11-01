@@ -1,4 +1,4 @@
-module sandtext;
+module sand.text;
 
 // "a true agnostic ground, and then only the compiled controls being their own thing shipped to the user"
 

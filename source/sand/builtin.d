@@ -1,4 +1,4 @@
-module builtin_sand;
+module sand.builtin;
 
 public import hooks;
 import proto : parsePbt, buildScopes, ScopeSet;
@@ -12,7 +12,7 @@ import permission : buildPermissions, PermissionSet;
 // The sand is data: a control names its handlers, and the engine that holds
 // them resolves the name. Nothing here imports the engine.
 
-import sandtext : SAND_TEXT;
+import sand.text : SAND_TEXT;
 enum allParsed = parsePbt(SAND_TEXT);
 
 // The parse, held once. A function that reads it at run time names this one:
@@ -126,7 +126,7 @@ static immutable Strop[allParsed.stropPoolLen + 1] globalStropPool = () {
 
 // --- The sand, as the engine and a sand library both hand it over ---
 
-import sandview : Sand, viewOf, SAND_ABI;
+import sand.view : Sand, viewOf, SAND_ABI;
 
 static immutable Sand builtinSand = Sand(SAND_ABI, viewOf(parsedOnce),
     allScopes, userPromptScopes, stopScopes, sessionStartScopes, postToolUseScopes,

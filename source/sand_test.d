@@ -3,7 +3,7 @@ module sand_test;
 // "only the compiled controls being their own thing shipped to the user"
 
 import controls : sand, allScopes, permissionScopes, stopScopes, parsedOnce, qntxNode;
-import sandview : SAND_ABI, Sand;
+import sand.view : SAND_ABI, Sand;
 
 // The engine answers from a sand, the built-in one until one lands, and every name reads from it.
 unittest {

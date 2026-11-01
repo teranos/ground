@@ -33,7 +33,7 @@ unittest {
 
 // The node is asked for the sand of this platform and of this engine's ABI.
 unittest {
-    import sandview : SAND_ABI;
+    import sand.view : SAND_ABI;
     import zbuf : ZBuf;
     ZBuf want;
     want.put("https://n/comet/abcd-nl/grove/");

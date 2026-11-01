@@ -28,7 +28,7 @@ else enum SAND_FILE = "libground_sand.so";
 
 /// The node's comet of origin for this platform and this engine's ABI, into url.
 void cometUrlInto(ref ZBuf url, const(char)[] node, const(char)[] origin) {
-    import sandview : SAND_ABI;
+    import sand.view : SAND_ABI;
     url.reset();
     url.put(node);
     url.put("/comet/");

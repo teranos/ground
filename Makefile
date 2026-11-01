@@ -29,7 +29,7 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.
 # "ground_hook as the hooks binary"
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
 # modules the entry point reaches, so no list of them is kept by hand.
-# -d-version=Floor: an engine is built from ground's tracked controls alone (source/sandtext.d).
+# -d-version=Floor: an engine is built from ground's tracked controls alone (source/sand/text.d).
 BIN_FLAGS = -betterC --lowmem -O -release -d-version=Floor -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
@@ -65,8 +65,8 @@ sand: wind
 	mkdir -p build
 	ldc2 -betterC --lowmem -O -release -shared -fvisibility=hidden --function-sections --data-sections \
 		$(if $(filter Darwin,$(shell uname -s)),-L-dead_strip,-relocation-model=pic -L--gc-sections -L-zdefs) \
-		-J=. -I=source -i=builtin_sand -i=sandview -of=$(SAND_LIB) bin/sand.d
-	ldc2 -betterC --lowmem -J=. -I=source -i=sandview -of=build/sandabi tools/sandabi.d
+		-J=. -I=source -i=sand.builtin -i=sand.view -of=$(SAND_LIB) bin/sand.d
+	ldc2 -betterC --lowmem -J=. -I=source -i=sand.view -of=build/sandabi tools/sandabi.d
 	build/sandabi > build/libground_sand.abi
 
 # build uses the "production" configuration, which excludes source/*_test.d.
@@ -203,7 +203,7 @@ install: build $(BINS) install-ug sand
 	mkdir -p $(PREFIX)/bin
 	for b in ground $(BINS); do cp $$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
 # "i want FLOOR+LOCALSAND+COMET"
-# This machine's own sand, held with the floor and any comet (source/sandload.d).
+# This machine's own sand, held with the floor and any comet (source/sand/load.d).
 	mkdir -p $(HOME)/.local/share/ground/sand
 	cp $(SAND_LIB) $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new && mv -f $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB))
 # The ACP schemas flake.nix pins, linked from the store; the link roots them

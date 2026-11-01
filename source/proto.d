@@ -13,7 +13,7 @@ import strop : parseStropBlock, Strop, MAX_STROP_POOL;
 
 import count : countPbt, PbtCounts;
 
-import sandtext : SAND_TEXT;
+import sand.text : SAND_TEXT;
 private enum _sand = SAND_TEXT;
 enum pbtCounts = countPbt(_sand);
 

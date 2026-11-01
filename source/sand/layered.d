@@ -1,10 +1,10 @@
-module layered;
+module sand.layered;
 
 // "i want FLOOR+LOCALSAND+COMET"
 // The three held together: every scope of each, once. What names one thing (the node, the orgs,
 // the rituals) comes from the most specific sand held: the comet, else the local sand, else the floor.
 
-import sandview : Sand;
+import sand.view : Sand;
 import hooks : Scope, Control;
 import permission : PermissionScope;
 import strop : Strop;

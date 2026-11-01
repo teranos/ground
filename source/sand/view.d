@@ -1,4 +1,4 @@
-module sandview;
+module sand.view;
 
 // "A comet is one sand for one user, one project and one platform."
 
