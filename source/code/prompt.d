@@ -610,6 +610,30 @@ bool toolsOf(ref McpGroup group, ref Reply tools, ref Reply detail) {
 // Whether the session's catalog says the tool, by its full name, only reads:
 // its MCP annotations' readOnlyHint is true. A tool that says nothing does not.
 bool readOnlyTool(ref McpGroup group, const(char)[] full) {
+    bool readOnly;
+    withTool(group, full, (json_object* tool) {
+        auto hint = jsonField(jsonField(tool, "annotations"), "readOnlyHint");
+        readOnly = json_object_get_type(hint) == json_type.boolean && json_object_get_boolean(hint) != 0;
+    });
+    return readOnly;
+}
+
+// A call's title, "Human-readable title describing what the tool is doing",
+// added to title: the tool's own as MCP orders it, its title ("Intended for
+// UI and end-user contexts"), else its annotations' title, else, as MCP says,
+// "the name should be used for display".
+void toolTitle(ref McpGroup group, const(char)[] full, ref Reply title) {
+    auto before = title.len;
+    withTool(group, full, (json_object* tool) {
+        auto own = text(jsonField(tool, "title"));
+        if (own.length == 0) own = text(jsonField(jsonField(tool, "annotations"), "title"));
+        if (own.length > 0) title.add(own);
+    });
+    if (title.len == before) title.add(full);
+}
+
+// The tool the session's catalogue lists under full, handed to each; nothing when none is.
+private void withTool(ref McpGroup group, const(char)[] full, scope void delegate(json_object* tool) each) {
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
         auto name = server.name[0 .. strlen(server.name)];
@@ -627,12 +651,11 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
                 bool same = n.slice() == full;
                 n.dispose();
                 if (!same) continue;
-                auto hint = jsonField(jsonField(tool, "annotations"), "readOnlyHint");
-                return json_object_get_type(hint) == json_type.boolean && json_object_get_boolean(hint) != 0;
+                each(tool);
+                return;
             }
         }
     }
-    return false;
 }
 
 // A conversation told back to the client, a session/update a step, as the
@@ -759,7 +782,8 @@ private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data
 // The history, told again. readOnly, when given, says which of the calls'
 // tools are read-only, so their replayed calls say kind read as they did live.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
-        scope bool delegate(const(char)[] tool) readOnly = null) {
+        scope bool delegate(const(char)[] tool) readOnly = null,
+        scope void delegate(const(char)[] tool, ref Reply title) titled = null) {
     Reply all;
     scope(exit) all.dispose();
     all.add("["); all.add(history); all.add("]");
@@ -811,7 +835,10 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 Reply u;
                 scope(exit) u.dispose();
                 auto kind = readOnly !is null && readOnly(name) ? "read" : null;
-                if (!putToolCall(u, false, id, name, name, kind, null, args, null) || !told(u)) return false;
+                Reply title;
+                scope(exit) title.dispose();
+                if (titled !is null) titled(name, title); else title.add(name);
+                if (!putToolCall(u, false, id, title.slice(), name, kind, null, args, null) || !told(u)) return false;
             }
         }
         else if (role == "tool") {
