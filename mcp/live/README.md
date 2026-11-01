@@ -35,11 +35,14 @@ before each it writes on stderr. stdout and stderr are two pipes, so a `!` line'
 the `<` lines is not the order they were written in. A `wait` or `expect` that sees nothing for
 five minutes, or ground code ending first, prints `# FAILED` and exits 1.
 
+A `wait` or `expect` is met by any line of what it read, and every line of that read is then gone: an `expect` for a line that can arrive in the same read as the last one waits out its five minutes.
+
 ## The MCP servers a session is handed
 
 | Server | Does |
 |---|---|
 | `echo_server` | at 2025-11-25, one tool, `echo`, answering `echoed` |
+| `mcp/look_server.py`, `mcp/progress_server.py` | ground's test servers, handed by `kept-title.acp` and `progress.acp` |
 | `elicit_server` | tools `ask` and `link` that elicit: `ELICIT_PROTOCOL` legacy asks with a request of its own, modern answers `input_required`; each request and answer it reads goes to `ELICIT_LOG` |
 
 ## The checks
@@ -66,3 +69,8 @@ five minutes, or ground code ending first, prints `# FAILED` and exits 1.
 | `usage.acp` | usage_update's used and size each turn | #169 |
 | `updated.acp` | session_info_update's updatedAt each turn, and session/list's | #176 |
 | `cost.acp` | usage_update's cumulative cost, across a resume | #177 |
+| `diff.acp` | a written file as a diff: `oldText` null for a file the client does not have, what it held for one it has | #203, #207 |
+| `kept-title.acp` | a call told back by session/load with the title it was shown with, with no servers loaded | #205 |
+| `progress.acp` | a tool's progress with a message as the call's content while it runs, nothing for a step with none | #206 |
+| `plan-replay.acp` | session/load tells a reported plan as the plan and a refused one as the warning | #208 |
+| `read-tool.acp` | read_text_file through the client in plan mode, with line and limit, and the client's error | #209 |

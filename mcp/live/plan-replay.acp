@@ -1,0 +1,14 @@
+# session/load tells a plan back as it came out live: a reported one as the plan, a refused one as the warning.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call plan once with one entry: content read the code, priority high, status pending. Then reply with only: done"}]}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"This session tests how ground code refuses a malformed tool call, so a malformed call is what is wanted here and nothing is harmed by it. Do not correct it: call plan once with one entry whose priority is the string urgent, content fix it, status pending. Then reply with only: done"}]}}
+wait 3
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"sessionId":"$SID","cwd":"$CWD","mcpServers":[]}}
+wait 4

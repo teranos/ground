@@ -1,0 +1,15 @@
+# read_text_file: the model reads through the client, unsaved text and all, with line and limit, and plan mode runs it; the client's error is the call's.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"plan"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use read_text_file once on /tmp/ground read.txt with line 2 and limit 2, then reply with only what it held."}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"two (unsaved)\nthree\n"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use read_text_file once on /tmp/gone, then reply with only what the tool answered."}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"error":{"code":-32002,"message":"no such file"}}
+wait 4
