@@ -28,4 +28,5 @@ private ParsedQntx qntxIn()(string sand) {
     return found;
 }
 
-static immutable ParsedQntx qntxNode = qntxIn(import(".ctfe/sand"));
+import sand.text : SAND_TEXT;
+static immutable ParsedQntx qntxNode = qntxIn(SAND_TEXT);
