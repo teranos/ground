@@ -9,7 +9,8 @@ module stream;
 // node is idempotent on it, so a lost answer is safe to send again. The row
 // goes as it is, except the attributes of the three payload-carrying events,
 // which go as decay leaves them: tool_name, file_path, command, original_size. The tool output stays
-// in the local store for its decay period and never leaves the machine.
+// in the local store for its decay period and never leaves the machine. A
+// write's input goes as well (SKELETON_SQL).
 //
 // A row's place in the stream is qntx_at, the way an outbox item's is
 // shipped_at: 0 pending, -pid claimed by that sky, a unix time when the node
@@ -82,12 +83,25 @@ enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status !=
 // The attributes a row is posted with, in the same words decay uses on the
 // local copy, so what the node holds and what the store keeps after seven
 // days are one shape.
+//
+// "if you can really determine via the ground namespace data, what the original utterance was, you can also see how the sentence changed over time and what models dealt with it"
+//
+// A write's input goes too: the words an agent put in a file are what a line is
+// known by on the node. They are not the tool's output, which stays home.
+enum WRITE_INPUT_CAP = "262144";
 enum SKELETON_SQL = "CASE json_extract(predicates, '$[0]') "
-    ~ "WHEN 'PostToolUse' THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
+    ~ "WHEN 'PostToolUse' THEN CASE WHEN json_extract(attributes, '$.tool_name') IN ('Write', 'Edit', 'MultiEdit', 'NotebookEdit') "
+    ~   "AND length(json_extract(attributes, '$.tool_input')) <= " ~ WRITE_INPUT_CAP ~ " "
+    ~   "THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
+    ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
+    ~   "'tool_input', json(json_extract(attributes, '$.tool_input')), "
+    ~   "'original_size', length(attributes), "
+    ~   "'duration_ms', json_extract(attributes, '$.duration_ms')) "
+    ~   "ELSE json_object('tool_name', json_extract(attributes, '$.tool_name'), "
     ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
     ~   "'command', json_extract(attributes, '$.tool_input.command'), "
     ~   "'original_size', length(attributes), "
-    ~   "'duration_ms', json_extract(attributes, '$.duration_ms')) "
+    ~   "'duration_ms', json_extract(attributes, '$.duration_ms')) END "
     ~ "WHEN 'PreToolUse' THEN json_object('tool_name', json_extract(attributes, '$.tool_name'), "
     ~   "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
     ~   "'command', json_extract(attributes, '$.tool_input.command'), "
@@ -567,6 +581,7 @@ unittest {
     assert(contains(body_, `"duration_ms":1711`), "what the tool took is sent");
     assert(!contains(body_, "a very long listing"), "the output stays home");
     assert(!contains(body_, "tool_response"));
+    assert(!contains(body_, `"tool_input"`), "a command's input is its command");
 
     Claimed d;
     assert(nextClaimed(db, 111, c.rowid, d));
@@ -771,4 +786,22 @@ private bool contains(const(char)[] hay, const(char)[] needle) {
     foreach (i; 0 .. hay.length - needle.length + 1)
         if (hay[i .. i + needle.length] == needle) return true;
     return false;
+}
+
+// A write goes with its words and without its output.
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, attestEventAt;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    attestEventAt(db, "PostToolUse", "/tmp", "sess-w",
+        `{"session_id":"sess-w","tool_name":"Edit","tool_input":{"file_path":"/tmp/a.md","old_string":"the words before","new_string":"the words after"},"tool_response":{"structuredPatch":"the output of it"},"duration_ms":3}`,
+        "2026-09-19T09:03:25Z", 34350);
+    assert(claimStream(db, 333, 10) == 1);
+    Claimed c;
+    assert(nextClaimed(db, 333, 0, c));
+    auto body_ = c.body_.slice();
+    assert(contains(body_, `"tool_input":{"file_path":"/tmp/a.md","old_string":"the words before","new_string":"the words after"}`), "a write goes with its words");
+    assert(!contains(body_, "the output of it"), "the output stays home");
+    sqlite3_close(db);
 }
