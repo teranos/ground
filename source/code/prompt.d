@@ -700,10 +700,17 @@ void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
 // A tool_call, or a tool_call_update when update, as libacp writes it, into u. A field that is
 // null is not written; rawOutput, when given, also gives what the call shows. false when libacp
 // could not write it.
+// "File modification shown as a diff": the file's absolute path, what it held, and what it holds now.
+// held is false for a file that was not there, whose original content is null.
+struct FileDiff {
+    const(char)[] path, oldText, newText;
+    bool held;
+}
+
 bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title, const(char)[] name,
         const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput,
-        const(char)[] terminalId = null) {
-    import libacp : acp_tool_call, acp_tool_call_write, acp_buffer, acp_buffer_free, acp_status;
+        const(char)[] terminalId = null, const(FileDiff)* diff = null) {
+    import libacp : acp_tool_call, acp_tool_call_write, acp_diff, acp_buffer, acp_buffer_free, acp_status;
     Reply blocks, said, text_;
     scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
     // A call that shows a terminal shows it alone: the terminal holds what the call printed.
@@ -717,10 +724,19 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     auto inputAt = at(rawInput), outputAt = at(rawOutput);
     auto blocksAt = at(blocks.len > 0 ? blocks.slice() : null), saidAt = at(said.len > 0 ? said.slice() : null);
     auto terminalAt = at(terminalId);
+    // Either text goes by its length, every byte; each is put here so an empty one is still text.
+    size_t pathAt = size_t.max, oldAt = size_t.max, newAt = size_t.max;
+    if (diff !is null) {
+        pathAt = at(diff.path);
+        if (diff.held) oldAt = at(diff.oldText.length ? diff.oldText : "");
+        newAt = at(diff.newText.length ? diff.newText : "");
+    }
     if (text_.full || blocks.full || said.full) return false;
     const(char)* c(size_t from) { return from == size_t.max ? null : text_.slice().ptr + from; }
+    acp_diff changed;
+    if (diff !is null) changed = acp_diff(c(pathAt), c(oldAt), diff.oldText.length, c(newAt), diff.newText.length);
     auto call = acp_tool_call(update, c(idAt), c(titleAt), c(nameAt), c(kindAt), c(statusAt), c(inputAt), c(outputAt),
-        c(blocksAt), c(saidAt), c(terminalAt));
+        c(blocksAt), c(saidAt), c(terminalAt), diff !is null ? &changed : null);
     acp_buffer written;
     scope(exit) acp_buffer_free(&written);
     if (acp_tool_call_write(&call, &written) != acp_status.ACP_OK) return false;
