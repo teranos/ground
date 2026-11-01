@@ -94,7 +94,16 @@ void main() {
     // ONE LEVEL ONLY. Controls pulled from a project are not rescanned for
     // further project blocks, so a declared repo cannot drag a third repo's
     // controls in behind you.
+    // A project whose controls name the node at the top level is a machine's repository: its
+    // controls go only into its own machine's sand, which takes them as its controls/local.
+    import machine : namesNode;
     foreach (ref proj; extractProjectPaths(sand)) {
+        // This machine's own repository was read already, as controls/local.
+        auto own = buildNormalizedPath(absolutePath(proj.path ~ "/controls"));
+        if (exists(own) && isDir(own) && !(realDir(own) in seenDirs) && namesNode(readPbtDir(own))) {
+            stderr.writefln("wind: skip %s (a machine's controls, which go only into its own machine's sand)", own);
+            continue;
+        }
         foreach (sub; ["/controls", "/controls/local"]) {
             auto dir = buildNormalizedPath(absolutePath(proj.path ~ sub));
             if (!exists(dir) || !isDir(dir)) continue;
