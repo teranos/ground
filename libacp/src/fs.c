@@ -48,6 +48,7 @@ void acp_text_file_free(acp_text_file *file) {
     free(file->content);
     file->content = NULL;
     file->length = 0;
+    file->not_found = 0;
 }
 
 acp_status acp_write_text_file_request_write(const char *request_id, const char *session_id, const char *path,
