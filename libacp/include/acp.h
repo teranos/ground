@@ -364,6 +364,11 @@ typedef struct acp_tool_call {
 
 acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json);
 
+// plan: plan_json is a Plan, its entries each a content, a priority (high, medium or low) and a status
+// (pending, in_progress or completed), written in its order with every byte of each content. Anything
+// else an entry holds is not written; a Plan any entry of which is not one is ACP_INVALID_ARGUMENT.
+acp_status acp_plan_write(const char *plan_json, size_t length, acp_buffer *update_json);
+
 // usage_update: used and size, and the cost when cost_amount, a JSON number as text, is given.
 acp_status acp_usage_update_write(unsigned long long used, unsigned long long size, const char *cost_amount,
     const char *currency, acp_buffer *update_json);

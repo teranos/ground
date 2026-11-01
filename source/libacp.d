@@ -246,6 +246,7 @@ extern (C) nothrow @nogc {
     acp_status acp_image_chunk_write(acp_chunk_kind, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_audio_chunk_write(acp_chunk_kind, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_tool_call_write(const(acp_tool_call)*, acp_buffer*);
+    acp_status acp_plan_write(const(char)*, size_t, acp_buffer*);
     acp_status acp_usage_update_write(ulong, ulong, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_session_info_update_write(const(char)*, const(char)*, acp_buffer*);
     acp_status acp_session_title_clear_write(const(char)*, acp_buffer*);
