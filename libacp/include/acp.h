@@ -5,6 +5,7 @@
 // v1 at schema-v1.26.0, v2 at schema-v2.0.0-alpha.9: https://agentclientprotocol.com
 
 #include <stddef.h>
+#include <stdint.h>
 
 // Every method by its name in schema-v1.26.0's meta.json: ACP_AGENT_SESSION_NEW is "session/new".
 #include "acp_methods.h"
@@ -231,6 +232,10 @@ void acp_permission_outcome_free(acp_permission_outcome *outcome);
 // fs/read_text_file, whole: request_id is JSON text, path the absolute path to read.
 acp_status acp_read_text_file_request_write(const char *request_id, const char *session_id, const char *path,
     acp_buffer *message_json);
+// The same, from line ("Line number to start reading from (1-based)") and for limit ("Maximum number of
+// lines to read"), each written when it is not 0.
+acp_status acp_read_text_file_lines_request_write(const char *request_id, const char *session_id, const char *path,
+    uint32_t line, uint32_t limit, acp_buffer *message_json);
 
 // The text a client answers fs/read_text_file with, every byte of it; content is NULL for any
 // other answer. not_found is 1 for the error -32002, "Resource not found: A given resource, such as

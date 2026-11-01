@@ -223,6 +223,7 @@ extern (C) nothrow @nogc {
     acp_status acp_permission_outcome_read(const(char)*, size_t, acp_permission_outcome*);
     void acp_permission_outcome_free(acp_permission_outcome*);
     acp_status acp_read_text_file_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_read_text_file_lines_request_write(const(char)*, const(char)*, const(char)*, uint, uint, acp_buffer*);
     acp_status acp_read_text_file_result_read(const(char)*, size_t, acp_text_file*);
     void acp_text_file_free(acp_text_file*);
     acp_status acp_write_text_file_request_write(const(char)*, const(char)*, const(char)*, const(char)*, size_t, acp_buffer*);

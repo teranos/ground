@@ -42,6 +42,18 @@ void putWriteTool(ref Reply tools) {
         ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}`);
 }
 
+// ground code's tool for reading through the client, fs/read_text_file's request as the model calls it,
+// in the schema's words: "including unsaved changes in the editor".
+enum READ_TOOL = "read_text_file";
+
+void putReadTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ READ_TOOL ~ `","description":"Request to read content from a text file.",`
+        ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to read."},`
+        ~ `"line":{"type":"integer","minimum":0,"maximum":4294967295,"description":"Line number to start reading from (1-based)."},`
+        ~ `"limit":{"type":"integer","minimum":0,"maximum":4294967295,"description":"Maximum number of lines to read."}},"required":["path"]}}}`);
+}
+
 // ground code's other own tool, terminal/create's request as the model calls it, in the schema's words.
 enum RUN_TOOL = "run_command";
 
@@ -722,7 +734,9 @@ void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
             if (text_.length == 0) text_ = text(jsonField(root, "output"));
         }
     }
-    if (json_object_get_type(found) == json_type.array && json_object_array_length(found) > 0) {
+    // fs/read_text_file's answer: the text read.
+    if (json_object_get_type(found) == json_type.string_) said.add(text(found));
+    else if (json_object_get_type(found) == json_type.array && json_object_array_length(found) > 0) {
         auto array = json_object_to_json_string_ext(found, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
         blocks.add(array[0 .. strlen(array)]);
     } else said.add(text_);
