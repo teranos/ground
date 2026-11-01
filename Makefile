@@ -109,7 +109,7 @@ UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
              ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
-             source/http.d source/zbuf.d
+             source/http.d source/zbuf.d source/token.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
 # reading from its input, which no hook is handed, every four hours and once
