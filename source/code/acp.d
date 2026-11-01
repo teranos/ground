@@ -208,19 +208,19 @@ private int readTextContent(const(char)[] line, ref Reply content, ref bool notF
     return content.full ? 0 : 1;
 }
 
-// "Request to read content from a text file", asked of the client for path.
-// 1 and the file's text in content; 0 the client answered no text, its answer
-// in why, notFound when it said the file was not found; 2 the turn was called
-// off; -1 the client could not be asked, why the reason.
-private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
-        const(char)[] path, ref Reply content, ref Reply why, bool* notFound = null) {
+// "Request to read content from a text file", asked of the client for path, from line and for limit
+// lines, each 0 for not given: 1 and the file's text in content; 0 the client answered no text,
+// notFound when it said the file was not found; either way its answer in answered. 2 the turn was
+// called off; -1 the client could not be asked, why the reason.
+private int askRead(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] path, uint line, uint limit,
+        ref Reply content, ref Reply answered, ref Reply why, ref bool notFound) {
     if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
     sessions.asked++;
     Reply pid;
     scope(exit) pid.dispose();
     pid.add(`"read-`); putNumber(pid, sessions.asked); pid.add(`"`);
     // libacp writes the request from these, each its own bytes and a NUL.
-    import libacp : acp_read_text_file_request_write, acp_buffer, acp_buffer_free, acp_status;
+    import libacp : acp_read_text_file_lines_request_write, acp_buffer, acp_buffer_free, acp_status;
     Reply text;
     scope(exit) text.dispose();
     size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
@@ -229,7 +229,7 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
     auto t = text.slice().ptr;
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
-    if (acp_read_text_file_request_write(t + idAt, t + sidAt, t + pathAt, &request) != acp_status.ACP_OK) {
+    if (acp_read_text_file_lines_request_write(t + idAt, t + sidAt, t + pathAt, line, limit, &request) != acp_status.ACP_OK) {
         why.add(`"libacp could not write fs/read_text_file"`);
         return -1;
     }
@@ -237,16 +237,63 @@ private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[
         why.add(`"could not write fs/read_text_file"`);
         return -1;
     }
-    Reply answered;
-    scope(exit) answered.dispose();
     auto waited = awaitAnswer(turn, pid.slice(), answered);
     if (waited < 0) { why.add(`"the client's input ended while ground code waited on the file"`); return -1; }
     if (waited == 2) return 2;
+    return readTextContent(answered.slice(), content, notFound);
+}
+
+// "Request to read content from a text file", asked of the client for path.
+// 1 and the file's text in content; 0 the client answered no text, its answer
+// in why, notFound when it said the file was not found; 2 the turn was called
+// off; -1 the client could not be asked, why the reason.
+private int readThroughClient(ref Sessions sessions, ref Turn turn, const(char)[] sid,
+        const(char)[] path, ref Reply content, ref Reply why, bool* notFound = null) {
+    Reply answered;
+    scope(exit) answered.dispose();
     bool missing;
     scope(exit) if (notFound !is null) *notFound = missing;
-    if (readTextContent(answered.slice(), content, missing) == 1) return 1;
-    why.add(answered.slice());
-    return 0;
+    auto got = askRead(sessions, turn, sid, path, 0, 0, content, answered, why, missing);
+    if (got == 0) why.add(answered.slice());
+    return got;
+}
+
+// fs/read_text_file, asked of the client for what a read_text_file call gives: 1 the file's text read,
+// 0 the client answered no text, or the arguments were none to ask with, said in answered; either way
+// what the model is told is in answered. 2 the turn was called off; -1 the client could not be asked.
+private int readForModel(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] arguments,
+        ref Reply answered, ref Reply why) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
+        json_object_get_string, json_object_get_string_len, json_object_get_int64;
+    import core.stdc.string : strlen;
+    auto args = parseJson(arguments);
+    scope(exit) json_object_put(args);
+    auto path = jsonField(args, "path");
+    // A whole number from 0 to uint.max, or none: 0.
+    bool count(const(char)* name, ref uint into) {
+        auto v = jsonField(args, name);
+        if (v is null) return true;
+        if (json_object_get_type(v) != json_type.int_) return false;
+        auto n = json_object_get_int64(v);
+        if (n < 0 || n > uint.max) return false;
+        into = cast(uint) n;
+        return true;
+    }
+    uint line, limit;
+    // A path is a C string to libacp, so one holding a NUL would name another file.
+    if (json_object_get_type(path) != json_type.string_ || json_object_get_string(path)[0] != '/'
+            || strlen(json_object_get_string(path)) != cast(size_t) json_object_get_string_len(path)
+            || !count("line", line) || !count("limit", limit)) {
+        answered.add(`{"status":"not run","why":"read_text_file takes path, an absolute path, and line and limit, each a whole number from 0 to 4294967295"}`);
+        return 0;
+    }
+    Reply content;
+    scope(exit) content.dispose();
+    bool notFound;
+    auto got = askRead(sessions, turn, sid, json_object_get_string(path)[0 .. cast(size_t) json_object_get_string_len(path)],
+        line, limit, content, answered, why, notFound);
+    if (got == 2) answered.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to read the file"}`);
+    return got;
 }
 
 // What the file a write is asked for held before it, so the written call shows the change as a diff:
@@ -675,7 +722,7 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
         acp_permission_option("reject_always", t + rejectAt, "reject_always"),
     ];
     auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + titleAt, t + toolAt,
-        readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
+        (tool == READ_TOOL && sessions.clientReadsFiles) || readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
     if (acp_permission_request_write(&asked, &request) != acp_status.ACP_OK) {
@@ -2299,6 +2346,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 put(`,"error":{"code":-32603,"message":"a session tool would not read","data":`); put(detail.slice()); put(`}}`);
                 return true;
             }
+            if (sessions.clientReadsFiles) putReadTool(tools);
             if (sessions.clientWritesFiles) putWriteTool(tools);
             if (sessions.clientRunsCommands) putRunTool(tools);
             putPlanTool(tools);
@@ -2470,7 +2518,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     const(char)[] why;
                     bool own = call.name == WRITE_TOOL && sessions.clientWritesFiles;
                     bool runs = call.name == RUN_TOOL && sessions.clientRunsCommands;
-                    auto verdict = verdictOf(*o, call.name, readOnlyTool(o.mcp, call.name), own, why);
+                    // Reading through the client changes nothing, so it is read-only as a tool that says so is.
+                    bool reads = call.name == READ_TOOL && sessions.clientReadsFiles;
+                    auto verdict = verdictOf(*o, call.name, reads || readOnlyTool(o.mcp, call.name), own, why);
                     // "Agents SHOULD include it in the first report when available
                     // and SHOULD NOT change it later": the name the model called,
                     // here and in no update after.
@@ -2480,7 +2530,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // "Modifying files or content."
                     // execute, for ground code's own command:
                     // "Running commands or code."
-                    auto kind = own ? "edit" : runs ? "execute" : readOnlyTool(o.mcp, call.name) ? "read" : null;
+                    // read, for ground code's own read: "Reading files or data."
+                    auto kind = own ? "edit" : runs ? "execute" : reads || readOnlyTool(o.mcp, call.name) ? "read" : null;
                     auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
                     Reply title;
                     scope(exit) title.dispose();
@@ -2543,6 +2594,19 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         }
                         if (wrote == 2 && result.len == 0) result.add(`{"status":"cancelled","why":"the client cancelled the turn while it was asked to write the file"}`);
                         ok = wrote == 1 && clientWrote(result.slice());
+                    } else if (reads) {
+                        // What the client answered is what the call answered; the text it read, its content.
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto got = readForModel(sessions, turn, sid, call.arguments, result, asking);
+                        if (got < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client to read the file","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
+                        ok = got == 1;
                     } else if (runs) {
                         // What the command printed, and how it exited, is what the call answered.
                         Reply asking;

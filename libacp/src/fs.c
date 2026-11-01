@@ -6,12 +6,19 @@
 
 acp_status acp_read_text_file_request_write(const char *request_id, const char *session_id, const char *path,
     acp_buffer *message_json) {
+    return acp_read_text_file_lines_request_write(request_id, session_id, path, 0, 0, message_json);
+}
+
+acp_status acp_read_text_file_lines_request_write(const char *request_id, const char *session_id, const char *path,
+    uint32_t line, uint32_t limit, acp_buffer *message_json) {
     if (request_id == NULL || session_id == NULL || path == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *id = acp_parse(request_id, strlen(request_id));
     if (id == NULL) return ACP_INVALID_ARGUMENT;
     json_object *params = json_object_new_object();
     json_object_object_add(params, "sessionId", json_object_new_string(session_id));
     json_object_object_add(params, "path", json_object_new_string(path));
+    if (line != 0) json_object_object_add(params, "line", json_object_new_int64(line));
+    if (limit != 0) json_object_object_add(params, "limit", json_object_new_int64(limit));
     json_object *message = json_object_new_object();
     json_object_object_add(message, "jsonrpc", json_object_new_string("2.0"));
     json_object_object_add(message, "id", id);

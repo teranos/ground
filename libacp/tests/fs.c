@@ -22,6 +22,16 @@ static void request(void) {
     acp_buffer_free(&out);
     CHECK(acp_read_text_file_request_write("read-1", "code-1-1-1", "/tmp/a", &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_read_text_file_request_write("\"read-1\"", "code-1-1-1", NULL, &out) == ACP_INVALID_ARGUMENT);
+    // "Line number to start reading from (1-based)" and "Maximum number of lines to read", each
+    // written when given, 0 being none.
+    CHECK(acp_read_text_file_lines_request_write("\"read-2\"", "code-1-1-1", "/tmp/a", 10, 50, &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"read-2\",\"method\":\"fs/read_text_file\",\"params\":"
+                     "{\"sessionId\":\"code-1-1-1\",\"path\":\"/tmp/a\",\"line\":10,\"limit\":50}}"));
+    acp_buffer_free(&out);
+    CHECK(acp_read_text_file_lines_request_write("\"read-2\"", "code-1-1-1", "/tmp/a", 0, 3, &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"read-2\",\"method\":\"fs/read_text_file\",\"params\":"
+                     "{\"sessionId\":\"code-1-1-1\",\"path\":\"/tmp/a\",\"limit\":3}}"));
+    acp_buffer_free(&out);
 }
 
 static acp_status answer(const char *message, acp_text_file *out) {
