@@ -25,7 +25,7 @@ module proto_ritual_test;
 
 import proto : parsePbt, validateRituals;
 import count : countPbt;
-import controls : allRites, allRituals;
+import sand.builtin : allRites, allRituals;
 
 // The groups and rituals reach runtime through controls.d, the same way
 // scopes do. Nothing declares one yet, so the count is the honest zero.

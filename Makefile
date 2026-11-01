@@ -1,4 +1,4 @@
-.PHONY: build test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
+.PHONY: build sand test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
 
 PREFIX ?= $(HOME)/.local
 
@@ -23,13 +23,14 @@ $(wordlist 2,$(words $(GOALS)),$(GOALS)):
 endif
 else
 
-wind: tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d
-	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d source/libgit2.d -L-lgit2
+wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.d source/libgit2.d
+	ldc2 -of=tools/wind -I=tools -I=source tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.d source/libgit2.d -L-lgit2
 
 # "ground_hook as the hooks binary"
 # Each binary of its own is bin/<name>.d and what it imports: -i compiles the
 # modules the entry point reaches, so no list of them is kept by hand.
-BIN_FLAGS = -betterC --lowmem -O -release -J=. -I=source -i
+# -d-version=Floor: an engine is built from ground's tracked controls alone (source/sand/text.d).
+BIN_FLAGS = -betterC --lowmem -O -release -d-version=Floor -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
 	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-ljson-c -L-lm -L-lpthread -L-ldl \
@@ -54,6 +55,19 @@ install-parity: ground_parity
 	mkdir -p $(PREFIX)/bin
 	cp ground_parity $(PREFIX)/bin/ground_parity.new
 	mv -f $(PREFIX)/bin/ground_parity.new $(PREFIX)/bin/ground_parity
+
+# "only the compiled controls being their own thing shipped to the user"
+# The sand alone, for an engine to load (ADR-050): its data, and ground_sand to
+# hand it over. The engine's modules are read for their types and never linked.
+SAND_LIB = build/libground_sand.$(if $(filter Darwin,$(shell uname -s)),dylib,so)
+sand: wind
+	tools/wind
+	mkdir -p build
+	ldc2 -betterC --lowmem -O -release -shared -fvisibility=hidden --function-sections --data-sections \
+		$(if $(filter Darwin,$(shell uname -s)),-L-dead_strip,-relocation-model=pic -L--gc-sections -L-zdefs) \
+		-J=. -I=source -i=sand.builtin -i=sand.view -of=$(SAND_LIB) bin/sand.d
+	ldc2 -betterC --lowmem -J=. -I=source -i=sand.view -of=build/sandabi tools/sandabi.d
+	build/sandabi > build/libground_sand.abi
 
 # build uses the "production" configuration, which excludes source/*_test.d.
 # Those files are static assert, not unittest, so they evaluate at CTFE in every
@@ -103,14 +117,14 @@ ug: $(UG_SOURCES)
 # "make test should be the fast version"
 # "and ci does slower shit"
 # What a change against origin/main can reach runs here, compiled once; CI runs every suite.
-test: wind build/libgroundc.a
+test: wind build/libgroundc.a sand
 	@git diff --quiet origin/main -- ug || $(MAKE) test-ug
 	@tests=`sh tools/touched.sh origin/main`; \
 	if [ -z "$$tests" ]; then echo "test: no module or control changed against origin/main"; exit 0; fi; \
 	echo "test: $$tests"; \
 	date -u +%Y-%m-%dT%H:%M:%SZ > .builddate; tools/wind; \
 	mkdir -p build; \
-	ldc2 --lowmem -J=. -I=source -i -unittest -main -of=build/touched-test $$tests $(BIN_LIBS) && build/touched-test
+	ldc2 --lowmem -d-version=Floor -J=. -I=source -i -unittest -main -of=build/touched-test $$tests $(BIN_LIBS) && build/touched-test
 
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
@@ -147,6 +161,8 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d tools/editor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
+	ldc2 -c -od=/tmp -I=tools tools/floor.d tools/floor_test.d
+	ldc2 -c -od=/tmp -I=tools tools/machine.d tools/machine_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
 
 # Same shape for ug/*_test.d.
@@ -183,9 +199,13 @@ install-ug: ug
 	cp ug/ug $(PREFIX)/bin/ug.new
 	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
 
-install: build $(BINS) install-ug
+install: build $(BINS) install-ug sand
 	mkdir -p $(PREFIX)/bin
 	for b in ground $(BINS); do cp $$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
+# "i want FLOOR+LOCALSAND+COMET"
+# This machine's own sand, held with the floor and any comet (source/sand/load.d).
+	mkdir -p $(HOME)/.local/share/ground/sand
+	cp $(SAND_LIB) $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new && mv -f $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB))
 # The ACP schemas flake.nix pins, linked from the store; the link roots them
 # against a garbage collection. ground parity reads them under ~/.local, so a
 # PREFIX elsewhere shows the schema as absent rather than measuring another.

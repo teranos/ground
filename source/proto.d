@@ -13,7 +13,8 @@ import strop : parseStropBlock, Strop, MAX_STROP_POOL;
 
 import count : countPbt, PbtCounts;
 
-private enum _sand = import(".ctfe/sand");
+import sand.text : SAND_TEXT;
+private enum _sand = SAND_TEXT;
 enum pbtCounts = countPbt(_sand);
 
 // --- Intermediate structs — sized by pass 1 ---
@@ -266,15 +267,15 @@ struct ParsedSentry {
 
 // "no double or split config, they all need to go to the same call from the same token"
 // "isnt there a top level place where its actually defined"
-// The qntx { } block. At the top level it names the node: url, and token, the
-// path of the file holding what the node is spoken to with — empty means
-// QNTX_TOKEN, then ~/.qntx/token.
+// The qntx { } block. At the top level it names the nodes: url, where ground writes its
+// namespace, and token, the path of the file holding what url is spoken to with — empty
+// means QNTX_TOKEN, then ~/.qntx/token. gateway is the node signed in to with ~/.qntx/token.
 struct ParsedQntx {
     bool present;
     string url;
     string token;
     string model;   // what ground code prompts through the gateway
-    string gateway; // the node a prompt goes through; url when empty
+    string gateway; // the node signed in to: it answers prompts and gives the sand; url when empty
 }
 
 // A ritual is the only thing that can be invoked, and it lives inside the
@@ -678,11 +679,10 @@ string envLookup(PR)(const PR parsed, string cwd, string key) {
     return null;
 }
 
-// --- Default (no-op) handler resolvers ---
+// --- Which handler names a build holds ---
 
-private CheckFn defaultResolveCheck(string) { return null; }
-private DelayFn defaultResolveDelay(string) { return null; }
-private DeliverFn defaultResolveDeliver(string) { return null; }
+// By default none: a pbt naming a handler fails the build that cannot run it.
+private bool holdsNone(string kind, string name) { return false; }
 
 // --- Build Scope[] from parsed pbt, filtered by event ---
 // Uses fixed-size buffers to avoid GC (required by -betterC).
@@ -696,11 +696,7 @@ struct ScopeSet {
     const(Scope)[] opSlice() const return { return items[0 .. len]; }
 }
 
-ScopeSet buildScopes(
-    alias resolveCheck = defaultResolveCheck,
-    alias resolveDelay = defaultResolveDelay,
-    alias resolveDeliver = defaultResolveDeliver,
-)(const ParseResult parsed, string eventFilter) {
+ScopeSet buildScopes(alias holds = holdsNone)(const ParseResult parsed, string eventFilter) {
     ScopeSet result;
     size_t poolLen = 0;
 
@@ -765,9 +761,8 @@ ScopeSet buildScopes(
             }
 
             if (pc.checkHandler.length > 0) {
-                auto fn = resolveCheck(pc.checkHandler);
-                assert(fn !is null);
-                c.sessionstart = SessionStartTrigger(fn, null);
+                assert(holds("check", pc.checkHandler), "a control names a check handler this build does not hold");
+                c.sessionstart = SessionStartTrigger(pc.checkHandler, null);
             }
 
             if (pc.paramCount > 0) {
@@ -787,9 +782,8 @@ ScopeSet buildScopes(
             c.ritual = pc.ritual;
 
             if (pc.deliverHandler.length > 0 && ps.event == "SessionStart") {
-                auto dfn = resolveDeliver(pc.deliverHandler);
-                assert(dfn !is null);
-                c.sessionstart.deliver = dfn;
+                assert(holds("deliver", pc.deliverHandler), "a control names a deliver handler this build does not hold");
+                c.sessionstart.deliver = pc.deliverHandler;
             }
 
             c.interval = pc.interval;
@@ -798,10 +792,12 @@ ScopeSet buildScopes(
             c.stropIdx = pc.stropIdx;
 
             if (pc.delayHandler.length > 0 || pc.deliverHandler.length > 0) {
-                c.defer.delayFn = pc.delayHandler.length > 0
-                    ? resolveDelay(pc.delayHandler) : null;
-                c.defer.deliverFn = pc.deliverHandler.length > 0
-                    ? resolveDeliver(pc.deliverHandler) : null;
+                assert(pc.delayHandler.length == 0 || holds("delay", pc.delayHandler),
+                    "a control names a delay handler this build does not hold");
+                assert(pc.deliverHandler.length == 0 || holds("deliver", pc.deliverHandler),
+                    "a control names a deliver handler this build does not hold");
+                c.defer.delay = pc.delayHandler;
+                c.defer.deliver = pc.deliverHandler;
                 c.defer.msg = pc.deferMsg;
             } else if (pc.deferSec > 0 || pc.deferMsg.length > 0) {
                 c.defer.delaySec = pc.deferSec;

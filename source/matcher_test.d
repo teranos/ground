@@ -63,7 +63,7 @@ static assert(effectiveCwd("git push", "/home/u") == "/home/u");
 static assert(effectiveCwd("git commit -C HEAD", "/home/u") == "/home/u");
 static assert(effectiveCwd("git -c user.name=x push", "/home/u") == "/home/u");
 static assert(effectiveCwd("git -c user.name=x -C /srv/app push", "/home/u") == "/srv/app");
-import controls : allScopes;
+import sand.builtin : allScopes;
 
 // CTFE predicate — is a named control present in the built scopes?
 // Used to guard tests that reference controls declared only in

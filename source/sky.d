@@ -478,24 +478,6 @@ int handleSky(int argc, const(char)** argv) {
     }
     long polls = 0;
 
-    // Where this session reports, asked once: the place does not move.
-    import controls : dsnHere, qntxNode;
-    auto dsn = dsnHere(cwd);
-    long shipBackoffUntil = 0;
-
-    // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
-    // The node and its token, read once: a token that changes is a sky that
-    // is respawned at the next hook anyway. No node named is no stream, and
-    // a node named with no token to read is said once and is no stream.
-    import attest : qntxToken;
-    const(char)[] streamToken = qntxNode.url.length > 0 ? qntxToken(qntxNode.token) : null;
-    if (qntxNode.url.length > 0 && streamToken.length == 0) {
-        toSentry("sky.stream", "the qntx block names a node but its token file holds nothing; the stream waits",
-                 -1, sessionId, qntxNode.token);
-    }
-    long streamBackoffUntil = 0;
-    long streamed = 0;
-
     // "Yes, custoner uses ground, but they dont think about it because it just lands via comet"
 
     // This tree's repository, read once, and when the node's comet of it was last refused.
@@ -505,6 +487,48 @@ int handleSky(int argc, const(char)** argv) {
         import git : originOf;
         foreach (c; originOf(cwd)) if (originLen < originBuf.length) originBuf[originLen++] = c;
     }
+
+    // "A comet held for the harness is checked there."
+    // The sand landed for this tree, held as the hooks hold it: where it reports and its node are its.
+    {
+        import sand.load : holdLanded, SandHeld;
+        auto held = holdLanded(getHome(), originBuf[0 .. originLen]);
+        if (held.what == SandHeld.refused)
+            toSentry("sky.sand", cast(string) held.why(), -1, sessionId, "");
+    }
+
+    // Where this session reports, asked once: the place does not move.
+    import controls : dsnHere;
+    auto dsn = dsnHere(cwd);
+    long shipBackoffUntil = 0;
+
+    // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
+    // "so give it a config per ground per node"
+    // The node and its token, read once: a token that changes is a sky that
+    // is respawned at the next hook anyway. No node named is no stream, and
+    // a node named with no token to read is said once and is no stream.
+    import attest : qntxToken;
+    import nodeconfig : nodeHere;
+    __gshared typeof(nodeHere()) node;
+    node = nodeHere();
+    if (node.why().length > 0) toSentry("sky.node", cast(string) node.why(), -1, sessionId, "");
+    // qntxToken answers into one buffer, so each token is kept in its own.
+    __gshared ZBuf streamTok;
+    streamTok.reset();
+    if (node.url.length > 0) streamTok.put(qntxToken(node.token));
+    const(char)[] streamToken = streamTok.slice();
+    if (node.url.length > 0 && streamToken.length == 0) {
+        toSentry("sky.stream", "the node named has no token in its token file; the stream waits",
+                 -1, sessionId, node.token);
+    }
+    // "and q gies the sand"
+    // The sand is pulled from the node signed in to, with the token it was signed in with.
+    __gshared ZBuf sandTok;
+    sandTok.reset();
+    if (node.sandUrl.length > 0) sandTok.put(qntxToken(node.sandToken));
+    const(char)[] sandToken = sandTok.slice();
+    long streamBackoffUntil = 0;
+    long streamed = 0;
     long cometBackoffUntil = 0;
     import stream : Pace;
     Pace pace;
@@ -657,7 +681,7 @@ int handleSky(int argc, const(char)** argv) {
             // node did not take waits, longer each time, up to 5m.
             if (streamToken.length > 0 && now >= streamBackoffUntil) {
                 import stream : streamPass, paceLanded, paceFailed;
-                auto pass = streamPass(db, qntxNode.url, streamToken, myPid, now, pace.take, streamed);
+                auto pass = streamPass(db, node.url, streamToken, myPid, now, pace.take, streamed);
                 if (pass.ok) {
                     if (pass.sent) paceLanded(pace, pass.grow);
                 } else {
@@ -671,9 +695,9 @@ int handleSky(int argc, const(char)** argv) {
 
             // A comet is pulled: the node's comet of this repository, when it moved. A node that
             // answers its own machine without a token is asked without one (bearerLine).
-            if (qntxNode.url.length > 0 && originLen > 0 && now >= cometBackoffUntil) {
+            if (node.sandUrl.length > 0 && originLen > 0 && now >= cometBackoffUntil) {
                 import comet : land, Landed;
-                auto landing = land(qntxNode.url, streamToken, getHome(), originBuf[0 .. originLen]);
+                auto landing = land(node.sandUrl, sandToken, getHome(), originBuf[0 .. originLen]);
                 if (landing.what == Landed.failed) {
                     cometBackoffUntil = now + SHIP_BACKOFF_SEC;
                     toSentry("sky.comet", cast(string) landing.why(), -1, sessionId, "");

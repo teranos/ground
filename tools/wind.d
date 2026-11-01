@@ -94,7 +94,16 @@ void main() {
     // ONE LEVEL ONLY. Controls pulled from a project are not rescanned for
     // further project blocks, so a declared repo cannot drag a third repo's
     // controls in behind you.
+    // A project whose controls name the node at the top level is a machine's repository: its
+    // controls go only into its own machine's sand, which takes them as its controls/local.
+    import machine : namesNode;
     foreach (ref proj; extractProjectPaths(sand)) {
+        // This machine's own repository was read already, as controls/local.
+        auto own = buildNormalizedPath(absolutePath(proj.path ~ "/controls"));
+        if (exists(own) && isDir(own) && !(realDir(own) in seenDirs) && namesNode(readPbtDir(own))) {
+            stderr.writefln("wind: skip %s (a machine's controls, which go only into its own machine's sand)", own);
+            continue;
+        }
         foreach (sub; ["/controls", "/controls/local"]) {
             auto dir = buildNormalizedPath(absolutePath(proj.path ~ sub));
             if (!exists(dir) || !isDir(dir)) continue;
@@ -180,6 +189,37 @@ void main() {
     write(".ctfe/sand", sand);
     stderr.writefln("wind: .ctfe/sand (%d bytes, %d files from %d projects)",
         sand.length, totalFiles, projects.length);
+
+    auto fl = floorText();
+    write(".ctfe/floor", fl);
+    stderr.writefln("wind: .ctfe/floor (%d bytes)", fl.length);
+}
+
+// "but the floor is always the same, everyonne get;s the same nice things by default. but you get way more with the real sand"
+// What every engine is built from: ground's tracked controls/*.pbt, and nothing beside them.
+string floorText() {
+    import floor : floorNames;
+    string[] present;
+    if (exists("controls")) {
+        foreach (e; dirEntries("controls", "*.pbt", SpanMode.shallow)) present ~= baseName(e.name);
+    }
+    string[] tracked;
+    bool repo = false;
+    Repo g;
+    if (g.open(".")) {
+        repo = true;
+        auto buf = new char[](1 << 24);
+        auto names = g.tracked(buf);
+        g.close();
+        if (names is null) throw new Exception("wind: git ls-files of ground's own tree did not answer");
+        foreach (line; splitLines(names)) tracked ~= line.idup;
+    }
+    string out_;
+    foreach (name; floorNames(present, tracked, repo)) {
+        out_ ~= cast(string) read("controls/" ~ name);
+        if (out_.length > 0 && out_[$ - 1] != '\n') out_ ~= '\n';
+    }
+    return out_;
 }
 
 struct ProjectInfo {

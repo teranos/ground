@@ -6,7 +6,10 @@ Read the following files:
 
 - source/hooks.d for control types, scope struct, and trigger builders.
 - source/strop.d for value-shape validation on extracted flag values.
-- source/controls.d for CTFE wiring — how pbt becomes static immutable scope arrays.
+- source/sand/builtin.d for CTFE wiring — how pbt becomes static immutable scope arrays.
+- source/controls.d and source/sand/load.d for the sand the engine holds — the built-in one, or a landed one whose ABI (source/sand/view.d) is the engine's.
+- source/sand/text.d for what the controls compile from — the floor (an engine, -d-version=Floor) or everything wind gathered (make sand).
+- source/nodeconfig.d for nodes.pbt, the node a ground speaks to when its controls name none.
 - source/control_handlers.d for check, delay, and deliver handler implementations.
 - source/immediate.d for immediate delivery — attestation format for external writers (QNTX, etc). A deferred message is an immediate row with an `after` gate.
 - source/sky.d for the courier that carries the immediate queue to its session.
