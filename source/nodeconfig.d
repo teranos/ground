@@ -128,22 +128,39 @@ void loadNodes(ref NodeConfig c) {
     readNodes(c, text[0 .. n]);
 }
 
+// "there is q, you auth to it, there is k ground writes into its ground namespace"
+// "and q gies the sand"
 struct NodeHere {
-    const(char)[] url;   // empty is no node to speak to
-    const(char)[] token; // the file its token is in, as token.d reads it
+    const(char)[] url;       // where ground writes its namespace: the stream. Empty is no node.
+    const(char)[] token;     // the file url's token is in, as token.d reads it
+    const(char)[] sandUrl;   // the node signed in to, the block's gateway: it gives the sand
+    const(char)[] sandToken; // empty is the signed-in token, QNTX_TOKEN then ~/.qntx/token
     ZBuf said;
     const(char)[] why() return { return said.slice(); }
 }
 
-// The node sky streams to and lands its sand from: the one the held sand's qntx block names, else the
-// one nodes.pbt names. nodes.pbt naming several is said: which one a machine pulls from is not decided.
+// A block's gateway is the node you sign in to, spoken to with the signed-in token, as ground code
+// prompts it (code/acp.d). A block naming one node gets the sand from it, with its own token.
+private void roles(ref NodeHere h, const(char)[] url, const(char)[] token, const(char)[] gateway) {
+    h.url = url;
+    h.token = token;
+    if (gateway.length > 0) {
+        h.sandUrl = gateway;
+        h.sandToken = gateway[0 .. 0];
+    } else {
+        h.sandUrl = url;
+        h.sandToken = token;
+    }
+}
+
+// The nodes sky streams to and lands its sand from: the held sand's qntx block, else nodes.pbt's.
+// nodes.pbt naming several is said: which one a machine pulls from is not decided.
 // A template, so what imports nodeconfig for the file alone (ground code) compiles none of controls.
 NodeHere nodeHere()() {
     import controls : qntxNode;
     NodeHere h;
     if (qntxNode.url.length > 0) {
-        h.url = qntxNode.url;
-        h.token = qntxNode.token;
+        roles(h, qntxNode.url, qntxNode.token, qntxNode.gateway);
         return h;
     }
     __gshared NodeConfig c;
@@ -153,8 +170,7 @@ NodeHere nodeHere()() {
         return h;
     }
     if (c.count == 1) {
-        h.url = c.nodes[0].url;
-        h.token = c.nodes[0].token;
+        roles(h, c.nodes[0].url, c.nodes[0].token, c.nodes[0].gateway);
     } else if (c.count > 1) {
         h.said.put(nodesPath());
         h.said.put(" names ");
