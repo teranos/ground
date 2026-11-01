@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -62,14 +63,46 @@ acp_status acp_audio_chunk_write(acp_chunk_kind kind, const char *mime_type, con
     return media_chunk(kind, "audio", mime_type, data, update_json);
 }
 
-// ToolCallContent: the terminal when there is one, then each block written as content, or the text as one
-// text block when there are none.
-static json_object *tool_content(const char *terminal_id, const char *blocks_json, const char *text, int *bad) {
+// A string of length bytes, every one of them; NULL when json-c cannot hold so many.
+static json_object *string_of(const char *text, size_t length) {
+    return length > INT_MAX ? NULL : json_object_new_string_len(text, (int) length);
+}
+
+// ToolCallContent's diff: "The absolute file path being modified", "The original content (null for new
+// files)" and "The new content after modification".
+static json_object *diff_content(const acp_diff *diff, int *bad) {
+    if (diff->path == NULL || diff->path[0] != '/' || diff->new_text == NULL) {
+        *bad = 1;
+        return NULL;
+    }
+    json_object *new_text = string_of(diff->new_text, diff->new_length);
+    json_object *old_text = diff->old_text != NULL ? string_of(diff->old_text, diff->old_length) : NULL;
+    if (new_text == NULL || (diff->old_text != NULL && old_text == NULL)) {
+        json_object_put(new_text);
+        json_object_put(old_text);
+        *bad = 1;
+        return NULL;
+    }
+    json_object *item = json_object_new_object();
+    add_string(item, "type", "diff");
+    add_string(item, "path", diff->path);
+    json_object_object_add(item, "oldText", old_text);
+    json_object_object_add(item, "newText", new_text);
+    return item;
+}
+
+// ToolCallContent: the terminal when there is one, the diff when there is one, then each block written as
+// content, or the text as one text block when there are none.
+static json_object *tool_content(const char *terminal_id, const acp_diff *diff, const char *blocks_json,
+    const char *text, int *bad) {
+    json_object *changed = NULL;
+    if (diff != NULL && (changed = diff_content(diff, bad)) == NULL) return NULL;
     json_object *blocks = NULL;
     if (blocks_json != NULL) {
         blocks = acp_parse(blocks_json, strlen(blocks_json));
         if (!json_object_is_type(blocks, json_type_array)) {
             json_object_put(blocks);
+            json_object_put(changed);
             *bad = 1;
             return NULL;
         }
@@ -81,6 +114,10 @@ static json_object *tool_content(const char *terminal_id, const char *blocks_jso
         add_string(terminal, "terminalId", terminal_id);
         content = json_object_new_array();
         json_object_array_add(content, terminal);
+    }
+    if (changed != NULL) {
+        if (content == NULL) content = json_object_new_array();
+        json_object_array_add(content, changed);
     }
     size_t n = blocks != NULL ? json_object_array_length(blocks) : 0;
     if (n > 0) {
@@ -108,7 +145,7 @@ static json_object *tool_content(const char *terminal_id, const char *blocks_jso
 acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json) {
     if (call == NULL || update_json == NULL || call->tool_call_id == NULL) return ACP_INVALID_ARGUMENT;
     int bad = 0;
-    json_object *content = tool_content(call->terminal_id, call->content_blocks, call->content_text, &bad);
+    json_object *content = tool_content(call->terminal_id, call->diff, call->content_blocks, call->content_text, &bad);
     if (bad) return ACP_INVALID_ARGUMENT;
     json_object *update = json_object_new_object();
     add_string(update, "sessionUpdate", call->update ? "tool_call_update" : "tool_call");
