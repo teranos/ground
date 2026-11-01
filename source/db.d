@@ -733,6 +733,9 @@ bool applySchema(sqlite3* db) {
     // Its conversation, as the model's messages: the inside of the messages
     // array a turn sends, empty before the first.
     ensureColumn(db, "code_session", "history", "TEXT NOT NULL DEFAULT ''");
+    // The title each of its tool calls was shown with live, by call id: the inside of a JSON object,
+    // "id":"title" pairs, so a load tells a call back as it was shown.
+    ensureColumn(db, "code_session", "titles", "TEXT NOT NULL DEFAULT ''");
     // Its title, from the first prompt that typed something; empty before.
     ensureColumn(db, "code_session", "title", "TEXT NOT NULL DEFAULT ''");
     // What the session has cost so far, in billionths of a US dollar.

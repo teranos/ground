@@ -119,32 +119,33 @@ int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort, long now
 
 // Marks a session active now, as a prompt does. 1 marked, 0 no open session
 // by that id, -1 the store refused.
-// Keeps an open session's conversation. 1 kept, 0 no open session by that
-// id, -1 the store refused.
-int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history) {
+// Keeps an open session's conversation, and the titles its calls were shown
+// with. 1 kept, 0 no open session by that id, -1 the store refused.
+int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(char)[] titles) {
     sqlite3_stmt* st;
-    enum sql = "UPDATE code_session SET history = ?2 WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "UPDATE code_session SET history = ?2, titles = ?3 WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, history);
+    bind(st, 3, titles);
     auto rc = sqlite3_step(st);
     sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
-// An open session's conversation, into history. 1 read, 0 no open session by
-// that id, -1 the store refused.
-int storeHistoryOf(sqlite3* db, const(char)[] id, ref Reply history) {
+// An open session's conversation, into history, and its calls' titles, into
+// titles. 1 read, 0 no open session by that id, -1 the store refused.
+int storeHistoryOf(sqlite3* db, const(char)[] id, ref Reply history, ref Reply titles) {
     sqlite3_stmt* st;
-    enum sql = "SELECT history FROM code_session WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "SELECT history, titles FROM code_session WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     auto rc = sqlite3_step(st);
-    if (rc == SQLITE_ROW) history.add(text(st, 0));
+    if (rc == SQLITE_ROW) { history.add(text(st, 0)); titles.add(text(st, 1)); }
     sqlite3_finalize(st);
     if (rc == SQLITE_DONE) return 0;
-    return rc == SQLITE_ROW && !history.full ? 1 : -1;
+    return rc == SQLITE_ROW && !history.full && !titles.full ? 1 : -1;
 }
 
 int storeTouch(sqlite3* db, const(char)[] id, long now) {

@@ -142,9 +142,9 @@ unittest {
     prompt(s, "something refused", r);
     assert(r.slice() == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"refusal"}}`);
     assert(s.open[0].history.slice() == before);
-    Reply kept;
-    scope(exit) kept.dispose();
-    assert(storeHistoryOf(db, "code-100-7-1", kept) == 1);
+    Reply kept, titles;
+    scope(exit) { kept.dispose(); titles.dispose(); }
+    assert(storeHistoryOf(db, "code-100-7-1", kept, titles) == 1);
     assert(kept.slice() == before);
     s.open[0].history.dispose();
 }
