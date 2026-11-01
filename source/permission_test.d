@@ -378,6 +378,24 @@ static assert(ag5.decision == Decision.none);
 enum ag6 = evaluatePermission(agentSet[], "/x", "Agent", "", SessionMode.auto_);
 static assert(ag6.decision == Decision.ask);
 
+// "deny it even on auto"
+// A deny holds in every mode; only the question is confined to manual.
+enum agentDenyPbt = `
+scope {
+  path: "/"
+  permission.a.a {
+    deny: ["*"]
+    msg: "No new agents."
+  }
+}
+`;
+enum agentDenySet = buildPermissions(parsePbt(agentDenyPbt));
+enum ad1 = agentPermission(agentDenySet[], "/x", SessionMode.auto_);
+static assert(ad1.decision == Decision.deny);
+static assert(ad1.msg == "No new agents.");
+enum ad2 = agentPermission(agentDenySet[], "/x", SessionMode.acceptEdits);
+static assert(ad2.decision == Decision.deny);
+
 // The letter names the tool, not the session: a write is not an agent.
 enum ag7 = evaluatePermission(agentSet[], "/x", "Write", "/x/f.d", SessionMode.manual);
 static assert(ag7.decision == Decision.none);
