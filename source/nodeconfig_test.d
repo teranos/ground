@@ -107,14 +107,30 @@ unittest {
     assert(two.url.length == 0);
     assert(two.why().length > 0, "two nodes and no word on which one sky pulls from is said, never guessed");
 
+    // "there is q, you auth to it, there is k ground writes into its ground namespace"
+    // "and q gies the sand"
+    // The stream writes to url with the block's token; the sand comes from the gateway, the node
+    // signed in to with ~/.qntx/token. A block that names one node gets both from it.
+    write("qntx {\n  url: \"http://kapteyn:8770\"\n  token: \"~/.qntx/ground-token\"\n  gateway: \"https://api.q.sbvh.nl\"\n}\n");
+    auto split = nodeHere();
+    assert(split.url == "http://kapteyn:8770" && split.token == "~/.qntx/ground-token");
+    assert(split.sandUrl == "https://api.q.sbvh.nl", split.sandUrl);
+    assert(split.sandToken.length == 0, "the gateway is spoken to with the signed-in token");
+    write("qntx {\n  url: \"http://10.88.0.2:8770\"\n  token: \"~/t\"\n}\n");
+    auto alone = nodeHere();
+    assert(alone.sandUrl == "http://10.88.0.2:8770" && alone.sandToken == "~/t");
+
     // A sand that names its node keeps it, whatever nodes.pbt says.
     __gshared Sand named;
     named = builtinSand;
     named.parsed.qntx.present = true;
     named.parsed.qntx.url = "http://kapteyn:8770";
+    named.parsed.qntx.gateway = "https://api.q.sbvh.nl";
     holdSand(&named);
-    write("qntx {\n  url: \"https://api.q.sbvh.nl\"\n}\n");
-    assert(nodeHere().url == "http://kapteyn:8770");
+    write("qntx {\n  url: \"https://elsewhere\"\n}\n");
+    auto held = nodeHere();
+    assert(held.url == "http://kapteyn:8770");
+    assert(held.sandUrl == "https://api.q.sbvh.nl" && held.sandToken.length == 0);
 }
 
 // It lives with ground's store: what the ground installed here reads, and nothing of a repository's.
