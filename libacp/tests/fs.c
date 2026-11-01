@@ -55,6 +55,9 @@ static void answers(void) {
         CHECK(answer(none[i], &file) == ACP_OK);
         CHECK(file.content == NULL && file.length == 0);
         CHECK(file.not_found == (i == 0));
+        // Freed, it is no file at all, found or not.
+        acp_text_file_free(&file);
+        CHECK(file.content == NULL && file.length == 0 && file.not_found == 0);
     }
 }
 
