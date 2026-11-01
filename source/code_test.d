@@ -2439,7 +2439,14 @@ version (Posix) unittest {
     auto saved = dup(1);
     dup2(o[1], 1);
     answer(req.slice(), r, s); r.len = 0;
-    answer(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"bypassPermissions"}}`, r, s); r.len = 0;
+    // Manual: each call is asked of the client, which allows it once.
+    static immutable string[3] perms = [`"perm-1"`, `"perm-2"`, `"perm-3"`];
+    foreach (perm; perms) {
+        Reply allow;
+        scope(exit) allow.dispose();
+        allow.add(`{"jsonrpc":"2.0","id":`); allow.add(perm); allow.add(`,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}` ~ "\n");
+        write(p[1], allow.slice().ptr, allow.len);
+    }
     answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"go"}]}}`, r, s);
     fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
     Reply closed;
@@ -2455,8 +2462,12 @@ version (Posix) unittest {
     close(o[0]);
     auto out_ = said[0 .. saidLen];
     assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
-    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"test__look","name":"test__look","kind":"read","status":"in_progress","rawInput":{}}`) >= 0);
-    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"test__touch","name":"test__touch","status":"in_progress","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look","kind":"read","status":"pending","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Touch a file","name":"test__touch","status":"pending","rawInput":{}}`) >= 0);
+    // The permission asked for a call names it as its tool_call does.
+    assert(indexOf(out_, `"toolCall":{"toolCallId":"c1","title":"Look around","name":"test__look","kind":"read"`) >= 0);
+    assert(indexOf(out_, `"toolCall":{"toolCallId":"c2","title":"Touch a file","name":"test__touch"`) >= 0);
+    assert(indexOf(out_, `"toolCall":{"toolCallId":"c3","title":"test__break","name":"test__break"`) >= 0);
     assert(indexOf(out_, `"toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc": "2.0", "id": 3, "result": {"resultType": "complete", "content": [{"type": "text", "text": "look done"}]}},`
         ~ `"content":[{"type":"content","content":{"type":"text","text":"look done"}}]}`) >= 0);
     assert(indexOf(out_, `"toolCallId":"c3","status":"failed"`) >= 0);

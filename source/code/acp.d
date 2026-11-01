@@ -632,6 +632,8 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     scope(exit) text.dispose();
     size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
     auto idAt = at(pid.slice()), sidAt = at(sid), callAt = at(callId), toolAt = at(tool), inputAt = at(arguments);
+    // The call is named as its tool_call names it.
+    auto titleAt = text.len; toolTitle(o.mcp, tool, text); text.add("\0");
     auto allowAt = text.len; text.add("Always allow "); text.add(tool); text.add("\0");
     auto rejectAt = text.len; text.add("Always reject "); text.add(tool); text.add("\0");
     if (text.full) { why.add(`"could not allocate the permission request"`); return -1; }
@@ -642,7 +644,7 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
         acp_permission_option("reject_once", "Reject once", "reject_once"),
         acp_permission_option("reject_always", t + rejectAt, "reject_always"),
     ];
-    auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + toolAt, t + toolAt,
+    auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + titleAt, t + toolAt,
         readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
@@ -1778,7 +1780,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (load && !__ctfe && o.history !is null) {
             bool tell(const(char)[] update) { return notify(sid, update); }
             bool readOnly(const(char)[] tool) { return readOnlyTool(o.mcp, tool); }
-            if (!replayHistory(o.history.slice(), &tell, &readOnly)) {
+            void titled(const(char)[] tool, ref Reply title) { toolTitle(o.mcp, tool, title); }
+            if (!replayHistory(o.history.slice(), &tell, &readOnly, &titled)) {
                 put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
                 putEscaped(r, sid); put(` back"}}`);
                 return true;
@@ -2412,7 +2415,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     // "Running commands or code."
                     auto kind = own ? "edit" : runs ? "execute" : readOnlyTool(o.mcp, call.name) ? "read" : null;
                     auto callStatus = verdict == Verdict.run ? "in_progress" : "pending";
-                    if (!putToolCall(u, false, call.id, call.name, call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    Reply title;
+                    scope(exit) title.dispose();
+                    toolTitle(o.mcp, call.name, title);
+                    if (!putToolCall(u, false, call.id, title.slice(), call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
                         Reply asking;
                         scope(exit) asking.dispose();
