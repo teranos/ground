@@ -3,6 +3,9 @@
 wait 0
 {"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
 wait 1
+# The client reads, so the model has read_text_file too; dontAsk refuses it unasked, and what is checked is the link.
+{"jsonrpc":"2.0","id":10,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"dontAsk"}}
+wait 10
 {"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only the word the file holds, nothing else."},{"type":"resource_link","name":"word","uri":"file:///tmp/a%20word.txt"}]}}
 expect "method":"fs/read_text_file"
 {"jsonrpc":"2.0","id":$ASKED,"result":{"content":"ground\u0000code"}}
