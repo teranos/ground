@@ -19,6 +19,10 @@
       libmcp = (import ./libmcp/flake.nix).outputs { self = { }; inherit nixpkgs; };
       # What the client and ground link: the library, and the json-c it patched.
       mcpLibs = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
+      # The ACP ground code speaks to its client through: libacp, kept at libacp/ the
+      # same way, and built against libmcp's json-c so one json-c is linked.
+      libacp = (import ./libacp/flake.nix).outputs { self = { }; inherit nixpkgs; };
+      acpLib = system: libacp.lib.libacpWith nixpkgs.legacyPackages.${system} libmcp.packages.${system}.json-c;
       # What phone/phone.cc compiles and links against: libphonenumber, and the headers its own include.
       phoneLibs = pkgs: [ pkgs.libphonenumber pkgs.icu pkgs.protobuf pkgs.abseil-cpp pkgs.boost ];
     in {
@@ -34,7 +38,7 @@
             src = ./.;
 
             nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git pkgs.pkg-config ];
-            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 ] ++ mcpLibs system ++ phoneLibs pkgs;
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -161,6 +165,22 @@
             url = "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/${mcpSpec}/schema/${version}/schema.json";
             sha256 = sha256.schema;
           };
+
+          # The ACP agents shipped by others, at a commit: their source, which ground
+          # parity reads for what each handles and sends. dir is where it lives in the
+          # repo; sdk the @agentclientprotocol/sdk version its package.json pins.
+          shipped = name: pin: pkgs.fetchFromGitHub {
+            inherit (pin) owner repo rev hash;
+            name = "shipped-${name}";
+          };
+
+          # Each SDK version a shipped agent pins, whose source names every method.
+          acpSdk = version: pin: pkgs.fetchFromGitHub {
+            owner = "agentclientprotocol";
+            repo = "typescript-sdk";
+            inherit (pin) rev hash;
+            name = "acp-sdk-${version}";
+          };
         in {
           default = ground;
           inherit ground;
@@ -252,6 +272,47 @@
             protocolTarball = "8407d62ec16ea68e1c856816cc807c8e5e2b3ae346ee2d4908e229ca19481c39";
             protocol = "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132";
           };
+          shipped-claude-agent-acp = shipped "claude-agent-acp" {
+            owner = "agentclientprotocol"; repo = "claude-agent-acp";
+            rev = "4b4b2c4de7c492070f6260cacea5680b2e045a5a";
+            hash = "sha256-iR2OwHqrT8jIzW17jBHgsO3/wsMXW2Deesf5xrZiQVo=";
+            dir = "src"; sdk = "2.1.0";
+          };
+          shipped-codex-acp = shipped "codex-acp" {
+            owner = "agentclientprotocol"; repo = "codex-acp";
+            rev = "3f6d371b142efc1bc7efe66de665c511d7744a6c";
+            hash = "sha256-DtfuypJWNskGk8rU1JeBhteNj9kye02xxFsal8pPPEM=";
+            dir = "src"; sdk = "2.0.2";
+          };
+          shipped-gemini-cli = shipped "gemini-cli" {
+            owner = "google-gemini"; repo = "gemini-cli";
+            rev = "718e97c2448e0384cb582409cf4e479437bf50fe";
+            hash = "sha256-Tj7KnwnRYEpli1IZAjrdkqufXZNmnudgd8SPLCnChqw=";
+            dir = "packages/cli/src/acp"; sdk = "0.16.1";
+          };
+          shipped-pi-acp = shipped "pi-acp" {
+            owner = "svkozak"; repo = "pi-acp";
+            rev = "04d0a15d6bb42bb65cce5c9caedcdcb2cdcb6905";
+            hash = "sha256-V9+WNpJQK2a/S3e5KVXfiK1bhQlXrUKIaowhOZa6BIg=";
+            dir = "src"; sdk = "0.26.0";
+          };
+
+          acp-sdk-0_16_1 = acpSdk "0.16.1" {
+            rev = "9609d922dc855dc4446dfaef082416d34e0f123a";
+            hash = "sha256-ly7PSKAODueLsAwOpBskgQiXdx4kM/ZHdR1U3kA/x2w=";
+          };
+          acp-sdk-0_26_0 = acpSdk "0.26.0" {
+            rev = "73bc30649b650de320340c782733bf69a545bd28";
+            hash = "sha256-DlcmeqUvED2sKCCBOIjAnp8sEoIhtPHdAqoI8/fBnt0=";
+          };
+          acp-sdk-2_0_2 = acpSdk "2.0.2" {
+            rev = "f2f218d314ee8f42c37c466b55d2b917ddc0006c";
+            hash = "sha256-yvFmcctJQpxuLvZM+ZjVVzW7PR77DR7+kYezpVSgYo0=";
+          };
+          acp-sdk-2_1_0 = acpSdk "2.1.0" {
+            rev = "dbbe157eec813ab64b5199d6660540e5da513f22";
+            hash = "sha256-BXeedpwbxHR9q0csrnW0yBl3p5EqMty7wHn+iG1EKnI=";
+          };
 
           # Every acp pin above, a directory per release, for make install to link
           # where ground parity reads them. A new pin joins without being named here.
@@ -283,6 +344,13 @@
                 { name = "${release}/${dialect}-protocol.js"; path = "${hooks}/protocol.js"; }
               ])
             (pkgs.lib.filterAttrs (name: _: builtins.match "dsh-(claude|codex)-.*" name != null) self.packages.${system})));
+          # Every shipped agent above, a directory per name, and every SDK, a directory per version.
+          shipped-sources = pkgs.linkFarm "shipped-sources" (pkgs.lib.mapAttrsToList
+            (name: src: { name = pkgs.lib.removePrefix "shipped-" name; path = src; })
+            (pkgs.lib.filterAttrs (name: _: pkgs.lib.hasPrefix "shipped-" name && name != "shipped-sources") self.packages.${system}));
+          acp-sdks = pkgs.linkFarm "acp-sdks" (pkgs.lib.mapAttrsToList
+            (name: src: { name = pkgs.lib.replaceStrings [ "acp-sdk-" "_" ] [ "" "." ] name; path = src; })
+            (pkgs.lib.filterAttrs (name: _: pkgs.lib.hasPrefix "acp-sdk-" name) self.packages.${system}));
         }
       );
 
@@ -292,7 +360,7 @@
           default = pkgs.mkShell {
             # dub asks pkg-config for each lib. Without the pinned one in the
             # shell it asked Homebrew's, which named an x86_64 libgit2.
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 ] ++ mcpLibs system ++ phoneLibs pkgs;
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
           };
         }
       );

@@ -37,7 +37,7 @@
           "uses": "cachix/install-nix-action@v30"
         },
         {
-          "run": "nix build .#ground"
+          "run": "nix build -L .#ground"
         },
         {
           "run": "cp result/bin/ground ground-${{ matrix.target }}"
@@ -78,7 +78,7 @@
           "uses": "cachix/install-nix-action@v30"
         },
         {
-          "run": "nix build .#ground"
+          "run": "nix build -L .#ground"
         },
         {
           "run": "nix develop .#default --command make test-mcp"

@@ -20,6 +20,19 @@ unittest {
     assert(b.slice() == `Active deployment is running on: q.abcd.nl\nmanaged by\tdeployment repo`);
 }
 
+// A prompt's handler took 1430ms with nothing to say where; its row now names
+// each step it walked.
+unittest {
+    import userprompt : handleUserPromptSubmit;
+    import hookrun : getPhases, setPhases;
+    import matcher : contains;
+    setPhases("");
+    handleUserPromptSubmit(`{"prompt":"hello"}`, "/nonexistent", "phases-test");
+    auto p = getPhases();
+    foreach (k; ["sweep", "ingest", "said", "controls", "bill"])
+        assert(contains(p, k), p);
+}
+
 unittest {
     static ZBuf b;
     b.reset();

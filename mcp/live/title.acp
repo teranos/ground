@@ -1,0 +1,19 @@
+# #166: a session is titled by its first prompt, told once, kept across processes, and listed.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"  Check the   title live\nReply with only: ok"}]}}
+wait 2
+# The second prompt names it no more.
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only: again"}]}}
+wait 3
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"$SID","cwd":"$CWD"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Reply with only: third"}]}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/list","params":{"cwd":"$CWD"}}
+wait 6

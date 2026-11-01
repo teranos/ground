@@ -20,11 +20,8 @@ module stream;
 import db : sqlite3, sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_int64,
             sqlite3_bind_text, sqlite3_column_text, sqlite3_column_int64, sqlite3_changes,
             sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, ZBuf;
-
-// "today will be the day of recording to parquet, so its a clean slate in that regard"
-// A unix second no post ever lands at, so a reader of "landed" (> BEFORE_STREAM)
-// and of "claimed" (< 0) is never fooled by it.
-enum BEFORE_STREAM = 1;
+// The store's schema: db stamps the rows there before the stream with it.
+public import db : BEFORE_STREAM;
 
 // The node refuses a request body larger than this: maxAttestationBody in
 // QNTX's server/attestation_handlers.go.
@@ -76,8 +73,7 @@ bool retryable(int status) {
     return status < 200 || status >= 500 || status == TOO_MANY;
 }
 
-// The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.
-enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
+public import db : REFUSED_SQL;
 
 // The attributes a row is posted with, in the same words decay uses on the
 // local copy, so what the node holds and what the store keeps after seven
@@ -127,10 +123,10 @@ unittest {
         while (text[n] != 0) n++;
         auto detail = (cast(const(char)*) text)[0 .. n];
         assert(!contains(detail, "SCAN attestations"), "the claim walked the whole table under the write lock");
-        if (contains(detail, "idx_attestations_stream")) byIndex = true;
+        if (contains(detail, "idx_attestations_stream_open")) byIndex = true;
     }
     sqlite3_finalize(stmt);
-    assert(byIndex, "the claim reads by idx_attestations_stream");
+    assert(byIndex, "the claim reads by idx_attestations_stream_open, which holds no refused row");
     sqlite3_close(db);
 }
 
@@ -254,7 +250,7 @@ void claimReleased(sqlite3* db, long pid) {
 // release scanned 490k rows under the write lock. 3.2s on 2026-09-26.
 bool planUsesIndex(sqlite3* db, const(char)* sql, const(char)[] index) {
     import db : sqlite3_column_text;
-    import matcher : contains;
+    import scan : contains;
     __gshared char[8192] explain = 0;
     size_t n = 0;
     void put(const(char)[] s) { foreach (ch; s) if (n < explain.length - 1) explain[n++] = ch; }
@@ -380,7 +376,7 @@ struct Answer {
 }
 
 bool nextAnswer(const(char)[] reply, ref size_t at, ref Answer a) {
-    import matcher : indexOf;
+    import scan : indexOf;
     if (at == 0) {
         enum open = `"results":[`;
         auto found = indexOf(reply, open);

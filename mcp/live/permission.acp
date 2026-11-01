@@ -1,0 +1,25 @@
+# session/request_permission in Manual: each answer the client gives, and the one it gives that ground code did not offer.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[{"name":"echo","command":"$LIVE/echo_server","args":[],"env":[]}]}}
+wait 1
+# Allowed once: the call runs.
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call the echo tool once with no arguments, then reply with only: done"}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}
+wait 2
+# Rejected once: not run, and the model is told.
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call the echo tool once more with no arguments, then reply with only: done"}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"reject_once"}}}
+wait 3
+# Cancelled while asked: the turn stops cancelled.
+{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call the echo tool once more with no arguments, then reply with only: done"}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"cancelled"}}}
+wait 4
+# An option ground code did not offer: the turn ends with the answer said.
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call the echo tool once more with no arguments, then reply with only: done"}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"maybe"}}}
+wait 5

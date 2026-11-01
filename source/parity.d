@@ -1097,18 +1097,26 @@ string sentBlock()(string src, string method) {
 
 private CodeSides buildCodeSides()() {
     CodeSides cs;
-    enum key = `method == "`;
+    // A method code/acp.d handles is tested by its name in meta.json's tables, AGENT_METHODS.session_new;
+    // a method tested by any other name is not ACP's.
+    import acpmethods : wireOf;
+    enum key = `method == `;
     size_t from = 0;
     while (true) {
         auto at = indexIn(codeSource, key, from);
         if (at < 0) break;
         auto nameFrom = cast(size_t) at + key.length;
-        auto nameEnd = indexIn(codeSource, `"`, nameFrom);
-        assert(nameEnd >= 0, "code/acp.d tests a method it does not close");
-        from = cast(size_t) nameEnd;
+        auto nameEnd = nameFrom;
+        while (nameEnd < codeSource.length && (isIdent(codeSource[nameEnd]) || codeSource[nameEnd] == '.')) nameEnd++;
+        from = nameFrom;
+        auto wire = wireOf(codeSource[nameFrom .. nameEnd]);
+        if (wire is null) continue;
         auto block = codeSource[cast(size_t) at .. branchEnd(codeSource, cast(size_t) at)];
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
-        cs.items[cs.count++] = GroundSide(codeSource[nameFrom .. cast(size_t) nameEnd], readsIn(block), writesIn(block));
+        auto side = GroundSide(wire, readsIn(block), writesIn(block));
+        libacpKeys(block, side);
+        helperKeys(block, side);
+        cs.items[cs.count++] = side;
     }
     // A method sent to the client has no branch: what ground code writes is
     // the message its sending function builds.
@@ -1129,10 +1137,121 @@ private CodeSides buildCodeSides()() {
         assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
         cs.items[cs.count++] = GroundSide(name, readsIn(block), writesIn(block, true));
     }
+    libacpSent(cs);
     return cs;
 }
 
+// --- acp: the part of a method ground code reads and writes through libacp ---
+
+// The library as ground links it, kept in this repository at libacp/.
+private static immutable string[10] libacpSources = [
+    import("libacp/src/acp.c"), import("libacp/src/initialize.c"), import("libacp/src/session.c"),
+    import("libacp/src/modes.c"), import("libacp/src/config.c"), import("libacp/src/prompt.c"),
+    import("libacp/src/permission.c"), import("libacp/src/fs.c"), import("libacp/src/terminal.c"),
+    import("libacp/src/updates.c"),
+];
+
+private LibFns libacpFns()() {
+    LibFns all;
+    foreach (i, s; libacpSources) {
+        auto fns = cFunctions(s);
+        foreach (f; fns.items[0 .. fns.count]) {
+            assert(all.count < all.items.length, "libacp has more functions than parity holds");
+            all.items[all.count++] = LibFn(i, f);
+        }
+    }
+    return all;
+}
+
+// Every libacp function a block calls, and one level of the library's own it calls in turn.
+private void libacpKeys()(const(char)[] block, ref GroundSide side) {
+    auto lib = libacpFns();
+    foreach (f; lib.items[0 .. lib.count]) {
+        if (named(block, f.fn.name) < 0) continue;
+        auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
+        cKeys(body_, acpReader, side);
+        foreach (g; lib.items[0 .. lib.count])
+            if (g.fn.name != f.fn.name && named(body_, g.fn.name) >= 0)
+                cKeys(libacpSources[g.src][g.fn.from .. g.fn.to], acpReader, side);
+    }
+}
+
+// ground code's own helpers a block calls, one level: libacp read through them counts for the block.
+private void helperKeys()(const(char)[] block, ref GroundSide side) {
+    size_t from = 0;
+    while (true) {
+        auto at = indexIn(codeSource, "\nprivate ", from);
+        if (at < 0) return;
+        from = cast(size_t) at + 1;
+        auto paren = indexIn(codeSource, "(", from), eol = indexIn(codeSource, "\n", from);
+        if (paren < 0 || paren > eol) continue;
+        size_t b = cast(size_t) paren;
+        while (b > from && isIdent(codeSource[b - 1])) b--;
+        auto name = codeSource[b .. cast(size_t) paren];
+        if (name.length == 0 || named(block, name) < 0) continue;
+        auto close = indexIn(codeSource, "\n}\n", from);
+        assert(close >= 0, "code/acp.d has a helper it does not close");
+        libacpKeys(codeSource[from .. cast(size_t) close], side);
+    }
+}
+
+// A request libacp writes for ground code: the method its writer names, measured through each
+// helper of code/acp.d that calls the writer, and the helpers that one calls in turn.
+private void libacpSent()(ref CodeSides cs) {
+    import acpmethods : wireOfMacro;
+    enum mark = `"method", json_object_new_string(`;
+    auto lib = libacpFns();
+    foreach (f; lib.items[0 .. lib.count]) {
+        auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
+        auto at = indexIn(body_, mark);
+        if (at < 0) continue;
+        // The writer's method by its name in acp_methods.h, ACP_CLIENT_TERMINAL_KILL, generated from meta.json.
+        auto nameFrom = cast(size_t) at + mark.length;
+        auto nameEnd = nameFrom;
+        while (nameEnd < body_.length && isIdent(body_[nameEnd])) nameEnd++;
+        auto name = wireOfMacro(body_[nameFrom .. nameEnd]);
+        assert(name !is null, "a libacp writer names a method meta.json does not");
+        size_t k = cs.count;
+        foreach (i; 0 .. cs.count) if (cs.items[i].event == name) k = i;
+        if (k == cs.count) {
+            assert(cs.count < cs.items.length, "code/acp.d handles more methods than parity holds");
+            cs.items[cs.count++] = GroundSide(name, GroundKeys.init, GroundKeys.init);
+        }
+        size_t from = 0;
+        while (true) {
+            auto h = indexIn(codeSource, "\nprivate ", from);
+            if (h < 0) break;
+            from = cast(size_t) h + 1;
+            auto close = indexIn(codeSource, "\n}\n", from);
+            assert(close >= 0, "code/acp.d has a helper it does not close");
+            auto helper = codeSource[from .. cast(size_t) close];
+            if (named(helper, f.fn.name) < 0) continue;
+            libacpKeys(helper, cs.items[k]);
+            helperKeys(helper, cs.items[k]);
+        }
+    }
+}
+
 private static immutable CodeSides codeSides = buildCodeSides();
+
+// The methods code/acp.d has a branch for, which it handles; the rest of codeSides it sends.
+private struct CodeHandles { string[32] items; size_t count; }
+
+private CodeHandles buildCodeHandles()() {
+    import acpmethods : wireOf;
+    CodeHandles h;
+    enum key = `method == `;
+    for (auto at = indexIn(codeSource, key); at >= 0; at = indexIn(codeSource, key, cast(size_t) at + 1)) {
+        auto nameFrom = cast(size_t) at + key.length;
+        auto nameEnd = nameFrom;
+        while (nameEnd < codeSource.length && (isIdent(codeSource[nameEnd]) || codeSource[nameEnd] == '.')) nameEnd++;
+        auto wire = wireOf(codeSource[nameFrom .. nameEnd]);
+        if (wire !is null && h.count < h.items.length) h.items[h.count++] = wire;
+    }
+    return h;
+}
+
+private static immutable CodeHandles codeHandles = buildCodeHandles();
 private static immutable GroundSide codeSide = GroundSide(null, GroundKeys.init, GroundKeys.init);
 
 // --- mcp: libmcp's side, read out of its C at compile time ---
@@ -1258,7 +1377,8 @@ private ptrdiff_t named(const(char)[] s, const(char)[] ident, size_t from = 0) {
     }
 }
 
-// The second argument of each call to fn in a region, when it is a literal.
+// Every literal in the second argument of each call to fn in a region: a
+// ternary between two keys reads either.
 private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys) {
     size_t from = 0;
     while (true) {
@@ -1267,18 +1387,21 @@ private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys
         from = cast(size_t) at + fn.length;
         if (from >= region.length || region[from] != '(') continue;
         auto args = cArgs(region, from);
-        if (args.count >= 2) keys.add(literalOf(args.items[1]));
+        if (args.count >= 2) literalsIn(args.items[1], keys);
     }
 }
 
-private void cReads(const(char)[] region, ref GroundKeys keys) {
-    keyArgs(region, "mcp_field", keys);
-    keyArgs(region, "mcp_has", keys);
-    keyArgs(region, "json_object_object_get_ex", keys);
-}
+// The one way a C library's side is read: json-c's own calls, and the wrappers
+// the library reads and writes a key through, the key their second argument.
+private struct CReader { string[] reads; string[] writes; }
+private static immutable CReader mcpReader = CReader(["mcp_field", "mcp_has"], ["mcp_add"]);
+private static immutable CReader acpReader = CReader(["acp_field", "acp_offered", "acp_flag", "acp_string"], ["add_string"]);
 
-private void cWrites(const(char)[] region, ref GroundKeys keys) {
-    keyArgs(region, "mcp_add", keys);
+private void cKeys()(const(char)[] region, const CReader reader, ref GroundSide side) {
+    keyArgs(region, "json_object_object_get_ex", side.reads);
+    foreach (fn; reader.reads) keyArgs(region, fn, side.reads);
+    keyArgs(region, "json_object_object_add", side.writes);
+    foreach (fn; reader.writes) keyArgs(region, fn, side.writes);
 }
 
 // Every string literal in an argument: `v ? "cursor" : NULL` passes cursor.
@@ -1312,8 +1435,7 @@ private LibFns libmcpFns()() {
 // sits in that a read was kept in, and one level of the library's own functions
 // it calls.
 private void gather(const(LibFn)[] lib, const(char)[] src, CFn fn, const(char)[] region, ref GroundSide side) {
-    cReads(region, side.reads);
-    cWrites(region, side.writes);
+    cKeys(region, mcpReader, side);
     auto body_ = src[fn.from .. fn.to];
     enum kept = "= mcp_field(";
     size_t from = 0;
@@ -1334,9 +1456,7 @@ private void gather(const(LibFn)[] lib, const(char)[] src, CFn fn, const(char)[]
         auto c = named(region, l.fn.name);
         if (c < 0 || cast(size_t) c + l.fn.name.length >= region.length
             || region[cast(size_t) c + l.fn.name.length] != '(') continue;
-        auto calleeBody = libmcpSources[l.src][l.fn.from .. l.fn.to];
-        cReads(calleeBody, side.reads);
-        cWrites(calleeBody, side.writes);
+        cKeys(libmcpSources[l.src][l.fn.from .. l.fn.to], mcpReader, side);
     }
 }
 
@@ -1473,11 +1593,15 @@ private GroundSide mcpCommon()(const(LibFn)[] lib) {
     GroundSide common;
     foreach (ref l; lib) {
         auto body_ = libmcpSources[l.src][l.fn.from .. l.fn.to];
+        GroundSide read;
         if (l.fn.name == "mcp_dispatch") {
             auto first = indexIn(body_, "strcmp(r->method");
-            cReads(first < 0 ? body_ : body_[0 .. cast(size_t) first], common.reads);
-        } else if (l.fn.name == "build_message" || l.fn.name == "mcp_request_resume")
-            cWrites(body_, common.writes);
+            cKeys(first < 0 ? body_ : body_[0 .. cast(size_t) first], mcpReader, read);
+            addAll(common.reads, read.reads.slice());
+        } else if (l.fn.name == "build_message" || l.fn.name == "mcp_request_resume") {
+            cKeys(body_, mcpReader, read);
+            addAll(common.writes, read.writes.slice());
+        }
     }
     return common;
 }
@@ -1850,6 +1974,41 @@ private void readMcp(const(char)[] text) {
     }
 }
 
+// --- reading a shipped agent's source ---
+
+import shipped : ShippedPin, ShippedSet, readShipped, SdkMap, Found, readSdk, measureAgent;
+
+private static immutable ShippedSet shippedSet = readShipped(import("flake.nix"));
+private __gshared SdkMap shippedMap;
+private __gshared Found shippedFound;
+
+// make install links the pinned sources here from the store, and each SDK beside them.
+private void shippedPath(ref Measured m, const(char)[] tail1, const(char)[] tail2, const(char)[] tail3) {
+    import db : getenv;
+    auto home = getenv("HOME\0".ptr);
+    size_t n = 0;
+    void add(const(char)[] s) { foreach (c; s) if (n + 1 < m.path.length) m.path[n++] = c; }
+    if (home !is null) { size_t hl = 0; while (home[hl] != 0) hl++; add(home[0 .. hl]); }
+    add(tail1); add(tail2); add(tail3);
+    m.path[n] = 0;
+    m.pathLen = n;
+}
+
+// Live when the agent's source and its SDK's were both read; absent names the one that was not.
+private Measured measureShipped(ref const ShippedPin pin) {
+    Measured m;
+    shippedMap = SdkMap.init;
+    shippedFound = Found.init;
+    shippedPath(m, "/.local/lib/ground/acp-sdk/", pin.sdk, "/src");
+    if (!readSdk(m.path[0 .. m.pathLen], shippedMap)) return m;
+    shippedPath(m, "/.local/lib/ground/shipped/", pin.name, "/");
+    foreach (c; pin.dir) if (m.pathLen + 1 < m.path.length) m.path[m.pathLen++] = c;
+    m.path[m.pathLen] = 0;
+    if (!measureAgent(m.path[0 .. m.pathLen], shippedMap, shippedFound)) return m;
+    m.access = shippedMap.full ? Access.empty : Access.live;
+    return m;
+}
+
 private Measured measure(ref const Pin pin) {
     Measured m;
     specCount = 0;
@@ -1940,6 +2099,34 @@ bool storeSpecs(sqlite3* db, const(char)[] agent, const(char)[] release, const(c
     return ok;
 }
 
+// A shipped agent read live replaces what the store held for it, whole or not at all.
+bool storeShipped(sqlite3* db, const(char)[] agent, const(char)[] rev, ref const SdkMap map, ref const Found f, long now) {
+    if (sqlite3_exec(db, "BEGIN IMMEDIATE\0".ptr, null, null, null) != SQLITE_OK) return false;
+    bool ok = false;
+    sqlite3_stmt* del;
+    if (sqlite3_prepare_v2(db, "DELETE FROM parity_shipped WHERE agent = ?1\0".ptr, -1, &del, null) == SQLITE_OK) {
+        bind(del, 1, agent);
+        ok = sqlite3_step(del) == SQLITE_DONE;
+        sqlite3_finalize(del);
+    }
+    foreach (i; 0 .. map.methodCount) {
+        if (!ok) break;
+        if (!f.handles[i] && !f.sends[i]) continue;
+        sqlite3_stmt* ins;
+        enum sql = "INSERT INTO parity_shipped (agent, rev, method, how, measured_at) VALUES (?1, ?2, ?3, ?4, ?5)\0";
+        if (sqlite3_prepare_v2(db, sql.ptr, -1, &ins, null) != SQLITE_OK) { ok = false; break; }
+        bind(ins, 1, agent);
+        bind(ins, 2, rev);
+        bind(ins, 3, map.methods[i].name);
+        bind(ins, 4, f.handles[i] ? "handles" : "sends");
+        sqlite3_bind_int64(ins, 5, now);
+        ok = sqlite3_step(ins) == SQLITE_DONE;
+        sqlite3_finalize(ins);
+    }
+    sqlite3_exec(db, ok ? "COMMIT\0".ptr : "ROLLBACK\0".ptr, null, null, null);
+    return ok;
+}
+
 unittest {
     import db : sqlite3_open, sqlite3_close, applySchema;
     sqlite3* db;
@@ -1971,6 +2158,41 @@ unittest {
     sqlite3_finalize(st);
     sqlite3_close(db);
     specCount = 0;
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema;
+    import shipped : readSchema;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    assert(applySchema(db));
+
+    SdkMap map;
+    readSchema("AGENT_METHODS = {\n  session_new: \"session/new\",\n}\n"
+        ~ "CLIENT_METHODS = {\n  session_update: \"session/update\",\n  fs_read: \"fs/read_text_file\",\n}\n", map);
+    Found f;
+    f.handles[map.indexOf("session/new")] = true;
+    f.sends[map.indexOf("session/update")] = true;
+    assert(storeShipped(db, "pi-acp", "aa", map, f, 100));
+
+    // A second read replaces the first whole: what it no longer sends is gone.
+    f.sends[map.indexOf("session/update")] = false;
+    f.sends[map.indexOf("fs/read_text_file")] = true;
+    assert(storeShipped(db, "pi-acp", "bb", map, f, 200));
+
+    sqlite3_stmt* st;
+    assert(sqlite3_prepare_v2(db, "SELECT method, how, rev, measured_at FROM parity_shipped ORDER BY method\0".ptr, -1, &st, null) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(cstr(sqlite3_column_text(st, 0)) == "fs/read_text_file");
+    assert(cstr(sqlite3_column_text(st, 1)) == "sends");
+    assert(cstr(sqlite3_column_text(st, 2)) == "bb");
+    assert(sqlite3_column_int64(st, 3) == 200);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(cstr(sqlite3_column_text(st, 0)) == "session/new");
+    assert(cstr(sqlite3_column_text(st, 1)) == "handles");
+    assert(sqlite3_step(st) == SQLITE_DONE);
+    sqlite3_finalize(st);
+    sqlite3_close(db);
 }
 
 private const(char)[] cstr(const(char)* p) {
@@ -2224,6 +2446,8 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
     if (only.length == 0 && !texOut) {
         table("");
         put("\n");
+        shippedTable(db);
+        put("\n");
         table("mcp");
     }
 
@@ -2274,6 +2498,109 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
         if (m.access != Access.live && measuredAt[pi] > 0) { put(", measured "); putTime(measuredAt[pi]); }
         put("\n");
     }
+    foreach (si; 0 .. shippedSet.count) {
+        auto pin = &shippedSet.items[si];
+        auto m = &shippedStatus[si];
+        long at = 0;
+        sqlite3_stmt* st;
+        if (sqlite3_prepare_v2(db, "SELECT max(measured_at) FROM parity_shipped WHERE agent = ?1\0".ptr, -1, &st, null) == SQLITE_OK) {
+            bind(st, 1, pin.name);
+            if (sqlite3_step(st) == SQLITE_ROW) at = sqlite3_column_int64(st, 0);
+            sqlite3_finalize(st);
+        }
+        put("shipped "); put(pin.name); put(" "); put(pin.rev[0 .. 12]); put(" sdk "); put(pin.sdk); put("  ");
+        if (m.access == Access.live) put("live    ");
+        else put(at > 0 ? "stored  " : "never   ");
+        if (m.access == Access.empty) put("more methods than parity holds in ");
+        else if (m.access == Access.absent) put("no source at ");
+        put(m.path[0 .. m.pathLen]);
+        if (m.access != Access.live && at > 0) { put(", measured "); putTime(at); }
+        put("\n");
+    }
+}
+
+private __gshared Measured[maxShipped] shippedStatus;
+
+import shipped : maxShipped;
+
+// "and compare us against real shipped software instyead of comparing against a number that might not be real"
+// Per ACP method, ground code's coverage beside what each shipped agent's source does with it.
+private void shippedTable(sqlite3* db) {
+    static struct ShipRow { char[48] method = 0; size_t len; ubyte[maxShipped] how; }
+    static ShipRow[96] srows;
+    size_t n = 0;
+    ShipRow* rowOf(const(char)[] method) {
+        foreach (i; 0 .. n) if (srows[i].method[0 .. srows[i].len] == method) return &srows[i];
+        if (n >= srows.length || method.length > srows[0].method.length) return null;
+        auto r = &srows[n++];
+        *r = ShipRow.init;
+        foreach (i, c; method) r.method[i] = c;
+        r.len = method.length;
+        return r;
+    }
+
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, "SELECT agent, method, how FROM parity_shipped\0".ptr, -1, &st, null) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            auto agent = cstr(sqlite3_column_text(st, 0));
+            auto how = cstr(sqlite3_column_text(st, 2));
+            foreach (si; 0 .. shippedSet.count) {
+                if (shippedSet.items[si].name != agent) continue;
+                auto r = rowOf(cstr(sqlite3_column_text(st, 1)));
+                if (r is null) break;
+                r.how[si] = how == "handles" ? 1 : 2;
+            }
+        }
+        sqlite3_finalize(st);
+    }
+    foreach (ref s; codeSides.items[0 .. codeSides.count]) rowOf(s.event);
+
+    // In method order, so a namespace reads together.
+    foreach (i; 1 .. n)
+        for (size_t j = i; j > 0 && srows[j].method[0 .. srows[j].len] < srows[j - 1].method[0 .. srows[j - 1].len]; j--) {
+            auto t = srows[j]; srows[j] = srows[j - 1]; srows[j - 1] = t;
+        }
+
+    // Ground code's cell is its coverage under the acp pin, where the pinned schema names the method.
+    ptrdiff_t acpPin = -1;
+    foreach (pi, ref pin; pins) if (pin.agent == "acp" && acpPin < 0) acpPin = cast(ptrdiff_t) pi;
+
+    size_t width = 7;
+    foreach (i; 0 .. n) if (srows[i].len + 1 > width) width = srows[i].len + 1;
+    enum groundWidth = 13;
+    putPad("Method:", width);
+    cell(); putPad("ground code", groundWidth);
+    foreach (si; 0 .. shippedSet.count) { cell(); put(shippedSet.items[si].name); put(" "); }
+    eol();
+    foreach (i; 0 .. n) {
+        auto r = &srows[i];
+        auto method = r.method[0 .. r.len];
+        putName(method, width);
+        cell();
+        bool ground = false;
+        foreach (ref s; codeSides.items[0 .. codeSides.count]) if (s.event == method) ground = true;
+        char[16] gb = 0;
+        size_t gn = 0;
+        void g(const(char)[] s) { foreach (c; s) if (gn < gb.length) gb[gn++] = c; }
+        if (ground) {
+            bool handles = false;
+            foreach (w; codeHandles.items[0 .. codeHandles.count]) if (w == method) handles = true;
+            g(handles ? "handles" : "sends");
+            foreach (j; 0 .. rowCount) {
+                if (acpPin < 0 || rows[j].event[0 .. rows[j].len] != method || rows[j].cells[acpPin] < 0) continue;
+                char[8] pb;
+                g(" ");
+                g(percentText(rows[j].cells[acpPin], pb));
+            }
+        } else g("-");
+        putPad(gb[0 .. gn], groundWidth);
+        foreach (si; 0 .. shippedSet.count) {
+            cell();
+            auto h = r.how[si];
+            putPad(h == 1 ? "handles" : h == 2 ? "sends" : "-", shippedSet.items[si].name.length + 1);
+        }
+        eol();
+    }
 }
 
 private void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stderr); }
@@ -2314,6 +2641,24 @@ int handleParity(int argc, const(char)** argv) {
             say("ground_parity:the store refused "); say(pin.agent); say(" "); say(pin.release);
             say("'s contract; the stored one stands\n");
             status[pi].access = Access.empty;
+            rc = 1;
+        }
+    }
+
+    foreach (si; 0 .. shippedSet.count) {
+        if (texOut || only.length > 0) break;
+        auto pin = &shippedSet.items[si];
+        shippedStatus[si] = measureShipped(*pin);
+        if (shippedStatus[si].access == Access.empty) {
+            say("ground_parity:shipped "); say(pin.name); say(" with sdk "); say(pin.sdk);
+            say(" names more than parity holds; nothing stored for it\n");
+            rc = 1;
+            continue;
+        }
+        if (shippedStatus[si].access != Access.live) continue;
+        if (!storeShipped(db, pin.name, pin.rev, shippedMap, shippedFound, cast(long) time(null))) {
+            say("ground_parity:the store refused shipped "); say(pin.name); say("; the stored one stands\n");
+            shippedStatus[si].access = Access.empty;
             rc = 1;
         }
     }

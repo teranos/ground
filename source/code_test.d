@@ -15,7 +15,7 @@ enum modesOf(string current) = modes(current); // folded at compile time: better
 enum configOf(string mode, string effort) = `[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"`
     ~ mode ~ `","options":[{"value":"default","name":"Manual","description":"m in a permission block"},`
     ~ `{"value":"plan","name":"Plan","description":"p in a permission block"},`
-    ~ `{"value":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code asks, as Manual does"},`
+    ~ `{"value":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code writes files without asking, and asks the rest as Manual does"},`
     ~ `{"value":"auto","name":"Auto","description":"a in a permission block; ground code asks, as Manual does"},`
     ~ `{"value":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
     ~ `{"value":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]},`
@@ -27,7 +27,7 @@ private string modes()(string current) {
     return `{"currentModeId":"` ~ current ~ `","availableModes":[`
         ~ `{"id":"default","name":"Manual","description":"m in a permission block"},`
         ~ `{"id":"plan","name":"Plan","description":"p in a permission block"},`
-        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code asks, as Manual does"},`
+        ~ `{"id":"acceptEdits","name":"Accept edits","description":"a in a permission block; ground code writes files without asking, and asks the rest as Manual does"},`
         ~ `{"id":"auto","name":"Auto","description":"a in a permission block; ground code asks, as Manual does"},`
         ~ `{"id":"dontAsk","name":"Don't ask","description":"d in a permission block"},`
         ~ `{"id":"bypassPermissions","name":"Bypass permissions","description":"b in a permission block"}]}`;
@@ -46,42 +46,90 @@ private string answerWith()(string line, ref Sessions s) {
 
 // initialize: the only required field either way is protocolVersion. ACP's is
 // 1, bumped only for breaking changes; ground's own version is agentInfo's.
-static assert(answerOf(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`)
-    == `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
-       ~ versionString() ~ `"}}}`);
+// libacp reads and writes it, so these run rather than fold at compile time.
+// Folded at compile time, as betterC has no GC to concatenate with.
+enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true},"auth":{"logout":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
 
-// "The protocol version the client specified if supported by the agent, or the
-// latest protocol version supported by the agent."
-static assert(answerOf(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`)
-    == `{"jsonrpc":"2.0","id":"a","result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true}},"authMethods":[],"agentInfo":{"name":"ground","version":"`
-       ~ versionString() ~ `"}}}`);
+unittest {
+    bool answers(string line, const(char)[] want) {
+        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Reply r;
+        scope(exit) r.dispose();
+        return answer(line, r, s) && r.slice() == want;
+    }
+    assert(answers(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}`, v1Result!`0`));
+
+    // A newer version than ground speaks selects the one it does:
+    // "The protocol version the client specified if supported by the agent, or the latest protocol version supported by the agent."
+    assert(answers(`{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":7}}`, v1Result!`"a"`));
+
+    // None at or below what was asked:
+    // "If none exists, it MUST return -32022 with requested and supported data"
+    assert(answers(`{"jsonrpc":"2.0","id":9,"method":"initialize","params":{"protocolVersion":0}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32022,"message":"no supported protocol version is at or below 0","data":{"requested":0,"supported":[1]}}}`));
+
+    // The one field initialize must carry.
+    assert(answers(`{"jsonrpc":"2.0","id":8,"method":"initialize","params":{}}`,
+        `{"jsonrpc":"2.0","id":8,"error":{"code":-32602,"message":"initialize params name no protocolVersion"}}`));
+
+    // A v2 client's offer is in v2's shape, and ground answers it in v1:
+    // "a v2 request carries info and capabilities"
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply r;
+    scope(exit) r.dispose();
+    assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":2,"info":{"name":"zed","version":"1"},"capabilities":{"elicitation":{"form":{},"url":{}}}}}`, r, s));
+    // A client that can send the person to a link is offered the sign-in that does.
+    import matcher : indexOf;
+    enum qntx = `"authMethods":[{"id":"qntx","name":"Sign in to QNTX","description":"Open the link ground code gives, and approve it at your QNTX node with your passkey"}]`;
+    enum plain = v1Result!`1`;
+    enum offered = plain[0 .. indexOf(plain, `"authMethods":[]`)] ~ qntx ~ plain[indexOf(plain, `"authMethods":[]`) + 16 .. $];
+    assert(r.slice() == offered);
+    assert(s.elicitsForms && s.elicitsUrls, "a v2 client's elicitation, read from capabilities");
+}
 
 // authenticate: "Must be one of the methods advertised in the initialize
-// response." ground code advertises none, so no methodId is one of them.
-static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"agent"}}`)
-    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code advertises no auth methods, and authenticate named agent"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{}}`)
-    == `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"authenticate needs methodId"}}`);
+// response." libacp reads the methodId; one only in _meta is not the request's.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"agent"}}`,
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code's auth method is qntx, and authenticate named agent"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"authenticate needs methodId"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":7,"method":"authenticate","params":{"_meta":{"methodId":"agent"}}}`,
+        `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"authenticate needs methodId"}}`));
+}
 
 // A method ground code does not handle is said to the client, by name.
-static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"logout","params":{}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle logout"}}`);
+static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/wobble","params":{}}`)
+    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"ground code does not handle session/wobble"}}`);
 
 // session/load: "Clients MUST call the session/load method with" the session,
 // "MCP servers to connect to" and "The working directory": all three required.
-static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"cwd":"/w","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`)
-    == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`);
+// libacp reads them; a sessionId only in _meta is none.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"cwd":"/w","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`,
+        `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/load needs mcpServers"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":7,"method":"session/load","params":{"_meta":{"sessionId":"code-1-1-1"},"cwd":"/w","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"session/load needs sessionId"}}`));
+}
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`));
+}
 
 // A notification has no answer to give; the caller says it on stderr instead.
 static assert(answerOf(`{"jsonrpc":"2.0","method":"session/frobnicate","params":{}}`) is null);
 // A cancel with no turn running has nothing to stop: it is answered with
 // nothing, and said on stderr.
-static assert(answerOf(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-1-1-1"}}`) == "");
-static assert(answerOf(`{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":4}}`) == "");
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-1-1-1"}}`, ""));
+    assert(says(s, `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":4}}`, ""));
+}
 
 // A line naming no method is not a request.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4}`)
@@ -92,22 +140,40 @@ static assert(answerOf(`not json`)
 // session/new: cwd and mcpServers are required, and sessionId is all the
 // answer needs. An id is ground code's start, its pid and a count, so two
 // sessions of one process are told apart and so are two processes.
-private string twoSessions()() {
+// A new session's modes are libacp's, so these run rather than fold at compile time.
+unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     enum req = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
-    return answerWith(req, s) ~ "\n" ~ answerWith(req, s);
+    assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 }
-static assert(twoSessions()
-    == `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
 
-// "The working directory for this session. Must be an absolute path."
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"cwd must be an absolute path: tmp"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"session/new needs cwd"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/tmp"}}`)
-    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`);
+// The reader is C: these refusals now run alongside the successful creations.
+unittest {
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"tmp","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"cwd must be an absolute path: tmp"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"session/new needs cwd"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/tmp"}}`,
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`));
+}
+
+// Part 15: nested fields cannot create a session, and invalid servers fail before setup.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    enum missingCwd = `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new needs cwd"}}`;
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"_meta":{"cwd":"/tmp","mcpServers":[]}}}`, missingCwd));
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","_meta":{"mcpServers":[]}}}`,
+        `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new needs mcpServers"}}`));
+    // Even a whole params object nested in metadata is not the envelope's params.
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","_meta":{"params":{"cwd":"/tmp","mcpServers":[]}},"params":{}}`, missingCwd));
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"first","command":"/does/not/exist","args":[],"env":[]},{}]}}`,
+        `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new has an invalid MCP server configuration"}}`));
+    assert(s.openLen == 0 && s.count == 0);
+    assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","_meta":{"params":{"cwd":"relative","mcpServers":[7]}},"params":{"_meta":{"cwd":"relative","mcpServers":[7]},"cwd":"/tmp","mcpServers":[]}}`,
+        `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(s.openLen == 1 && s.count == 1);
+}
 
 // Nonempty mcpServers launch real processes. libmcp/tests/test_ground.py
 // verifies the runtime path, rollback, per-session ownership and EOF cleanup.
@@ -115,18 +181,23 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":
 // session/close: "Supplying `{}` means the agent supports closing sessions",
 // so initialize says so. A session closed is gone, and closing it again, or
 // one ground code never opened, is "Resource not found".
-private string openThenClose()(string close) {
+// Two sessions opened, then close asked twice: what each close answers.
+private bool openThenClose()(string close, string first, string second) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(close, s) ~ "\n" ~ answerWith(close, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    return says(s, close, first) && says(s, close, second);
 }
-static assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`)
-    == `{"jsonrpc":"2.0","id":2,"result":{}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`);
-static assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`)
-    == `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
+unittest {
+    assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`));
+    assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`));
+}
 // Another process's session is not this one's to close.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/close","params":{"sessionId":"code-1-1-1"}}`)
     == `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
@@ -135,29 +206,45 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params
 
 // session/list: the sessions this process has open, each with the cwd it was
 // opened in. Nothing is kept past the process yet, so that is all there is.
-private string listAfter()(string list) {
+// Three sessions opened and one closed, then a list: what it answers.
+private bool listAfter()(string list, string want) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/srv","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`, s);
-    return answerWith(list, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/srv","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`, r, s); r.len = 0;
+    return says(s, list, want);
 }
-static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`);
-// "Filter sessions by working directory. Must be an absolute path."
-static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"/srv"}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`);
-static assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`)
-    == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`)
-    == `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`);
-// Ground code never gives a nextCursor, so a cursor is not one it gave.
-static assert(answerOf(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":"x"}}`)
-    == `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`);
-// A cwd is kept whole or not at all.
-static assert(answerOf(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`)
-    == `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`);
+unittest {
+    assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
+    // "Filter sessions by working directory. Must be an absolute path."
+    assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"/srv"}}`,
+        `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
+    assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":"srv"}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"cwd must be an absolute path: srv"}}`));
+}
+// Ground code never gives a nextCursor, so a cursor is not one it gave. libacp
+// reads the cwd and the cursor each as a string, or refuses it.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`,
+        `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":"x"}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"ground code gives no nextCursor, so it has no cursor to page from"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":7}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/list's cursor must be a string"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cwd":7}}`,
+        `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/list's cwd must be a string"}}`));
+}
+// A cwd is kept whole or not at all. The request is built at compile time, as -betterC has no GC to join it at run time.
+enum longCwdNew = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/` ~ replicate("a", 1024) ~ `","mcpServers":[]}}`;
+unittest {
+    assert(answersFresh(longCwdNew,
+        `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"cwd is longer than the 1024 bytes ground code keeps"}}`));
+}
 
 private string replicate()(string s, size_t n) {
     string r;
@@ -218,6 +305,9 @@ unittest {
         `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/resume needs cwd"}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":11,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"work"}}`,
         `{"jsonrpc":"2.0","id":11,"error":{"code":-32602,"message":"cwd must be an absolute path: work"}}`));
+    // The params' own fields, not one of the same name nested in another.
+    assert(says(c, `{"jsonrpc":"2.0","id":13,"method":"session/resume","params":{"cwd":"/work","_meta":{"sessionId":"code-1-1-1"}}}`,
+        `{"jsonrpc":"2.0","id":13,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`));
     // A session's servers come up once it is found: one that isn't spawns nothing.
     assert(says(c, `{"jsonrpc":"2.0","id":12,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work","mcpServers":[{"name":"x","command":"/does/not/exist","args":[],"env":[]}]}}`,
         `{"jsonrpc":"2.0","id":12,"error":{"code":-32002,"message":"no session to resume: code-1-1-1"}}`));
@@ -265,27 +355,55 @@ unittest {
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32002,"message":"no open session code-100-7-3"}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":10,"method":"session/delete","params":{}}`,
         `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
+    // The params' own sessionId, not one nested in another field.
+    assert(says(a, `{"jsonrpc":"2.0","id":11,"method":"session/delete","params":{"_meta":{"sessionId":"code-100-7-1"}}}`,
+        `{"jsonrpc":"2.0","id":11,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
+}
+
+// A set on a new session, then a resume of it: what each answers. Resume goes
+// through libacp, so these run rather than fold at compile time.
+private bool setThenResume()(string set, string wantSet, string wantResume) {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(set, r, s);
+    bool setAnswered = r.slice() == wantSet;
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, r, s);
+    return setAnswered && r.slice() == wantResume;
 }
 
 // session/set_mode: a mode is one of the six a session offers, set on a session
 // live here, and kept with the session, so a resume comes back in it.
-private string setThen()(string set) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(set, s) ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, s);
+unittest {
+    assert(setThenResume(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ configOf!("plan", "medium") ~ `}}`));
+    assert(setThenResume(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"yolo"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no mode yolo; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 }
-static assert(setThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"plan"}}`)
-    == `{"jsonrpc":"2.0","id":2,"result":{}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"plan" ~ `,"configOptions":` ~ configOf!("plan", "medium") ~ `}}`);
-static assert(setThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"yolo"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no mode yolo; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`);
+// A request to a fresh process, and its answer: libacp reads it, so this runs.
+private bool answersFresh()(string line, string want) {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply r;
+    scope(exit) r.dispose();
+    answer(line, r, s);
+    return r.slice() == want;
+}
+
+unittest {
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`));
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs modeId"}}`));
+    // The params' own sessionId, not one nested in another field.
+    assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan","_meta":{"sessionId":"code-1-1-1"}}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`));
+}
 
 // A mode set in one process is the mode the next one resumes in.
 unittest {
@@ -328,6 +446,9 @@ unittest {
         `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"additionalDirectories must be absolute paths: rel"}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/work","additionalDirectories":"/lib","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"additionalDirectories must be a list of paths"}}`));
+    // The params' own list, not one nested in another field.
+    assert(answersFresh(`{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"cwd":"/work","mcpServers":[],"_meta":{"additionalDirectories":["rel"]}}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // Another process resumes it with a list of its own, then with none.
     Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
@@ -345,28 +466,32 @@ unittest {
 // session/set_config_option: effort is the option a session offers, one of the
 // five levels; set, it is kept with the session and answered with the whole
 // set, as "The full set of configuration options and their current values".
-private string effortThen()(string set) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(set, s) ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/tmp"}}`, s);
+unittest {
+    assert(setThenResume(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("default", "high") ~ `}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "high") ~ `}}`));
+    assert(setThenResume(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"ultra"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no effort ultra; effort is low, medium, high, xhigh or max"}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
+    assert(setThenResume(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 }
-static assert(effortThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`)
-    == `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("default", "high") ~ `}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "high") ~ `}}`);
-static assert(effortThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"ultra"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no effort ultra; effort is low, medium, high, xhigh or max"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
-static assert(effortThen(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}` ~ "\n"
-     ~ `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":"high"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"configId":"effort","value":"high"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","value":"high"}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`);
-static assert(answerOf(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":true}}`)
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs a value: mode and effort are selects, not booleans"}}`);
+// libacp reads the request in either of its shapes: a value id, or type boolean
+// and a boolean. A boolean is no level and no mode; neither shape is no value.
+unittest {
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":"high"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"configId":"effort","value":"high"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","value":"high"}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs configId"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","type":"boolean","value":true}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs a value: mode and effort are selects, not booleans"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":true}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs a value: a value id, or type boolean and a boolean"}}`));
+}
 
 // A new session starts at the effort Claude Code's settings name, when it is
 // one of the five; with none, or one ground does not know, at medium.
@@ -402,81 +527,76 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":11,"method":"session/prompt","para
     == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":12,"method":"session/prompt","params":{"prompt":[]}}`)
     == `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`);
-private string promptWithoutModel()() {
+// A new session, then one request to it: what that request answers. A new
+// session's modes are libacp's, so these run rather than fold at compile time.
+private bool newThen()(string line, string want) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    return says(s, line, want);
 }
-// "As a baseline, the Agent MUST support ContentBlock::Text and
-// ContentBlock::ResourceLink". ground code reads text only, so a block of any
-// other kind is refused by its type before the turn starts, not dropped.
-private string promptWithLink()() {
+// ground code reads text only, and refuses any other block by its type before the turn starts:
+// "As a baseline, the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
+unittest {
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`));
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links, resources holding text, images and audio, and the prompt holds a block that names no type"}}`));
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"hi"}]}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`));
+    // prompt is required; libacp reads none in _meta as the request's.
+    assert(newThen(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","_meta":{"prompt":[]}}}`,
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/prompt needs prompt, a list of content blocks"}}`));
+}
+// A file:// link is read through the client only when it offers to:
+// "Only available if the client supports the fs.readTextFile capability"
+// Any other link is read through the session's MCP servers, so it goes on to the turn.
+private bool promptsTo()(string initialize, string prompt, string want) {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"read this"},{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(initialize, r, s); r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+    answer(prompt, r, s);
+    return r.slice() == want;
 }
-static assert(promptWithLink()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
-// "Only available if the client supports the fs.readTextFile capability", which
-// initialize reads from clientCapabilities. Offered, a file:// link goes on to
-// the turn. Any other is read through the session's MCP servers once the
-// turn starts, so it goes on to the turn too.
-private string promptWithLinkFor()(string link) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":false}}}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"` ~ link ~ `","name":"a"}]}}`, s);
-}
-// As a client writes it, spaced: the capability is read from the object, not
-// from where its first space falls.
-private string promptWithSpacedCaps()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"terminal": false, "fs": {"writeTextFile": false, "readTextFile": true}}}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
-}
-static assert(promptWithSpacedCaps()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-static assert(promptWithLinkFor("file:///tmp/a")
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-static assert(promptWithLinkFor("https://example.com/a")
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
-private string promptLinkNotOffered()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`, s);
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"file:///tmp/a","name":"a"}]}}`, s);
-}
-static assert(promptLinkNotOffered()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`);
-private string promptUntyped()() {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"text":"hi"}]}}`, s);
-}
-static assert(promptUntyped()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads text blocks, resource links and resources holding text, and the prompt holds a block that names no type"}}`);
-static assert(promptWithoutModel()
-    == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
 
+enum offersReading = `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":false}}}}`;
+enum promptLink(string uri) = `{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"resource_link","uri":"` ~ uri ~ `","name":"a"}]}}`;
+enum noModel = `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`;
+
+// initialize goes through libacp, so these run rather than fold at compile time.
+unittest {
+    assert(promptsTo(offersReading, promptLink!"file:///tmp/a", noModel));
+    assert(promptsTo(offersReading, promptLink!"https://example.com/a", noModel));
+    // As a client writes it, spaced: the capability is read from the object.
+    assert(promptsTo(`{"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"terminal": false, "fs": {"writeTextFile": false, "readTextFile": true}}}}`,
+        promptLink!"file:///tmp/a", noModel));
+    // Not offered, though a field of another name says readTextFile.
+    assert(promptsTo(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false},"x":{"readTextFile":true}}}}`,
+        promptLink!"file:///tmp/a",
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"ground code reads a file:// resource_link through the client's fs/read_text_file, and the client offers none: file:///tmp/a"}}`));
+}
 // The mode is set through either door, and both say the same: set by config
 // option, the modes a session reports follow; set by set_mode, the config
 // option does.
-private string modeBothWays()() {
+unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
-    answerWith(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, s);
-    return answerWith(`{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"plan"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"sometimes"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"dontAsk"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`, s)
-        ~ "\n" ~ answerWith(`{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`, s);
+    Reply r;
+    scope(exit) r.dispose();
+    answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s);
+    assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"plan"}}`,
+        `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("plan", "medium") ~ `}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"mode","value":"sometimes"}}`,
+        `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"no mode sometimes; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"dontAsk"}}`,
+        `{"jsonrpc":"2.0","id":4,"result":{}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"high"}}`,
+        `{"jsonrpc":"2.0","id":5,"result":{"configOptions":` ~ configOf!("dontAsk", "high") ~ `}}`));
+    assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"model","value":"x"}}`,
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}`));
 }
-static assert(modeBothWays() ==
-      `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("plan", "medium") ~ `}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"no mode sometimes; a session offers default, plan, acceptEdits, auto, dontAsk and bypassPermissions"}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":4,"result":{}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":5,"result":{"configOptions":` ~ configOf!("dontAsk", "high") ~ `}}` ~ "\n"
-    ~ `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"no config option model; a session offers mode and effort"}}`);
 
 // updatedAt: "ISO 8601 timestamp of last activity". A session's activity is
 // its opening, a resume, and a change to its mode or effort; each one is the
@@ -620,8 +740,10 @@ version (Posix) unittest {
     {
         int[2] p;
         assert(pipe(p) == 0);
+        // A sessionId only in _meta names no session, and cancels no turn.
+        enum unnamed = `{"jsonrpc":"2.0","method":"session/cancel","params":{"_meta":{"sessionId":"code-100-7-1"}}}`;
         enum queued = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-9"}}` ~ "\n"
-            ~ `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}` ~ "\n" ~ cancel ~ "\n";
+            ~ `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}` ~ "\n" ~ unnamed ~ "\n" ~ cancel ~ "\n";
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); }
@@ -633,6 +755,7 @@ version (Posix) unittest {
         const(char)[] line;
         assert(nextLine(input, line) && line == `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-9"}}`);
         assert(nextLine(input, line) && line == `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`);
+        assert(nextLine(input, line) && line == unnamed);
     }
     // $/cancel_request names the prompt by its id.
     {
@@ -674,8 +797,8 @@ version (Posix) unittest {
 
 // What a session's mode does to the tool calls its turns ask for:
 //   default (Manual), acceptEdits, auto  the client is asked, by
-//       session/request_permission; ground code has no edit tools of its own
-//       and no classifier, so the last two ask as Manual does
+//       session/request_permission; acceptEdits runs write_text_file unasked,
+//       and auto, with no classifier, asks as Manual does
 //   plan               only a tool whose MCP annotations say readOnlyHint runs
 //   dontAsk            nothing is approved ahead, so nothing runs
 //   bypassPermissions  every call runs
@@ -817,6 +940,16 @@ version (Posix) unittest {
         assert(count(out_, `"name":"x__y","status"`) == 2);
         end(input, p, s);
     }
+    // Arguments that are no JSON, as an empty string a model may give: libacp writes
+    // them as the text they are, so the request is still one the client can read.
+    {
+        enum emptyArgs = http ~ `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`
+            ~ `{"id":"c1","type":"function","function":{"name":"x__y","arguments":""}}]}}]}`;
+        const string[2] answers = [emptyArgs, done];
+        assert(turn("default", chose!"allow_once", answers[], endTurn, s, input, p));
+        assert(indexOf(said[0 .. saidLen], `"toolCall":{"toolCallId":"c1","title":"x__y","name":"x__y","status":"pending","rawInput":""},"options":[`) >= 0);
+        end(input, p, s);
+    }
     // Rejected: not run, and the model is told.
     {
         const string[2] answers = [oneCall, done];
@@ -919,10 +1052,12 @@ version (Posix) unittest {
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
-    assert(storeHistory(db, "code-100-7-1", history) == 1);
-    Reply kept;
-    assert(storeHistoryOf(db, "code-100-7-1", kept) == 1 && kept.slice() == history);
-    kept.dispose();
+    // The titles each call was shown with live, by its id: c1's, and none for c2, from before titles were kept.
+    enum titles = `"c1":"Read \"it\""`;
+    assert(storeHistory(db, "code-100-7-1", history, titles) == 1);
+    Reply kept, keptTitles;
+    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles) == 1 && kept.slice() == history && keptTitles.slice() == titles);
+    kept.dispose(); keptTitles.dispose();
 
     __gshared char[65536] said;
     size_t saidLen;
@@ -952,6 +1087,7 @@ version (Posix) unittest {
         `{"jsonrpc":"2.0","id":2,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(saidLen == 0);
     assert(b.open[0].history !is null && b.open[0].history.slice() == history);
+    assert(b.open[0].titles.slice() == titles);
 
     // Loaded elsewhere: replayed, in order, then answered.
     Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
@@ -961,7 +1097,9 @@ version (Posix) unittest {
     enum up = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":`;
     assert(said[0 .. saidLen] ==
           up ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi \"you\""}}}}` ~ "\n"
-        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"x__y","name":"x__y","rawInput":{"a":1}}}}` ~ "\n"
+        // c1 has the title it was shown with live, though no server it loads with has its tool; c2,
+        // with none kept, is titled as the loaded catalogue titles it, here by its name.
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read \"it\"","name":"x__y","rawInput":{"a":1}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","name":"x__z","rawInput":{}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"},`
@@ -1060,9 +1198,12 @@ version (Posix) unittest {
           up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
-    Reply kept;
-    assert(storeHistoryOf(db, "code-100-7-1", kept) == 1);
+    Reply kept, keptTitles;
+    scope(exit) keptTitles.dispose();
+    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles) == 1);
     assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done","reasoning":"hi is a greeting"}`);
+    // A turn that called no tool kept no title.
+    assert(keptTitles.len == 0);
     assert(kept.slice() == s.open[0].history.slice());
     kept.dispose();
     // SessionInfo's title, "Human-readable title for the session", is the
@@ -1169,6 +1310,12 @@ version (Posix) unittest {
     assert(indexOf(s.open[0].history.slice(), `{"role":"user","content":"read this\n\na b (file:///tmp/a%20b):\nline one\nline \"two\""}`) >= 0);
     end(input, p, s);
 
+    // Every byte of the text is the user's, a NUL among them, as libacp reads its length.
+    turn(`{"jsonrpc":"2.0","id":"read-1","result":{"content":"a\u0000b"}}` ~ "\n", s, input, p);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}`);
+    assert(indexOf(s.open[0].history.slice(), `(file:///tmp/a%20b):\na\u0000b"}`) >= 0);
+    end(input, p, s);
+
     // The client could not read it: the turn ends with the client's own error, and the model is not asked.
     turn(`{"jsonrpc":"2.0","id":"read-1","error":{"code":-32002,"message":"no such file"}}` ~ "\n", s, input, p);
     assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"ground code could not read file:///tmp/a%20b through the client","data":`
@@ -1180,6 +1327,458 @@ version (Posix) unittest {
     turn(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n", s, input, p);
     assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`);
     end(input, p, s);
+}
+
+// fs/write_text_file is offered the model as write_text_file when the client offers it:
+// "Only available if the client supports the `fs.writeTextFile` capability"
+// The call runs through the client as the session's mode allows, and the client's answer is what it answered.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, sleep;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+
+    enum http ="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    enum done = http ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    enum writes = `{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":true}}}`;
+    __gshared char[65536] said, asked;
+    __gshared size_t saidLen, askedLen;
+    __gshared char[4096] gotBuf;
+    __gshared size_t gotLen;
+
+    // A turn in mode whose model calls write_text_file with args, then is done; the client sends queued
+    // once the model has called, a second later when late. What the gateway was first asked lands in asked.
+    void turn(string caps, string mode, string args, string queued, ref Sessions s, bool late = false) {
+        Reply calls;
+        scope(exit) calls.dispose();
+        calls.add(http);
+        calls.add(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`);
+        calls.add(`{"id":"c1","type":"function","function":{"name":"write_text_file","arguments":"`); calls.add(args); calls.add(`"}}]}}]}`);
+        int[2] first, p;
+        assert(pipe(first) == 0 && pipe(p) == 0);
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            // The whole first request: its body ends the reasoning object and itself.
+            char[65536] got;
+            size_t len = 0;
+            auto c = accept(fd, null, null);
+            while (len < got.length) {
+                auto r = read(c, got.ptr + len, got.length - len);
+                if (r <= 0) break;
+                len += cast(size_t) r;
+                if (len >= 3 && got[len - 3 .. len] == `"}}` && indexOf(got[0 .. len], `"reasoning":{`) >= 0) break;
+            }
+            write(first[1], got.ptr, len);
+            close(first[1]);
+            write(c, calls.slice().ptr, calls.len);
+            close(c);
+            if (late) sleep(1);
+            write(p[1], queued.ptr, queued.length);
+            c = accept(fd, null, null);
+            read(c, got.ptr, got.length);
+            write(c, done.ptr, done.length);
+            close(c);
+            _exit(0);
+        }
+        close(fd);
+        close(first[1]);
+        __gshared char[32] urlBuf;
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        Input input = Input(p[0]);
+        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.input = &input;
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        Reply r, init, set;
+        scope(exit) { init.dispose(); set.dispose(); }
+        init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":`); init.add(caps); init.add(`}`);
+        set.add(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"`); set.add(mode); set.add(`"}}`);
+        answer(init.slice(), r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+        answer(set.slice(), r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"write it"}]}}`, r, s);
+        gotLen = r.len < gotBuf.length ? r.len : gotBuf.length;
+        foreach (i; 0 .. gotLen) gotBuf[i] = r.slice()[i];
+        r.dispose();
+        fflush(stdout);
+        dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        askedLen = 0;
+        while (true) {
+            auto got = read(first[0], asked.ptr + askedLen, asked.length - askedLen);
+            if (got <= 0) break;
+            askedLen += cast(size_t) got;
+        }
+        close(first[0]);
+    }
+    enum ended = `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`;
+    enum args = `{\"path\":\"/tmp/a b\",\"content\":\"line one\\nline \\\"two\\\"\"}`;
+    enum request = `{"jsonrpc":"2.0","id":"write-1","method":"fs/write_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b","content":"line one\nline \"two\""}}`;
+    Sessions s;
+
+    // Offered: the model is offered the tool in the schema's own words, and the file is written through the client.
+    enum wrote = `{"jsonrpc":"2.0","id":"write-1","result":{}}`;
+    turn(writes, "bypassPermissions", args, wrote ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"write_text_file","description":"Request to write content to a text file.",`
+        ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
+        ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
+    assert(indexOf(said[0 .. saidLen], request) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_text_file","name":"write_text_file","kind":"edit","status":"in_progress",`
+        ~ `"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{}}"}`) >= 0);
+    // A client that reads no files is not asked what the file held, so no diff is shown.
+    assert(indexOf(said[0 .. saidLen], `fs/read_text_file`) < 0);
+    assert(indexOf(said[0 .. saidLen], `"type":"diff"`) < 0);
+    s.open[0].history.dispose();
+
+    // "File modification shown as a diff": a client that reads files is asked what the file held before
+    // it is asked to write it, and the written call shows the change, "The original content" and "The
+    // new content after modification". The model is answered what the write answered, as before.
+    enum readsAndWrites = `{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true}}}`;
+    enum reading = `{"jsonrpc":"2.0","id":"read-1","method":"fs/read_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b"}}`;
+    enum writing = `{"jsonrpc":"2.0","id":"write-2","method":"fs/write_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b","content":"line one\nline \"two\""}}`;
+    enum wroteSecond = `{"jsonrpc":"2.0","id":"write-2","result":{}}`;
+    enum written = `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wroteSecond;
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","result":{"content":"line one\n"}}` ~ "\n" ~ wroteSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], reading) >= 0 && indexOf(said[0 .. saidLen], reading) < indexOf(said[0 .. saidLen], writing));
+    assert(indexOf(said[0 .. saidLen], written ~ `,"content":[{"type":"diff","path":"/tmp/a b","oldText":"line one\n","newText":"line one\nline \"two\""}]}`) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-2\",\"result\":{}}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // "The original content (null for new files)": the client says the file was not found, -32002.
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","error":{"code":-32002,"message":"no such file"}}` ~ "\n" ~ wroteSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], written ~ `,"content":[{"type":"diff","path":"/tmp/a b","oldText":null,"newText":"line one\nline \"two\""}]}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Any other answer says nothing of what the file held, so the write is shown without a diff.
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","error":{"code":-32603,"message":"busy"}}` ~ "\n" ~ wroteSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], writing) >= 0);
+    assert(indexOf(said[0 .. saidLen], written ~ `}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `"type":"diff"`) < 0);
+    s.open[0].history.dispose();
+
+    // A write the client did not make modified nothing, so it shows no diff.
+    enum refusedSecond = `{"jsonrpc":"2.0","id":"write-2","error":{"code":-32603,"message":"read-only"}}`;
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","id":"read-1","result":{"content":"x"}}` ~ "\n" ~ refusedSecond ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refusedSecond) >= 0);
+    assert(indexOf(said[0 .. saidLen], `"type":"diff"`) < 0);
+    s.open[0].history.dispose();
+
+    // Called off while the client reads it: the file is not written, and the history says why.
+    turn(readsAndWrites, "bypassPermissions", args, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n", s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(said[0 .. saidLen], reading) >= 0);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while ground code read the file it was to write\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // The client could not write it: the call failed with the client's own answer, and the model goes on.
+    enum refused = `{"jsonrpc":"2.0","id":"write-1","error":{"code":-32002,"message":"read-only"}}`;
+    turn(writes, "bypassPermissions", args, refused ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refused) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `"content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"error\":{\"code\":-32002,\"message\":\"read-only\"}}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // A path that is not absolute is not asked of the client, nor is a call missing content.
+    turn(writes, "bypassPermissions", `{\"path\":\"a b\",\"content\":\"x\"}`, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"write_text_file takes path, an absolute path, and content, text\"}"}`) >= 0);
+    s.open[0].history.dispose();
+    turn(writes, "bypassPermissions", `{\"path\":\"/tmp/a\"}`, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    s.open[0].history.dispose();
+
+    // Accept edits writes without asking.
+    turn(writes, "acceptEdits", args, wrote ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `session/request_permission`) < 0);
+    assert(indexOf(said[0 .. saidLen], `"kind":"edit","status":"in_progress"`) >= 0);
+    assert(indexOf(said[0 .. saidLen], request) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
+    s.open[0].history.dispose();
+
+    // Plan mode runs only what only reads, and a write does not.
+    turn(writes, "plan", args, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed"`) >= 0);
+    s.open[0].history.dispose();
+
+    // Called off while the client writes: the turn stops, and the history says the call was cut short.
+    turn(writes, "bypassPermissions", args, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n", s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(said[0 .. saidLen], request) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while it was asked to write the file\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Not offered: no such tool is offered, and a call by its name is no write.
+    turn(`{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}`, "bypassPermissions", args, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(asked[0 .. askedLen], `write_text_file`) < 0);
+    assert(indexOf(said[0 .. saidLen], `fs/write_text_file`) < 0);
+    s.open[0].history.dispose();
+}
+
+// terminal/* is offered the model as run_command when the client offers it:
+// "Whether the Client support all `terminal/*` methods."
+// The command runs in a terminal of the client's, in the session's cwd, shown in the call, and released once read.
+version (Posix) unittest {
+    import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, sleep;
+    import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
+    import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.signal : kill, SIGKILL;
+    import core.stdc.stdio : fflush, stdout;
+    import matcher : indexOf;
+
+    enum http = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    enum done = http ~ `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`;
+    enum runs = `{"protocolVersion":1,"clientCapabilities":{"terminal":true}}`;
+    __gshared char[65536] said, asked;
+    __gshared size_t saidLen, askedLen;
+    __gshared char[4096] gotBuf;
+    __gshared size_t gotLen;
+
+    // A turn in mode whose model calls run_command with args, then is done; the client sends queued
+    // once the model has called, a second later when late. What the gateway was first asked lands in asked.
+    void turn(string caps, string mode, string args, string queued, ref Sessions s, bool late = false) {
+        Reply calls;
+        scope(exit) calls.dispose();
+        calls.add(http);
+        calls.add(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[`);
+        calls.add(`{"id":"c1","type":"function","function":{"name":"run_command","arguments":"`); calls.add(args); calls.add(`"}}]}}]}`);
+        int[2] first, p;
+        assert(pipe(first) == 0 && pipe(p) == 0);
+        auto fd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a;
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        assert(bind(fd, cast(sockaddr*) &a, a.sizeof) == 0 && listen(fd, 2) == 0);
+        socklen_t n = a.sizeof;
+        assert(getsockname(fd, cast(sockaddr*) &a, &n) == 0);
+        auto child = fork();
+        if (child == 0) {
+            // The whole first request: its body ends the reasoning object and itself.
+            char[65536] got;
+            size_t len = 0;
+            auto c = accept(fd, null, null);
+            while (len < got.length) {
+                auto r = read(c, got.ptr + len, got.length - len);
+                if (r <= 0) break;
+                len += cast(size_t) r;
+                if (len >= 3 && got[len - 3 .. len] == `"}}` && indexOf(got[0 .. len], `"reasoning":{`) >= 0) break;
+            }
+            write(first[1], got.ptr, len);
+            close(first[1]);
+            write(c, calls.slice().ptr, calls.len);
+            close(c);
+            if (late) sleep(1);
+            write(p[1], queued.ptr, queued.length);
+            c = accept(fd, null, null);
+            read(c, got.ptr, got.length);
+            write(c, done.ptr, done.length);
+            close(c);
+            _exit(0);
+        }
+        close(fd);
+        close(first[1]);
+        __gshared char[32] urlBuf;
+        ushort port = htons(a.sin_port);
+        size_t len = 0;
+        foreach (ch; "http://127.0.0.1:") urlBuf[len++] = ch;
+        char[8] d; size_t k = 0;
+        do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
+        while (k) urlBuf[len++] = d[--k];
+        Input input = Input(p[0]);
+        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.input = &input;
+        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        int[2] o;
+        assert(pipe(o) == 0);
+        fflush(stdout);
+        auto saved = dup(1);
+        dup2(o[1], 1);
+        Reply r, init, set;
+        scope(exit) { init.dispose(); set.dispose(); }
+        init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":`); init.add(caps); init.add(`}`);
+        set.add(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"`); set.add(mode); set.add(`"}}`);
+        answer(init.slice(), r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
+        answer(set.slice(), r, s); r.len = 0;
+        answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"run it"}]}}`, r, s);
+        gotLen = r.len < gotBuf.length ? r.len : gotBuf.length;
+        foreach (i; 0 .. gotLen) gotBuf[i] = r.slice()[i];
+        r.dispose();
+        // What the client sent that the turn left is answered after it, as handleCode answers it.
+        while (true) {
+            Reply left, ignored;
+            scope(exit) { left.dispose(); ignored.dispose(); }
+            bool any(const(char)[] line) { left.add(line); return true; }
+            if (!take(input, &any)) break;
+            answer(left.slice(), ignored, s);
+        }
+        fflush(stdout);
+        dup2(saved, 1); close(saved); close(o[1]);
+        saidLen = 0;
+        while (true) {
+            auto got = read(o[0], said.ptr + saidLen, said.length - saidLen);
+            if (got <= 0) break;
+            saidLen += cast(size_t) got;
+        }
+        close(o[0]);
+        askedLen = 0;
+        while (true) {
+            auto got = read(first[0], asked.ptr + askedLen, asked.length - askedLen);
+            if (got <= 0) break;
+            askedLen += cast(size_t) got;
+        }
+        close(first[0]);
+    }
+    enum ended = `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`;
+    enum args = `{\"command\":\"sh\",\"args\":[\"-c\",\"echo hi\"]}`;
+    enum create = `{"jsonrpc":"2.0","id":"term-1","method":"terminal/create","params":{"sessionId":"code-100-7-1","command":"sh",`
+        ~ `"args":["-c","echo hi"],"cwd":"/tmp","outputByteLimit":65536}}`;
+    enum created = `{"jsonrpc":"2.0","id":"term-1","result":{"terminalId":"t-1"}}` ~ "\n";
+    enum shown = `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress","content":[{"type":"terminal","terminalId":"t-1"}]}`;
+    enum released = `{"jsonrpc":"2.0","id":"term-4","result":{}}` ~ "\n";
+    Sessions s;
+
+    // Offered: the model is offered the tool in the schema's own words; the command is created, waited on,
+    // read and released, the terminal shown in the call from the start, and the output is the model's.
+    turn(runs, "bypassPermissions", args, created
+        ~ `{"jsonrpc":"2.0","id":"term-2","result":{"exitCode":0,"signal":null}}` ~ "\n"
+        ~ `{"jsonrpc":"2.0","id":"term-3","result":{"output":"hi\n","truncated":false,"exitStatus":{"exitCode":0}}}` ~ "\n"
+        ~ released, s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"run_command","description":"Request to create a new terminal and execute a command.",`
+        ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"run_command","name":"run_command","kind":"execute","status":"in_progress",`
+        ~ `"rawInput":{"command":"sh","args":["-c","echo hi"]}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], create) >= 0);
+    assert(indexOf(said[0 .. saidLen], shown) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-2","method":"terminal/wait_for_exit","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-3","method":"terminal/output","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-4","method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    enum ran = `{"exitCode":0,"signal":null,"truncated":false,"output":"hi\n"}`;
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ ran
+        ~ `,"content":[{"type":"terminal","terminalId":"t-1"}]}`) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"exitCode\":0,\"signal\":null,\"truncated\":false,\"output\":\"hi\\n\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // A command that exits other than 0, or by a signal, failed; the client's cut is said.
+    turn(runs, "bypassPermissions", args, created
+        ~ `{"jsonrpc":"2.0","id":"term-2","result":{"exitCode":null,"signal":"SIGTERM"}}` ~ "\n"
+        ~ `{"jsonrpc":"2.0","id":"term-3","result":{"output":"tail","truncated":true}}` ~ "\n"
+        ~ released, s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":`
+        ~ `{"exitCode":null,"signal":"SIGTERM","truncated":true,"output":"tail"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // The client could not create it: the call failed with the client's own answer, and nothing more is asked.
+    enum refused = `{"jsonrpc":"2.0","id":"term-1","error":{"code":-32603,"message":"no shell"}}`;
+    turn(runs, "bypassPermissions", args, refused ~ "\n", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refused) >= 0);
+    assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
+    s.open[0].history.dispose();
+
+    // A call without a command is not asked of the client.
+    turn(runs, "bypassPermissions", `{\"args\":[\"x\"]}`, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"run_command takes command, text, and args, a list of text\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Plan mode runs only what only reads, and a command does not.
+    turn(runs, "plan", args, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
+    s.open[0].history.dispose();
+
+    // Called off while the command runs: it is killed, read and released, and the turn stops.
+    turn(runs, "bypassPermissions", args, created
+        ~ `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n"
+        ~ `{"jsonrpc":"2.0","id":"term-3","result":{}}` ~ "\n"
+        ~ `{"jsonrpc":"2.0","id":"term-4","result":{"output":"part","truncated":false}}` ~ "\n"
+        ~ `{"jsonrpc":"2.0","id":"term-5","result":{}}` ~ "\n", s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-3","method":"terminal/kill","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-5","method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while the command ran\",`
+        ~ `\"truncated\":false,\"output\":\"part\"}"}`) >= 0);
+    s.open[0].history.dispose();
+
+    // Called off before the client said it created the terminal: its late answer is released, not left running.
+    turn(runs, "bypassPermissions", args, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}` ~ "\n"
+        ~ created, s, true);
+    assert(gotBuf[0 .. gotLen] == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}`);
+    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"cancelled\",\"why\":\"the client cancelled the turn while it was asked to run the command\"}"}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-2","method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
+    s.open[0].history.dispose();
+
+    // Not offered: no such tool is offered, and a call by its name runs nothing.
+    turn(`{"protocolVersion":1,"clientCapabilities":{"terminal":false}}`, "bypassPermissions", args, "", s);
+    assert(gotBuf[0 .. gotLen] == ended);
+    assert(indexOf(asked[0 .. askedLen], `run_command`) < 0);
+    assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
+    s.open[0].history.dispose();
+}
+
+// A command told back: its output is what the call shows, and an exit code of 0 is a call completed.
+unittest {
+    import code.prompt : toolContentOf, replayHistory;
+    Reply blocks, said;
+    scope(exit) { blocks.dispose(); said.dispose(); }
+    toolContentOf(`{"exitCode":0,"signal":null,"truncated":false,"output":"hi\n"}`, blocks, said);
+    assert(blocks.len == 0 && said.slice() == "hi\n");
+    Reply told;
+    scope(exit) told.dispose();
+    bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
+    assert(replayHistory(`{"role":"tool","tool_call_id":"c1","content":"{\"exitCode\":0,\"signal\":null,\"truncated\":false,\"output\":\"hi\\n\"}"},`
+        ~ `{"role":"tool","tool_call_id":"c2","content":"{\"exitCode\":1,\"signal\":null,\"truncated\":false,\"output\":\"no\"}"}`, &send));
+    import matcher : indexOf;
+    assert(indexOf(told.slice(), `"toolCallId":"c1","status":"completed"`) >= 0);
+    assert(indexOf(told.slice(), `"toolCallId":"c2","status":"failed"`) >= 0);
+    assert(indexOf(told.slice(), `{"type":"text","text":"hi\n"}`) >= 0);
 }
 
 // "Upon receiving this notification, the Agent SHOULD: ... Abort all tool call
@@ -1248,7 +1847,8 @@ version (Posix) unittest {
 
     Reply req;
     scope(exit) req.dispose();
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    // ACP requires an absolute executable; env finds Python in the test shell.
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/abort_server.py"],"env":[{"name":"ABORT_LOG","value":"`);
     req.add(dir[0 .. dirLen]); req.add(`/wire.jsonl"}]}]}}`);
     fflush(stdout);
@@ -1519,7 +2119,7 @@ version (Posix) unittest {
         scope(exit) { init.dispose(); req.dispose(); }
         init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":`);
         init.add(caps); init.add(`}}`);
-        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
         req.add(cwd[0 .. cwdLen]); req.add(`/mcp/elicit_server.py"],"env":[{"name":"ELICIT_PROTOCOL","value":"`);
         req.add(protocol); req.add(`"},{"name":"ELICIT_LOG","value":"`);
         req.add(dir[0 .. dirLen]); req.add(`/wire.jsonl"}]}]}}`);
@@ -1612,7 +2212,7 @@ version (Posix) unittest {
     Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"slow","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"slow","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/slow_server.py"],"env":[]}]}}`);
     answer(req.slice(), r, s);
     if (indexOf(r.slice(), `"sessionId":"code-100-7-1"`) < 0) {
@@ -1706,7 +2306,7 @@ version (Posix) unittest {
         scope(exit) { init.dispose(); req.dispose(); }
         init.add(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":`);
         init.add(caps); init.add(`}}`);
-        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+        req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
         req.add(cwd[0 .. cwdLen]); req.add(`/mcp/log_server.py"],"env":[]}]}}`);
         auto out_ = capture(s, () {
             answer(init.slice(), r, s); r.len = 0;
@@ -1887,7 +2487,7 @@ version (Posix) unittest {
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/look_server.py"],"env":[]}]}}`);
     int[2] o;
     assert(pipe(o) == 0);
@@ -1895,7 +2495,14 @@ version (Posix) unittest {
     auto saved = dup(1);
     dup2(o[1], 1);
     answer(req.slice(), r, s); r.len = 0;
-    answer(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"bypassPermissions"}}`, r, s); r.len = 0;
+    // Manual: each call is asked of the client, which allows it once.
+    static immutable string[3] perms = [`"perm-1"`, `"perm-2"`, `"perm-3"`];
+    foreach (perm; perms) {
+        Reply allow;
+        scope(exit) allow.dispose();
+        allow.add(`{"jsonrpc":"2.0","id":`); allow.add(perm); allow.add(`,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}` ~ "\n");
+        write(p[1], allow.slice().ptr, allow.len);
+    }
     answer(`{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"code-100-7-1","prompt":[{"type":"text","text":"go"}]}}`, r, s);
     fflush(stdout); dup2(saved, 1); close(saved); close(o[1]);
     Reply closed;
@@ -1911,13 +2518,39 @@ version (Posix) unittest {
     close(o[0]);
     auto out_ = said[0 .. saidLen];
     assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
-    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"test__look","name":"test__look","kind":"read","status":"in_progress","rawInput":{}}`) >= 0);
-    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"test__touch","name":"test__touch","status":"in_progress","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look","kind":"read","status":"pending","rawInput":{}}`) >= 0);
+    assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Touch a file","name":"test__touch","status":"pending","rawInput":{}}`) >= 0);
+    // The permission asked for a call names it as its tool_call does.
+    assert(indexOf(out_, `"toolCall":{"toolCallId":"c1","title":"Look around","name":"test__look","kind":"read"`) >= 0);
+    assert(indexOf(out_, `"toolCall":{"toolCallId":"c2","title":"Touch a file","name":"test__touch"`) >= 0);
+    assert(indexOf(out_, `"toolCall":{"toolCallId":"c3","title":"test__break","name":"test__break"`) >= 0);
     assert(indexOf(out_, `"toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc": "2.0", "id": 3, "result": {"resultType": "complete", "content": [{"type": "text", "text": "look done"}]}},`
         ~ `"content":[{"type":"content","content":{"type":"text","text":"look done"}}]}`) >= 0);
     assert(indexOf(out_, `"toolCallId":"c3","status":"failed"`) >= 0);
     assert(indexOf(out_, `"content":[{"type":"content","content":{"type":"text","text":"disk full"}}]}`) >= 0);
+    // Each call's title is kept as it was shown, so a load tells it back as it was, whatever
+    // servers the load brings: here none, so no catalogue titles them.
+    assert(s.open[0].titles.slice() == `"c1":"Look around","c2":"Touch a file","c3":"test__break"`);
+    int[2] l;
+    assert(pipe(l) == 0);
+    fflush(stdout);
+    saved = dup(1);
+    dup2(l[1], 1);
+    r.len = 0;
+    answer(`{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/tmp","mcpServers":[]}}`, r, s);
+    fflush(stdout); dup2(saved, 1); close(saved); close(l[1]);
+    saidLen = 0;
+    while (true) {
+        auto got = read(l[0], said.ptr + saidLen, said.length - saidLen);
+        if (got <= 0) break;
+        saidLen += cast(size_t) got;
+    }
+    close(l[0]);
+    assert(indexOf(r.slice(), `"result"`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look"`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Touch a file","name":"test__touch"`) >= 0);
     s.open[0].history.dispose();
+    s.open[0].titles.dispose();
 }
 
 // "After creating a session, the Agent MAY send a list of available commands
@@ -1972,7 +2605,7 @@ version (Posix) unittest {
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/prompt_server.py"],"env":[]}]}}`);
     int[2] o;
     assert(pipe(o) == 0);
@@ -2075,7 +2708,7 @@ version (Posix) unittest {
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
-    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"notes","command":"python3","args":["`);
+    req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"notes","command":"/usr/bin/env","args":["python3","`);
     req.add(cwd[0 .. cwdLen]); req.add(`/mcp/resource_server.py"],"env":[]}]}}`);
     __gshared char[4096] said1, said2, said3;
     size_t len1, len2, len3;
