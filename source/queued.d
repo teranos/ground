@@ -137,6 +137,11 @@ size_t ingestTranscript(sqlite3* db, const(char)[] path, const(char)[] sessionId
     return ingestQueued(db, buf[start .. n], sessionId, cwd);
 }
 
+enum ALREADY_STORED_SQL = "SELECT 1 FROM attestations WHERE "
+    ~ "json_extract(predicates, '$[0]') = 'QueuedPromptSubmit' AND "
+    ~ "json_extract(contexts, '$[0]') = ?1 AND "
+    ~ "json_extract(attributes, '$.prompt') = ?2 LIMIT 1\0";
+
 // The same bytes are read again every time the transcript is walked, and a
 // window counting the last three messages would read one prompt as three.
 private bool alreadyStored(sqlite3* db, const(char)[] ctx, const(char)[] prompt) {
@@ -144,13 +149,8 @@ private bool alreadyStored(sqlite3* db, const(char)[] ctx, const(char)[] prompt)
                 sqlite3_finalize, sqlite3_stmt, SQLITE_OK, SQLITE_ROW,
                 SQLITE_TRANSIENT;
 
-    enum sql = "SELECT 1 FROM attestations WHERE "
-        ~ "json_extract(predicates, '$[0]') = 'QueuedPromptSubmit' AND "
-        ~ "json_extract(contexts, '$[0]') = ?1 AND "
-        ~ "json_extract(attributes, '$.prompt') = ?2 LIMIT 1\0";
-
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return true;
+    if (sqlite3_prepare_v2(db, ALREADY_STORED_SQL.ptr, -1, &stmt, null) != SQLITE_OK) return true;
     sqlite3_bind_text(stmt, 1, ctx.ptr, cast(int) ctx.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, prompt.ptr, cast(int) prompt.length, SQLITE_TRANSIENT);
     bool found = sqlite3_step(stmt) == SQLITE_ROW;
