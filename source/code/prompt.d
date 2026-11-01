@@ -745,12 +745,14 @@ struct FileDiff {
 
 bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title, const(char)[] name,
         const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput,
-        const(char)[] terminalId = null, const(FileDiff)* diff = null) {
+        const(char)[] terminalId = null, const(FileDiff)* diff = null, const(char)[] content = null) {
     import libacp : acp_tool_call, acp_tool_call_write, acp_diff, acp_buffer, acp_buffer_free, acp_status;
     Reply blocks, said, text_;
     scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
     // A call that shows a terminal shows it alone: the terminal holds what the call printed.
     if (rawOutput !is null && terminalId is null) toolContentOf(rawOutput, blocks, said);
+    // content, when given, is the call's content as text: what it says while it runs.
+    else if (content !is null) said.add(content);
     // Each field as C reads it, its own bytes and a NUL; size_t.max is one not given.
     size_t at(const(char)[] s) {
         if (s is null) return size_t.max;
