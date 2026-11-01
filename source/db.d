@@ -279,6 +279,10 @@ sqlite3* openStandaloneDb() {
     // every open; a no-op when the file is already WAL.
     sqlite3_exec(db, "PRAGMA journal_mode = WAL\0".ptr, null, null, null);
 
+    // NORMAL: a commit no longer waits on an fsync; a checkpoint still does.
+    // Per connection, so said on every open. The measure is at its test.
+    sqlite3_exec(db, "PRAGMA synchronous = NORMAL\0".ptr, null, null, null);
+
     // Disable auto-checkpoint — explicit checkpoints in SessionStart/PreCompact only.
     // Prevents random 1-2s stalls when WAL crosses 4MB threshold on a large db.
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
@@ -293,6 +297,24 @@ sqlite3* openStandaloneDb() {
     }
 
     return db;
+}
+
+// A commit does not wait on the disk; a checkpoint does. On kapteyn's 5400
+// rpm disk under LUKS and btrfs one fsync measured 350-630 ms, and FULL put
+// one in every commit: 436-1044 ms median per commit, against 0.0 ms with
+// NORMAL, measured on 2026-10-31 beside the store. A writer waiting on its
+// fsync holds the lock, so every other hook waited behind it until busy gave
+// up at 5 s. WAL with NORMAL cannot corrupt; a power cut can lose the last
+// commits before a checkpoint.
+unittest {
+    auto db = openStandaloneDb();
+    assert(db !is null);
+    scope (exit) sqlite3_close(db);
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, "PRAGMA synchronous\0".ptr, -1, &stmt, null) == SQLITE_OK);
+    scope (exit) sqlite3_finalize(stmt);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    assert(sqlite3_column_int64(stmt, 0) == 1, "NORMAL: a commit does not wait on the disk");
 }
 
 // The schema, in one place, applied to whatever handle is given. openDb calls
