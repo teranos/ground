@@ -167,6 +167,48 @@ unittest {
     assert(!readOnlyTool(group, "other__look"));
 }
 
+// A call's title, "Human-readable title describing what the tool is doing",
+// is the tool's own, as MCP orders it: its title, "Intended for UI and
+// end-user contexts", else annotations.title, "A human-readable title for the
+// tool"; a tool with neither, or none the catalogue has, keeps its name.
+unittest {
+    import code.mcp : McpGroup, McpServer, McpPage;
+    import code.prompt : toolTitle;
+    enum page = `{"result":{"tools":[{"name":"look","title":"Look around","annotations":{"title":"Glance"}},`
+        ~ `{"name":"touch","annotations":{"title":"Touch a file"}},{"name":"plain"},{"name":"blank","title":""}]}}`;
+    McpPage p;
+    p.response.json = cast(char*) page.ptr;
+    p.response.length = page.length;
+    McpServer server;
+    server.name = cast(char*) "fs\0".ptr;
+    server.tools = &p;
+    McpGroup group = McpGroup(&server, 1);
+    bool titled(string full, string want) {
+        Reply t;
+        scope(exit) t.dispose();
+        toolTitle(group, full, t);
+        return t.slice() == want;
+    }
+    assert(titled("fs__look", "Look around"));
+    assert(titled("fs__touch", "Touch a file"));
+    assert(titled("fs__plain", "fs__plain"));
+    assert(titled("fs__blank", "fs__blank"));
+    assert(titled("fs__missing", "fs__missing"));
+}
+
+// A call told back on session/load has the title it had live.
+unittest {
+    import code.prompt : replayHistory;
+    import matcher : indexOf;
+    Reply told;
+    scope(exit) told.dispose();
+    bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
+    void title(const(char)[] tool, ref Reply t) { t.add(tool == "fs__look" ? "Look around" : tool); }
+    assert(replayHistory(`{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"fs__look","arguments":"{}"}}]}`,
+        &send, null, &title));
+    assert(indexOf(told.slice(), `"toolCallId":"c1","title":"Look around","name":"fs__look"`) >= 0);
+}
+
 // "Tokens currently in context": what the gateway's answer says the
 // conversation holds now, its total_tokens. An answer without usage has none.
 unittest {
