@@ -266,6 +266,17 @@ private int runQuiet(const(char)*[] args, const(char)* last) {
     return (status >> 8) & 0xff;
 }
 
+/// Where this machine's own sand is installed by make install: ~/.local/share/ground/sand/SAND_FILE.
+const(char)[] localSandPathInto(const(char)[] home, char[] buf) {
+    enum rest = "/.local/share/ground/sand/" ~ SAND_FILE;
+    if (home.length == 0 || home.length + rest.length >= buf.length) return buf[0 .. 0];
+    size_t n = 0;
+    foreach (c; home) buf[n++] = c;
+    foreach (c; rest) buf[n++] = c;
+    buf[n] = 0;
+    return buf[0 .. n];
+}
+
 /// Where a repository's comet lands: ~/.local/share/ground/comets/<owner>/<repo>/SAND_FILE.
 /// Empty for no origin: a repository with no name has no comet.
 const(char)[] cometPathInto(const(char)[] home, const(char)[] origin, char[] buf) {

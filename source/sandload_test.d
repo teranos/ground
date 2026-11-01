@@ -97,6 +97,52 @@ unittest {
     assert(sand() is &builtinSand);
 }
 
+// "and have settings local to my setup"
+// "you dont have to have the comets to use ground"
+// With no comet, the sand this machine built for itself is held, wherever the session stands.
+unittest {
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.stdc.stdio : fopen, fread, fwrite, fclose;
+    import errors : mkdir;
+    import comet : SAND_FILE;
+    scope (exit) holdSand(null);
+
+    char[64] home = "/tmp/ground-local-XXXXXX\0";
+    assert(mkdtemp(home.ptr) !is null);
+    size_t n = 0;
+    while (home[n] != 0) n++;
+    char[256] dir = 0;
+    size_t d = 0;
+    void add(const(char)[] s) { foreach (c; s) dir[d++] = c; dir[d] = 0; }
+    add(home[0 .. n]);
+    foreach (part; ["/.local", "/share", "/ground", "/sand"]) {
+        add(part);
+        cast(void) mkdir(dir.ptr, 493);
+    }
+    add("/");
+    add(SAND_FILE);
+
+    auto src = fopen(BUILT.ptr, "rb");
+    auto dst = fopen(dir.ptr, "wb");
+    assert(src !is null && dst !is null);
+    __gshared ubyte[65536] piece;
+    while (true) {
+        auto got = fread(piece.ptr, 1, piece.length, src);
+        if (got == 0) break;
+        fwrite(piece.ptr, 1, got, dst);
+    }
+    fclose(src);
+    fclose(dst);
+
+    auto r = holdLanded(home[0 .. n], "abcd-nl/no-comet");
+    assert(r.what == SandHeld.landed, r.why());
+    assert(sand() !is &builtinSand);
+
+    auto bare = holdLanded(home[0 .. n], "");
+    assert(bare.what == SandHeld.landed, bare.why());
+    assert(sand() !is &builtinSand);
+}
+
 // A sand built for another engine is refused, naming both ABIs.
 unittest {
     Sand other = builtinSand;

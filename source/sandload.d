@@ -20,16 +20,50 @@ struct SandLoad {
     const(char)[] why() return { return said.slice(); }
 }
 
-// The sand landed for origin under home, held; none landed is the built-in sand.
+// "i want FLOOR+LOCALSAND+COMET"
+// The floor, this machine's own sand (make install's, under home) and origin's comet, held together.
+// A layer that is absent is not held; one that is refused says why, and the others still stand.
 SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
-    import comet : cometPathInto;
+    import comet : cometPathInto, localSandPathInto;
     import controls : holdSand;
-    __gshared char[1024] buf = 0;
-    if (cometPathInto(home, origin, buf[]).length == 0) {
-        holdSand(null);
-        return SandLoad.init;
+    import layered : layer;
+    import builtin_sand : builtinSand;
+    __gshared char[1024] localBuf = 0;
+    __gshared char[1024] cometBuf = 0;
+
+    SandLoad r;
+    holdSand(null);
+    const(Sand)* local = null;
+    const(Sand)* comet = null;
+    if (localSandPathInto(home, localBuf[]).length > 0) local = openSand(localBuf.ptr, r);
+    if (cometPathInto(home, origin, cometBuf[]).length > 0) comet = openSand(cometBuf.ptr, r);
+    if (local is null && comet is null) return r;
+    holdSand(layer(&builtinSand, local, comet));
+    if (r.what != SandHeld.refused) r.what = SandHeld.landed;
+    return r;
+}
+
+// The Sand the library at path hands over when its ABI is the engine's, else null and r says why.
+private const(Sand)* openSand(const(char)* path, ref SandLoad r) {
+    import core.sys.posix.dlfcn : dlopen, dlsym, dlerror, RTLD_NOW, RTLD_LOCAL;
+    import core.sys.posix.unistd : access, F_OK;
+    if (access(path, F_OK) != 0) return null;
+    auto lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (lib is null) { refuse(r, "the sand did not load: ", dlerror()); return null; }
+    alias SandFn = extern (C) const(Sand)* function();
+    auto fn = cast(SandFn) dlsym(lib, "ground_sand");
+    if (fn is null) { refuse(r, "the sand hands over nothing: ", dlerror()); return null; }
+    auto s = fn();
+    if (s is null) { refuse(r, "the sand handed over null", null); return null; }
+    if (s.abi != SAND_ABI) {
+        r.what = SandHeld.refused;
+        r.said.put("the sand was built for engine ABI ");
+        r.said.putUint(s.abi);
+        r.said.put(", and this engine is ABI ");
+        r.said.putUint(SAND_ABI);
+        return null;
     }
-    return loadSand(buf.ptr);
+    return s;
 }
 
 // The library stays open for the life of the process: the engine reads its data until exit.
