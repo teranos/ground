@@ -1440,7 +1440,7 @@ version (Posix) unittest {
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"write_text_file","description":"Request to write content to a text file.",`
         ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
-        ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}]`) >= 0);
+        ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
     assert(indexOf(said[0 .. saidLen], request) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_text_file","name":"write_text_file","kind":"edit","status":"in_progress",`
         ~ `"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
@@ -1680,7 +1680,7 @@ version (Posix) unittest {
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"run_command","description":"Request to create a new terminal and execute a command.",`
         ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
-        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}}]`) >= 0);
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"run_command","name":"run_command","kind":"execute","status":"in_progress",`
         ~ `"rawInput":{"command":"sh","args":["-c","echo hi"]}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], create) >= 0);

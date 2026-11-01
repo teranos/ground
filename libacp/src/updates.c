@@ -160,6 +160,48 @@ acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_jso
     return acp_finish(update, update_json);
 }
 
+static int one_of(json_object *value, const char *const *names, size_t count) {
+    if (!json_object_is_type(value, json_type_string)) return 0;
+    for (size_t i = 0; i < count; i++)
+        if (strcmp(json_object_get_string(value), names[i]) == 0) return 1;
+    return 0;
+}
+
+acp_status acp_plan_write(const char *plan_json, size_t length, acp_buffer *update_json) {
+    if (plan_json == NULL || update_json == NULL) return ACP_INVALID_ARGUMENT;
+    static const char *const priorities[] = {"high", "medium", "low"};
+    static const char *const statuses[] = {"pending", "in_progress", "completed"};
+    json_object *plan = acp_parse(plan_json, length);
+    json_object *given = acp_field(plan, "entries");
+    if (!json_object_is_type(given, json_type_array)) {
+        json_object_put(plan);
+        return ACP_INVALID_ARGUMENT;
+    }
+    json_object *entries = json_object_new_array();
+    size_t n = json_object_array_length(given);
+    for (size_t i = 0; i < n; i++) {
+        json_object *entry = json_object_array_get_idx(given, i);
+        json_object *content = acp_field(entry, "content");
+        json_object *priority = acp_field(entry, "priority");
+        json_object *status = acp_field(entry, "status");
+        if (!json_object_is_type(content, json_type_string) || !one_of(priority, priorities, 3) || !one_of(status, statuses, 3)) {
+            json_object_put(entries);
+            json_object_put(plan);
+            return ACP_INVALID_ARGUMENT;
+        }
+        json_object *written = json_object_new_object();
+        json_object_object_add(written, "content", json_object_get(content));
+        json_object_object_add(written, "priority", json_object_get(priority));
+        json_object_object_add(written, "status", json_object_get(status));
+        json_object_array_add(entries, written);
+    }
+    json_object_put(plan);
+    json_object *update = json_object_new_object();
+    add_string(update, "sessionUpdate", "plan");
+    json_object_object_add(update, "entries", entries);
+    return acp_finish(update, update_json);
+}
+
 acp_status acp_usage_update_write(unsigned long long used, unsigned long long size, const char *cost_amount,
     const char *currency, acp_buffer *update_json) {
     if (update_json == NULL || used > INT64_MAX || size > INT64_MAX) return ACP_INVALID_ARGUMENT;

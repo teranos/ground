@@ -2278,6 +2278,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
             if (sessions.clientWritesFiles) putWriteTool(tools);
             if (sessions.clientRunsCommands) putRunTool(tools);
+            putPlanTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
             // One token: what ground code signed in to q with, ~/.qntx/token. The block's file is k's.
             auto token = qntxToken("");
@@ -2428,6 +2429,19 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     }
                     Reply u, server, tool, args, result;
                     scope(exit) { u.dispose(); server.dispose(); tool.dispose(); args.dispose(); result.dispose(); }
+                    // "When the language model creates an execution plan, the Agent SHOULD report it to the
+                    // Client": the plan is reported as the plan, not as a tool call, and as it touches
+                    // nothing, in every mode. The client answers nothing to a plan, and so is the model answered.
+                    if (call.name == PLAN_TOOL) {
+                        if (putPlan(u, call.arguments)) {
+                            if (!notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                            toolMessage(*o.history, call.id, `{}`);
+                        } else {
+                            toolMessage(*o.history, call.id, PLAN_REFUSED);
+                            tellUser(sessions, sid, "warning", "the model's plan is not one ACP can report", call.arguments);
+                        }
+                        continue;
+                    }
                     // The session's mode decides whether the call runs, and
                     // Manual asks the client. "pending": "awaiting approval".
                     const(char)[] why;

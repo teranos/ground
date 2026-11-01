@@ -52,6 +52,37 @@ void putRunTool(ref Reply tools) {
         ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}}`);
 }
 
+// ground code's tool for the model's plan, ACP's Plan as the model calls it, in the schema's words: "When
+// the language model creates an execution plan, the Agent SHOULD report it to the Client".
+enum PLAN_TOOL = "plan";
+// What the model is told of a plan that is no Plan.
+enum PLAN_REFUSED = `{"status":"not run","why":"plan takes entries, each a content, a priority (high, medium or low) and a status (pending, in_progress or completed)"}`;
+
+void putPlanTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ PLAN_TOOL ~ `","description":"An execution plan for accomplishing complex tasks.\n\n`
+        ~ `Plans consist of multiple entries representing individual tasks or goals.\n`
+        ~ `Agents report plans to clients to provide visibility into their execution strategy.\n`
+        ~ `Plans can evolve during execution as the agent discovers new requirements or completes tasks.",`
+        ~ `"parameters":{"type":"object","properties":{"entries":{"type":"array","description":"The list of tasks to be accomplished.\n\n`
+        ~ `When updating a plan, the agent must send a complete list of all entries\nwith their current status. The client replaces the entire plan with each update.",`
+        ~ `"items":{"type":"object","properties":{`
+        ~ `"content":{"type":"string","description":"Human-readable description of what this task aims to accomplish."},`
+        ~ `"priority":{"type":"string","enum":["high","medium","low"],"description":"The relative importance of this task.\nUsed to indicate which tasks are most critical to the overall goal."},`
+        ~ `"status":{"type":"string","enum":["pending","in_progress","completed"],"description":"Current execution status of this task."}},`
+        ~ `"required":["content","priority","status"]}}},"required":["entries"]}}}`);
+}
+
+// The plan update for what the model called plan with, as libacp writes it, into u: false when it is no Plan.
+bool putPlan(ref Reply u, const(char)[] arguments) {
+    import libacp : acp_plan_write, acp_buffer, acp_buffer_free, acp_status;
+    acp_buffer written;
+    scope(exit) acp_buffer_free(&written);
+    if (acp_plan_write(arguments.ptr, arguments.length, &written) != acp_status.ACP_OK) return false;
+    u.add(written.data[0 .. written.length]);
+    return !u.full;
+}
+
 // --- the prompt's text, read from the ACP line ---
 
 private void putUtf8(ref Reply r, uint cp) {
@@ -808,6 +839,17 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
     scope(exit) json_object_put(root);
     if (json_object_get_type(root) != json_type.array) return false;
     bool told(ref Reply u) { bool ok = !u.full && send(u.slice()); u.dispose(); return ok; }
+    // The ids of the plan's calls, each ended by a NUL, so their answers are not told.
+    Reply planned;
+    scope(exit) planned.dispose();
+    bool isPlanned(const(char)[] id) {
+        for (size_t from = 0, at = 0; at < planned.len; at++) {
+            if (planned.slice()[at] != '\0') continue;
+            if (planned.slice()[from .. at] == id) return true;
+            from = at + 1;
+        }
+        return false;
+    }
     foreach (i; 0 .. json_object_array_length(root)) {
         auto m = json_object_array_get_idx(root, i);
         auto role = text(jsonField(m, "role"));
@@ -850,6 +892,13 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 if (id is null || name is null || args is null) return false;
                 Reply u;
                 scope(exit) u.dispose();
+                // A plan is told as the plan it was, and neither it nor its answer as a tool call.
+                if (name == PLAN_TOOL) {
+                    planned.add(id); planned.add("\0");
+                    if (planned.full) return false;
+                    if (putPlan(u, args) && !told(u)) return false;
+                    continue;
+                }
                 auto kind = readOnly !is null && readOnly(name) ? "read" : null;
                 Reply title;
                 scope(exit) title.dispose();
@@ -860,6 +909,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
         else if (role == "tool") {
             auto id = text(jsonField(m, "tool_call_id"));
             if (id is null || content is null) return false;
+            if (isPlanned(id)) continue;
             auto answer = parseJson(content);
             scope(exit) json_object_put(answer);
             // A command completed as it did live, by exiting 0.

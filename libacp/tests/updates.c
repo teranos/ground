@@ -98,6 +98,34 @@ static void tool_calls(void) {
     CHECK(acp_tool_call_write(&nameless, &out) == ACP_INVALID_ARGUMENT);
 }
 
+// The agent's plan: "The Agent MUST send a complete list of all plan entries in each update", each
+// its content, priority and status, every byte of the content; anything else an entry holds is not
+// the plan's. A plan of no entries is a plan.
+static void plans(void) {
+    acp_buffer out = {0};
+    const char *plan = "{\"entries\":[{\"content\":\"Read the \\\"code\\\"\\u0000\",\"priority\":\"high\",\"status\":\"completed\",\"extra\":1},"
+                       "{\"content\":\"Fix it\",\"priority\":\"medium\",\"status\":\"in_progress\"},"
+                       "{\"content\":\"Tidy\",\"priority\":\"low\",\"status\":\"pending\"}]}";
+    CHECK(acp_plan_write(plan, strlen(plan), &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"plan\",\"entries\":[{\"content\":\"Read the \\\"code\\\"\\u0000\",\"priority\":\"high\",\"status\":\"completed\"},"
+                     "{\"content\":\"Fix it\",\"priority\":\"medium\",\"status\":\"in_progress\"},"
+                     "{\"content\":\"Tidy\",\"priority\":\"low\",\"status\":\"pending\"}]}"));
+    CHECK(acp_plan_write("{\"entries\":[]}", 14, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"plan\",\"entries\":[]}"));
+    const char *bad[] = {
+        "{}",
+        "{\"entries\":{}}",
+        "{\"entries\":[{\"priority\":\"high\",\"status\":\"pending\"}]}",
+        "{\"entries\":[{\"content\":\"x\",\"priority\":\"urgent\",\"status\":\"pending\"}]}",
+        "{\"entries\":[{\"content\":\"x\",\"priority\":\"high\",\"status\":\"done\"}]}",
+        "{\"entries\":[{\"content\":\"x\",\"priority\":\"high\"}]}",
+        "{\"entries\":[7]}",
+        "not json",
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) CHECK(acp_plan_write(bad[i], strlen(bad[i]), &out) == ACP_INVALID_ARGUMENT);
+    CHECK(out.data == NULL);
+}
+
 // #169, #177: how full the context is, and what the session has cost; #166, #176: the title,
 // and when it was last active; #173: the commands; #171: a notice.
 static void others(void) {
@@ -194,6 +222,7 @@ int main(void) {
     chunks();
     tool_calls();
     others();
+    plans();
     elicitation();
     if (failures) {
         fprintf(stderr, "updates: %d failed\n", failures);
