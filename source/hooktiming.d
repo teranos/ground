@@ -5,6 +5,7 @@ module hooktiming;
 // The rows are the timing table's, which every hook already writes.
 
 import db : sqlite3;
+import sentry : Envelope;
 
 // How many rows one pass takes. A row is up to nine metrics of a few hundred
 // bytes, and the envelope holds a quarter megabyte.
@@ -109,6 +110,51 @@ const(char)[] exitOf(const(char)[] phases) {
         return phases[i + key.length .. e];
     }
     return "";
+}
+
+// A hook the store refused, as the measurement it is: how long it waited on
+// the store, in microseconds, with the code the store answered. Posted by the
+// hook itself, since the row that would have carried it is the refused one.
+//
+// "i dont mean sentry errors, because we already use those too much, i say a measurement or span or something like that, something that makes sense for timing and sqlite"
+Envelope refusedEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] project,
+                         const(char)[] event, const(char)[] phases, int code) {
+    import phases : parsePhases, PhaseEntry;
+    import sentry : Batch, envelopeInto, metricItem, METRIC_CONTENT, METRIC_TYPE;
+
+    // The wait is the lock when the store opened, the open when it would not.
+    PhaseEntry[32] e;
+    auto n = parsePhases(phases, e);
+    long waited;
+    foreach (i; 0 .. n)
+        if (!e[i].isSub && (e[i].key == "lock" || e[i].key == "open") && e[i].val > waited)
+            waited = e[i].val;
+
+    Batch!(2048) b;
+    auto m = metricItem(unixSeconds, project, "ground.hook.store.refused", waited, "microsecond");
+    m.str("event", event);
+    m.str("project", project);
+    m.num("code", code);
+    m.close();
+    b.add(m.text());
+    Envelope env;
+    env.len = envelopeInto(b, dsn, METRIC_CONTENT, METRIC_TYPE, env.buf[]);
+    env.over = b.over || env.len == 0;
+    return env;
+}
+
+unittest {
+    import matcher : contains;
+    auto env = refusedEnvelope("https://k@o.ingest.sentry.io/1", 1_793_372_283, "teranos/ramen", "Stop",
+                               "stdin=35us open=1096us write=5036943us lock=5000532us close=94us", 5);
+    auto text = env.buf[0 .. env.len];
+    assert(contains(text, `"name":"ground.hook.store.refused","value":5000532,"unit":"microsecond"`), text);
+    assert(contains(text, `"event":{"value":"Stop","type":"string"}`));
+    assert(contains(text, `"code":{"value":5,"type":"integer"}`), text);
+    // A store that would not open: the open is the wait.
+    auto shut = refusedEnvelope("https://k@o.ingest.sentry.io/1", 1_793_372_283, "teranos/ramen", "Stop",
+                                "stdin=40us open=5031661us write=0us lock=0us", 5);
+    assert(contains(shut.buf[0 .. shut.len], `"value":5031661,`));
 }
 
 // The claimed rows, as metrics, into the batch.
