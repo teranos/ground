@@ -69,6 +69,8 @@ void putRunTool(ref Reply tools) {
 enum PLAN_TOOL = "plan";
 // What the model is told of a plan that is no Plan.
 enum PLAN_REFUSED = `{"status":"not run","why":"plan takes entries, each a content, a priority (high, medium or low) and a status (pending, in_progress or completed)"}`;
+// What the user is told of a plan that is none, before what the model gave.
+enum PLAN_UNREPORTED = "the model's plan is not one ACP can report";
 
 void putPlanTool(ref Reply tools) {
     if (tools.len > 0) tools.add(",");
@@ -849,9 +851,12 @@ private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data
 
 // The history, told again. readOnly, when given, says which of the calls'
 // tools are read-only, so their replayed calls say kind read as they did live.
+// warn, when given, tells the user a warning as the turn did; without it, the
+// warning is the agent's message.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
         scope bool delegate(const(char)[] tool) readOnly = null,
-        scope void delegate(const(char)[] id, const(char)[] tool, ref Reply title) titled = null) {
+        scope void delegate(const(char)[] id, const(char)[] tool, ref Reply title) titled = null,
+        scope bool delegate(const(char)[] title, const(char)[] description) warn = null) {
     Reply all;
     scope(exit) all.dispose();
     all.add("["); all.add(history); all.add("]");
@@ -860,13 +865,23 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
     scope(exit) json_object_put(root);
     if (json_object_get_type(root) != json_type.array) return false;
     bool told(ref Reply u) { bool ok = !u.full && send(u.slice()); u.dispose(); return ok; }
-    // The ids of the plan's calls, each ended by a NUL, so their answers are not told.
+    // The plan calls not yet answered, each its id and arguments ended by a NUL: a plan call is told
+    // as its answer says it came out live, and is dropped once it is, so only open ones are looked in.
     Reply planned;
     scope(exit) planned.dispose();
-    bool isPlanned(const(char)[] id) {
-        for (size_t from = 0, at = 0; at < planned.len; at++) {
+    // The arguments of the open plan call id, taken out of planned into args; false when none is.
+    bool takePlan(const(char)[] id, ref Reply args) {
+        for (size_t from = 0, at = 0, field = 0, idTo = 0; at < planned.len; at++) {
             if (planned.slice()[at] != '\0') continue;
-            if (planned.slice()[from .. at] == id) return true;
+            if (field++ % 2 == 0) { idTo = at; continue; }
+            if (planned.slice()[from .. idTo] == id) {
+                args.add(planned.slice()[idTo + 1 .. at]);
+                auto rest = planned.len - (at + 1);
+                auto bytes = cast(char*) planned.slice().ptr; // planned's own buffer, closed over the call
+                foreach (k; 0 .. rest) bytes[from + k] = bytes[at + 1 + k];
+                planned.len = from + rest;
+                return !args.full;
+            }
             from = at + 1;
         }
         return false;
@@ -913,11 +928,10 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 if (id is null || name is null || args is null) return false;
                 Reply u;
                 scope(exit) u.dispose();
-                // A plan is told as the plan it was, and neither it nor its answer as a tool call.
+                // A plan is told when its answer says how it came out.
                 if (name == PLAN_TOOL) {
-                    planned.add(id); planned.add("\0");
+                    planned.add(id); planned.add("\0"); planned.add(args); planned.add("\0");
                     if (planned.full) return false;
-                    if (putPlan(u, args) && !told(u)) return false;
                     continue;
                 }
                 auto kind = readOnly !is null && readOnly(name) ? "read" : null;
@@ -930,7 +944,27 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
         else if (role == "tool") {
             auto id = text(jsonField(m, "tool_call_id"));
             if (id is null || content is null) return false;
-            if (isPlanned(id)) continue;
+            Reply planArgs;
+            scope(exit) planArgs.dispose();
+            if (takePlan(id, planArgs)) {
+                Reply u;
+                scope(exit) u.dispose();
+                // Reported: the plan it was. Refused: the warning the user was given.
+                if (content == "{}") {
+                    if (!putPlan(u, planArgs.slice()) || !told(u)) return false;
+                    continue;
+                }
+                if (content == PLAN_REFUSED) {
+                    if (warn !is null) { if (!warn(PLAN_UNREPORTED, planArgs.slice())) return false; continue; }
+                    Reply said;
+                    scope(exit) said.dispose();
+                    said.add(PLAN_UNREPORTED); said.add(": "); said.add(planArgs.slice()); said.add("\n");
+                    if (said.full || !putChunk(u, 0, said.slice()) || !told(u)) return false;
+                    continue;
+                }
+                // Never run, as a cancel leaves it: the call it was, and its answer below.
+                if (!putToolCall(u, false, id, PLAN_TOOL, PLAN_TOOL, null, null, planArgs.slice(), null) || !told(u)) return false;
+            }
             auto answer = parseJson(content);
             scope(exit) json_object_put(answer);
             // A command completed as it did live, by exiting 0.

@@ -160,10 +160,12 @@ acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_jso
     return acp_finish(update, update_json);
 }
 
+// Whether value is one of names, every byte of it: a NUL in it makes it another value.
 static int one_of(json_object *value, const char *const *names, size_t count) {
     if (!json_object_is_type(value, json_type_string)) return 0;
+    size_t length = (size_t) json_object_get_string_len(value);
     for (size_t i = 0; i < count; i++)
-        if (strcmp(json_object_get_string(value), names[i]) == 0) return 1;
+        if (length == strlen(names[i]) && memcmp(json_object_get_string(value), names[i], length) == 0) return 1;
     return 0;
 }
 

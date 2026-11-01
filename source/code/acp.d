@@ -1881,7 +1881,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     title.add(json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)]);
                 else toolTitle(o.mcp, tool, title);
             }
-            if (!replayHistory(o.history.slice(), &tell, &readOnly, &titled)) {
+            bool warned(const(char)[] title, const(char)[] description) { return tellUser(sessions, sid, "warning", title, description); }
+            if (!replayHistory(o.history.slice(), &tell, &readOnly, &titled, &warned)) {
                 put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
                 putEscaped(r, sid); put(` back"}}`);
                 return true;
@@ -2509,7 +2510,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                             toolMessage(*o.history, call.id, `{}`);
                         } else {
                             toolMessage(*o.history, call.id, PLAN_REFUSED);
-                            tellUser(sessions, sid, "warning", "the model's plan is not one ACP can report", call.arguments);
+                            tellUser(sessions, sid, "warning", PLAN_UNREPORTED, call.arguments);
                         }
                         continue;
                     }

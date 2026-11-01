@@ -120,6 +120,9 @@ static void plans(void) {
         "{\"entries\":[{\"content\":\"x\",\"priority\":\"high\",\"status\":\"done\"}]}",
         "{\"entries\":[{\"content\":\"x\",\"priority\":\"high\"}]}",
         "{\"entries\":[7]}",
+        // A NUL makes a value another one, whatever it starts with.
+        "{\"entries\":[{\"content\":\"x\",\"priority\":\"high\\u0000x\",\"status\":\"pending\"}]}",
+        "{\"entries\":[{\"content\":\"x\",\"priority\":\"high\",\"status\":\"completed\\u0000unexpected\"}]}",
         "not json",
     };
     for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) CHECK(acp_plan_write(bad[i], strlen(bad[i]), &out) == ACP_INVALID_ARGUMENT);
