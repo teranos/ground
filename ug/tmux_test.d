@@ -313,3 +313,31 @@ static assert(rowPath!("cleanAPI", "tmux")()[0 .. cleanRow.length] == cleanRow);
 
 // A focus that is not a plugin's name asks for the node's row, never for it.
 static assert(rowPathInto("a&b", "tmux", new char[160]) == nodeRow.length);
+
+// --- a state the bar can draw ---
+
+// The words live in qntx.d and were drawn by nothing: every one of them was
+// written, tested and unreachable. This is the renderer that asks for them.
+import tmux : stateInto;
+import qntx : State;
+
+enum wantKeyless = YELLOW ~ "QNTX token" ~ PLAIN;
+static assert(() {
+    char[64] b = 0;
+    auto n = stateInto(State.noToken, b[]);
+    return b[0 .. n] == wantKeyless;
+}());
+
+// Not ours to fix reads red, the way a status does.
+enum wantDns = RED ~ "QNTX dns" ~ PLAIN;
+static assert(() {
+    char[64] b = 0;
+    auto n = stateInto(State.dnsFailure, b[]);
+    return b[0 .. n] == wantDns;
+}());
+
+// Fine draws nothing, because the absence of the row is what fine looks like.
+static assert(() {
+    char[64] b = 0;
+    return stateInto(State.ok, b[]) == 0;
+}());

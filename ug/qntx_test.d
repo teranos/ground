@@ -157,3 +157,23 @@ static assert(plugins!paused()[0 .. pausedWant.length] == pausedWant);
 // No plugins is no row: silence is what a healthy box looks like.
 static assert(pluginsLen(`{"plugins":[]}`) == 0);
 static assert(pluginsLen(`{}`) == 0);
+
+// --- what waiting cannot fix ---
+
+// A transport that failed may be a blip, and the bar keeps the node's last row
+// through a short silence rather than wiping it. A key that was never set is
+// not a blip: nothing about waiting will produce one, so it stands at once.
+import qntx : standing;
+static assert(standing(State.noToken));
+static assert(standing(State.tokenUnreadable));
+
+// Reaching failures pass or they do not, and the quiet window is theirs.
+static assert(!standing(State.dnsFailure));
+static assert(!standing(State.refused));
+static assert(!standing(State.timeout));
+static assert(!standing(State.tlsFailure));
+
+// A refusal carries a status of its own, so it is drawn as that status and
+// never as a state waiting to pass.
+static assert(!standing(State.unauthed));
+static assert(!standing(State.ok));

@@ -78,6 +78,13 @@ const(char)[] word(State s) {
     }
 }
 
+// Whether waiting could change the answer. A transport may pass on its own, so
+// the bar keeps the node's last row through a short silence rather than wiping
+// it. A key nobody set will not set itself, and that stands at once.
+bool standing(State s) {
+    return s == State.noToken || s == State.tokenUnreadable;
+}
+
 // Yellow is ours to fix, red is not.
 const(char)[] colourOf(State s) {
     switch (s) {
