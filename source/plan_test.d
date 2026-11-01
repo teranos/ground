@@ -45,6 +45,29 @@ unittest {
         ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"on it"}}` ~ "\n");
 }
 
+// A plan call is told back as it came out live, by its answer: a refused plan as the warning the
+// user was given, and one that never ran, cut short by a cancel, as the call it was, not as a plan.
+unittest {
+    Reply told;
+    scope(exit) told.dispose();
+    bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
+    enum call = `{"role":"assistant","content":null,"tool_calls":[{"id":"p1","type":"function","function":{"name":"plan",`
+        ~ `"arguments":"{\"entries\":[{\"content\":\"Read\",\"priority\":\"urgent\",\"status\":\"pending\"}]}"}}]},`;
+    // PLAN_REFUSED, as the history holds it: a JSON string.
+    enum refused = call ~ `{"role":"tool","tool_call_id":"p1","content":"{\"status\":\"not run\",\"why\":\"plan takes entries, `
+        ~ `each a content, a priority (high, medium or low) and a status (pending, in_progress or completed)\"}"}`;
+    assert(replayHistory(refused, &send));
+    assert(told.slice() == `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"the model's plan is not one ACP can report: `
+        ~ `{\"entries\":[{\"content\":\"Read\",\"priority\":\"urgent\",\"status\":\"pending\"}]}\n"}}` ~ "\n");
+    told.len = 0;
+    enum ran = `{"role":"assistant","content":null,"tool_calls":[{"id":"p2","type":"function","function":{"name":"plan",`
+        ~ `"arguments":"{\"entries\":[{\"content\":\"Read\",\"priority\":\"high\",\"status\":\"pending\"}]}"}}]},`;
+    assert(replayHistory(ran ~ `{"role":"tool","tool_call_id":"p2","content":"{\"status\":\"not run\",\"why\":\"the client cancelled the turn\"}"}`, &send));
+    assert(indexOf(told.slice(), `"sessionUpdate":"plan"`) < 0);
+    assert(indexOf(told.slice(), `{"sessionUpdate":"tool_call","toolCallId":"p2","title":"plan","name":"plan"`) >= 0);
+    assert(indexOf(told.slice(), `{"sessionUpdate":"tool_call_update","toolCallId":"p2","status":"failed"`) >= 0);
+}
+
 // A turn in mode whose model calls plan with args, then answers "done": what ground code said, what
 // the gateway was first asked, and the turn's answer.
 version (Posix) private struct Ran {
