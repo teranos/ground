@@ -132,8 +132,8 @@ bool deletesOnly(const(char)[] command) {
     return afterPush && (flagged || (specs > 0 && deletes == specs));
 }
 
-// The remote branch a git push lands on, when its one refspec names it; empty
-// when it names none (HEAD, or no refspec) or more than one.
+// 「[Opus 5.5] The remote branch a git push lands on, when its one refspec names it; empty」
+// 「[Opus 5.5] when it names none (HEAD, or no refspec) or more than one.」
 const(char)[] pushedBranch(const(char)[] command) {
     size_t i = 0, specs = 0;
     bool afterPush = false, remoteSeen = false;

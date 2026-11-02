@@ -1188,7 +1188,7 @@ CheckResult stagedNamesPerson(const(char)[] cwd, const(char)[] input) {
 }
 
 // Whether the commits a push would carry add a line that names a person:
-// HEAD against the remote branch it lands on, or HEAD alone when that is new.
+// 「[Opus 5.5] HEAD against the remote branch it lands on, or HEAD alone when that is new.」
 CheckResult pushNamesPerson(const(char)[] cwd, const(char)[] input) {
     import libgit2 : Repo, Shown;
     import git : getBranch;
@@ -1199,7 +1199,7 @@ CheckResult pushNamesPerson(const(char)[] cwd, const(char)[] input) {
     if (deletesOnly(input)) return passes();
     if (!g.open(cwd)) return passes();
     scope (exit) g.close();
-    // What the command names, and only when it names nothing the branch checked out.
+    // 「[Opus 5.5] What the command names, and only when it names nothing the branch checked out.」
     auto branch = pushedBranch(input);
     if (branch.length == 0) branch = getBranch(cwd);
     const(char)[] p;
