@@ -16,12 +16,30 @@ import sand.builtin : builtinSand;
 // Compile-time readers (checks.d, playbill.d) read the floor's parse, as they always did.
 public import sand.builtin : allParsed, holds;
 
-private __gshared const(Sand)* held = &builtinSand;
+private __gshared const(Sand)* landed = &builtinSand;
+private __gshared bool heldOnce = false;
+
+// "why isnt everything that needs sand loading it."
+// The first read in a process holds the landed sand, so no process can read the
+// floor by forgetting to ask. A unittest reads the floor it was built with.
+private const(Sand)* held() {
+    version (unittest) {} else {
+        if (!heldOnce) {
+            heldOnce = true;
+            import sand.load : holdLandedHere;
+            holdLandedHere();
+        }
+    }
+    return landed;
+}
 
 const(Sand)* sand() { return held; }
 
 // What the engine answers from from here on; null is the built-in sand again.
-void holdSand(const(Sand)* s) { held = s is null ? &builtinSand : s; }
+void holdSand(const(Sand)* s) {
+    heldOnce = true;
+    landed = s is null ? &builtinSand : s;
+}
 
 ref const(ParsedView) parsedOnce() { return held.parsed; }
 const(Scope)[] allScopes() { return held.preToolUse; }
