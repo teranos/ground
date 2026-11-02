@@ -44,8 +44,8 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
 }
 
 // "ritual needs to work for us always"
-// What a process holds on its first read of a control (controls.d): the same
-// layers the hook holds, for the tree it stands in. Refused is said to stderr.
+// 「[Opus 5.5] What a process holds on its first read of a control (controls.d): the same」
+// 「[Opus 5.5] layers the hook holds, for the tree it stands in. Refused is said to stderr.」
 void holdLandedHere() {
     import core.stdc.stdlib : getenv;
     import core.stdc.stdio : stderr, fprintf;
