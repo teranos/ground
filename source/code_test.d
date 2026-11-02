@@ -34,8 +34,34 @@ private string modes()(string current) {
 }
 
 private string answerOf()(string line) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     return answerWith(line, s);
+}
+
+// "Agents SHOULD reject any request other than initialize that arrives before initialization
+// completes with -32600." A connection starts uninitialized: each request is refused, a
+// notification is let be, and an initialize that is refused leaves it so; one answered ends it.
+unittest {
+    import matcher : indexOf;
+    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Reply r;
+    scope(exit) r.dispose();
+    // What s answers line, as the run answers it.
+    const(char)[] asked(const(char)[] line) { r.len = 0; answer(line, r, s); return r.slice(); }
+    enum early = `"error":{"code":-32600,"message":"ground code answers initialize first"}}`;
+    assert(asked(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`)
+        == `{"jsonrpc":"2.0","id":1,` ~ early);
+    assert(asked(`{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`) == `{"jsonrpc":"2.0","id":2,` ~ early);
+    assert(asked(`{"jsonrpc":"2.0","id":"a","method":"authenticate","params":{"methodId":"qntx"}}`) == `{"jsonrpc":"2.0","id":"a",` ~ early);
+    assert(asked(`{"jsonrpc":"2.0","id":3,"method":"session/wobble","params":{}}`) == `{"jsonrpc":"2.0","id":3,` ~ early);
+    // A notification is no request, and is given no answer, as before.
+    assert(asked(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-100-7-1"}}`) == ``);
+    // An initialize refused leaves the connection uninitialized.
+    assert(indexOf(asked(`{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"one"}}`), `"error"`) >= 0);
+    assert(asked(`{"jsonrpc":"2.0","id":5,"method":"session/list","params":{}}`) == `{"jsonrpc":"2.0","id":5,` ~ early);
+    // An initialize answered ends it.
+    assert(indexOf(asked(`{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"protocolVersion":1}}`), `"result"`) >= 0);
+    assert(asked(`{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`) == `{"jsonrpc":"2.0","id":7,"result":{"sessions":[]}}`);
 }
 
 private string answerWith()(string line, ref Sessions s) {
@@ -52,7 +78,7 @@ enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocol
 
 unittest {
     bool answers(string line, const(char)[] want) {
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         Reply r;
         scope(exit) r.dispose();
         return answer(line, r, s) && r.slice() == want;
@@ -74,7 +100,7 @@ unittest {
 
     // A v2 client's offer is in v2's shape, and ground answers it in v1:
     // "a v2 request carries info and capabilities"
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":2,"info":{"name":"zed","version":"1"},"capabilities":{"elicitation":{"form":{},"url":{}}}}}`, r, s));
@@ -90,7 +116,7 @@ unittest {
 // authenticate: "Must be one of the methods advertised in the initialize
 // response." libacp reads the methodId; one only in _meta is not the request's.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"authenticate","params":{"methodId":"agent"}}`,
         `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"ground code's auth method is qntx, and authenticate named agent"}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"authenticate","params":{}}`,
@@ -107,7 +133,7 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":3,"method":"session/wobble","param
 // "MCP servers to connect to" and "The working directory": all three required.
 // libacp reads them; a sessionId only in _meta is none.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"cwd":"/w","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"session/load needs sessionId"}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":5,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w"}}`,
@@ -116,9 +142,9 @@ unittest {
         `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"session/load needs sessionId"}}`));
 }
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
 }
 
 // A notification has no answer to give; the caller says it on stderr instead.
@@ -126,7 +152,7 @@ static assert(answerOf(`{"jsonrpc":"2.0","method":"session/frobnicate","params":
 // A cancel with no turn running has nothing to stop: it is answered with
 // nothing, and said on stderr.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-1-1-1"}}`, ""));
     assert(says(s, `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":4}}`, ""));
 }
@@ -142,7 +168,7 @@ static assert(answerOf(`not json`)
 // sessions of one process are told apart and so are two processes.
 // A new session's modes are libacp's, so these run rather than fold at compile time.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     enum req = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`;
     assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(s, req, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-2","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -160,7 +186,7 @@ unittest {
 
 // Part 15: nested fields cannot create a session, and invalid servers fail before setup.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     enum missingCwd = `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"session/new needs cwd"}}`;
     assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"_meta":{"cwd":"/tmp","mcpServers":[]}}}`, missingCwd));
     assert(says(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","_meta":{"mcpServers":[]}}}`,
@@ -179,11 +205,12 @@ unittest {
 // verifies the runtime path, rollback, per-session ownership and EOF cleanup.
 
 // session/close: "Supplying `{}` means the agent supports closing sessions",
-// so initialize says so. A session closed is gone, and closing it again, or
-// one ground code never opened, is "Resource not found".
+// so initialize says so. "Closing is idempotent. If the session does not exist or
+// is not active, for example because it was already closed, the Agent SHOULD
+// respond with the same empty result."
 // Two sessions opened, then close asked twice: what each close answers.
 private bool openThenClose()(string close, string first, string second) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
@@ -193,14 +220,15 @@ private bool openThenClose()(string close, string first, string second) {
 unittest {
     assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":2,"result":{}}`));
     assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`,
-        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`,
-        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{}}`));
 }
-// Another process's session is not this one's to close.
+// Another process's session is not active on this connection, so closing it here is the same empty
+// result, and leaves it as it is.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/close","params":{"sessionId":"code-1-1-1"}}`)
-    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
+    == `{"jsonrpc":"2.0","id":4,"result":{}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params":{}}`)
     == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/close needs sessionId"}}`);
 
@@ -208,7 +236,7 @@ static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params
 // opened in. Nothing is kept past the process yet, so that is all there is.
 // Three sessions opened and one closed, then a list: what it answers.
 private bool listAfter()(string list, string want) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
@@ -229,7 +257,7 @@ unittest {
 // Ground code never gives a nextCursor, so a cursor is not one it gave. libacp
 // reads the cwd and the cursor each as a string, or refuses it.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":9,"result":{"sessions":[]}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":9,"method":"session/list","params":{"cursor":"x"}}`,
@@ -269,14 +297,14 @@ unittest {
     scope (exit) sqlite3_close(db);
 
     // One process opens a session and ends without closing it.
-    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    Sessions a = Sessions(100, 7); a.initialized = true; a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // The next one lists it, and resumes it. A session's cwd is its own for
     // its life: a resume names the same one, or is refused.
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
@@ -290,15 +318,15 @@ unittest {
     // Resumed, it is this process's to close; closed, it is gone for every one.
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
         `{"jsonrpc":"2.0","id":5,"result":{}}`));
-    Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
+    Sessions c = Sessions(300, 9); c.initialized = true; c.clock = 1_700_000_000;
     c.db = db;
     assert(says(c, `{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to resume: code-100-7-1","data":{"sessionId":"code-100-7-1"}}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":7,"result":{"sessions":[]}}`));
 
     assert(says(c, `{"jsonrpc":"2.0","id":8,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":8,"error":{"code":-32002,"message":"no session to resume: code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":8,"error":{"code":-32002,"message":"no session to resume: code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":9,"method":"session/resume","params":{"cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":10,"method":"session/resume","params":{"sessionId":"code-1-1-1"}}`,
@@ -310,7 +338,7 @@ unittest {
         `{"jsonrpc":"2.0","id":13,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`));
     // A session's servers come up once it is found: one that isn't spawns nothing.
     assert(says(c, `{"jsonrpc":"2.0","id":12,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work","mcpServers":[{"name":"x","command":"/does/not/exist","args":[],"env":[]}]}}`,
-        `{"jsonrpc":"2.0","id":12,"error":{"code":-32002,"message":"no session to resume: code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":12,"error":{"code":-32002,"message":"no session to resume: code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
 }
 
 // session/delete: "deleting an existing session from `session/list`". What
@@ -323,7 +351,7 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    Sessions a = Sessions(100, 7); a.initialized = true; a.clock = 1_700_000_000;
     a.db = db;
     enum open = `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`;
     assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -331,28 +359,29 @@ unittest {
     assert(says(a, open, `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-3","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // Another process deletes one; no process lists it or resumes it after.
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":2,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-3","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no session to resume: code-100-7-1","data":{"sessionId":"code-100-7-1"}}}`));
+    // "Deleting an already-deleted session, or a session that never existed, SHOULD succeed silently."
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
-        `{"jsonrpc":"2.0","id":5,"error":{"code":-32002,"message":"no session to delete: code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":5,"result":{}}`));
 
-    // A closed session is not on the list, so it is not there to delete.
+    // A closed session is not on the list, so it is not there to delete, and deleting it succeeds as silently.
     assert(says(a, `{"jsonrpc":"2.0","id":6,"method":"session/close","params":{"sessionId":"code-100-7-2"}}`,
         `{"jsonrpc":"2.0","id":6,"result":{}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/delete","params":{"sessionId":"code-100-7-2"}}`,
-        `{"jsonrpc":"2.0","id":7,"error":{"code":-32002,"message":"no session to delete: code-100-7-2"}}`));
+        `{"jsonrpc":"2.0","id":7,"result":{}}`));
 
     // Deleted where it is live, it is not live there any more.
     assert(says(a, `{"jsonrpc":"2.0","id":8,"method":"session/delete","params":{"sessionId":"code-100-7-3"}}`,
         `{"jsonrpc":"2.0","id":8,"result":{}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":9,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`,
-        `{"jsonrpc":"2.0","id":9,"error":{"code":-32002,"message":"no open session code-100-7-3"}}`));
+        `{"jsonrpc":"2.0","id":9,"result":{}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":10,"method":"session/delete","params":{}}`,
         `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
     // The params' own sessionId, not one nested in another field.
@@ -363,7 +392,7 @@ unittest {
 // A set on a new session, then a resume of it: what each answers. Resume goes
 // through libacp, so these run rather than fold at compile time.
 private bool setThenResume()(string set, string wantSet, string wantResume) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
@@ -386,7 +415,7 @@ unittest {
 }
 // A request to a fresh process, and its answer: libacp reads it, so this runs.
 private bool answersFresh()(string line, string want) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(line, r, s);
@@ -395,7 +424,7 @@ private bool answersFresh()(string line, string want) {
 
 unittest {
     assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
     assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`));
     assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`,
@@ -413,13 +442,13 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    Sessions a = Sessions(100, 7); a.initialized = true; a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-100-7-1","modeId":"acceptEdits"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`));
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"acceptEdits" ~ `,"configOptions":` ~ configOf!("acceptEdits", "medium") ~ `}}`));
@@ -436,7 +465,7 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    Sessions a = Sessions(100, 7); a.initialized = true; a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","additionalDirectories":["/lib/b","/lib/a"],"mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -451,7 +480,7 @@ unittest {
         `{"jsonrpc":"2.0","id":4,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
 
     // Another process resumes it with a list of its own, then with none.
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work","additionalDirectories":["/srv"]}}`,
         `{"jsonrpc":"2.0","id":5,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -480,9 +509,9 @@ unittest {
 // libacp reads the request in either of its shapes: a value id, or type boolean
 // and a boolean. A boolean is no level and no mode; neither shape is no value.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":"high"}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"configId":"effort","value":"high"}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","value":"high"}}`,
@@ -509,13 +538,13 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    Sessions a = Sessions(100, 7); a.initialized = true; a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"xhigh"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{"configOptions":` ~ configOf!("default", "xhigh") ~ `}}`));
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "xhigh") ~ `}}`));
@@ -524,13 +553,13 @@ unittest {
 // session/prompt is a turn through the node's gateway. It needs a live session
 // and a model, and the model is the qntx block's: none, and ground code says so before it asks.
 static assert(answerOf(`{"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{"sessionId":"code-100-7-9","prompt":[{"type":"text","text":"hi"}]}}`)
-    == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
+    == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9","data":{"sessionId":"code-100-7-9"}}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":12,"method":"session/prompt","params":{"prompt":[]}}`)
     == `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`);
 // A new session, then one request to it: what that request answers. A new
 // session's modes are libacp's, so these run rather than fold at compile time.
 private bool newThen()(string line, string want) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
@@ -553,7 +582,7 @@ unittest {
 // "Only available if the client supports the fs.readTextFile capability"
 // Any other link is read through the session's MCP servers, so it goes on to the turn.
 private bool promptsTo()(string initialize, string prompt, string want) {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(initialize, r, s); r.len = 0;
@@ -582,7 +611,7 @@ unittest {
 // option, the modes a session reports follow; set by set_mode, the config
 // option does.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s);
@@ -613,7 +642,7 @@ unittest {
     assert(applySchema(db));
     scope (exit) sqlite3_close(db);
 
-    Sessions a = Sessions(100, 7);
+    Sessions a = Sessions(100, 7); a.initialized = true;
     a.db = db;
     a.clock = 1_700_000_000;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
@@ -626,7 +655,7 @@ unittest {
     a.clock = 1_700_000_120;
     assert(says(a, `{"jsonrpc":"2.0","id":4,"method":"session/set_config_option","params":{"sessionId":"code-100-7-1","configId":"effort","value":"low"}}`,
         `{"jsonrpc":"2.0","id":4,"result":{"configOptions":` ~ configOf!("plan", "low") ~ `}}`));
-    Sessions b = Sessions(200, 8);
+    Sessions b = Sessions(200, 8); b.initialized = true;
     b.db = db;
     b.clock = 1_700_000_180;
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/list","params":{}}`,
@@ -728,7 +757,7 @@ version (Posix) unittest {
         auto port = gateway(p[1], cancel ~ "\n", null, child);
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
@@ -747,7 +776,7 @@ version (Posix) unittest {
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); }
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
@@ -765,7 +794,7 @@ version (Posix) unittest {
         auto port = gateway(p[1], `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":2}}` ~ "\n", null, child);
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
@@ -783,7 +812,7 @@ version (Posix) unittest {
         auto port = gateway(p[1], "", answer, child);
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
@@ -867,7 +896,7 @@ version (Posix) unittest {
 
         assert(pipe(p) == 0);
         input = Input(p[0]);
-        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
@@ -1048,7 +1077,7 @@ version (Posix) unittest {
         ~ `{"role":"tool","tool_call_id":"c2","content":"{\"status\":\"not run\",\"why\":\"the user rejected it\"}"},`
         ~ `{"role":"assistant","content":"done","reasoning":"both came back"}`;
 
-    Sessions a = Sessions(100, 7); a.clock = 1_700_000_000;
+    Sessions a = Sessions(100, 7); a.initialized = true; a.clock = 1_700_000_000;
     a.db = db;
     assert(says(a, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -1081,7 +1110,7 @@ version (Posix) unittest {
     }
 
     // Resumed elsewhere: the conversation is the session's again, and nothing is replayed.
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(capture(b, `{"jsonrpc":"2.0","id":2,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -1090,7 +1119,7 @@ version (Posix) unittest {
     assert(b.open[0].titles.slice() == titles);
 
     // Loaded elsewhere: replayed, in order, then answered.
-    Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
+    Sessions c = Sessions(300, 9); c.initialized = true; c.clock = 1_700_000_000;
     c.db = db;
     assert(capture(c, `{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"code-100-7-1","cwd":"/work","mcpServers":[]}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
@@ -1164,7 +1193,7 @@ version (Posix) unittest {
     int[2] p;
     assert(pipe(p) == 0);
     Input input = Input(p[0]);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.db = db;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
@@ -1208,7 +1237,7 @@ version (Posix) unittest {
     kept.dispose();
     // SessionInfo's title, "Human-readable title for the session", is the
     // store's, so every process lists it.
-    Sessions b = Sessions(200, 8); b.clock = 1_700_000_000;
+    Sessions b = Sessions(200, 8); b.initialized = true; b.clock = 1_700_000_000;
     b.db = db;
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
@@ -1267,7 +1296,7 @@ version (Posix) unittest {
         while (k) urlBuf[len++] = d[--k];
         assert(pipe(p) == 0);
         input = Input(p[0]);
-        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
@@ -1400,7 +1429,7 @@ version (Posix) unittest {
         do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
         while (k) urlBuf[len++] = d[--k];
         Input input = Input(p[0]);
-        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -1450,8 +1479,9 @@ version (Posix) unittest {
         ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
         ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
     assert(indexOf(said[0 .. saidLen], request) >= 0);
+    // The file it writes is its location, "being accessed or modified".
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_text_file","name":"write_text_file","kind":"edit","status":"in_progress",`
-        ~ `"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
+        ~ `"locations":[{"path":"/tmp/a b"}],"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
     assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{}}"}`) >= 0);
     // A client that reads no files is not asked what the file held, so no diff is shown.
@@ -1625,7 +1655,7 @@ version (Posix) unittest {
         do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
         while (k) urlBuf[len++] = d[--k];
         Input input = Input(p[0]);
-        s = Sessions(100, 7); s.clock = 1_700_000_000;
+        s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -1856,7 +1886,7 @@ version (Posix) unittest {
     while (k) urlBuf[len++] = d[--k];
 
     Input input = Input(p[0]);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -2001,7 +2031,7 @@ version (Posix) unittest {
     ushort port;
     string[2] listAndTurn = [models, answer_];
     auto both = gateway(listAndTurn[], port);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = urlOf(port); s.node.model = "m"; s.node.token = "/nonexistent";
     Reply r;
     prompt(s, r);
@@ -2021,7 +2051,7 @@ version (Posix) unittest {
     // A list without the model: the turn ends there, the model never asked.
     string[1] listOnly = [ok ~ `{"data":[{"id":"other","context_length":8192}]}`];
     auto none = gateway(listOnly[], port);
-    Sessions t = Sessions(100, 7); t.clock = 1_700_000_000;
+    Sessions t = Sessions(100, 7); t.initialized = true; t.clock = 1_700_000_000;
     t.node.url = urlOf(port); t.node.model = "m"; t.node.token = "/nonexistent";
     prompt(t, r);
     lines = askedOf(none & 0xFFFF);
@@ -2127,7 +2157,7 @@ version (Posix) unittest {
         assert(pipe(p) == 0);
         write(p[1], answers.ptr, answers.length);
         Input input = Input(p[0]);
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -2225,7 +2255,7 @@ version (Posix) unittest {
     __gshared char[4096] cwd;
     assert(getcwd(cwd.ptr, cwd.length) !is null);
     size_t cwdLen = 0; while (cwd[cwdLen]) cwdLen++;
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
     req.add(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[{"name":"slow","command":"/usr/bin/env","args":["python3","`);
@@ -2314,7 +2344,7 @@ version (Posix) unittest {
         int[2] p;
         assert(pipe(p) == 0);
         Input input = Input(p[0]);
-        Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+        Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -2352,7 +2382,7 @@ version (Posix) unittest {
     assert(indexOf(out_, up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"MCP server test logged a warning: disk is filling up\n"}}}}` ~ "\n") >= 0);
 
     // A notification ground code does not handle, to the open session it names; one naming none is stderr's alone.
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     out_ = capture(s, () {
         answer(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"session":{"notices":{}}}}}`, r, s); r.len = 0;
         answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s); r.len = 0;
@@ -2416,7 +2446,7 @@ version (Posix) unittest {
     char[8] d; size_t k = 0;
     do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
     while (k) urlBuf[len++] = d[--k];
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     int[2] o;
@@ -2497,7 +2527,7 @@ version (Posix) unittest {
     int[2] p;
     assert(pipe(p) == 0);
     Input input = Input(p[0]);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -2616,7 +2646,7 @@ version (Posix) unittest {
     do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
     while (k) urlBuf[len++] = d[--k];
 
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
@@ -2719,7 +2749,7 @@ version (Posix) unittest {
     do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
     while (k) urlBuf[len++] = d[--k];
 
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;

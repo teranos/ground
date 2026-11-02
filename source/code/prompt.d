@@ -762,10 +762,42 @@ struct FileDiff {
     bool held;
 }
 
+// The file a call of ground code's own works with, from what the model called it with, as the call
+// would act on it: write_text_file's path, given content, and read_text_file's path and line, given a
+// line and limit it takes. 0 for a line is none. false for any other call, and for one not run as given.
+bool ownLocation(const(char)[] name, const(char)[] arguments, ref Reply path, ref uint line) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
+        json_object_get_string, json_object_get_string_len, json_object_get_int64;
+    import core.stdc.string : strlen;
+    if (name != WRITE_TOOL && name != READ_TOOL) return false;
+    auto args = parseJson(arguments);
+    scope(exit) json_object_put(args);
+    auto given = jsonField(args, "path");
+    // A path is a C string to libacp, so one holding a NUL would name another file.
+    if (json_object_get_type(given) != json_type.string_ || json_object_get_string(given)[0] != '/'
+            || strlen(json_object_get_string(given)) != cast(size_t) json_object_get_string_len(given)) return false;
+    bool count(const(char)* field, ref uint into) {
+        auto v = jsonField(args, field);
+        if (v is null) return true;
+        if (json_object_get_type(v) != json_type.int_) return false;
+        auto n = json_object_get_int64(v);
+        if (n < 0 || n > uint.max) return false;
+        into = cast(uint) n;
+        return true;
+    }
+    uint limit;
+    line = 0;
+    if (name == WRITE_TOOL ? json_object_get_type(jsonField(args, "content")) != json_type.string_
+            : !count("line", line) || !count("limit", limit)) return false;
+    path.add(json_object_get_string(given)[0 .. cast(size_t) json_object_get_string_len(given)]);
+    return !path.full;
+}
+
 bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title, const(char)[] name,
         const(char)[] kind, const(char)[] status, const(char)[] rawInput, const(char)[] rawOutput,
-        const(char)[] terminalId = null, const(FileDiff)* diff = null, const(char)[] content = null) {
-    import libacp : acp_tool_call, acp_tool_call_write, acp_diff, acp_buffer, acp_buffer_free, acp_status;
+        const(char)[] terminalId = null, const(FileDiff)* diff = null, const(char)[] content = null,
+        const(char)[] locationPath = null, uint locationLine = 0) {
+    import libacp : acp_tool_call, acp_tool_call_write, acp_diff, acp_location, acp_buffer, acp_buffer_free, acp_status;
     Reply blocks, said, text_;
     scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
     // A call that shows a terminal shows it alone: the terminal holds what the call printed.
@@ -780,7 +812,7 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     auto idAt = at(id), titleAt = at(title), nameAt = at(name), kindAt = at(kind), statusAt = at(status);
     auto inputAt = at(rawInput), outputAt = at(rawOutput);
     auto blocksAt = at(blocks.len > 0 ? blocks.slice() : null), saidAt = at(said.len > 0 ? said.slice() : null);
-    auto terminalAt = at(terminalId);
+    auto terminalAt = at(terminalId), locationAt = at(locationPath);
     // Either text goes by its length, every byte; each is put here so an empty one is still text.
     size_t pathAt = size_t.max, oldAt = size_t.max, newAt = size_t.max;
     if (diff !is null) {
@@ -792,8 +824,11 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     const(char)* c(size_t from) { return from == size_t.max ? null : text_.slice().ptr + from; }
     acp_diff changed;
     if (diff !is null) changed = acp_diff(c(pathAt), c(oldAt), diff.oldText.length, c(newAt), diff.newText.length);
+    // "File locations affected by this tool call", when it names its file.
+    auto location = acp_location(c(locationAt), locationLine);
     auto call = acp_tool_call(update, c(idAt), c(titleAt), c(nameAt), c(kindAt), c(statusAt), c(inputAt), c(outputAt),
-        c(blocksAt), c(saidAt), c(terminalAt), diff !is null ? &changed : null);
+        c(blocksAt), c(saidAt), c(terminalAt), diff !is null ? &changed : null,
+        locationPath !is null ? &location : null, locationPath !is null ? 1 : 0);
     acp_buffer written;
     scope(exit) acp_buffer_free(&written);
     if (acp_tool_call_write(&call, &written) != acp_status.ACP_OK) return false;
@@ -941,7 +976,12 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 Reply title;
                 scope(exit) title.dispose();
                 if (titled !is null) titled(id, name, title); else title.add(name);
-                if (!putToolCall(u, false, id, title.slice(), name, kind, null, args, null) || !told(u)) return false;
+                Reply where;
+                scope(exit) where.dispose();
+                uint whereLine;
+                auto located = ownLocation(name, args, where, whereLine);
+                if (!putToolCall(u, false, id, title.slice(), name, kind, null, args, null, null, null, null,
+                        located ? where.slice() : null, whereLine) || !told(u)) return false;
             }
         }
         else if (role == "tool") {

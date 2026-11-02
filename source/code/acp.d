@@ -106,6 +106,7 @@ struct Sessions {
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
     Reply after;     // what is told the client once the answer it follows is written
+    bool initialized; // initialize was answered; until then every other request is refused
 }
 
 // The turn under way: whose it is, the request that asked for it, and whether
@@ -153,6 +154,14 @@ private bool listed(const(char)[] names, const(char)[] name) {
 // client; acceptEdits runs an edit unasked, unless the user always rejects it,
 // and asks the rest as Manual does; auto has no classifier, so it asks as well.
 private enum Verdict { run, ask, refuse }
+// "If a session-scoped request names a session that does not exist or is not active on the connection,
+// the Agent SHOULD respond with -32002 and set data.sessionId to the requested ID": what it was asked to
+// do, the session it named, into r.
+private void unknownSession(ref Reply r, const(char)[] message, const(char)[] sid) {
+    r.add(`,"error":{"code":-32002,"message":"`); putEscaped(r, message); putEscaped(r, sid);
+    r.add(`","data":{"sessionId":"`); putEscaped(r, sid); r.add(`"}}}`);
+}
+
 private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, bool edit, ref const(char)[] why) {
     final switch (o.mode) {
         case SessionMode.bypassPermissions: return Verdict.run;
@@ -728,6 +737,12 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     scope(exit) text.dispose();
     size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
     auto idAt = at(pid.slice()), sidAt = at(sid), callAt = at(callId), toolAt = at(tool), inputAt = at(arguments);
+    // The file the call works with, named as its tool_call names it.
+    Reply where;
+    scope(exit) where.dispose();
+    uint whereLine;
+    bool own = (tool == WRITE_TOOL && sessions.clientWritesFiles) || (tool == READ_TOOL && sessions.clientReadsFiles);
+    auto whereAt = own && ownLocation(tool, arguments, where, whereLine) ? at(where.slice()) : size_t.max;
     // The call is named as its tool_call names it.
     auto titleAt = text.len; toolTitle(o.mcp, tool, text); text.add("\0");
     auto allowAt = text.len; text.add("Always allow "); text.add(tool); text.add("\0");
@@ -742,6 +757,9 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     ];
     auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + titleAt, t + toolAt,
         (tool == READ_TOOL && sessions.clientReadsFiles) || readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
+    import libacp : acp_location;
+    auto location = acp_location(whereAt == size_t.max ? null : t + whereAt, whereLine);
+    if (whereAt != size_t.max) { asked.locations = &location; asked.location_count = 1; }
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
     if (acp_permission_request_write(&asked, &request) != acp_status.ACP_OK) {
@@ -1415,6 +1433,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
+    // "Agents SHOULD reject any request other than initialize that arrives before initialization
+    // completes with -32600." A notification is no request, and is answered nothing, as it would be.
+    if (!sessions.initialized && method != AGENT_METHODS.initialize && rawValue(line, `"id"`) !is null) {
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        put(`,"error":{"code":-32600,"message":"ground code answers initialize first"}}`);
+        return true;
+    }
+
     // libacp reads the client's offer in the shape of the version it asked for,
     // selects the version the connection speaks, and writes the result in its
     // shape. ground code speaks v1 alone, until its v2 surface stands.
@@ -1453,6 +1479,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
         put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
+        sessions.initialized = true;
         return true;
     }
 
@@ -1634,12 +1661,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (sid is null) { put(`,"error":{"code":-32602,"message":"session/close needs sessionId"}}`); return true; }
         auto at = openAt(sessions, sid);
+        // "Closing is idempotent. If the session does not exist or is not active, for example because it
+        // was already closed, the Agent SHOULD respond with the same empty result."
         if (at < 0) {
-            char[512] eb;
-            auto n = jsonEscapeInto(sid, eb[]);
-            put(`,"error":{"code":-32002,"message":"no open session `);
-            put(n < 0 ? "one too long to name" : eb[0 .. cast(size_t) n]);
-            put(`"}}`);
+            put(`,"result":{}}`);
             return true;
         }
         if (sessions.db !is null && !storeClose(sessions.db, sid, now(sessions))) {
@@ -1832,8 +1857,10 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             return true;
         }
         if (stored == 0 || sid.length > sessions.open[0].id.length) {
-            put(`,"error":{"code":-32002,"message":"no session to `); put(verb); put(`: `);
-            putEscaped(r, sid); put(`"}}`);
+            Reply message;
+            scope(exit) message.dispose();
+            message.add("no session to "); message.add(verb); message.add(": ");
+            unknownSession(r, message.slice(), sid);
             return true;
         }
         // "it restores the session context": a session not live here gets its
@@ -1953,8 +1980,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto want = asked.mode_id[0 .. strlen(asked.mode_id)];
         auto at = openAt(sessions, sid);
         if (at < 0) {
-            put(`,"error":{"code":-32002,"message":"no open session `);
-            putEscaped(r, sid); put(`"}}`);
+            unknownSession(r, "no open session ", sid);
             return true;
         }
         auto mode = parseSessionMode(want);
@@ -2008,8 +2034,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         auto value = asked.value[0 .. strlen(asked.value)];
         auto at = openAt(sessions, sid);
         if (at < 0) {
-            put(`,"error":{"code":-32002,"message":"no open session `);
-            putEscaped(r, sid); put(`"}}`);
+            unknownSession(r, "no open session ", sid);
             return true;
         }
         auto o = &sessions.open[cast(size_t) at];
@@ -2085,9 +2110,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             putEscaped(r, sid); put(`"}}`);
             return true;
         }
+        // "Deleting an already-deleted session, or a session that never existed, SHOULD succeed silently."
         if (gone == 0) {
-            put(`,"error":{"code":-32002,"message":"no session to delete: `);
-            putEscaped(r, sid); put(`"}}`);
+            put(`,"result":{}}`);
             return true;
         }
         // A session live here owns its servers, and deleting it ends them.
@@ -2116,8 +2141,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (sid is null) { put(`,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`); return true; }
         auto at = openAt(sessions, sid);
         if (at < 0) {
-            put(`,"error":{"code":-32002,"message":"no open session `);
-            putEscaped(r, sid); put(`"}}`);
+            unknownSession(r, "no open session ", sid);
             return true;
         }
         // "the Agent MUST support ContentBlock::Text and ContentBlock::ResourceLink"
@@ -2560,7 +2584,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (o.titles.len > 0) o.titles.add(",");
                     o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
                     putEscaped(o.titles, title.slice()); o.titles.add(`"`);
-                    if (!putToolCall(u, false, call.id, title.slice(), call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    // "Tool calls can report the file locations they're working with": ground code's own, which name their file.
+                    Reply where;
+                    scope(exit) where.dispose();
+                    uint whereLine;
+                    auto located = (own || reads) && ownLocation(call.name, call.arguments, where, whereLine);
+                    if (!putToolCall(u, false, call.id, title.slice(), call.name, kind, callStatus, call.arguments, null, null, null, null,
+                            located ? where.slice() : null, whereLine) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
                         Reply asking;
                         scope(exit) asking.dispose();

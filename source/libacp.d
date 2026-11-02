@@ -105,6 +105,13 @@ extern (C) nothrow @nogc {
         const(char)* raw_input;
         const(acp_permission_option)* options;
         size_t count;
+        const(acp_location)* locations;
+        size_t location_count;
+    }
+
+    struct acp_location {
+        const(char)* path;
+        uint line;
     }
 
     enum acp_permission_kind : int { ACP_PERMISSION_UNREAD, ACP_PERMISSION_SELECTED, ACP_PERMISSION_CANCELLED }
@@ -153,6 +160,8 @@ extern (C) nothrow @nogc {
         const(char)* content_text;
         const(char)* terminal_id;
         const(acp_diff)* diff;
+        const(acp_location)* locations;
+        size_t location_count;
     }
 
     struct acp_diff {

@@ -147,6 +147,11 @@ acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_jso
     int bad = 0;
     json_object *content = tool_content(call->terminal_id, call->diff, call->content_blocks, call->content_text, &bad);
     if (bad) return ACP_INVALID_ARGUMENT;
+    json_object *locations = acp_locations(call->locations, call->location_count, &bad);
+    if (bad) {
+        json_object_put(content);
+        return ACP_INVALID_ARGUMENT;
+    }
     json_object *update = json_object_new_object();
     add_string(update, "sessionUpdate", call->update ? "tool_call_update" : "tool_call");
     add_string(update, "toolCallId", call->tool_call_id);
@@ -154,6 +159,7 @@ acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_jso
     add_string(update, "name", call->name);
     add_string(update, "kind", call->kind);
     add_string(update, "status", call->status);
+    if (locations != NULL) json_object_object_add(update, "locations", locations);
     if (call->raw_input != NULL) json_object_object_add(update, "rawInput", acp_raw(call->raw_input));
     if (call->raw_output != NULL) json_object_object_add(update, "rawOutput", acp_raw(call->raw_output));
     if (content != NULL) json_object_object_add(update, "content", content);

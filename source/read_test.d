@@ -88,7 +88,7 @@ version (Posix) private void readTurn(const(char)[] caps, const(char)[] mode, co
     do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
     while (k) urlBuf[len++] = d[--k];
     Input input = Input(p[0]);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
@@ -138,19 +138,34 @@ version (Posix) unittest {
         assert(ran.answered.slice() == ENDED);
         assert(indexOf(ran.asked.slice(), `{"type":"function","function":{"name":"read_text_file","description":"Request to read content from a text file."`) >= 0);
         assert(indexOf(ran.said.slice(), `{"jsonrpc":"2.0","id":"read-1","method":"fs/read_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b","line":2,"limit":1}}`) >= 0);
-        assert(indexOf(ran.said.slice(), `{"sessionUpdate":"tool_call","toolCallId":"r1","title":"read_text_file","name":"read_text_file","kind":"read","status":"in_progress"`) >= 0);
+        // "Tool calls can report the file locations they're working with": the path, and the line read from.
+        assert(indexOf(ran.said.slice(), `{"sessionUpdate":"tool_call","toolCallId":"r1","title":"read_text_file","name":"read_text_file","kind":"read","status":"in_progress",`
+            ~ `"locations":[{"path":"/tmp/a b","line":2}],`) >= 0);
         assert(indexOf(ran.said.slice(), `{"sessionUpdate":"tool_call_update","toolCallId":"r1","status":"completed","rawOutput":` ~ TEXT
             ~ `,"content":[{"type":"content","content":{"type":"text","text":"two\n"}}]}`) >= 0);
         assert(indexOf(ran.history.slice(), `{"role":"tool","tool_call_id":"r1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"result\":{\"content\":\"two\\n\"}}"}`) >= 0);
     }
 }
 
-// The whole file when the model names no line or limit.
+// The whole file when the model names no line or limit, and its location no line.
 version (Posix) unittest {
     Ran ran;
     scope(exit) ran.dispose();
     readTurn(READS, "bypassPermissions", `{\"path\":\"/tmp/a\"}`, TEXT ~ "\n", ran);
     assert(indexOf(ran.said.slice(), `"method":"fs/read_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a"}}`) >= 0);
+    assert(indexOf(ran.said.slice(), `"locations":[{"path":"/tmp/a"}]`) >= 0);
+}
+
+// Asked in Manual: the permission names the file as the call does.
+version (Posix) unittest {
+    Ran ran;
+    scope(exit) ran.dispose();
+    enum allow = `{"jsonrpc":"2.0","id":"perm-1","result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}`;
+    enum read2 = `{"jsonrpc":"2.0","id":"read-2","result":{"content":"two\n"}}`;
+    readTurn(READS, "default", `{\"path\":\"/tmp/a\",\"line\":7}`, allow ~ "\n" ~ read2 ~ "\n", ran);
+    assert(ran.answered.slice() == ENDED);
+    assert(indexOf(ran.said.slice(), `"method":"session/request_permission","params":{"sessionId":"code-100-7-1","toolCall":{"toolCallId":"r1",`
+        ~ `"title":"read_text_file","name":"read_text_file","kind":"read","status":"pending","locations":[{"path":"/tmp/a","line":7}],`) >= 0);
 }
 
 // The client could not read it: the call failed with the client's answer, which the model is told.
@@ -164,7 +179,8 @@ version (Posix) unittest {
     assert(indexOf(ran.history.slice(), `"content":"{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"error\":{\"code\":-32002,\"message\":\"no such file\"}}"}`) >= 0);
 }
 
-// A path that is not absolute, or a line or limit that is no uint32, is not asked of the client.
+// A path that is not absolute, or a line or limit that is no uint32, is not asked of the client, and
+// names no location.
 version (Posix) unittest {
     foreach (args; [`{\"path\":\"a b\"}`, `{\"path\":\"/tmp/a\",\"line\":-1}`, `{\"path\":\"/tmp/a\",\"limit\":4294967296}`, `{\"path\":\"/tmp/a\",\"line\":\"2\"}`]) {
         Ran ran;
@@ -172,6 +188,7 @@ version (Posix) unittest {
         readTurn(READS, "bypassPermissions", args, "", ran);
         assert(ran.answered.slice() == ENDED);
         assert(indexOf(ran.said.slice(), `fs/read_text_file`) < 0);
+        assert(indexOf(ran.said.slice(), `"locations"`) < 0);
         assert(indexOf(ran.history.slice(), `{"role":"tool","tool_call_id":"r1","content":"{\"status\":\"not run\",\"why\":\"read_text_file takes path, an absolute path, `
             ~ `and line and limit, each a whole number from 0 to 4294967295\"}"}`) >= 0);
     }
