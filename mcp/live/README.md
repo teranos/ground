@@ -74,3 +74,4 @@ A `wait` or `expect` is met by any line of what it read, and every line of that 
 | `progress.acp` | a tool's progress with a message as the call's content while it runs, nothing for a step with none | #206 |
 | `plan-replay.acp` | session/load tells a reported plan as the plan and a refused one as the warning | #208 |
 | `read-tool.acp` | read_text_file through the client in plan mode, with line and limit, and the client's error | #209 |
+| `run-env.acp` | run_command's env carried to terminal/create, each name and value as the model gave it | (this PR) |

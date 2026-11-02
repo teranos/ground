@@ -398,8 +398,11 @@ private int askTerminal(ref Turn turn, const(char)[] pid, const(char)[] request,
 
 // terminal/create for command and its args, in cwd, asked as pid: 1 created, its id in terminalId; 0 the
 // client answered with none, its answer in answered; 2 the turn was called off; -1 not asked, why the reason.
+import libacp : acp_env_variable;
+
 private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
-        const(char)* command, const(const(char)*)[] args, ref Reply pid, ref Reply terminalId, ref Reply answered, ref Reply why) {
+        const(char)* command, const(const(char)*)[] args, const(acp_env_variable)[] env, ref Reply pid, ref Reply terminalId,
+        ref Reply answered, ref Reply why) {
     import libacp : acp_terminal_create_request_write, acp_terminal_create_result_read, acp_terminal_id_free,
         acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
@@ -412,7 +415,7 @@ private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] s
     auto t = text.slice().ptr;
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
-    if (acp_terminal_create_request_write(t + idAt, t + sidAt, command, args.ptr, args.length, t + cwdAt,
+    if (acp_terminal_create_request_write(t + idAt, t + sidAt, command, args.ptr, args.length, env.ptr, env.length, t + cwdAt,
             OUTPUT_BYTE_LIMIT, &request) != acp_status.ACP_OK) {
         why.add(`"libacp could not write terminal/create"`);
         return -1;
@@ -596,13 +599,20 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
         return json_object_get_type(v) == json_type.string_
             && strlen(json_object_get_string(v)) == cast(size_t) json_object_get_string_len(v);
     }
-    auto command = jsonField(root, "command"), list = jsonField(root, "args");
+    auto command = jsonField(root, "command"), list = jsonField(root, "args"), vars = jsonField(root, "env");
     bool usable = whole(command) && json_object_get_string_len(command) > 0
-        && (list is null || json_object_get_type(list) == json_type.array);
+        && (list is null || json_object_get_type(list) == json_type.array)
+        && (vars is null || json_object_get_type(vars) == json_type.array);
     size_t count = usable && list !is null ? json_object_array_length(list) : 0;
     foreach (i; 0 .. count) if (!whole(json_object_array_get_idx(list, i))) usable = false;
+    // "Environment variables for the command", each a name and a value.
+    size_t envCount = usable && vars !is null ? json_object_array_length(vars) : 0;
+    foreach (i; 0 .. envCount) {
+        auto v = json_object_array_get_idx(vars, i);
+        if (!whole(jsonField(v, "name")) || !whole(jsonField(v, "value"))) usable = false;
+    }
     if (!usable) {
-        result.add(`{"status":"not run","why":"run_command takes command, text, and args, a list of text"}`);
+        result.add(`{"status":"not run","why":"run_command takes command, text, args, a list of text, and env, a list of name and value, each text"}`);
         return 0;
     }
     if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
@@ -610,10 +620,19 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
     if (args is null) { why.add(`"could not allocate run_command's args"`); return -1; }
     scope(exit) free(args);
     foreach (i; 0 .. count) args[i] = json_object_get_string(json_object_array_get_idx(list, i));
+    import libacp : acp_env_variable;
+    auto env = cast(acp_env_variable*) malloc((envCount > 0 ? envCount : 1) * acp_env_variable.sizeof);
+    if (env is null) { why.add(`"could not allocate run_command's env"`); return -1; }
+    scope(exit) free(env);
+    foreach (i; 0 .. envCount) {
+        auto v = json_object_array_get_idx(vars, i);
+        env[i] = acp_env_variable(json_object_get_string(jsonField(v, "name")), json_object_get_string(jsonField(v, "value")));
+    }
 
     Reply answered, asked;
     scope(exit) { answered.dispose(); asked.dispose(); }
-    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], asked, terminalId, answered, why);
+    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], env[0 .. envCount], asked, terminalId,
+        answered, why);
     if (made < 0) return -1;
     // Called off before the client answered: the terminal it makes is released when its answer comes.
     if (made == 2) {

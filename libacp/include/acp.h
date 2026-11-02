@@ -258,11 +258,18 @@ acp_status acp_write_text_file_request_write(const char *request_id, const char 
 // written, and 0 for any other answer, an error among them.
 acp_status acp_write_text_file_result_read(const char *message_json, size_t length, int *written);
 
-// terminal/create, whole: request_id is JSON text, command run with its arg_count args. cwd, an
-// absolute path, is written when given, and output_byte_limit when it is not 0.
+// terminal/create, whole: request_id is JSON text, command run with its arg_count args and its
+// env_count env, "Environment variables for the command", in order. cwd, an absolute path, is written
+// when given, and output_byte_limit when it is not 0.
+// "An environment variable to set": its name and its value.
+typedef struct acp_env_variable {
+    const char *name;
+    const char *value;
+} acp_env_variable;
+
 acp_status acp_terminal_create_request_write(const char *request_id, const char *session_id, const char *command,
-    const char *const *args, size_t arg_count, const char *cwd, unsigned long long output_byte_limit,
-    acp_buffer *message_json);
+    const char *const *args, size_t arg_count, const acp_env_variable *env, size_t env_count, const char *cwd,
+    unsigned long long output_byte_limit, acp_buffer *message_json);
 
 // The terminalId a client answers terminal/create with; NULL for any other answer. libacp owns it
 // until acp_terminal_id_free.

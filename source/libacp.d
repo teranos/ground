@@ -228,8 +228,13 @@ extern (C) nothrow @nogc {
     void acp_text_file_free(acp_text_file*);
     acp_status acp_write_text_file_request_write(const(char)*, const(char)*, const(char)*, const(char)*, size_t, acp_buffer*);
     acp_status acp_write_text_file_result_read(const(char)*, size_t, int*);
+    struct acp_env_variable {
+        const(char)* name;
+        const(char)* value;
+    }
+
     acp_status acp_terminal_create_request_write(const(char)*, const(char)*, const(char)*, const(const(char)*)*, size_t,
-        const(char)*, ulong, acp_buffer*);
+        const(acp_env_variable)*, size_t, const(char)*, ulong, acp_buffer*);
     acp_status acp_terminal_create_result_read(const(char)*, size_t, char**);
     void acp_terminal_id_free(char*);
     acp_status acp_terminal_output_request_write(const(char)*, const(char)*, const(char)*, acp_buffer*);

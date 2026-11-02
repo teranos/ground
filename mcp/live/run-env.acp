@@ -1,0 +1,17 @@
+# run_command's env: the model sets environment variables for its command, and terminal/create carries them, each name and value as given.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"terminal":true}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"bypassPermissions"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use run_command once to run sh with the arguments -c and echo $GREETING, with the environment variable GREETING set to hello, then reply with only what it printed."}]}}
+expect "method":"terminal/create"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"terminalId":"live-1"}}
+expect "method":"terminal/wait_for_exit"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"exitCode":0,"signal":null}}
+expect "method":"terminal/output"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"output":"hello\n","truncated":false,"exitStatus":{"exitCode":0,"signal":null}}}
+expect "method":"terminal/release"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 3
