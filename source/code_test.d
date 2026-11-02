@@ -2537,8 +2537,9 @@ version (Posix) unittest {
     // Each call's title is kept as it was shown, so a load tells it back as it was, whatever
     // servers the load brings: here none, so no catalogue titles them.
     assert(s.open[0].titles.slice() == `"c1":"Look around","c2":"Touch a file","c3":"test__break"`);
-    // And the kind each was shown with: look only reads; the others said none, so none is kept.
-    assert(s.open[0].kinds.slice() == `"c1":"read"`);
+    // And the kind each was shown with: look only reads; the others said none, kept as none, so a
+    // catalogue that later says their tool only reads does not make them read.
+    assert(s.open[0].kinds.slice() == `"c1":"read","c2":"","c3":""`);
     int[2] l;
     assert(pipe(l) == 0);
     fflush(stdout);
@@ -2753,4 +2754,16 @@ version (Posix) unittest {
     assert(indexOf(said2[0 .. len2], `"error":{"code":-32603,"message":"no MCP server of the session reads mem://missing"`) >= 0);
     assert(indexOf(said3[0 .. len3], `"error":{"code":-32603,"message":"mem://logo holds no text to give the model"`) >= 0);
     s.open[0].history.dispose();
+}
+
+// A replayed call's kind is the one it was shown with, none when it was shown with none;
+// the catalogue's read only for a call kept before kinds were.
+unittest {
+    import libjsonc : parseJson, jsonField, json_object_put;
+    auto kept = parseJson(`{"c1":"read","c2":""}`);
+    scope(exit) json_object_put(kept);
+    assert(shownKind(jsonField(kept, "c1"), false) == "read");
+    assert(shownKind(jsonField(kept, "c2"), true) is null);
+    assert(shownKind(jsonField(kept, "c9"), true) == "read");
+    assert(shownKind(jsonField(kept, "c9"), false) is null);
 }

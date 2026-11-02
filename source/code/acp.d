@@ -119,6 +119,18 @@ private struct Turn {
 
 // session/cancel for this turn's session, or $/cancel_request naming the
 // request that asked for it, as libacp reads the line.
+// The kind a call is told back with: the one it was shown with, kept as text, none when that
+// text is empty; read for a call kept before kinds were, when its tool only reads.
+import libjsonc : json_object;
+const(char)[] shownKind(json_object* kept, bool readOnly) {
+    import libjsonc : json_object_get_type, json_type, json_object_get_string, json_object_get_string_len;
+    if (json_object_get_type(kept) == json_type.string_) {
+        auto len = cast(size_t) json_object_get_string_len(kept);
+        return len > 0 ? json_object_get_string(kept)[0 .. len] : null;
+    }
+    return readOnly ? "read" : null;
+}
+
 private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
     import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_cancel_kind, acp_status;
     import core.stdc.string : strlen;
@@ -1893,8 +1905,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     title.add(json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)]);
                 else toolTitle(o.mcp, tool, title);
             }
-            // And with the kind it was shown with; one kept before kinds were, read when the
-            // catalogue it loads with says its tool only reads.
+            // And with the kind it was shown with, none when none was; one kept before kinds
+            // were, read when the catalogue it loads with says its tool only reads.
             Reply allKinds;
             scope(exit) allKinds.dispose();
             allKinds.add("{"); allKinds.add(o.kinds.slice()); allKinds.add("}");
@@ -1903,9 +1915,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             const(char)[] kindOf(const(char)[] callId, const(char)[] tool) {
                 key.len = 0; key.add(callId); key.add("\0");
                 auto was = key.full ? null : jsonField(shownKinds, key.slice().ptr);
-                if (json_object_get_type(was) == json_type.string_)
-                    return json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)];
-                return readOnlyTool(o.mcp, tool) ? "read" : null;
+                return shownKind(was, was is null && readOnlyTool(o.mcp, tool));
             }
             bool warned(const(char)[] title, const(char)[] description) { return tellUser(sessions, sid, "warning", title, description); }
             if (!replayHistory(o.history.slice(), &tell, &kindOf, &titled, &warned)) {
@@ -2567,11 +2577,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (o.titles.len > 0) o.titles.add(",");
                     o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
                     putEscaped(o.titles, title.slice()); o.titles.add(`"`);
-                    if (kind !is null) {
-                        if (o.kinds.len > 0) o.kinds.add(",");
-                        o.kinds.add(`"`); putEscaped(o.kinds, call.id); o.kinds.add(`":"`);
-                        o.kinds.add(kind); o.kinds.add(`"`);
-                    }
+                    // None kept as none, so a catalogue that later says its tool only reads does not make it read.
+                    if (o.kinds.len > 0) o.kinds.add(",");
+                    o.kinds.add(`"`); putEscaped(o.kinds, call.id); o.kinds.add(`":"`);
+                    if (kind !is null) o.kinds.add(kind);
+                    o.kinds.add(`"`);
                     // "Tool calls can report the file locations they're working with": ground code's own, which name their file.
                     Reply where;
                     scope(exit) where.dispose();
