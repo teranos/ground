@@ -19,7 +19,7 @@ static const acp_permission_option options[] = {
 
 // The whole request: its id, the tool call pending, and the options in order.
 static void request(void) {
-    acp_permission_request asked = {"\"perm-1\"", "code-1-1-1", "c1", "x__y", "x__y", "read", "pending", "{\"q\":\"a/b\"}", options, 2};
+    acp_permission_request asked = {"\"perm-1\"", "code-1-1-1", "c1", "x__y", "x__y", "read", "pending", "{\"q\":\"a/b\"}", options, 2, NULL, 0};
     acp_buffer out = {0};
     CHECK(acp_permission_request_write(&asked, &out) == ACP_OK);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"method\":\"session/request_permission\",\"params\":{"
@@ -28,21 +28,33 @@ static void request(void) {
                      "{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},"
                      "{\"optionId\":\"reject_always\",\"name\":\"Always reject x__y\",\"kind\":\"reject_always\"}]}}"));
     acp_buffer_free(&out);
+    // The call asked about names the file it touches as its tool_call does.
+    acp_location where[] = {{"/tmp/a", 3}};
+    acp_permission_request located = {"\"perm-2\"", "code-1-1-1", "c2", "read_text_file", "read_text_file", "read", "pending", "{}", options, 1, where, 1};
+    CHECK(acp_permission_request_write(&located, &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"perm-2\",\"method\":\"session/request_permission\",\"params\":{"
+                     "\"sessionId\":\"code-1-1-1\",\"toolCall\":{\"toolCallId\":\"c2\",\"title\":\"read_text_file\",\"name\":\"read_text_file\","
+                     "\"kind\":\"read\",\"status\":\"pending\",\"locations\":[{\"path\":\"/tmp/a\",\"line\":3}],\"rawInput\":{}},\"options\":["
+                     "{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"}]}}"));
+    acp_buffer_free(&out);
+    acp_location relativeAt[] = {{"a", 0}};
+    located.locations = relativeAt;
+    CHECK(acp_permission_request_write(&located, &out) == ACP_INVALID_ARGUMENT);
     // No name and no kind are none written; input that is not JSON is written as the text it is.
-    acp_permission_request bare = {"7", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "", options, 1};
+    acp_permission_request bare = {"7", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "", options, 1, NULL, 0};
     CHECK(acp_permission_request_write(&bare, &out) == ACP_OK);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"session/request_permission\",\"params\":{"
                      "\"sessionId\":\"code-1-1-1\",\"toolCall\":{\"toolCallId\":\"c1\",\"title\":\"x__y\",\"status\":\"pending\","
                      "\"rawInput\":\"\"},\"options\":[{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"}]}}"));
     acp_buffer_free(&out);
-    acp_permission_request half = {"7", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "{\"q\":", options, 1};
+    acp_permission_request half = {"7", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "{\"q\":", options, 1, NULL, 0};
     CHECK(acp_permission_request_write(&half, &out) == ACP_OK);
     CHECK(out.data && strstr(out.data, "\"rawInput\":\"{\\\"q\\\":\"}") != NULL);
     acp_buffer_free(&out);
     // An id that is not JSON, or no options, is no request.
-    acp_permission_request stray = {"perm-1", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "{}", options, 1};
+    acp_permission_request stray = {"perm-1", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "{}", options, 1, NULL, 0};
     CHECK(acp_permission_request_write(&stray, &out) == ACP_INVALID_ARGUMENT);
-    acp_permission_request none = {"7", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "{}", options, 0};
+    acp_permission_request none = {"7", "code-1-1-1", "c1", "x__y", NULL, NULL, "pending", "{}", options, 0, NULL, 0};
     CHECK(acp_permission_request_write(&none, &out) == ACP_INVALID_ARGUMENT);
 }
 
