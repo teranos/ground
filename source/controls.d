@@ -20,8 +20,8 @@ private __gshared const(Sand)* landed = &builtinSand;
 private __gshared bool heldOnce = false;
 
 // "why isnt everything that needs sand loading it."
-// The first read in a process holds the landed sand, so no process can read the
-// floor by forgetting to ask. A unittest reads the floor it was built with.
+// 「[Opus 5.5] The first read in a process holds the landed sand, so no process can read the」
+// 「[Opus 5.5] floor by forgetting to ask. A unittest reads the floor it was built with.」
 private const(Sand)* held() {
     version (unittest) {} else {
         if (!heldOnce) {
