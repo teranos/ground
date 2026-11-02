@@ -56,7 +56,7 @@ static assert(matchAny(3, "abcdef", 0).ok == false);
 static assert(matchAny(3, "abcdef", 0).consumed == 0);
 
 // Test 13: sequence [letters(1..2), digits(1..3), literal(": ")] matches "O3: text" — consumed 4.
-enum sliceCode = [letters(1, 2), digits(1, 3), literal(": ")];
+static immutable Part[3] sliceCode = [letters(1, 2), digits(1, 3), literal(": ")];
 static assert(matchSequence(sliceCode, "O3: text", 0).ok == true);
 static assert(matchSequence(sliceCode, "O3: text", 0).consumed == 4);
 
@@ -69,8 +69,10 @@ static assert(matchSequence(sliceCode, "3O: text", 0).consumed == 0);
 // and matching needs that pool passed through.
 enum wordOwner = () {
     Strop o;
-    Part p = oneof(["DEP", "DOCFIX", "FIX", "TIDY"], o);
-    o.sequences[0] = sequence([p, literal(": ")]);
+    string[4] words = ["DEP", "DOCFIX", "FIX", "TIDY"];
+    Part p = oneof(words[], o);
+    Part[2] parts = [p, literal(": ")];
+    o.sequences[0] = sequence(parts[]);
     o.sequenceCount = 1;
     return o;
 }();
@@ -84,9 +86,11 @@ static assert(matchStrop(wordOwner, "DEP: foo").consumed == 5);
 enum commitStrop = () {
     Strop o;
     o.flag = "-m";
-    o.sequences[0] = sequence(sliceCode);
-    Part w = oneof(["DEP", "DOCFIX", "FIX", "TIDY"], o);
-    o.sequences[1] = sequence([w, literal(": ")]);
+    o.sequences[0] = sequence(sliceCode[]);
+    string[4] words = ["DEP", "DOCFIX", "FIX", "TIDY"];
+    Part w = oneof(words[], o);
+    Part[2] parts = [w, literal(": ")];
+    o.sequences[1] = sequence(parts[]);
     o.sequenceCount = 2;
     return o;
 }();
@@ -228,7 +232,7 @@ static assert(stropDeny.msg.length > 0);
 enum stropNoFlag = () {
     Strop s;
     s.flag = "-m";
-    s.sequences[0] = sequence(sliceCode);
+    s.sequences[0] = sequence(sliceCode[]);
     s.sequenceCount = 1;
     return stropDispatch(s, `git commit`);
 }();
@@ -238,7 +242,7 @@ static assert(stropNoFlag.deny == true);
 enum stropRichMsg = () {
     Strop s;
     s.flag = "-m";
-    s.sequences[0] = sequence(sliceCode);
+    s.sequences[0] = sequence(sliceCode[]);
     s.sequenceCount = 1;
     return stropDispatch(s, `git commit -m "hello world"`);
 }();
