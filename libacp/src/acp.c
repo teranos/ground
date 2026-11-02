@@ -128,3 +128,24 @@ json_object *acp_raw(const char *text) {
     json_object_set_serializer(value, raw_text, copy, raw_free);
     return value;
 }
+
+json_object *acp_locations(const acp_location *locations, size_t count, int *bad) {
+    if (count == 0) return NULL;
+    if (locations == NULL) {
+        *bad = 1;
+        return NULL;
+    }
+    for (size_t i = 0; i < count; i++)
+        if (locations[i].path == NULL || locations[i].path[0] != '/') {
+            *bad = 1;
+            return NULL;
+        }
+    json_object *all = json_object_new_array();
+    for (size_t i = 0; i < count; i++) {
+        json_object *at = json_object_new_object();
+        json_object_object_add(at, "path", json_object_new_string(locations[i].path));
+        if (locations[i].line != 0) json_object_object_add(at, "line", json_object_new_int64(locations[i].line));
+        json_object_array_add(all, at);
+    }
+    return all;
+}

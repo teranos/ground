@@ -365,3 +365,20 @@ unittest {
     assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"fs__write","name":"fs__write","rawInput":{}}`) >= 0);
     assert(indexOf(out_, `"content":[{"type":"content","content":{"type":"text","text":"seen"}}]}`) >= 0);
 }
+
+// A call ground code reads or writes a file with is told back on session/load with the location it
+// had live; an MCP tool's arguments name no file ground code knows of, so its call has none.
+unittest {
+    import code.prompt : replayHistory;
+    import matcher : indexOf;
+    Reply told;
+    scope(exit) told.dispose();
+    bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
+    assert(replayHistory(`{"role":"assistant","content":null,"tool_calls":[`
+        ~ `{"id":"w1","type":"function","function":{"name":"write_text_file","arguments":"{\"path\":\"/tmp/w\",\"content\":\"x\"}"}},`
+        ~ `{"id":"r1","type":"function","function":{"name":"read_text_file","arguments":"{\"path\":\"/tmp/r\",\"line\":3}"}},`
+        ~ `{"id":"m1","type":"function","function":{"name":"fs__look","arguments":"{\"path\":\"/tmp/m\"}"}}]}`, &send));
+    assert(indexOf(told.slice(), `"toolCallId":"w1","title":"write_text_file","name":"write_text_file","locations":[{"path":"/tmp/w"}],`) >= 0);
+    assert(indexOf(told.slice(), `"toolCallId":"r1","title":"read_text_file","name":"read_text_file","locations":[{"path":"/tmp/r","line":3}],`) >= 0);
+    assert(indexOf(told.slice(), `"toolCallId":"m1","title":"fs__look","name":"fs__look","rawInput"`) >= 0);
+}

@@ -196,6 +196,13 @@ typedef struct acp_permission_option {
     const char *kind;
 } acp_permission_option;
 
+// A file a tool call works with, "Enables "follow-along" features in clients": its absolute path, and
+// the line within it when line is not 0.
+typedef struct acp_location {
+    const char *path;
+    uint32_t line;
+} acp_location;
+
 // session/request_permission, whole. request_id and raw_input are JSON text; raw_input that is
 // not JSON is written as a string. name and kind are not written when NULL.
 typedef struct acp_permission_request {
@@ -209,6 +216,8 @@ typedef struct acp_permission_request {
     const char *raw_input;
     const acp_permission_option *options;
     size_t count;
+    const acp_location *locations; // the call's locations, location_count of them; none when 0
+    size_t location_count;
 } acp_permission_request;
 
 acp_status acp_permission_request_write(const acp_permission_request *request, acp_buffer *message_json);
@@ -365,6 +374,8 @@ typedef struct acp_tool_call {
     const char *content_text;
     const char *terminal_id;
     const acp_diff *diff;
+    const acp_location *locations; // "File locations affected by this tool call", location_count of them
+    size_t location_count;
 } acp_tool_call;
 
 acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_json);

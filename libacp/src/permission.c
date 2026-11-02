@@ -11,12 +11,19 @@ acp_status acp_permission_request_write(const acp_permission_request *request, a
     for (size_t i = 0; i < request->count; i++)
         if (request->options[i].option_id == NULL || request->options[i].name == NULL || request->options[i].kind == NULL)
             return ACP_INVALID_ARGUMENT;
+    int bad = 0;
+    json_object *locations = acp_locations(request->locations, request->location_count, &bad);
+    if (bad) return ACP_INVALID_ARGUMENT;
     json_object *id = acp_parse(request->request_id, strlen(request->request_id));
-    if (id == NULL) return ACP_INVALID_ARGUMENT;
+    if (id == NULL) {
+        json_object_put(locations);
+        return ACP_INVALID_ARGUMENT;
+    }
     // The model's arguments as it gave them: JSON as JSON, anything else as the text it is.
     json_object *input = acp_raw(request->raw_input);
     if (input == NULL) {
         json_object_put(id);
+        json_object_put(locations);
         return ACP_NO_MEMORY;
     }
     json_object *call = json_object_new_object();
@@ -25,6 +32,7 @@ acp_status acp_permission_request_write(const acp_permission_request *request, a
     if (request->name != NULL) json_object_object_add(call, "name", json_object_new_string(request->name));
     if (request->kind != NULL) json_object_object_add(call, "kind", json_object_new_string(request->kind));
     json_object_object_add(call, "status", json_object_new_string(request->status));
+    if (locations != NULL) json_object_object_add(call, "locations", locations);
     json_object_object_add(call, "rawInput", input);
     json_object *options = json_object_new_array();
     for (size_t i = 0; i < request->count; i++) {

@@ -709,6 +709,12 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     scope(exit) text.dispose();
     size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
     auto idAt = at(pid.slice()), sidAt = at(sid), callAt = at(callId), toolAt = at(tool), inputAt = at(arguments);
+    // The file the call works with, named as its tool_call names it.
+    Reply where;
+    scope(exit) where.dispose();
+    uint whereLine;
+    bool own = (tool == WRITE_TOOL && sessions.clientWritesFiles) || (tool == READ_TOOL && sessions.clientReadsFiles);
+    auto whereAt = own && ownLocation(tool, arguments, where, whereLine) ? at(where.slice()) : size_t.max;
     // The call is named as its tool_call names it.
     auto titleAt = text.len; toolTitle(o.mcp, tool, text); text.add("\0");
     auto allowAt = text.len; text.add("Always allow "); text.add(tool); text.add("\0");
@@ -723,6 +729,9 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     ];
     auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, t + titleAt, t + toolAt,
         (tool == READ_TOOL && sessions.clientReadsFiles) || readOnlyTool(o.mcp, tool) ? "read".ptr : null, "pending", t + inputAt, options.ptr, options.length);
+    import libacp : acp_location;
+    auto location = acp_location(whereAt == size_t.max ? null : t + whereAt, whereLine);
+    if (whereAt != size_t.max) { asked.locations = &location; asked.location_count = 1; }
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
     if (acp_permission_request_write(&asked, &request) != acp_status.ACP_OK) {
@@ -2541,7 +2550,13 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (o.titles.len > 0) o.titles.add(",");
                     o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
                     putEscaped(o.titles, title.slice()); o.titles.add(`"`);
-                    if (!putToolCall(u, false, call.id, title.slice(), call.name, kind, callStatus, call.arguments, null) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
+                    // "Tool calls can report the file locations they're working with": ground code's own, which name their file.
+                    Reply where;
+                    scope(exit) where.dispose();
+                    uint whereLine;
+                    auto located = (own || reads) && ownLocation(call.name, call.arguments, where, whereLine);
+                    if (!putToolCall(u, false, call.id, title.slice(), call.name, kind, callStatus, call.arguments, null, null, null, null,
+                            located ? where.slice() : null, whereLine) || !notify(sid, u.slice())) { put(`,"error":{"code":-32603,"message":"could not write session/update"}}`); return true; }
                     if (verdict == Verdict.ask) {
                         Reply asking;
                         scope(exit) asking.dispose();
