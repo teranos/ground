@@ -106,6 +106,7 @@ struct Sessions {
     ulong contextSize; // the model's context window in tokens, from the gateway's models list; 0 until asked
     Input* input;    // what the client has sent and ground code has not read; a turn looks at it
     Reply after;     // what is told the client once the answer it follows is written
+    bool initialized; // initialize was answered; until then every other request is refused
 }
 
 // The turn under way: whose it is, the request that asked for it, and whether
@@ -1405,6 +1406,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
+    // "Agents SHOULD reject any request other than initialize that arrives before initialization
+    // completes with -32600." A notification is no request, and is answered nothing, as it would be.
+    if (!sessions.initialized && method != AGENT_METHODS.initialize && rawValue(line, `"id"`) !is null) {
+        put(`{"jsonrpc":"2.0","id":`); put(id);
+        put(`,"error":{"code":-32600,"message":"ground code answers initialize first"}}`);
+        return true;
+    }
+
     // libacp reads the client's offer in the shape of the version it asked for,
     // selects the version the connection speaks, and writes the result in its
     // shape. ground code speaks v1 alone, until its v2 surface stands.
@@ -1443,6 +1452,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (wrote != acp_status.ACP_OK) { put(`,"error":{"code":-32603,"message":"libacp could not write initialize's result"}}`); return true; }
         put(`,"result":`); put(result.data[0 .. result.length]); put(`}`);
+        sessions.initialized = true;
         return true;
     }
 

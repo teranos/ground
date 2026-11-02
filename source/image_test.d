@@ -75,7 +75,7 @@ unittest {
 
 // "Other variants must be explicitly opted in to": ground code opts in to images.
 unittest {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`, r, s));
@@ -85,7 +85,7 @@ unittest {
 // An image the data URL cannot carry is refused before the model is asked, by
 // what is wrong with it.
 unittest {
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.contextSize = 200_000;
     Reply r;
     scope(exit) r.dispose();
@@ -149,7 +149,7 @@ version (Posix) unittest {
     int[2] p;
     assert(pipe(p) == 0);
     Input input = Input(p[0]);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); waitpid(child, null, 0); }
