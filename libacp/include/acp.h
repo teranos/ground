@@ -463,6 +463,9 @@ typedef struct acp_config_select {
 acp_status acp_config_options_write(const acp_config_select *selects, size_t count, acp_buffer *out_json);
 
 // --- The client side: what a client writes to an agent, and reads of what the agent sends. ---
+// acp_client_<method>_write writes what the client sends for the method, and acp_client_<method>_read
+// reads what the agent sends for it, the method by its name in acp_methods.h: ground parity measures each
+// method's keys through them.
 
 // A message as it came: a request, with its id and method; a notification, a method and no id; or a
 // response, an id and a result or an error. UNREAD for any other. id is JSON text, as it was sent;
@@ -486,15 +489,15 @@ typedef struct acp_message {
 } acp_message;
 
 // ACP_PARSE_ERROR for text that is not one JSON value.
-acp_status acp_message_read(const char *message_json, size_t length, acp_message *out);
+acp_status acp_client_message_read(const char *message_json, size_t length, acp_message *out);
 void acp_message_free(acp_message *message);
 
 // An error answering request_id, JSON text: a request the client does not answer otherwise.
-acp_status acp_error_write(const char *request_id, int code, const char *message, acp_buffer *message_json);
+acp_status acp_client_error_write(const char *request_id, int code, const char *message, acp_buffer *message_json);
 
 // initialize, whole, from the client: the version it asks for, 1 or 2, what it offers, in that
 // version's shape, and who it is. v2 offers only elicitation and auth, as acp_initialize_read reads them.
-acp_status acp_initialize_request_write(const char *request_id, unsigned version, const acp_client_capabilities *offered,
+acp_status acp_client_initialize_write(const char *request_id, unsigned version, const acp_client_capabilities *offered,
     const char *client_name, const char *client_version, acp_buffer *message_json);
 
 // What the agent answers initialize with: the version it speaks, 0 for an answer of any other kind,
@@ -513,7 +516,7 @@ typedef struct acp_agent_info {
     char *agent_version;
 } acp_agent_info;
 
-acp_status acp_initialize_response_read(const char *message_json, size_t length, acp_agent_info *out);
+acp_status acp_client_initialize_read(const char *message_json, size_t length, acp_agent_info *out);
 void acp_agent_info_free(acp_agent_info *info);
 
 // An MCP server a session connects to over HTTP, "Only available when the Agent capabilities indicate
@@ -531,28 +534,28 @@ typedef struct acp_mcp_http {
 } acp_mcp_http;
 
 // session/new, session/load and session/resume, whole, in v1: cwd absolute, and the servers, [] when none.
-acp_status acp_session_new_request_write(const char *request_id, const char *cwd,
+acp_status acp_client_session_new_write(const char *request_id, const char *cwd,
     const acp_mcp_http *servers, size_t count, acp_buffer *message_json);
-acp_status acp_session_load_request_write(const char *request_id, const char *session_id, const char *cwd,
+acp_status acp_client_session_load_write(const char *request_id, const char *session_id, const char *cwd,
     const acp_mcp_http *servers, size_t count, acp_buffer *message_json);
-acp_status acp_session_resume_request_write(const char *request_id, const char *session_id, const char *cwd,
+acp_status acp_client_session_resume_write(const char *request_id, const char *session_id, const char *cwd,
     const acp_mcp_http *servers, size_t count, acp_buffer *message_json);
 
 // The sessionId the agent answers session/new with; NULL for any other answer. libacp owns it until
 // acp_session_id_free.
-acp_status acp_session_new_response_read(const char *message_json, size_t length, char **session_id);
+acp_status acp_client_session_new_read(const char *message_json, size_t length, char **session_id);
 void acp_session_id_free(char **session_id);
 
 // session/prompt, whole: one text block, every byte of text.
-acp_status acp_prompt_request_write(const char *request_id, const char *session_id, const char *text, size_t length,
+acp_status acp_client_session_prompt_write(const char *request_id, const char *session_id, const char *text, size_t length,
     acp_buffer *message_json);
 
 // Why the agent stopped the turn: stopped is 1 for a result naming one of the five, which is in reason,
 // and 0 for any other answer, an error among them.
-acp_status acp_prompt_response_read(const char *message_json, size_t length, int *stopped, acp_stop_reason *reason);
+acp_status acp_client_session_prompt_read(const char *message_json, size_t length, int *stopped, acp_stop_reason *reason);
 
 // session/cancel, whole: a notification.
-acp_status acp_session_cancel_write(const char *session_id, acp_buffer *message_json);
+acp_status acp_client_session_cancel_write(const char *session_id, acp_buffer *message_json);
 
 // A session/update as the client reads it: its kind, and what is shown of each.
 typedef enum acp_update_kind {
@@ -591,7 +594,7 @@ typedef struct acp_update {
 } acp_update;
 
 // Reads a whole session/update notification; UNREAD when it holds no update naming its kind.
-acp_status acp_session_update_read(const char *message_json, size_t length, acp_update *out);
+acp_status acp_client_session_update_read(const char *message_json, size_t length, acp_update *out);
 void acp_update_free(acp_update *update);
 
 // session/request_permission's params, as the client reads them: the session, the call it asks about,
@@ -614,11 +617,11 @@ typedef struct acp_permission_asked {
 } acp_permission_asked;
 
 // ACP_INVALID_PARAMS when sessionId, toolCall's toolCallId or options is missing.
-acp_status acp_permission_request_read(const char *params_json, size_t length, acp_permission_asked *out);
+acp_status acp_client_session_request_permission_read(const char *params_json, size_t length, acp_permission_asked *out);
 void acp_permission_asked_free(acp_permission_asked *asked);
 
 // The client's answer to session/request_permission: option_id selected, or cancelled when NULL.
-acp_status acp_permission_outcome_write(const char *request_id, const char *option_id, acp_buffer *message_json);
+acp_status acp_client_session_request_permission_write(const char *request_id, const char *option_id, acp_buffer *message_json);
 
 #ifdef __cplusplus
 }

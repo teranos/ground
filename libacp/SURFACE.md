@@ -37,6 +37,8 @@ what v2 (schema-v2.0.0-alpha.9) says of the same method, so v2 needs no second p
 
 What a client writes to an agent and reads of what it sends, v1 (schema-v1.26.0). `tests/client.c` checks
 each against the agent side's own reader or writer of the same method.
+`acp_client_<method>_write` writes what the client sends for a method, `acp_client_<method>_read` reads
+what the agent sends for it, and `ground_parity` scores each method's client side through them.
 
 | Method | libacp, client side, v1 |
 |---|---|

@@ -37,7 +37,7 @@ static void initialize_request(void) {
     offer.fs_read_text_file = 1;
     offer.terminal = 1;
     acp_buffer m = {0};
-    CHECK(acp_initialize_request_write("0", 1, &offer, "qntx", "1", &m) == ACP_OK);
+    CHECK(acp_client_initialize_write("0", 1, &offer, "qntx", "1", &m) == ACP_OK);
     CHECK(m.data != NULL && strcmp(m.data, "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,"
         "\"clientCapabilities\":{\"fs\":{\"readTextFile\":true,\"writeTextFile\":false},\"terminal\":true},"
         "\"clientInfo\":{\"name\":\"qntx\",\"version\":\"1\"}}}") == 0);
@@ -52,13 +52,13 @@ static void initialize_request(void) {
     acp_buffer_free(&m);
 
     // v2's request carries info and capabilities, and offers no fs or terminal.
-    CHECK(acp_initialize_request_write("0", 2, &offer, "qntx", "1", &m) == ACP_OK);
+    CHECK(acp_client_initialize_write("0", 2, &offer, "qntx", "1", &m) == ACP_OK);
     CHECK(has(&m, "\"capabilities\":{}") && has(&m, "\"info\":{\"name\":\"qntx\",\"version\":\"1\"}"));
     CHECK(!has(&m, "clientCapabilities") && !has(&m, "terminal"));
     acp_buffer_free(&m);
 
-    CHECK(acp_initialize_request_write("0", 3, &offer, "qntx", "1", &m) == ACP_INVALID_ARGUMENT);
-    CHECK(acp_initialize_request_write("not json", 1, &offer, "qntx", "1", &m) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_client_initialize_write("0", 3, &offer, "qntx", "1", &m) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_client_initialize_write("not json", 1, &offer, "qntx", "1", &m) == ACP_INVALID_ARGUMENT);
 }
 
 // The agent's answer, as the agent side writes it: the version it speaks and what it offers.
@@ -70,7 +70,7 @@ static void initialize_response(void) {
     snprintf(message, sizeof message, "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":%s}", result.data);
     acp_buffer_free(&result);
     acp_agent_info info;
-    CHECK(acp_initialize_response_read(message, strlen(message), &info) == ACP_OK);
+    CHECK(acp_client_initialize_read(message, strlen(message), &info) == ACP_OK);
     CHECK(info.protocol_version == 1 && info.load_session == 1 && info.session_resume == 1);
     CHECK(info.mcp_http == 1 && info.mcp_sse == 0 && info.prompt_image == 1 && info.prompt_audio == 0);
     CHECK(info.agent_name != NULL && strcmp(info.agent_name, "ground") == 0);
@@ -79,7 +79,7 @@ static void initialize_response(void) {
 
     // An error is no agent: version 0, nothing offered.
     const char *refused = "{\"jsonrpc\":\"2.0\",\"id\":0,\"error\":{\"code\":-32022,\"message\":\"no\"}}";
-    CHECK(acp_initialize_response_read(refused, strlen(refused), &info) == ACP_OK);
+    CHECK(acp_client_initialize_read(refused, strlen(refused), &info) == ACP_OK);
     CHECK(info.protocol_version == 0 && info.load_session == 0 && info.agent_name == NULL);
     acp_agent_info_free(&info);
 }
@@ -90,7 +90,7 @@ static void session_requests(void) {
     const acp_http_header bearer[] = {{"Authorization", "Bearer t"}};
     const acp_mcp_http servers[] = {{"qntx", "https://node/mcp", bearer, 1}};
     acp_buffer m = {0};
-    CHECK(acp_session_new_request_write("1", "/work", servers, 1, &m) == ACP_OK);
+    CHECK(acp_client_session_new_write("1", "/work", servers, 1, &m) == ACP_OK);
     CHECK(m.data != NULL && strcmp(m.data, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"cwd\":\"/work\","
         "\"mcpServers\":[{\"type\":\"http\",\"name\":\"qntx\",\"url\":\"https://node/mcp\","
         "\"headers\":[{\"name\":\"Authorization\",\"value\":\"Bearer t\"}]}]}}") == 0);
@@ -104,12 +104,12 @@ static void session_requests(void) {
     acp_buffer_free(&m);
 
     // No servers is an empty list, which the request requires.
-    CHECK(acp_session_new_request_write("1", "/work", NULL, 0, &m) == ACP_OK);
+    CHECK(acp_client_session_new_write("1", "/work", NULL, 0, &m) == ACP_OK);
     CHECK(has(&m, "\"mcpServers\":[]"));
     acp_buffer_free(&m);
-    CHECK(acp_session_new_request_write("1", "work", NULL, 0, &m) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_client_session_new_write("1", "work", NULL, 0, &m) == ACP_INVALID_ARGUMENT);
 
-    CHECK(acp_session_load_request_write("2", "s-1", "/work", servers, 1, &m) == ACP_OK);
+    CHECK(acp_client_session_load_write("2", "s-1", "/work", servers, 1, &m) == ACP_OK);
     CHECK(has(&m, "\"method\":\"session/load\"") && has(&m, "\"sessionId\":\"s-1\""));
     params = params_of(m.data);
     acp_session_resume loaded;
@@ -119,7 +119,7 @@ static void session_requests(void) {
     free(params);
     acp_buffer_free(&m);
 
-    CHECK(acp_session_resume_request_write("3", "s-1", "/work", servers, 1, &m) == ACP_OK);
+    CHECK(acp_client_session_resume_write("3", "s-1", "/work", servers, 1, &m) == ACP_OK);
     CHECK(has(&m, "\"method\":\"session/resume\"") && has(&m, "\"mcpServers\":[{"));
     params = params_of(m.data);
     acp_session_resume resumed;
@@ -138,19 +138,19 @@ static void session_new_response(void) {
     snprintf(message, sizeof message, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":%s}", result.data);
     acp_buffer_free(&result);
     char *sid = NULL;
-    CHECK(acp_session_new_response_read(message, strlen(message), &sid) == ACP_OK);
+    CHECK(acp_client_session_new_read(message, strlen(message), &sid) == ACP_OK);
     CHECK(sid != NULL && strcmp(sid, "s-9") == 0);
     acp_session_id_free(&sid);
     CHECK(sid == NULL);
     const char *refused = "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"no\"}}";
-    CHECK(acp_session_new_response_read(refused, strlen(refused), &sid) == ACP_OK && sid == NULL);
+    CHECK(acp_client_session_new_read(refused, strlen(refused), &sid) == ACP_OK && sid == NULL);
 }
 
 // A prompt of text, every byte of it, read back by the agent side as one text block.
 static void prompt_request(void) {
     const char says[] = "line one\n\"quoted\" \xc3\xa9";
     acp_buffer m = {0};
-    CHECK(acp_prompt_request_write("4", "s-1", says, sizeof says - 1, &m) == ACP_OK);
+    CHECK(acp_client_session_prompt_write("4", "s-1", says, sizeof says - 1, &m) == ACP_OK);
     CHECK(has(&m, "\"method\":\"session/prompt\"") && has(&m, "\"sessionId\":\"s-1\""));
     char *params = params_of(m.data);
     acp_prompt prompt;
@@ -174,21 +174,21 @@ static void prompt_response(void) {
         acp_buffer_free(&result);
         int stopped = 0;
         acp_stop_reason reason = ACP_STOP_END_TURN;
-        CHECK(acp_prompt_response_read(message, strlen(message), &stopped, &reason) == ACP_OK);
+        CHECK(acp_client_session_prompt_read(message, strlen(message), &stopped, &reason) == ACP_OK);
         CHECK(stopped == 1 && reason == reasons[i]);
     }
     int stopped = 1;
     acp_stop_reason reason;
     const char *refused = "{\"jsonrpc\":\"2.0\",\"id\":4,\"error\":{\"code\":-32603,\"message\":\"no\"}}";
-    CHECK(acp_prompt_response_read(refused, strlen(refused), &stopped, &reason) == ACP_OK && stopped == 0);
+    CHECK(acp_client_session_prompt_read(refused, strlen(refused), &stopped, &reason) == ACP_OK && stopped == 0);
     const char *unknown = "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"stopReason\":\"tired\"}}";
-    CHECK(acp_prompt_response_read(unknown, strlen(unknown), &stopped, &reason) == ACP_OK && stopped == 0);
+    CHECK(acp_client_session_prompt_read(unknown, strlen(unknown), &stopped, &reason) == ACP_OK && stopped == 0);
 }
 
 // session/cancel, a notification, read back by the agent side as a cancel of the session.
 static void cancel(void) {
     acp_buffer m = {0};
-    CHECK(acp_session_cancel_write("s-1", &m) == ACP_OK);
+    CHECK(acp_client_session_cancel_write("s-1", &m) == ACP_OK);
     CHECK(!has(&m, "\"id\""));
     acp_cancel c;
     CHECK(m.data != NULL && acp_cancel_read(m.data, m.length, &c) == ACP_OK);
@@ -201,26 +201,26 @@ static void cancel(void) {
 static void messages(void) {
     acp_message msg;
     const char *request = "{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"method\":\"session/request_permission\",\"params\":{}}";
-    CHECK(acp_message_read(request, strlen(request), &msg) == ACP_OK);
+    CHECK(acp_client_message_read(request, strlen(request), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_REQUEST && strcmp(msg.id, "\"a\"") == 0 && strcmp(msg.method, "session/request_permission") == 0);
     acp_message_free(&msg);
     const char *note = "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{}}";
-    CHECK(acp_message_read(note, strlen(note), &msg) == ACP_OK);
+    CHECK(acp_client_message_read(note, strlen(note), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_NOTIFICATION && msg.id == NULL && strcmp(msg.method, "session/update") == 0);
     acp_message_free(&msg);
     const char *result = "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{}}";
-    CHECK(acp_message_read(result, strlen(result), &msg) == ACP_OK);
+    CHECK(acp_client_message_read(result, strlen(result), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_RESPONSE && strcmp(msg.id, "7") == 0 && msg.is_error == 0 && msg.method == NULL);
     acp_message_free(&msg);
     const char *error = "{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32603,\"message\":\"broke\",\"data\":{\"why\":1}}}";
-    CHECK(acp_message_read(error, strlen(error), &msg) == ACP_OK);
+    CHECK(acp_client_message_read(error, strlen(error), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_RESPONSE && msg.is_error == 1 && msg.error_code == -32603);
     CHECK(msg.error_message != NULL && strcmp(msg.error_message, "broke") == 0);
     CHECK(msg.error_data != NULL && strcmp(msg.error_data, "{\"why\":1}") == 0);
     acp_message_free(&msg);
-    CHECK(acp_message_read("not json", 8, &msg) == ACP_PARSE_ERROR && msg.kind == ACP_MESSAGE_UNREAD);
+    CHECK(acp_client_message_read("not json", 8, &msg) == ACP_PARSE_ERROR && msg.kind == ACP_MESSAGE_UNREAD);
     const char *neither = "{\"jsonrpc\":\"2.0\",\"id\":7}";
-    CHECK(acp_message_read(neither, strlen(neither), &msg) == ACP_OK && msg.kind == ACP_MESSAGE_UNREAD);
+    CHECK(acp_client_message_read(neither, strlen(neither), &msg) == ACP_OK && msg.kind == ACP_MESSAGE_UNREAD);
     acp_message_free(&msg);
 }
 
@@ -232,7 +232,7 @@ static void updates(void) {
     const char says[] = "hello \"there\"\n";
     CHECK(acp_text_chunk_write(ACP_CHUNK_AGENT_MESSAGE, says, sizeof says - 1, &u) == ACP_OK);
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
-    CHECK(acp_session_update_read(m.data, m.length, &up) == ACP_OK);
+    CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK);
     CHECK(up.kind == ACP_UPDATE_AGENT_MESSAGE && strcmp(up.session_id, "s-1") == 0);
     CHECK(up.text != NULL && up.text_length == sizeof says - 1 && memcmp(up.text, says, up.text_length) == 0);
     CHECK(up.update != NULL && strcmp(up.update, u.data) == 0);
@@ -242,7 +242,7 @@ static void updates(void) {
 
     CHECK(acp_text_chunk_write(ACP_CHUNK_AGENT_THOUGHT, "hm", 2, &u) == ACP_OK);
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
-    CHECK(acp_session_update_read(m.data, m.length, &up) == ACP_OK && up.kind == ACP_UPDATE_AGENT_THOUGHT);
+    CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK && up.kind == ACP_UPDATE_AGENT_THOUGHT);
     acp_update_free(&up);
     acp_buffer_free(&u);
     acp_buffer_free(&m);
@@ -256,7 +256,7 @@ static void updates(void) {
     call.raw_input = "{\"a\":1}";
     CHECK(acp_tool_call_write(&call, &u) == ACP_OK);
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
-    CHECK(acp_session_update_read(m.data, m.length, &up) == ACP_OK);
+    CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK);
     CHECK(up.kind == ACP_UPDATE_TOOL_CALL && strcmp(up.tool_call_id, "c1") == 0 && strcmp(up.title, "qntx: am") == 0);
     CHECK(strcmp(up.name, "mcp__qntx__am") == 0 && strcmp(up.tool_kind, "fetch") == 0 && strcmp(up.status, "pending") == 0);
     CHECK(up.raw_input != NULL && strcmp(up.raw_input, "{\"a\":1}") == 0 && up.raw_output == NULL);
@@ -271,7 +271,7 @@ static void updates(void) {
     done.raw_output = "[1,2]";
     CHECK(acp_tool_call_write(&done, &u) == ACP_OK);
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
-    CHECK(acp_session_update_read(m.data, m.length, &up) == ACP_OK);
+    CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK);
     CHECK(up.kind == ACP_UPDATE_TOOL_CALL_UPDATE && strcmp(up.status, "completed") == 0 && up.title == NULL);
     CHECK(up.raw_output != NULL && strcmp(up.raw_output, "[1,2]") == 0);
     acp_update_free(&up);
@@ -280,7 +280,7 @@ static void updates(void) {
 
     CHECK(acp_usage_update_write(1200, 200000, "0.0123", "USD", &u) == ACP_OK);
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
-    CHECK(acp_session_update_read(m.data, m.length, &up) == ACP_OK);
+    CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK);
     CHECK(up.kind == ACP_UPDATE_USAGE && up.used == 1200 && up.size == 200000);
     CHECK(up.cost_amount != NULL && strcmp(up.cost_amount, "0.0123") == 0 && strcmp(up.cost_currency, "USD") == 0);
     acp_update_free(&up);
@@ -291,14 +291,14 @@ static void updates(void) {
     const char *plan = "{\"entries\":[{\"content\":\"x\",\"priority\":\"low\",\"status\":\"pending\"}]}";
     CHECK(acp_plan_write(plan, strlen(plan), &u) == ACP_OK);
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
-    CHECK(acp_session_update_read(m.data, m.length, &up) == ACP_OK);
+    CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK);
     CHECK(up.kind == ACP_UPDATE_OTHER && strcmp(up.type, "plan") == 0 && strcmp(up.update, u.data) == 0);
     acp_update_free(&up);
     acp_buffer_free(&u);
     acp_buffer_free(&m);
 
     const char *nothing = "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s-1\"}}";
-    CHECK(acp_session_update_read(nothing, strlen(nothing), &up) == ACP_OK && up.kind == ACP_UPDATE_UNREAD);
+    CHECK(acp_client_session_update_read(nothing, strlen(nothing), &up) == ACP_OK && up.kind == ACP_UPDATE_UNREAD);
     acp_update_free(&up);
 }
 
@@ -320,7 +320,7 @@ static void permission(void) {
     CHECK(acp_permission_request_write(&request, &m) == ACP_OK);
     char *params = params_of(m.data);
     acp_permission_asked asked;
-    CHECK(params != NULL && acp_permission_request_read(params, strlen(params), &asked) == ACP_OK);
+    CHECK(params != NULL && acp_client_session_request_permission_read(params, strlen(params), &asked) == ACP_OK);
     CHECK(asked.session_id != NULL && strcmp(asked.session_id, "s-1") == 0);
     CHECK(asked.tool_call_id != NULL && strcmp(asked.tool_call_id, "c1") == 0);
     CHECK(asked.title != NULL && strcmp(asked.title, "run ls") == 0 && strcmp(asked.tool_kind, "execute") == 0);
@@ -331,7 +331,7 @@ static void permission(void) {
     acp_buffer_free(&m);
 
     acp_permission_outcome outcome;
-    CHECK(acp_permission_outcome_write("\"p1\"", "allow", &m) == ACP_OK);
+    CHECK(acp_client_session_request_permission_write("\"p1\"", "allow", &m) == ACP_OK);
     CHECK(has(&m, "\"id\":\"p1\""));
     CHECK(acp_permission_outcome_read(m.data, m.length, &outcome) == ACP_OK);
     CHECK(outcome.kind == ACP_PERMISSION_SELECTED && strcmp(outcome.option_id, "allow") == 0);
@@ -339,29 +339,29 @@ static void permission(void) {
     acp_buffer_free(&m);
 
     // "it MUST respond to all pending session/request_permission requests with this Cancelled outcome"
-    CHECK(acp_permission_outcome_write("\"p1\"", NULL, &m) == ACP_OK);
+    CHECK(acp_client_session_request_permission_write("\"p1\"", NULL, &m) == ACP_OK);
     CHECK(acp_permission_outcome_read(m.data, m.length, &outcome) == ACP_OK && outcome.kind == ACP_PERMISSION_CANCELLED);
     acp_permission_outcome_free(&outcome);
     acp_buffer_free(&m);
 
     const char *empty = "{\"sessionId\":\"s-1\",\"toolCall\":{\"toolCallId\":\"c1\"},\"options\":[]}";
-    CHECK(acp_permission_request_read(empty, strlen(empty), &asked) == ACP_OK && asked.count == 0);
+    CHECK(acp_client_session_request_permission_read(empty, strlen(empty), &asked) == ACP_OK && asked.count == 0);
     acp_permission_asked_free(&asked);
     const char *missing = "{\"sessionId\":\"s-1\",\"options\":[]}";
-    CHECK(acp_permission_request_read(missing, strlen(missing), &asked) == ACP_INVALID_PARAMS);
+    CHECK(acp_client_session_request_permission_read(missing, strlen(missing), &asked) == ACP_INVALID_PARAMS);
 }
 
 // A request the client does not answer, answered with the error saying why.
 static void errors(void) {
     acp_buffer m = {0};
-    CHECK(acp_error_write("\"r\"", -32601, "fs/read_text_file is not offered", &m) == ACP_OK);
+    CHECK(acp_client_error_write("\"r\"", -32601, "fs/read_text_file is not offered", &m) == ACP_OK);
     CHECK(m.data != NULL && strcmp(m.data, "{\"jsonrpc\":\"2.0\",\"id\":\"r\",\"error\":{\"code\":-32601,"
         "\"message\":\"fs/read_text_file is not offered\"}}") == 0);
     acp_message msg;
-    CHECK(acp_message_read(m.data, m.length, &msg) == ACP_OK && msg.is_error == 1 && msg.error_code == -32601);
+    CHECK(acp_client_message_read(m.data, m.length, &msg) == ACP_OK && msg.is_error == 1 && msg.error_code == -32601);
     acp_message_free(&msg);
     acp_buffer_free(&m);
-    CHECK(acp_error_write("\"r\"", -32601, NULL, &m) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_client_error_write("\"r\"", -32601, NULL, &m) == ACP_INVALID_ARGUMENT);
 }
 
 int main(void) {

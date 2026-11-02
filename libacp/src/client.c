@@ -59,7 +59,7 @@ static acp_status send_or_refuse(json_object *message, acp_buffer *message_json)
     return acp_finish(message, message_json);
 }
 
-acp_status acp_message_read(const char *message_json, size_t length, acp_message *out) {
+acp_status acp_client_message_read(const char *message_json, size_t length, acp_message *out) {
     if (message_json == NULL || out == NULL) return ACP_INVALID_ARGUMENT;
     memset(out, 0, sizeof *out);
     json_object *message = acp_parse(message_json, length);
@@ -95,7 +95,7 @@ void acp_message_free(acp_message *message) {
     memset(message, 0, sizeof *message);
 }
 
-acp_status acp_error_write(const char *request_id, int code, const char *message, acp_buffer *message_json) {
+acp_status acp_client_error_write(const char *request_id, int code, const char *message, acp_buffer *message_json) {
     if (request_id == NULL || message == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *error = json_object_new_object();
     json_object_object_add(error, "code", json_object_new_int(code));
@@ -143,7 +143,7 @@ static json_object *offering(unsigned version, const acp_client_capabilities *of
     return caps;
 }
 
-acp_status acp_initialize_request_write(const char *request_id, unsigned version, const acp_client_capabilities *offered,
+acp_status acp_client_initialize_write(const char *request_id, unsigned version, const acp_client_capabilities *offered,
     const char *client_name, const char *client_version, acp_buffer *message_json) {
     if (request_id == NULL || client_name == NULL || client_version == NULL || message_json == NULL
         || version < 1 || version > 2)
@@ -160,7 +160,7 @@ acp_status acp_initialize_request_write(const char *request_id, unsigned version
     return send_or_refuse(outgoing(request_id, ACP_AGENT_INITIALIZE, params), message_json);
 }
 
-acp_status acp_initialize_response_read(const char *message_json, size_t length, acp_agent_info *out) {
+acp_status acp_client_initialize_read(const char *message_json, size_t length, acp_agent_info *out) {
     if (message_json == NULL || out == NULL) return ACP_INVALID_ARGUMENT;
     memset(out, 0, sizeof *out);
     json_object *message = acp_parse(message_json, length);
@@ -241,24 +241,24 @@ static acp_status session_request(const char *method, const char *request_id, co
     return send_or_refuse(outgoing(request_id, method, params), message_json);
 }
 
-acp_status acp_session_new_request_write(const char *request_id, const char *cwd,
+acp_status acp_client_session_new_write(const char *request_id, const char *cwd,
     const acp_mcp_http *servers, size_t count, acp_buffer *message_json) {
     return session_request(ACP_AGENT_SESSION_NEW, request_id, NULL, cwd, servers, count, message_json);
 }
 
-acp_status acp_session_load_request_write(const char *request_id, const char *session_id, const char *cwd,
+acp_status acp_client_session_load_write(const char *request_id, const char *session_id, const char *cwd,
     const acp_mcp_http *servers, size_t count, acp_buffer *message_json) {
     if (session_id == NULL) return ACP_INVALID_ARGUMENT;
     return session_request(ACP_AGENT_SESSION_LOAD, request_id, session_id, cwd, servers, count, message_json);
 }
 
-acp_status acp_session_resume_request_write(const char *request_id, const char *session_id, const char *cwd,
+acp_status acp_client_session_resume_write(const char *request_id, const char *session_id, const char *cwd,
     const acp_mcp_http *servers, size_t count, acp_buffer *message_json) {
     if (session_id == NULL) return ACP_INVALID_ARGUMENT;
     return session_request(ACP_AGENT_SESSION_RESUME, request_id, session_id, cwd, servers, count, message_json);
 }
 
-acp_status acp_session_new_response_read(const char *message_json, size_t length, char **session_id) {
+acp_status acp_client_session_new_read(const char *message_json, size_t length, char **session_id) {
     if (message_json == NULL || session_id == NULL) return ACP_INVALID_ARGUMENT;
     json_object *message = acp_parse(message_json, length);
     *session_id = acp_string(acp_field(message, "result"), "sessionId");
@@ -274,7 +274,7 @@ void acp_session_id_free(char **session_id) {
 
 // --- prompts ---
 
-acp_status acp_prompt_request_write(const char *request_id, const char *session_id, const char *text, size_t length,
+acp_status acp_client_session_prompt_write(const char *request_id, const char *session_id, const char *text, size_t length,
     acp_buffer *message_json) {
     if (request_id == NULL || session_id == NULL || text == NULL || length > INT32_MAX || message_json == NULL)
         return ACP_INVALID_ARGUMENT;
@@ -289,7 +289,7 @@ acp_status acp_prompt_request_write(const char *request_id, const char *session_
     return send_or_refuse(outgoing(request_id, ACP_AGENT_SESSION_PROMPT, params), message_json);
 }
 
-acp_status acp_prompt_response_read(const char *message_json, size_t length, int *stopped, acp_stop_reason *reason) {
+acp_status acp_client_session_prompt_read(const char *message_json, size_t length, int *stopped, acp_stop_reason *reason) {
     if (message_json == NULL || stopped == NULL || reason == NULL) return ACP_INVALID_ARGUMENT;
     // StopReason, in the schema's order, as acp_stop_reason numbers them.
     static const char *const named[] = {"end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"};
@@ -307,7 +307,7 @@ acp_status acp_prompt_response_read(const char *message_json, size_t length, int
     return ACP_OK;
 }
 
-acp_status acp_session_cancel_write(const char *session_id, acp_buffer *message_json) {
+acp_status acp_client_session_cancel_write(const char *session_id, acp_buffer *message_json) {
     if (session_id == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *params = json_object_new_object();
     json_object_object_add(params, "sessionId", json_object_new_string(session_id));
@@ -322,7 +322,7 @@ static int uint64_of(json_object *value, unsigned long long *out) {
     return 1;
 }
 
-acp_status acp_session_update_read(const char *message_json, size_t length, acp_update *out) {
+acp_status acp_client_session_update_read(const char *message_json, size_t length, acp_update *out) {
     if (message_json == NULL || out == NULL) return ACP_INVALID_ARGUMENT;
     memset(out, 0, sizeof *out);
     json_object *message = acp_parse(message_json, length);
@@ -395,7 +395,7 @@ void acp_update_free(acp_update *update) {
 
 // --- permission ---
 
-acp_status acp_permission_request_read(const char *params_json, size_t length, acp_permission_asked *out) {
+acp_status acp_client_session_request_permission_read(const char *params_json, size_t length, acp_permission_asked *out) {
     if (params_json == NULL || out == NULL) return ACP_INVALID_ARGUMENT;
     memset(out, 0, sizeof *out);
     json_object *params = acp_parse(params_json, length);
@@ -442,7 +442,7 @@ void acp_permission_asked_free(acp_permission_asked *asked) {
     memset(asked, 0, sizeof *asked);
 }
 
-acp_status acp_permission_outcome_write(const char *request_id, const char *option_id, acp_buffer *message_json) {
+acp_status acp_client_session_request_permission_write(const char *request_id, const char *option_id, acp_buffer *message_json) {
     if (request_id == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *outcome = json_object_new_object();
     json_object_object_add(outcome, "outcome", json_object_new_string(option_id != NULL ? "selected" : "cancelled"));

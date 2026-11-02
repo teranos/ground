@@ -12,11 +12,11 @@ static import parse;
 
 enum BOOK_COMMAND = q"EOS
 # what ground covers of each pinned agent's hook contract, per event and version,
-# and what ground code covers of the pinned ACP schema, per method:
+# and what ground code and libacp's client side cover of the pinned ACP schema, per method:
 ground_parity
 # one event's keys per version, covered and missing:
 ground_parity PostToolUse
-# one ACP method's, read and written by ground code:
+# one ACP method's, read and written by ground code, and by libacp's client side:
 ground_parity session/prompt
 EOS";
 
@@ -1234,6 +1234,75 @@ private void libacpSent()(ref CodeSides cs) {
 
 private static immutable CodeSides codeSides = buildCodeSides();
 
+// --- acp: libacp's client side, read out of its C at compile time ---
+
+// "But parity should cover clientside as well"
+// What a client sends for a method is acp_client_<method>_write, and what it reads of the agent's is
+// acp_client_<method>_read, the method by its name in meta.json's tables.
+private enum clientSource = import("libacp/src/client.c");
+
+// The wire name of a method as a client function names it, session_prompt; null for one meta.json does not name.
+private string clientWire()(const(char)[] named) {
+    import acpmethods : wireOf;
+    static immutable string[3] tables = ["AGENT_METHODS.", "CLIENT_METHODS.", "PROTOCOL_METHODS."];
+    foreach (table; tables) {
+        char[96] nb;
+        auto wire = wireOf(joined(nb, table, named, ""));
+        if (wire !is null) return wire;
+    }
+    return null;
+}
+
+// What a client function reads and writes: its own calls, and every function of client.c it reaches.
+private void clientKeys()(ref const CFns fns, size_t at, ref bool[256] seen, ref GroundSide side) {
+    if (seen[at]) return;
+    seen[at] = true;
+    auto body_ = clientSource[fns.items[at].from .. fns.items[at].to];
+    cKeys(body_, acpReader, side);
+    foreach (i; 0 .. fns.count)
+        if (named(body_, fns.items[i].name) >= 0) clientKeys(fns, i, seen, side);
+}
+
+private CodeSides buildClientSides()() {
+    CodeSides cs;
+    auto fns = cFunctions(clientSource);
+    enum prefix = "acp_client_";
+    foreach (at; 0 .. fns.count) {
+        auto name = fns.items[at].name;
+        if (name.length <= prefix.length || name[0 .. prefix.length] != prefix) continue;
+        auto rest = name[prefix.length .. $];
+        size_t cut = endsWith(rest, "_write") ? "_write".length : endsWith(rest, "_read") ? "_read".length : 0;
+        if (cut == 0) continue;
+        // A function no method names, as a message or an error any method may be, is no method's side.
+        auto wire = clientWire(rest[0 .. $ - cut]);
+        if (wire is null) continue;
+        size_t k = cs.count;
+        foreach (i; 0 .. cs.count) if (cs.items[i].event == wire) k = i;
+        if (k == cs.count) {
+            assert(cs.count < cs.items.length, "libacp's client side names more methods than parity holds");
+            cs.items[cs.count++] = GroundSide(wire, GroundKeys.init, GroundKeys.init);
+        }
+        bool[256] seen;
+        clientKeys(fns, at, seen, cs.items[k]);
+    }
+    return cs;
+}
+
+private static immutable CodeSides clientSides = buildClientSides();
+
+// A method's client side scored on the spec turned round: the client writes what the agent reads, and
+// reads what the agent writes.
+// input and output are the agent's, as acpSpec gives them.
+int clientScore(const(char)[] input, const(char)[] output, ref const GroundSide side) {
+    return score(covered(output, side.reads.slice()), countOf(output), covered(input, side.writes.slice()), countOf(input));
+}
+
+// Whether libacp's client side has a function for a method.
+bool clientHas(const(char)[] method) {
+    foreach (ref s; clientSides.items[0 .. clientSides.count]) if (s.event == method) return true;
+    return false;
+}
+
 // The methods code/acp.d has a branch for, which it handles; the rest of codeSides it sends.
 private struct CodeHandles { string[32] items; size_t count; }
 
@@ -1652,6 +1721,10 @@ private static immutable McpSides mcpSides = buildMcpSides();
 ref immutable(GroundSide) sideFor(const(char)[] agent, const(char)[] event) {
     if (agent == "mcp") {
         foreach (ref s; mcpSides.items[0 .. mcpSides.count]) if (s.event == event) return s;
+        return codeSide;
+    }
+    if (agent == "acp-client") {
+        foreach (ref s; clientSides.items[0 .. clientSides.count]) if (s.event == event) return s;
         return codeSide;
     }
     if (agent != "acp") return sideOf(agent, event);
@@ -2204,7 +2277,7 @@ private const(char)[] cstr(const(char)* p) {
 
 // --- the table ---
 
-private struct Row { char[64] event = 0; size_t len; int[maxPins] cells = -1; }
+private struct Row { char[64] event = 0; size_t len; int[maxPins] cells = -1; int client = -1; }
 private __gshared Row[192] rows;
 private __gshared size_t rowCount;
 private __gshared long[maxPins] measuredAt;
@@ -2225,6 +2298,7 @@ private Row* rowFor(const(char)[] event) {
     r.len = event.length;
     foreach (i, c; event) r.event[i] = c;
     foreach (ref c; r.cells) c = -1;
+    r.client = -1;
     return r;
 }
 
@@ -2358,10 +2432,19 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
                 put(percentText(cell, pb)); put("\n");
                 putEventKeys("  in   ", ic, it, input, reads);
                 putEventKeys("  out  ", oc, ot, output, writes);
+                // libacp's client side of the same method, on the spec turned round.
+                if (pin.agent == "acp" && clientHas(event)) {
+                    auto client = &sideFor("acp-client", event);
+                    put("libacp client "); put(pin.release); put("  "); put(event); put("  ");
+                    put(percentText(clientScore(input, output, *client), pb)); put("\n");
+                    putEventKeys("  in   ", covered(output, client.reads.slice()), countOf(output), output, client.reads.slice());
+                    putEventKeys("  out  ", covered(input, client.writes.slice()), countOf(input), input, client.writes.slice());
+                }
                 continue;
             }
             auto r = rowFor(event);
             if (r !is null) r.cells[pi] = cell;
+            if (r !is null && pin.agent == "acp" && clientHas(event)) r.client = clientScore(input, output, sideFor("acp-client", event));
         }
         sqlite3_finalize(st);
     }
@@ -2554,6 +2637,7 @@ private void shippedTable(sqlite3* db) {
         sqlite3_finalize(st);
     }
     foreach (ref s; codeSides.items[0 .. codeSides.count]) rowOf(s.event);
+    foreach (ref s; clientSides.items[0 .. clientSides.count]) rowOf(s.event);
 
     // In method order, so a namespace reads together.
     foreach (i; 1 .. n)
@@ -2570,6 +2654,8 @@ private void shippedTable(sqlite3* db) {
     enum groundWidth = 13;
     putPad("Method:", width);
     cell(); putPad("ground code", groundWidth);
+    enum clientWidth = 15;
+    cell(); putPad("libacp client", clientWidth);
     foreach (si; 0 .. shippedSet.count) { cell(); put(shippedSet.items[si].name); put(" "); }
     eol();
     foreach (i; 0 .. n) {
@@ -2594,6 +2680,13 @@ private void shippedTable(sqlite3* db) {
             }
         } else g("-");
         putPad(gb[0 .. gn], groundWidth);
+        // libacp's client side, under the same pin, where it has a function for the method.
+        cell();
+        char[8] cb;
+        int clientCell = -1;
+        foreach (j; 0 .. rowCount)
+            if (rows[j].event[0 .. rows[j].len] == method) clientCell = rows[j].client;
+        putPad(!clientHas(method) ? "-" : clientCell < 0 ? "?" : percentText(clientCell, cb), clientWidth);
         foreach (si; 0 .. shippedSet.count) {
             cell();
             auto h = r.how[si];

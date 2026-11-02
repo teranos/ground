@@ -418,6 +418,40 @@ static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(has(sideFor("acp", "session/new").writes, "modes"));
 static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
+
+// "But parity should cover clientside as well"
+// libacp's client side is read out of libacp/src/client.c: a method's through acp_client_<method>_write,
+// what the client sends for it, and acp_client_<method>_read, what it reads of the agent's, and every
+// helper of the file they call.
+static assert(has(sideFor("acp-client", "session/prompt").writes, "sessionId"));
+static assert(has(sideFor("acp-client", "session/prompt").writes, "prompt"));
+static assert(has(sideFor("acp-client", "session/prompt").reads, "stopReason"));
+static assert(!has(sideFor("acp-client", "session/prompt").writes, "clientCapabilities"));
+static assert(has(sideFor("acp-client", "initialize").writes, "clientCapabilities"));
+static assert(has(sideFor("acp-client", "initialize").writes, "clientInfo"));
+static assert(has(sideFor("acp-client", "initialize").reads, "agentCapabilities"));
+static assert(has(sideFor("acp-client", "initialize").reads, "agentInfo"));
+// session/new's servers are written two helpers down, through session_request and servers_of.
+static assert(has(sideFor("acp-client", "session/new").writes, "mcpServers"));
+static assert(has(sideFor("acp-client", "session/new").reads, "sessionId"));
+static assert(has(sideFor("acp-client", "session/load").writes, "sessionId"));
+static assert(has(sideFor("acp-client", "session/resume").writes, "cwd"));
+static assert(has(sideFor("acp-client", "session/cancel").writes, "sessionId"));
+static assert(has(sideFor("acp-client", "session/update").reads, "sessionId"));
+static assert(has(sideFor("acp-client", "session/update").reads, "update"));
+static assert(has(sideFor("acp-client", "session/request_permission").reads, "toolCall"));
+static assert(has(sideFor("acp-client", "session/request_permission").reads, "options"));
+static assert(has(sideFor("acp-client", "session/request_permission").writes, "outcome"));
+// A method the client side has no function for reads and writes nothing.
+static assert(sideFor("acp-client", "fs/read_text_file").reads.slice() == "");
+static assert(sideFor("acp-client", "fs/read_text_file").writes.slice() == "");
+// The client is scored on the spec turned round: what the agent reads, it writes. session/prompt's
+// in is stopReason of stopReason,_meta, its out sessionId,prompt of sessionId,prompt,_meta.
+static assert(clientScore(acpKeys(acpSample, "session/prompt").input.slice(), acpKeys(acpSample, "session/prompt").output.slice(),
+    sideFor("acp-client", "session/prompt")) == score(1, 2, 2, 3));
+static assert(clientScore(acpKeys(acpSample, "session/update").input.slice(), acpKeys(acpSample, "session/update").output.slice(),
+    sideFor("acp-client", "session/update")) == 1000);
+static assert(clientHas("session/prompt") && !clientHas("fs/read_text_file"));
 static assert(has(sideFor("acp", "session/new").reads, "additionalDirectories"));
 static assert(has(sideFor("acp", "session/resume").reads, "additionalDirectories"));
 static assert(has(sideFor("acp", "session/new").writes, "configOptions"));
