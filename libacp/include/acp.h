@@ -469,7 +469,8 @@ acp_status acp_config_options_write(const acp_config_select *selects, size_t cou
 
 // A message as it came: a request, with its id and method; a notification, a method and no id; or a
 // response, an id and a result or an error. UNREAD for any other. id is JSON text, as it was sent;
-// error_data is the error's data as JSON text, NULL when it has none. libacp owns the strings until
+// params, a request's or a notification's, is JSON text for the reader of its method; error_data is
+// the error's data as JSON text. Each is NULL when there is none. libacp owns the strings until
 // acp_message_free.
 typedef enum acp_message_kind {
     ACP_MESSAGE_UNREAD,
@@ -486,6 +487,7 @@ typedef struct acp_message {
     int error_code;
     char *error_message;
     char *error_data;
+    char *params;
 } acp_message;
 
 // ACP_PARSE_ERROR for text that is not one JSON value.
@@ -553,6 +555,13 @@ acp_status acp_client_session_prompt_write(const char *request_id, const char *s
 // Why the agent stopped the turn: stopped is 1 for a result naming one of the five, which is in reason,
 // and 0 for any other answer, an error among them.
 acp_status acp_client_session_prompt_read(const char *message_json, size_t length, int *stopped, acp_stop_reason *reason);
+
+// authenticate, whole: the method, one of the authMethods the agent's initialize result offered.
+acp_status acp_client_authenticate_write(const char *request_id, const char *method_id, acp_buffer *message_json);
+
+// session/set_config_option, whole: the option set to one of its value ids.
+acp_status acp_client_session_set_config_option_write(const char *request_id, const char *session_id,
+    const char *config_id, const char *value, acp_buffer *message_json);
 
 // session/cancel, whole: a notification.
 acp_status acp_client_session_cancel_write(const char *session_id, acp_buffer *message_json);

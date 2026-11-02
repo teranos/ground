@@ -42,10 +42,12 @@ what the agent sends for it, and `ground_parity` scores each method's client sid
 
 | Method | libacp, client side, v1 |
 |---|---|
-| any message | reads it as a request (`id`, `method`), a notification (`method`), or a response (`id`, and `result` or `error`'s `code`, `message`, `data`); writes an error answering a request |
+| any message | reads it as a request (`id`, `method`, `params`), a notification (`method`, `params`), or a response (`id`, and `result` or `error`'s `code`, `message`, `data`); writes an error answering a request |
 | `initialize` | writes `protocolVersion`, `clientCapabilities` (`fs`'s `readTextFile`, `writeTextFile`; `terminal`; `session.notices`, `elicitation`, `auth.terminal` when offered), `clientInfo`; v2's `capabilities` and `info`. Reads the result's `protocolVersion`, `agentCapabilities` (`loadSession`, `sessionCapabilities.resume`, `promptCapabilities`' `image`, `audio`, `embeddedContext`, `mcpCapabilities`' `http`, `sse`) and `agentInfo`, or v2's `capabilities` and `info` |
 | `session/new`, `session/load`, `session/resume` | writes `sessionId` for the latter two, `cwd` (absolute), `mcpServers` in the HTTP shape: `type`, `name`, `url`, `headers` (`name`, `value`). Reads session/new's `sessionId` |
 | `session/prompt` | writes `sessionId` and `prompt` as one `text` block, every byte; reads `stopReason`, one of the five |
+| `authenticate` | writes `methodId`, one of the `authMethods` initialize offered |
+| `session/set_config_option` | writes `sessionId`, `configId`, and `value` as a value id |
 | `session/cancel` | writes the notification's `sessionId` |
 | `session/update` | reads `sessionId`, `update` whole, and its `sessionUpdate`; of a chunk, its `content`'s `text`, every byte; of `tool_call` and `tool_call_update`, `toolCallId`, `title`, `name`, `kind`, `status`, `rawInput`, `rawOutput`; of `usage_update`, `used`, `size`, `cost`'s `amount` and `currency` |
 | `session/request_permission` | reads `sessionId`, `toolCall`'s `toolCallId`, `title`, `kind`, `rawInput`, and `options` (`optionId`, `name`, `kind`); writes the outcome, `selected` with its `optionId`, or `cancelled` |

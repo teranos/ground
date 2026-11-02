@@ -203,6 +203,8 @@ static void messages(void) {
     const char *request = "{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"method\":\"session/request_permission\",\"params\":{}}";
     CHECK(acp_client_message_read(request, strlen(request), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_REQUEST && strcmp(msg.id, "\"a\"") == 0 && strcmp(msg.method, "session/request_permission") == 0);
+    // A request's params, as JSON text, for the reader of its method.
+    CHECK(msg.params != NULL && strcmp(msg.params, "{}") == 0);
     acp_message_free(&msg);
     const char *note = "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{}}";
     CHECK(acp_client_message_read(note, strlen(note), &msg) == ACP_OK);
@@ -211,6 +213,7 @@ static void messages(void) {
     const char *result = "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{}}";
     CHECK(acp_client_message_read(result, strlen(result), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_RESPONSE && strcmp(msg.id, "7") == 0 && msg.is_error == 0 && msg.method == NULL);
+    CHECK(msg.params == NULL);
     acp_message_free(&msg);
     const char *error = "{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32603,\"message\":\"broke\",\"data\":{\"why\":1}}}";
     CHECK(acp_client_message_read(error, strlen(error), &msg) == ACP_OK);
@@ -364,6 +367,40 @@ static void errors(void) {
     CHECK(acp_client_error_write("\"r\"", -32601, NULL, &m) == ACP_INVALID_ARGUMENT);
 }
 
+// authenticate with the method the agent offered, read back by the agent side as that method.
+static void authenticate(void) {
+    acp_buffer m = {0};
+    CHECK(acp_client_authenticate_write("5", "gemini-api-key", &m) == ACP_OK);
+    CHECK(m.data != NULL && strcmp(m.data, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"authenticate\",\"params\":{\"methodId\":\"gemini-api-key\"}}") == 0);
+    char *params = params_of(m.data);
+    char *method = NULL;
+    acp_buffer error = {0};
+    CHECK(params != NULL && acp_authenticate_read(params, strlen(params), &method, &error) == ACP_OK);
+    CHECK(method != NULL && strcmp(method, "gemini-api-key") == 0);
+    acp_authenticate_free(&method);
+    free(params);
+    acp_buffer_free(&m);
+    CHECK(acp_client_authenticate_write("5", NULL, &m) == ACP_INVALID_ARGUMENT);
+}
+
+// A config option set to a value id, as the model a session runs, read back by the agent side.
+static void set_config_option(void) {
+    acp_buffer m = {0};
+    CHECK(acp_client_session_set_config_option_write("6", "s-1", "model", "gemini-3.8-flash-low", &m) == ACP_OK);
+    CHECK(has(&m, "\"method\":\"session/set_config_option\""));
+    char *params = params_of(m.data);
+    acp_set_config_option set;
+    acp_buffer error = {0};
+    CHECK(params != NULL && acp_set_config_option_read(params, strlen(params), &set, &error) == ACP_OK);
+    CHECK(set.session_id != NULL && strcmp(set.session_id, "s-1") == 0);
+    CHECK(set.config_id != NULL && strcmp(set.config_id, "model") == 0);
+    CHECK(set.value != NULL && strcmp(set.value, "gemini-3.8-flash-low") == 0 && set.is_boolean == 0);
+    acp_set_config_option_free(&set);
+    free(params);
+    acp_buffer_free(&m);
+    CHECK(acp_client_session_set_config_option_write("6", "s-1", NULL, "x", &m) == ACP_INVALID_ARGUMENT);
+}
+
 int main(void) {
     initialize_request();
     initialize_response();
@@ -376,10 +413,12 @@ int main(void) {
     updates();
     permission();
     errors();
+    authenticate();
+    set_config_option();
     if (failures > 0) {
         fprintf(stderr, "client: %d failed\n", failures);
         return 1;
     }
-    printf("client: initialize, sessions, prompts, cancels, updates, permission and errors, as a client, passed\n");
+    printf("client: initialize, authenticate, sessions, config options, prompts, cancels, updates, permission and errors, as a client, passed\n");
     return 0;
 }

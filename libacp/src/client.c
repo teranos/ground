@@ -71,6 +71,7 @@ acp_status acp_client_message_read(const char *message_json, size_t length, acp_
     out->id = json_text(acp_field(message, "id"));
     if (out->method != NULL) {
         out->kind = out->id != NULL ? ACP_MESSAGE_REQUEST : ACP_MESSAGE_NOTIFICATION;
+        out->params = json_text(acp_field(message, "params"));
     } else if (out->id != NULL && (present(message, "result") || present(message, "error"))) {
         out->kind = ACP_MESSAGE_RESPONSE;
         json_object *error = acp_field(message, "error");
@@ -92,6 +93,7 @@ void acp_message_free(acp_message *message) {
     free(message->method);
     free(message->error_message);
     free(message->error_data);
+    free(message->params);
     memset(message, 0, sizeof *message);
 }
 
@@ -198,6 +200,13 @@ void acp_agent_info_free(acp_agent_info *info) {
     memset(info, 0, sizeof *info);
 }
 
+acp_status acp_client_authenticate_write(const char *request_id, const char *method_id, acp_buffer *message_json) {
+    if (request_id == NULL || method_id == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
+    json_object *params = json_object_new_object();
+    json_object_object_add(params, "methodId", json_object_new_string(method_id));
+    return send_or_refuse(outgoing(request_id, ACP_AGENT_AUTHENTICATE, params), message_json);
+}
+
 // --- sessions ---
 
 // The servers as McpServer's http shape, or NULL when one is not whole.
@@ -270,6 +279,17 @@ void acp_session_id_free(char **session_id) {
     if (session_id == NULL) return;
     free(*session_id);
     *session_id = NULL;
+}
+
+acp_status acp_client_session_set_config_option_write(const char *request_id, const char *session_id,
+    const char *config_id, const char *value, acp_buffer *message_json) {
+    if (request_id == NULL || session_id == NULL || config_id == NULL || value == NULL || message_json == NULL)
+        return ACP_INVALID_ARGUMENT;
+    json_object *params = json_object_new_object();
+    json_object_object_add(params, "sessionId", json_object_new_string(session_id));
+    json_object_object_add(params, "configId", json_object_new_string(config_id));
+    json_object_object_add(params, "value", json_object_new_string(value));
+    return send_or_refuse(outgoing(request_id, ACP_AGENT_SESSION_SET_CONFIG_OPTION, params), message_json);
 }
 
 // --- prompts ---

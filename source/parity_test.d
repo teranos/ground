@@ -442,6 +442,9 @@ static assert(has(sideFor("acp-client", "session/update").reads, "update"));
 static assert(has(sideFor("acp-client", "session/request_permission").reads, "toolCall"));
 static assert(has(sideFor("acp-client", "session/request_permission").reads, "options"));
 static assert(has(sideFor("acp-client", "session/request_permission").writes, "outcome"));
+static assert(has(sideFor("acp-client", "authenticate").writes, "methodId"));
+static assert(has(sideFor("acp-client", "session/set_config_option").writes, "configId"));
+static assert(has(sideFor("acp-client", "session/set_config_option").writes, "value"));
 // A method the client side has no function for reads and writes nothing.
 static assert(sideFor("acp-client", "fs/read_text_file").reads.slice() == "");
 static assert(sideFor("acp-client", "fs/read_text_file").writes.slice() == "");
