@@ -1450,8 +1450,9 @@ version (Posix) unittest {
         ~ `"parameters":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the file to write."},`
         ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
     assert(indexOf(said[0 .. saidLen], request) >= 0);
+    // The file it writes is its location, "being accessed or modified".
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_text_file","name":"write_text_file","kind":"edit","status":"in_progress",`
-        ~ `"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
+        ~ `"locations":[{"path":"/tmp/a b"}],"rawInput":{"path":"/tmp/a b","content":"line one\nline \"two\""}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":` ~ wrote) >= 0);
     assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"jsonrpc\":\"2.0\",\"id\":\"write-1\",\"result\":{}}"}`) >= 0);
     // A client that reads no files is not asked what the file held, so no diff is shown.

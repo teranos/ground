@@ -42,59 +42,74 @@ static void chunks(void) {
 // produced: MCP's content blocks as they came, or a text.
 static void tool_calls(void) {
     acp_buffer out = {0};
-    acp_tool_call first = {0, "c1", "x__y", "x__y", "read", "pending", "{\"q\":1}", NULL, NULL, NULL, NULL, NULL};
+    acp_tool_call first = {0, "c1", "x__y", "x__y", "read", "pending", "{\"q\":1}", NULL, NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&first, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\",\"kind\":\"read\","
                      "\"status\":\"pending\",\"rawInput\":{\"q\":1}}"));
-    acp_tool_call replayed = {0, "c1", "x__y", "x__y", NULL, NULL, "", NULL, NULL, NULL, NULL, NULL};
+    acp_tool_call replayed = {0, "c1", "x__y", "x__y", NULL, NULL, "", NULL, NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&replayed, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\",\"rawInput\":\"\"}"));
-    acp_tool_call running = {1, "c1", NULL, NULL, NULL, "in_progress", NULL, NULL, NULL, NULL, NULL, NULL};
+    acp_tool_call running = {1, "c1", NULL, NULL, NULL, "in_progress", NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&running, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"in_progress\"}"));
     acp_tool_call done = {1, "c1", NULL, NULL, NULL, "completed",
-        NULL, "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}", "[{\"type\":\"text\",\"text\":\"ok\"}]", NULL, NULL, NULL};
+        NULL, "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}", "[{\"type\":\"text\",\"text\":\"ok\"}]", NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&done, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawOutput\":{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}},"
                      "\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"ok\"}}]}"));
-    acp_tool_call refused = {1, "c1", NULL, NULL, NULL, "failed", NULL, "{\"status\":\"not run\"}", NULL, "the user rejected it", NULL, NULL};
+    acp_tool_call refused = {1, "c1", NULL, NULL, NULL, "failed", NULL, "{\"status\":\"not run\"}", NULL, "the user rejected it", NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&refused, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"failed\","
                      "\"rawOutput\":{\"status\":\"not run\"},\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\","
                      "\"text\":\"the user rejected it\"}}]}"));
     // Raw JSON is passed on byte for byte, as the server wrote it.
-    acp_tool_call spaced = {1, "c1", NULL, NULL, NULL, "completed", "{ \"q\" : 1 }", "{\"jsonrpc\": \"2.0\", \"id\": 3}", NULL, NULL, NULL, NULL};
+    acp_tool_call spaced = {1, "c1", NULL, NULL, NULL, "completed", "{ \"q\" : 1 }", "{\"jsonrpc\": \"2.0\", \"id\": 3}", NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&spaced, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawInput\":{ \"q\" : 1 },\"rawOutput\":{\"jsonrpc\": \"2.0\", \"id\": 3}}"));
     // Output that is no JSON is the text it is; no blocks and no text, no content.
-    acp_tool_call bare = {1, "c1", NULL, NULL, NULL, "failed", NULL, "boom", "[]", NULL, NULL, NULL};
+    acp_tool_call bare = {1, "c1", NULL, NULL, NULL, "failed", NULL, "boom", "[]", NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&bare, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"failed\",\"rawOutput\":\"boom\"}"));
-    acp_tool_call stray = {1, "c1", NULL, NULL, NULL, "failed", NULL, NULL, "{\"a\":1}", NULL, NULL, NULL};
+    acp_tool_call stray = {1, "c1", NULL, NULL, NULL, "failed", NULL, NULL, "{\"a\":1}", NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&stray, &out) == ACP_INVALID_ARGUMENT);
     // A write shows the file it modified as a diff, every byte of either text, after any terminal and
     // before any blocks; a file that was not there has no old text, null.
     acp_diff changed = {"/tmp/a b", "one\0two\n", 8, "one\0three\n", 10};
-    acp_tool_call wrote = {1, "c1", NULL, NULL, NULL, "completed", NULL, "{\"result\":{}}", NULL, NULL, NULL, &changed};
+    acp_tool_call wrote = {1, "c1", NULL, NULL, NULL, "completed", NULL, "{\"result\":{}}", NULL, NULL, NULL, &changed, NULL, 0};
     CHECK(acp_tool_call_write(&wrote, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawOutput\":{\"result\":{}},\"content\":[{\"type\":\"diff\",\"path\":\"/tmp/a b\","
                      "\"oldText\":\"one\\u0000two\\n\",\"newText\":\"one\\u0000three\\n\"}]}"));
     acp_diff created = {"/tmp/new", NULL, 0, "", 0};
-    acp_tool_call made = {1, "c1", NULL, NULL, NULL, "completed", NULL, NULL, NULL, NULL, NULL, &created};
+    acp_tool_call made = {1, "c1", NULL, NULL, NULL, "completed", NULL, NULL, NULL, NULL, NULL, &created, NULL, 0};
     CHECK(acp_tool_call_write(&made, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"content\":[{\"type\":\"diff\",\"path\":\"/tmp/new\",\"oldText\":null,\"newText\":\"\"}]}"));
     // "The absolute file path being modified", and newText is required.
     acp_diff relative = {"a b", NULL, 0, "x", 1};
-    acp_tool_call bad = {1, "c1", NULL, NULL, NULL, "completed", NULL, NULL, NULL, NULL, NULL, &relative};
+    acp_tool_call bad = {1, "c1", NULL, NULL, NULL, "completed", NULL, NULL, NULL, NULL, NULL, &relative, NULL, 0};
     CHECK(acp_tool_call_write(&bad, &out) == ACP_INVALID_ARGUMENT);
     acp_diff textless = {"/tmp/a", NULL, 0, NULL, 0};
     bad.diff = &textless;
     CHECK(acp_tool_call_write(&bad, &out) == ACP_INVALID_ARGUMENT);
-    acp_tool_call nameless = {0, NULL, "x", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+    // "File locations affected by this tool call": each its absolute path, and its line when one is
+    // given, 0 being none.
+    acp_location where[] = {{"/tmp/a b", 0}, {"/tmp/c", 42}};
+    acp_tool_call located = {0, "c1", "read_text_file", "read_text_file", "read", "in_progress", "{}", NULL, NULL, NULL, NULL, NULL, where, 2};
+    CHECK(acp_tool_call_write(&located, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"read_text_file\",\"name\":\"read_text_file\","
+                     "\"kind\":\"read\",\"status\":\"in_progress\",\"locations\":[{\"path\":\"/tmp/a b\"},{\"path\":\"/tmp/c\",\"line\":42}],"
+                     "\"rawInput\":{}}"));
+    // "The absolute file path being accessed or modified."
+    acp_location relativeAt[] = {{"a b", 0}};
+    located.locations = relativeAt; located.location_count = 1;
+    CHECK(acp_tool_call_write(&located, &out) == ACP_INVALID_ARGUMENT);
+    acp_location nowhere[] = {{NULL, 0}};
+    located.locations = nowhere;
+    CHECK(acp_tool_call_write(&located, &out) == ACP_INVALID_ARGUMENT);
+    acp_tool_call nameless = {0, NULL, "x", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&nameless, &out) == ACP_INVALID_ARGUMENT);
 }
 
