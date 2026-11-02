@@ -51,6 +51,7 @@ A `wait` or `expect` is met by any line of what it read, and every line of that 
 |---|---|---|
 | `new.acp` | session/new reads its own params, rejects malformed servers before setup, and creates no session on refusal | #179 (part 15) |
 | `init.acp` | initialize in both shapes, a version none fits, none named; authenticate refused; a v2-shaped client's elicitation | #179, #131 (part 7) |
+| `before-init.acp` | a request before initialize refused with -32600, a notification answered nothing, a refused initialize leaving it so | (this PR) |
 | `delete.acp` | a session one process opened, deleted by another, and the refusals | #120 (part 2) |
 | `modes.acp` | a session's modes offered, set by set_mode and by config option, kept across a resume | #121 (part 3), #162 |
 | `dirs.acp` | a session's additionalDirectories kept and decoded, a relative one refused, replaced by a resume | #123 (part 4) |

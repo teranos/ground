@@ -250,7 +250,7 @@ enum METHODS_BOTH = `[{"id":"qntx","name":"Sign in to QNTX","description":"Open 
 // runs one, the agent method to a client that can send the person to a link,
 // and logout to every client.
 unittest {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"auth":{"terminal":true},"elicitation":{"url":{}}}}}`, r, s));
@@ -269,7 +269,7 @@ unittest {
 // method sends the person to a link, which a client offering no url
 // elicitation cannot be asked to.
 unittest {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":4,"method":"authenticate","params":{"methodId":"qntx-terminal"}}`, r, s);
@@ -356,7 +356,7 @@ unittest {
     import attest : qntxToken;
     import core.sys.posix.unistd : unlink, access, F_OK;
     auto n = node(DEVICE, PENDING, TOKEN);
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.gateway = cast(string) n.url;
     s.node.url = K_URL;
@@ -388,7 +388,7 @@ unittest {
 // each is said to the client as it happened, and nothing is kept.
 unittest {
     import attest : qntxToken;
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.url = K_URL;
     s.node.token = K_TOKEN;
@@ -443,7 +443,7 @@ unittest {
     assert(keepToken(qntxTokenFile(""), "qntx_abc123", why));
     assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
     scope(exit) unlink(K_TOKEN.ptr);
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.node.token = K_TOKEN;
     Reply r;
     scope(exit) r.dispose();
@@ -474,7 +474,7 @@ unittest {
 unittest {
     enum refused = http!("401 Unauthorized", `{"error":"token expired"}`);
     auto n = node(refused);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) n.url; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     __gshared Spoken opened, prompted;
     speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
@@ -503,7 +503,7 @@ unittest {
     scope(exit) unlink(qntxTokenFile(""));
     assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
     scope(exit) unlink(K_TOKEN.ptr);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.gateway = cast(string) n.url; s.node.url = K_URL; s.node.model = "m"; s.node.token = K_TOKEN; s.contextSize = 200_000;
     __gshared Spoken opened, prompted;
     speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
