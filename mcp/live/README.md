@@ -53,6 +53,7 @@ A `wait` or `expect` is met by any line of what it read, and every line of that 
 | `init.acp` | initialize in both shapes, a version none fits, none named; authenticate refused; a v2-shaped client's elicitation | #179, #131 (part 7) |
 | `before-init.acp` | a request before initialize refused with -32600, a notification answered nothing, a refused initialize leaving it so | (this PR) |
 | `delete.acp` | a session one process opened, deleted by another, and the refusals | #120 (part 2) |
+| `unknown.acp` | -32002 with data.sessionId for a request naming an unknown session; close and delete of one answer the empty result | (this PR) |
 | `modes.acp` | a session's modes offered, set by set_mode and by config option, kept across a resume | #121 (part 3), #162 |
 | `dirs.acp` | a session's additionalDirectories kept and decoded, a relative one refused, replaced by a resume | #123 (part 4) |
 | `effort.acp` | a session's effort set, refused when unknown, boolean or missing, kept across a resume | #124 (part 5) |

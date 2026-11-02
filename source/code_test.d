@@ -144,7 +144,7 @@ unittest {
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"code-1-1-1","cwd":"/w","mcpServers":[]}}`,
-        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to load: code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
 }
 
 // A notification has no answer to give; the caller says it on stderr instead.
@@ -205,8 +205,9 @@ unittest {
 // verifies the runtime path, rollback, per-session ownership and EOF cleanup.
 
 // session/close: "Supplying `{}` means the agent supports closing sessions",
-// so initialize says so. A session closed is gone, and closing it again, or
-// one ground code never opened, is "Resource not found".
+// so initialize says so. "Closing is idempotent. If the session does not exist or
+// is not active, for example because it was already closed, the Agent SHOULD
+// respond with the same empty result."
 // Two sessions opened, then close asked twice: what each close answers.
 private bool openThenClose()(string close, string first, string second) {
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
@@ -219,14 +220,15 @@ private bool openThenClose()(string close, string first, string second) {
 unittest {
     assert(openThenClose(`{"jsonrpc":"2.0","id":2,"method":"session/close","params":{"sessionId":"code-100-7-1"}}`,
         `{"jsonrpc":"2.0","id":2,"result":{}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":2,"result":{}}`));
     assert(openThenClose(`{"jsonrpc":"2.0","id":3,"method":"session/close","params":{"sessionId":"code-100-7-9"}}`,
-        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`,
-        `{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`));
+        `{"jsonrpc":"2.0","id":3,"result":{}}`,
+        `{"jsonrpc":"2.0","id":3,"result":{}}`));
 }
-// Another process's session is not this one's to close.
+// Another process's session is not active on this connection, so closing it here is the same empty
+// result, and leaves it as it is.
 static assert(answerOf(`{"jsonrpc":"2.0","id":4,"method":"session/close","params":{"sessionId":"code-1-1-1"}}`)
-    == `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`);
+    == `{"jsonrpc":"2.0","id":4,"result":{}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":5,"method":"session/close","params":{}}`)
     == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"session/close needs sessionId"}}`);
 
@@ -319,12 +321,12 @@ unittest {
     Sessions c = Sessions(300, 9); c.initialized = true; c.clock = 1_700_000_000;
     c.db = db;
     assert(says(c, `{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":6,"error":{"code":-32002,"message":"no session to resume: code-100-7-1","data":{"sessionId":"code-100-7-1"}}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":7,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":7,"result":{"sessions":[]}}`));
 
     assert(says(c, `{"jsonrpc":"2.0","id":8,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":8,"error":{"code":-32002,"message":"no session to resume: code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":8,"error":{"code":-32002,"message":"no session to resume: code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":9,"method":"session/resume","params":{"cwd":"/work"}}`,
         `{"jsonrpc":"2.0","id":9,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`));
     assert(says(c, `{"jsonrpc":"2.0","id":10,"method":"session/resume","params":{"sessionId":"code-1-1-1"}}`,
@@ -336,7 +338,7 @@ unittest {
         `{"jsonrpc":"2.0","id":13,"error":{"code":-32602,"message":"session/resume needs sessionId"}}`));
     // A session's servers come up once it is found: one that isn't spawns nothing.
     assert(says(c, `{"jsonrpc":"2.0","id":12,"method":"session/resume","params":{"sessionId":"code-1-1-1","cwd":"/work","mcpServers":[{"name":"x","command":"/does/not/exist","args":[],"env":[]}]}}`,
-        `{"jsonrpc":"2.0","id":12,"error":{"code":-32002,"message":"no session to resume: code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":12,"error":{"code":-32002,"message":"no session to resume: code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
 }
 
 // session/delete: "deleting an existing session from `session/list`". What
@@ -364,21 +366,22 @@ unittest {
     assert(says(b, `{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"code-100-7-2","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-3","cwd":"/work","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"code-100-7-1","cwd":"/work"}}`,
-        `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no session to resume: code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"no session to resume: code-100-7-1","data":{"sessionId":"code-100-7-1"}}}`));
+    // "Deleting an already-deleted session, or a session that never existed, SHOULD succeed silently."
     assert(says(b, `{"jsonrpc":"2.0","id":5,"method":"session/delete","params":{"sessionId":"code-100-7-1"}}`,
-        `{"jsonrpc":"2.0","id":5,"error":{"code":-32002,"message":"no session to delete: code-100-7-1"}}`));
+        `{"jsonrpc":"2.0","id":5,"result":{}}`));
 
-    // A closed session is not on the list, so it is not there to delete.
+    // A closed session is not on the list, so it is not there to delete, and deleting it succeeds as silently.
     assert(says(a, `{"jsonrpc":"2.0","id":6,"method":"session/close","params":{"sessionId":"code-100-7-2"}}`,
         `{"jsonrpc":"2.0","id":6,"result":{}}`));
     assert(says(b, `{"jsonrpc":"2.0","id":7,"method":"session/delete","params":{"sessionId":"code-100-7-2"}}`,
-        `{"jsonrpc":"2.0","id":7,"error":{"code":-32002,"message":"no session to delete: code-100-7-2"}}`));
+        `{"jsonrpc":"2.0","id":7,"result":{}}`));
 
     // Deleted where it is live, it is not live there any more.
     assert(says(a, `{"jsonrpc":"2.0","id":8,"method":"session/delete","params":{"sessionId":"code-100-7-3"}}`,
         `{"jsonrpc":"2.0","id":8,"result":{}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":9,"method":"session/close","params":{"sessionId":"code-100-7-3"}}`,
-        `{"jsonrpc":"2.0","id":9,"error":{"code":-32002,"message":"no open session code-100-7-3"}}`));
+        `{"jsonrpc":"2.0","id":9,"result":{}}`));
     assert(says(a, `{"jsonrpc":"2.0","id":10,"method":"session/delete","params":{}}`,
         `{"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"session/delete needs sessionId"}}`));
     // The params' own sessionId, not one nested in another field.
@@ -421,7 +424,7 @@ private bool answersFresh()(string line, string want) {
 
 unittest {
     assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1","modeId":"plan"}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
     assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"modeId":"plan"}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_mode needs sessionId"}}`));
     assert(answersFresh(`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"code-1-1-1"}}`,
@@ -508,7 +511,7 @@ unittest {
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","configId":"effort","value":"high"}}`,
-        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1"}}`));
+        `{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"no open session code-1-1-1","data":{"sessionId":"code-1-1-1"}}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"configId":"effort","value":"high"}}`,
         `{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"session/set_config_option needs sessionId"}}`));
     assert(says(s, `{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"code-1-1-1","value":"high"}}`,
@@ -550,7 +553,7 @@ unittest {
 // session/prompt is a turn through the node's gateway. It needs a live session
 // and a model, and the model is the qntx block's: none, and ground code says so before it asks.
 static assert(answerOf(`{"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{"sessionId":"code-100-7-9","prompt":[{"type":"text","text":"hi"}]}}`)
-    == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9"}}`);
+    == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9","data":{"sessionId":"code-100-7-9"}}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":12,"method":"session/prompt","params":{"prompt":[]}}`)
     == `{"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"session/prompt needs sessionId"}}`);
 // A new session, then one request to it: what that request answers. A new
