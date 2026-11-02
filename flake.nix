@@ -184,6 +184,8 @@
         in {
           default = ground;
           inherit ground;
+          # libacp, as its own flake builds and tests it, against ground's json-c.
+          libacp = acpLib system;
 
           claude-2_1_303 = claude "2.1.303" {
             darwin-arm64 = "d2da3b003dc08b88b7230469014fe3e1dc6fe94bc8f648e89b34175d30269370";
