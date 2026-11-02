@@ -43,6 +43,29 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     return r;
 }
 
+// "ritual needs to work for us always"
+// What a process holds on its first read of a control (controls.d): the same
+// layers the hook holds, for the tree it stands in. Refused is said to stderr.
+void holdLandedHere() {
+    import core.stdc.stdlib : getenv;
+    import core.stdc.stdio : stderr, fprintf;
+    import core.sys.posix.unistd : getcwd;
+    import git : originOf;
+    __gshared char[4096] cwdBuf = 0;
+    auto home = getenv("HOME");
+    if (home is null || getcwd(cwdBuf.ptr, cwdBuf.length) is null) return;
+    size_t hl = 0;
+    while (home[hl] != 0) hl++;
+    size_t cl = 0;
+    while (cwdBuf[cl] != 0) cl++;
+    __gshared SandLoad held;
+    held = holdLanded(home[0 .. hl], originOf(cwdBuf[0 .. cl]));
+    if (held.what == SandHeld.refused) {
+        auto why = held.why();
+        fprintf(stderr, "ground: %.*s\n", cast(int) why.length, why.ptr);
+    }
+}
+
 // The Sand the library at path hands over when its ABI is the engine's, else null and r says why.
 private const(Sand)* openSand(const(char)* path, ref SandLoad r) {
     import core.sys.posix.dlfcn : dlopen, dlsym, dlerror, RTLD_NOW, RTLD_LOCAL;
