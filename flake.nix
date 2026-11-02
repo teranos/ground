@@ -17,6 +17,10 @@
       # kept in this repository at libmcp/ and built as its own flake builds it,
       # with the json-c it is held to. Nothing to lock: it is this checkout's.
       libmcp = (import ./libmcp/flake.nix).outputs { self = { }; inherit nixpkgs; };
+      # The Agent Client Protocol in C: libacp, kept at libacp/ the
+      # same way, and built against libmcp's json-c so one json-c is linked.
+      libacp = (import ./libacp/flake.nix).outputs { self = { }; inherit nixpkgs; };
+      acpLib = system: libacp.lib.libacpWith nixpkgs.legacyPackages.${system} libmcp.packages.${system}.json-c;
       # What the client and ground link: the library, and the json-c it patched.
       mcpLibs = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
       # What phone/phone.cc compiles and links against: libphonenumber, and the headers its own include.
@@ -164,6 +168,8 @@
         in {
           default = ground;
           inherit ground;
+          # libacp, as its own flake builds and tests it, against ground's json-c.
+          libacp = acpLib system;
 
           claude-2_1_303 = claude "2.1.303" {
             darwin-arm64 = "d2da3b003dc08b88b7230469014fe3e1dc6fe94bc8f648e89b34175d30269370";

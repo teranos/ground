@@ -33,6 +33,8 @@ in
         checkout
         installNix
         { run = "nix build .#ground"; }
+        # libacp: its build, and its checkPhase's tests, plain and under ASan/UBSan.
+        { run = "nix build -L .#libacp"; }
         # ground's side of libmcp, against the input's library and test server.
         { run = "nix develop .#default --command make test-mcp"; }
         # The Makefile's wind rule is the one list of wind's files. A copy of
