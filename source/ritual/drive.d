@@ -125,7 +125,7 @@ enum BOOK_COMMAND = q"EOS
 ground_drive ground-coinflip-1786812152
 EOS";
 
-// Whether the parse declares the ritual.
+// 「[Opus 5.5] Whether the parse declares the ritual.」
 bool declares(P)(auto ref const P parsed, const(char)[] ritual) {
     foreach (i; 0 .. parsed.ritualCount)
         if (parsed.rituals[i].name == ritual) return true;
@@ -445,8 +445,8 @@ int handleDrive(int argc, const(char)** argv) {
         }
 
         // "stuck and silent"
-        // A ritual this driver cannot find has nothing to walk, now or later. It
-        // halts and says so; it does not poll forever with the row reading live.
+        // 「[Opus 5.5] A ritual this driver cannot find has nothing to walk, now or later. It」
+        // 「[Opus 5.5] halts and says so; it does not poll forever with the row reading live.」
         if (!declares(parsed, found.p.ritual)) {
             import ritual.store : writePositionIf;
             import ritual.position : step;
