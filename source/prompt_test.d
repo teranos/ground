@@ -358,8 +358,9 @@ unittest {
         told[toldLen++] = '\n';
         return true;
     }
-    bool readOnly(const(char)[] tool) { return tool == "fs__look"; }
-    assert(replayHistory(history, &send, &readOnly));
+    // The kind is the replay's to be told, by the call's id and its tool.
+    const(char)[] kindOf(const(char)[] id, const(char)[] tool) { return id == "c1" && tool == "fs__look" ? "read" : null; }
+    assert(replayHistory(history, &send, &kindOf));
     auto out_ = told[0 .. toldLen];
     assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"fs__look","name":"fs__look","kind":"read","rawInput":{}}`) >= 0);
     assert(indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"fs__write","name":"fs__write","rawInput":{}}`) >= 0);

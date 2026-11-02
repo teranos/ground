@@ -1054,10 +1054,13 @@ version (Posix) unittest {
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     // The titles each call was shown with live, by its id: c1's, and none for c2, from before titles were kept.
     enum titles = `"c1":"Read \"it\""`;
-    assert(storeHistory(db, "code-100-7-1", history, titles) == 1);
-    Reply kept, keptTitles;
-    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles) == 1 && kept.slice() == history && keptTitles.slice() == titles);
-    kept.dispose(); keptTitles.dispose();
+    // And the kind each was shown with, by its id: c1's, read, though no server it loads with says so.
+    enum kinds = `"c1":"read"`;
+    assert(storeHistory(db, "code-100-7-1", history, titles, kinds) == 1);
+    Reply kept, keptTitles, keptKinds;
+    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles, keptKinds) == 1 && kept.slice() == history
+        && keptTitles.slice() == titles && keptKinds.slice() == kinds);
+    kept.dispose(); keptTitles.dispose(); keptKinds.dispose();
 
     __gshared char[65536] said;
     size_t saidLen;
@@ -1088,6 +1091,7 @@ version (Posix) unittest {
     assert(saidLen == 0);
     assert(b.open[0].history !is null && b.open[0].history.slice() == history);
     assert(b.open[0].titles.slice() == titles);
+    assert(b.open[0].kinds.slice() == kinds);
 
     // Loaded elsewhere: replayed, in order, then answered.
     Sessions c = Sessions(300, 9); c.clock = 1_700_000_000;
@@ -1099,7 +1103,7 @@ version (Posix) unittest {
           up ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi \"you\""}}}}` ~ "\n"
         // c1 has the title it was shown with live, though no server it loads with has its tool; c2,
         // with none kept, is titled as the loaded catalogue titles it, here by its name.
-        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read \"it\"","name":"x__y","rawInput":{"a":1}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read \"it\"","name":"x__y","kind":"read","rawInput":{"a":1}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","name":"x__z","rawInput":{}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"},`
@@ -1198,9 +1202,10 @@ version (Posix) unittest {
           up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
-    Reply kept, keptTitles;
-    scope(exit) keptTitles.dispose();
-    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles) == 1);
+    Reply kept, keptTitles, keptKinds;
+    scope(exit) { keptTitles.dispose(); keptKinds.dispose(); }
+    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles, keptKinds) == 1);
+    assert(keptKinds.len == 0);
     assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done","reasoning":"hi is a greeting"}`);
     // A turn that called no tool kept no title.
     assert(keptTitles.len == 0);
@@ -2531,6 +2536,8 @@ version (Posix) unittest {
     // Each call's title is kept as it was shown, so a load tells it back as it was, whatever
     // servers the load brings: here none, so no catalogue titles them.
     assert(s.open[0].titles.slice() == `"c1":"Look around","c2":"Touch a file","c3":"test__break"`);
+    // And the kind each was shown with: look only reads; the others said none, so none is kept.
+    assert(s.open[0].kinds.slice() == `"c1":"read"`);
     int[2] l;
     assert(pipe(l) == 0);
     fflush(stdout);
@@ -2547,10 +2554,11 @@ version (Posix) unittest {
     }
     close(l[0]);
     assert(indexOf(r.slice(), `"result"`) >= 0);
-    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look"`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look","kind":"read"`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Touch a file","name":"test__touch"`) >= 0);
     s.open[0].history.dispose();
     s.open[0].titles.dispose();
+    s.open[0].kinds.dispose();
 }
 
 // "After creating a session, the Agent MAY send a list of available commands
