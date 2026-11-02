@@ -1,5 +1,5 @@
 {
-  description = "libacp: the Agent Client Protocol, agent side, in C11 with a C ABI";
+  description = "libacp: the Agent Client Protocol, agent and client side, in C11 with a C ABI";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

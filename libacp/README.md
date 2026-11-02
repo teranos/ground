@@ -1,8 +1,12 @@
 # libACP
 
-A C11 [Agent Client Protocol](https://agentclientprotocol.com) library, agent side,
-with a C ABI in `include/acp.h`. Ground's `ground code` speaks ACP through it, as it
+A C11 [Agent Client Protocol](https://agentclientprotocol.com) library, agent and client
+side, with a C ABI in `include/acp.h`. Ground's `ground code` speaks ACP through it, as it
 speaks MCP through [libmcp](https://github.com/teranos/libmcp). MIT, like Ground.
+
+The client side is what a client, QNTX among them, runs an ACP agent with as a harness:
+"I would like any harness to be pluggable". Each of its writers is read back by the agent
+side's reader of the same method, and each of its readers reads what the agent side writes.
 
 It is held to two schemas: v1 at
 [schema-v1.26.0](https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v1.26.0),

@@ -32,3 +32,18 @@ what v2 (schema-v2.0.0-alpha.9) says of the same method, so v2 needs no second p
 | `elicitation/create`, `elicitation/complete` | 14 | #167, #178 | writes the request from what a session's MCP server asked: `sessionId`, `toolCallId`, `mode` (form when none), `message`, then the rest as the server gave it; and `elicitation/complete`'s `elicitationId` | the same two methods |
 | `image` in `session/prompt`, and `promptCapabilities.image` | image | new | reads an image block's `mimeType` and `data`, both required, as `ACP_BLOCK_IMAGE`; writes a `user_message_chunk` holding an image when a session is loaded | the same `ImageContent` and `promptCapabilities.image` |
 | `audio` in `session/prompt`, and `promptCapabilities.audio` | audio | new | reads an audio block's `mimeType` and `data`, both required, as `ACP_BLOCK_AUDIO`; writes a `user_message_chunk` holding audio when a session is loaded | the same `AudioContent` and `promptCapabilities.audio` |
+
+## The client side
+
+What a client writes to an agent and reads of what it sends, v1 (schema-v1.26.0). `tests/client.c` checks
+each against the agent side's own reader or writer of the same method.
+
+| Method | libacp, client side, v1 |
+|---|---|
+| any message | reads it as a request (`id`, `method`), a notification (`method`), or a response (`id`, and `result` or `error`'s `code`, `message`, `data`); writes an error answering a request |
+| `initialize` | writes `protocolVersion`, `clientCapabilities` (`fs`'s `readTextFile`, `writeTextFile`; `terminal`; `session.notices`, `elicitation`, `auth.terminal` when offered), `clientInfo`; v2's `capabilities` and `info`. Reads the result's `protocolVersion`, `agentCapabilities` (`loadSession`, `sessionCapabilities.resume`, `promptCapabilities`' `image`, `audio`, `embeddedContext`, `mcpCapabilities`' `http`, `sse`) and `agentInfo`, or v2's `capabilities` and `info` |
+| `session/new`, `session/load`, `session/resume` | writes `sessionId` for the latter two, `cwd` (absolute), `mcpServers` in the HTTP shape: `type`, `name`, `url`, `headers` (`name`, `value`). Reads session/new's `sessionId` |
+| `session/prompt` | writes `sessionId` and `prompt` as one `text` block, every byte; reads `stopReason`, one of the five |
+| `session/cancel` | writes the notification's `sessionId` |
+| `session/update` | reads `sessionId`, `update` whole, and its `sessionUpdate`; of a chunk, its `content`'s `text`, every byte; of `tool_call` and `tool_call_update`, `toolCallId`, `title`, `name`, `kind`, `status`, `rawInput`, `rawOutput`; of `usage_update`, `used`, `size`, `cost`'s `amount` and `currency` |
+| `session/request_permission` | reads `sessionId`, `toolCall`'s `toolCallId`, `title`, `kind`, `rawInput`, and `options` (`optionId`, `name`, `kind`); writes the outcome, `selected` with its `optionId`, or `cancelled` |
