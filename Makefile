@@ -41,7 +41,7 @@ BINS = ground_hook ground_code ground_sky ground_drive
 
 build/libgroundc.a: phone/phone.cc
 	mkdir -p build
-	c++ -std=c++17 -O2 -c phone/phone.cc -o build/phone.o
+	c++ -std=c++20 -O2 -c phone/phone.cc -o build/phone.o
 	ar rcs $@ build/phone.o
 
 $(BINS) ground_parity: wind build/libgroundc.a
