@@ -11,7 +11,9 @@ acp_status acp_read_text_file_request_write(const char *request_id, const char *
 
 acp_status acp_read_text_file_lines_request_write(const char *request_id, const char *session_id, const char *path,
     uint32_t line, uint32_t limit, acp_buffer *message_json) {
-    if (request_id == NULL || session_id == NULL || path == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
+    // "Absolute path to the file to read."
+    if (request_id == NULL || session_id == NULL || path == NULL || path[0] != '/' || message_json == NULL)
+        return ACP_INVALID_ARGUMENT;
     json_object *id = acp_parse(request_id, strlen(request_id));
     if (id == NULL) return ACP_INVALID_ARGUMENT;
     json_object *params = json_object_new_object();
@@ -60,7 +62,8 @@ void acp_text_file_free(acp_text_file *file) {
 
 acp_status acp_write_text_file_request_write(const char *request_id, const char *session_id, const char *path,
     const char *content, size_t content_length, acp_buffer *message_json) {
-    if (request_id == NULL || session_id == NULL || path == NULL || content == NULL || message_json == NULL ||
+    // "Absolute path to the file to write."
+    if (request_id == NULL || session_id == NULL || path == NULL || path[0] != '/' || content == NULL || message_json == NULL ||
         content_length > INT_MAX)
         return ACP_INVALID_ARGUMENT;
     json_object *id = acp_parse(request_id, strlen(request_id));

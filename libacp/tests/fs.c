@@ -22,6 +22,9 @@ static void request(void) {
     acp_buffer_free(&out);
     CHECK(acp_read_text_file_request_write("read-1", "code-1-1-1", "/tmp/a", &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_read_text_file_request_write("\"read-1\"", "code-1-1-1", NULL, &out) == ACP_INVALID_ARGUMENT);
+    // "Absolute path to the file to read."
+    CHECK(acp_read_text_file_request_write("\"read-1\"", "code-1-1-1", "tmp/a", &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_read_text_file_lines_request_write("\"read-1\"", "code-1-1-1", "", 1, 1, &out) == ACP_INVALID_ARGUMENT);
     // "Line number to start reading from (1-based)" and "Maximum number of lines to read", each
     // written when given, 0 being none.
     CHECK(acp_read_text_file_lines_request_write("\"read-2\"", "code-1-1-1", "/tmp/a", 10, 50, &out) == ACP_OK);
@@ -84,6 +87,8 @@ static void write_request(void) {
     acp_buffer_free(&out);
     CHECK(acp_write_text_file_request_write("write-1", "code-1-1-1", "/tmp/a", "x", 1, &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_write_text_file_request_write("\"write-1\"", "code-1-1-1", "/tmp/a", NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    // "Absolute path to the file to write."
+    CHECK(acp_write_text_file_request_write("\"write-1\"", "code-1-1-1", "tmp/a", "x", 1, &out) == ACP_INVALID_ARGUMENT);
 }
 
 static int written(const char *message) {

@@ -132,6 +132,16 @@ static acp_status resume_read(const char *method, int servers, const char *param
     } else if (servers && !json_object_is_type(acp_field(params, "mcpServers"), json_type_array)) {
         snprintf(message, sizeof message, "%s needs mcpServers", method);
         status = acp_invalid(error_json, message);
+    } else if (servers) {
+        // Each server read as session/new reads it.
+        json_object *named = acp_field(params, "mcpServers");
+        for (size_t i = 0; i < json_object_array_length(named); i++) {
+            if (!new_server(json_object_array_get_idx(named, i))) {
+                snprintf(message, sizeof message, "%s has an invalid MCP server configuration", method);
+                status = acp_invalid(error_json, message);
+                break;
+            }
+        }
     }
     json_object_put(params);
     if (status != ACP_OK) acp_session_resume_free(out);
@@ -181,7 +191,7 @@ acp_status acp_directories_read(const char *params_json, size_t length, acp_buff
         size_t n = named ? json_object_array_length(named) : 0;
         for (size_t i = 0; i < n && status == ACP_OK; i++) {
             json_object *path = json_object_array_get_idx(named, i);
-            if (!json_object_is_type(path, json_type_string)) {
+            if (!new_string(path)) {
                 status = acp_invalid(error_json, "additionalDirectories must be a list of paths");
                 break;
             }
@@ -264,7 +274,13 @@ acp_status acp_session_info_write(const acp_session_info *info, acp_buffer *out_
     json_object *dirs = NULL;
     if (info->additional_directories != NULL) {
         dirs = acp_parse(info->additional_directories, strlen(info->additional_directories));
-        if (!json_object_is_type(dirs, json_type_array)) {
+        int paths = json_object_is_type(dirs, json_type_array);
+        // Each an absolute path, as the request's reader takes them.
+        for (size_t i = 0; paths && i < json_object_array_length(dirs); i++) {
+            json_object *path = json_object_array_get_idx(dirs, i);
+            paths = new_string(path) && json_object_get_string(path)[0] == '/';
+        }
+        if (!paths) {
             json_object_put(dirs);
             return ACP_INVALID_ARGUMENT;
         }

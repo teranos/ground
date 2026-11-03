@@ -20,8 +20,8 @@ acp_status acp_permission_request_write(const acp_permission_request *request, a
         return ACP_INVALID_ARGUMENT;
     }
     // The model's arguments as it gave them: JSON as JSON, anything else as the text it is.
-    json_object *input = acp_raw(request->raw_input);
-    if (input == NULL) {
+    json_object *input;
+    if (!acp_raw(request->raw_input, &input)) {
         json_object_put(id);
         json_object_put(locations);
         return ACP_NO_MEMORY;

@@ -11,10 +11,11 @@ static void add_string(json_object *object, const char *key, const char *value) 
 acp_status acp_session_update_write(const char *session_id, const char *update_json, acp_buffer *message_json) {
     if (session_id == NULL || update_json == NULL || message_json == NULL) return ACP_INVALID_ARGUMENT;
     // The update as it was written, byte for byte: what it carries raw stays raw.
-    json_object *update = acp_raw(update_json);
+    json_object *update;
+    int made = acp_raw(update_json, &update);
     if (!json_object_is_type(update, json_type_object)) {
         json_object_put(update);
-        return update == NULL ? ACP_NO_MEMORY : ACP_INVALID_ARGUMENT;
+        return made ? ACP_INVALID_ARGUMENT : ACP_NO_MEMORY;
     }
     json_object *params = json_object_new_object();
     add_string(params, "sessionId", session_id);
@@ -160,8 +161,16 @@ acp_status acp_tool_call_write(const acp_tool_call *call, acp_buffer *update_jso
     add_string(update, "kind", call->kind);
     add_string(update, "status", call->status);
     if (locations != NULL) json_object_object_add(update, "locations", locations);
-    if (call->raw_input != NULL) json_object_object_add(update, "rawInput", acp_raw(call->raw_input));
-    if (call->raw_output != NULL) json_object_object_add(update, "rawOutput", acp_raw(call->raw_output));
+    json_object *input = NULL, *output = NULL;
+    if ((call->raw_input != NULL && !acp_raw(call->raw_input, &input))
+        || (call->raw_output != NULL && !acp_raw(call->raw_output, &output))) {
+        json_object_put(input);
+        json_object_put(content);
+        json_object_put(update);
+        return ACP_NO_MEMORY;
+    }
+    if (call->raw_input != NULL) json_object_object_add(update, "rawInput", input);
+    if (call->raw_output != NULL) json_object_object_add(update, "rawOutput", output);
     if (content != NULL) json_object_object_add(update, "content", content);
     return acp_finish(update, update_json);
 }
@@ -285,7 +294,9 @@ acp_status acp_elicitation_create_write(const char *request_id, const char *sess
     message_json->length = 0;
     json_object *asked = acp_parse(server_params, length);
     json_object *named = acp_field(asked, "mode");
-    if (!json_object_is_type(asked, json_type_object) || (named != NULL && !json_object_is_type(named, json_type_string))) {
+    // "message" is required, as text.
+    if (!json_object_is_type(asked, json_type_object) || (named != NULL && !json_object_is_type(named, json_type_string))
+        || !json_object_is_type(acp_field(asked, "message"), json_type_string)) {
         json_object_put(asked);
         return ACP_INVALID_PARAMS;
     }
@@ -301,8 +312,7 @@ acp_status acp_elicitation_create_write(const char *request_id, const char *sess
     add_string(params, "toolCallId", tool_call_id);
     add_string(params, "mode", how);
     // "message", required, as the server gave it; then the rest of what it asked.
-    json_object *message_text = acp_field(asked, "message");
-    if (message_text != NULL) json_object_object_add(params, "message", json_object_get(message_text));
+    json_object_object_add(params, "message", json_object_get(acp_field(asked, "message")));
     json_object_object_foreach(asked, key, value) {
         if (strcmp(key, "mode") == 0 || strcmp(key, "sessionId") == 0 || strcmp(key, "toolCallId") == 0
             || strcmp(key, "message") == 0) continue;

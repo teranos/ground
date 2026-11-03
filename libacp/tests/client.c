@@ -77,6 +77,12 @@ static void initialize_response(void) {
     CHECK(info.agent_version != NULL && strcmp(info.agent_version, "2") == 0);
     acp_agent_info_free(&info);
 
+    // A version libacp does not speak is none: version 0, nothing offered.
+    const char *three = "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":3,\"agentCapabilities\":{\"loadSession\":true}}}";
+    CHECK(acp_client_initialize_read(three, strlen(three), &info) == ACP_OK);
+    CHECK(info.protocol_version == 0 && info.load_session == 0);
+    acp_agent_info_free(&info);
+
     // An error is no agent: version 0, nothing offered.
     const char *refused = "{\"jsonrpc\":\"2.0\",\"id\":0,\"error\":{\"code\":-32022,\"message\":\"no\"}}";
     CHECK(acp_client_initialize_read(refused, strlen(refused), &info) == ACP_OK);
@@ -285,6 +291,17 @@ static void updates(void) {
     CHECK(acp_session_update_write("s-1", u.data, &m) == ACP_OK);
     CHECK(acp_client_session_update_read(m.data, m.length, &up) == ACP_OK);
     CHECK(up.kind == ACP_UPDATE_USAGE && up.used == 1200 && up.size == 200000);
+    // used and size are each a uint64, required: a usage update without both is another update.
+    const char *bad[] = {
+        "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s\",\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":-1,\"size\":2}}}",
+        "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s\",\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":1}}}",
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+        acp_update other;
+        CHECK(acp_client_session_update_read(bad[i], strlen(bad[i]), &other) == ACP_OK);
+        CHECK(other.kind == ACP_UPDATE_OTHER && other.used == 0 && other.size == 0);
+        acp_update_free(&other);
+    }
     CHECK(up.cost_amount != NULL && strcmp(up.cost_amount, "0.0123") == 0 && strcmp(up.cost_currency, "USD") == 0);
     acp_update_free(&up);
     acp_buffer_free(&u);
