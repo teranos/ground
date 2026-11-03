@@ -29,8 +29,9 @@ void acp_buffer_free(acp_buffer *buffer) {
     buffer->length = 0;
 }
 
-// One JSON value, the whole of what was given, or NULL.
-json_object *acp_parse(const char *json, size_t length) {
+// One JSON value, the whole of what was given; *ok says whether it was, as JSON null is NULL.
+static json_object *parse_whole(const char *json, size_t length, int *ok) {
+    *ok = 0;
     if (json == NULL || length > INT32_MAX) return NULL;
     json_tokener *tokener = json_tokener_new();
     if (tokener == NULL) return NULL;
@@ -47,7 +48,14 @@ json_object *acp_parse(const char *json, size_t length) {
         json_object_put(value);
         return NULL;
     }
+    *ok = 1;
     return value;
+}
+
+// One JSON value, the whole of what was given, or NULL.
+json_object *acp_parse(const char *json, size_t length) {
+    int ok;
+    return parse_whole(json, length, &ok);
 }
 
 json_object *acp_field(json_object *object, const char *key) {
@@ -61,11 +69,13 @@ int acp_offered(json_object *object, const char *key) {
     return json_object_is_type(acp_field(object, key), json_type_object);
 }
 
-// A string field's value, copied, or NULL when absent or not a string; the caller frees it.
+// A string field's value, copied, or NULL when absent, not a string, or holding a NUL, which
+// would make it another, shorter string; the caller frees it.
 char *acp_string(json_object *object, const char *key) {
     json_object *value = acp_field(object, key);
     if (!json_object_is_type(value, json_type_string)) return NULL;
     const char *s = json_object_get_string(value);
+    if (strlen(s) != (size_t) json_object_get_string_len(value)) return NULL;
     size_t n = strlen(s) + 1;
     char *copy = malloc(n);
     if (copy != NULL) memcpy(copy, s, n);
@@ -114,19 +124,27 @@ static void raw_free(json_object *object, void *userdata) {
     free(userdata);
 }
 
-json_object *acp_raw(const char *text) {
-    if (text == NULL || strlen(text) > INT32_MAX) return NULL;
-    json_object *value = acp_parse(text, strlen(text));
-    if (value == NULL) return json_object_new_string(text);
+int acp_raw(const char *text, json_object **out) {
+    *out = NULL;
+    if (text == NULL || strlen(text) > INT32_MAX) return 0;
+    int ok;
+    json_object *value = parse_whole(text, strlen(text), &ok);
+    if (!ok) return (*out = json_object_new_string(text)) != NULL;
+    // JSON null is json-c's NULL; and a message is one line, so text over lines is written again.
+    if (value == NULL || strpbrk(text, "\r\n") != NULL) {
+        *out = value;
+        return 1;
+    }
     size_t n = strlen(text) + 1;
     char *copy = malloc(n);
     if (copy == NULL) {
         json_object_put(value);
-        return NULL;
+        return 0;
     }
     memcpy(copy, text, n);
     json_object_set_serializer(value, raw_text, copy, raw_free);
-    return value;
+    *out = value;
+    return 1;
 }
 
 json_object *acp_locations(const acp_location *locations, size_t count, int *bad) {

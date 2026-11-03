@@ -170,7 +170,8 @@ acp_status acp_client_initialize_read(const char *message_json, size_t length, a
     json_object *version = acp_field(result, "protocolVersion");
     if (json_object_is_type(version, json_type_int)) {
         int64_t v = json_object_get_int64(version);
-        if (v > 0 && v <= 65535) out->protocol_version = (unsigned) v;
+        // The versions libacp speaks; another is no agent it can talk to.
+        if (v == 1 || v == 2) out->protocol_version = (unsigned) v;
     }
     if (out->protocol_version > 0) {
         // The result is in the shape of the version it names.
@@ -336,8 +337,9 @@ acp_status acp_client_session_cancel_write(const char *session_id, acp_buffer *m
 
 // --- updates ---
 
+// A uint64, "minimum": 0: an integer below it is none.
 static int uint64_of(json_object *value, unsigned long long *out) {
-    if (!json_object_is_type(value, json_type_int)) return 0;
+    if (!json_object_is_type(value, json_type_int) || json_object_get_int64(value) < 0) return 0;
     *out = (unsigned long long) json_object_get_uint64(value);
     return 1;
 }
@@ -392,9 +394,13 @@ acp_status acp_client_session_update_read(const char *message_json, size_t lengt
             out->raw_output = json_text(acp_field(update, "rawOutput"));
         }
         if (strcmp(out->type, "usage_update") == 0) {
-            out->kind = ACP_UPDATE_USAGE;
-            uint64_of(acp_field(update, "used"), &out->used);
-            uint64_of(acp_field(update, "size"), &out->size);
+            // used and size are required: without both it is another update.
+            unsigned long long used = 0, size = 0;
+            if (uint64_of(acp_field(update, "used"), &used) && uint64_of(acp_field(update, "size"), &size)) {
+                out->kind = ACP_UPDATE_USAGE;
+                out->used = used;
+                out->size = size;
+            }
             json_object *cost = acp_field(update, "cost");
             out->cost_amount = json_text(acp_field(cost, "amount"));
             out->cost_currency = acp_string(cost, "currency");
