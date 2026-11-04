@@ -81,6 +81,9 @@
           "run": "nix build .#ground"
         },
         {
+          "run": "nix build -L .#libacp"
+        },
+        {
           "run": "nix develop .#default --command make test-mcp"
         },
         {
