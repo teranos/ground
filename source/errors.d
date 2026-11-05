@@ -75,7 +75,7 @@ const(char)[] deliverError(const ref GroundError err) {
         auto db = openDb();
         opened = db !is null;
         auto result = db is null ? null : formatResult(err);
-        // No whole result is nothing stored: the breadcrumb and stderr build theirs from err.
+        // 「[Opus 5.5] No whole result is nothing stored: the breadcrumb and stderr build theirs from err.」
         if (db !is null && result is null) { sqlite3_close(db); db = null; }
         if (db !is null) {
             auto ok = writeExecResult(db, err.sessionId, err.controlName, result, err.stdout, err.stderr);
@@ -232,8 +232,8 @@ private void leaveForSentry(void* db, const ref GroundError err, const(char)[] r
 // Uses a shared static buffer — no GC, no allocations. Caller must copy
 // the returned slice before the next call if it needs to retain it.
 const(char)[] formatResult(const ref GroundError err) {
-    // As wide as the error is: the row it lands in grows (immediate.d writeExecResult), and a
-    // 4096-byte buffer here cut it before it got there.
+    // 「[Opus 5.5] As wide as the error is: the row it lands in grows (immediate.d writeExecResult), and a」
+    // 「[Opus 5.5] 4096-byte buffer here cut it before it got there.」
     import code.reply : Reply;
     __gshared Reply buf;
     buf.len = 0;
@@ -265,8 +265,8 @@ const(char)[] formatResult(const ref GroundError err) {
         appendStr(": ");
         appendStr(err.message);
     }
-    // A buffer that could not grow holds part of it: that is no result, and the caller takes the
-    // next channel rather than store or post a part as the whole.
+    // 「[Opus 5.5] A buffer that could not grow holds part of it: that is no result, and the caller takes the」
+    // 「[Opus 5.5] next channel rather than store or post a part as the whole.」
     if (buf.full) return null;
     return buf.slice();
 }
@@ -346,9 +346,9 @@ private bool writeBreadcrumb(const ref GroundError err) {
     return n == cast(long) text.length;
 }
 
-// The breadcrumb's one record, whole however long:
-// "<ts>\t<origin>\t<control>\texit=<n>\terrno=<n>\t<message>\n", then both streams.
-// It was 2048 bytes, and what ran past them was cut.
+// 「[Opus 5.5] The breadcrumb's one record, whole however long:」
+// 「[Opus 5.5] "<ts>\t<origin>\t<control>\texit=<n>\terrno=<n>\t<message>\n", then both streams.」
+// 「[Opus 5.5] It was 2048 bytes, and what ran past them was cut.」
 void crumbLine(R)(ref R line, const ref GroundError err) {
     void append(const(char)[] s) { line.add(s); }
     void appendInt(long v) {
@@ -371,7 +371,7 @@ void crumbLine(R)(ref R line, const ref GroundError err) {
     crumbStreams(line, err);
 }
 
-// Both streams, labelled and indented; an empty one is left out.
+// 「[Opus 5.5] Both streams, labelled and indented; an empty one is left out.」
 void crumbStreams(R)(ref R line, const ref GroundError err) {
     void append(const(char)[] s) { line.add(s); }
     // Preserve BOTH streams in the breadcrumb — the fallback must carry
@@ -397,9 +397,9 @@ void crumbStreams(R)(ref R line, const ref GroundError err) {
 // dispatch. If any of those chains still has a live consumer, the
 // message reaches somewhere.
 private bool writeStderr(const ref GroundError err) {
-    // The whole record, the streams too, as the breadcrumb would have carried them, in one write
-    // the kernel is asked to take whole and finished where it took less: a 1024-byte line cut the
-    // message, and pieces written one by one mixed with another hook's.
+    // 「[Opus 5.5] The whole record, the streams too, as the breadcrumb would have carried them, in one write」
+    // 「[Opus 5.5] the kernel is asked to take whole and finished where it took less: a 1024-byte line cut the」
+    // 「[Opus 5.5] message, and pieces written one by one mixed with another hook's.」
     import code.reply : Reply;
     import core.stdc.errno : errno, EINTR;
     Reply rec;
@@ -417,7 +417,7 @@ private bool writeStderr(const ref GroundError err) {
     return true;
 }
 
-// stderr's record: "ground error: <origin>: <message>", then both streams as the breadcrumb has them.
+// 「[Opus 5.5] stderr's record: "ground error: <origin>: <message>", then both streams as the breadcrumb has them.」
 void stderrRecord(R)(ref R rec, const ref GroundError err) {
     rec.add("ground error: ");
     rec.add(err.origin);
