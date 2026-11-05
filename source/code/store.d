@@ -119,33 +119,35 @@ int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort, long now
 
 // Marks a session active now, as a prompt does. 1 marked, 0 no open session
 // by that id, -1 the store refused.
-// 「[Opus 5.5] Keeps an open session's conversation, and the titles its calls were shown」
-// 「[Opus 5.5] with. 1 kept, 0 no open session by that id, -1 the store refused.」
-int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(char)[] titles) {
+// Keeps an open session's conversation, and the titles and kinds its calls were
+// shown with. 1 kept, 0 no open session by that id, -1 the store refused.
+int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(char)[] titles, const(char)[] kinds) {
     sqlite3_stmt* st;
-    enum sql = "UPDATE code_session SET history = ?2, titles = ?3 WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "UPDATE code_session SET history = ?2, titles = ?3, kinds = ?4 WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     bind(st, 2, history);
     bind(st, 3, titles);
+    bind(st, 4, kinds);
     auto rc = sqlite3_step(st);
     sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
-// 「[Opus 5.5] An open session's conversation, into history, and its calls' titles, into」
-// 「[Opus 5.5] titles. 1 read, 0 no open session by that id, -1 the store refused.」
-int storeHistoryOf(sqlite3* db, const(char)[] id, ref Reply history, ref Reply titles) {
+// An open session's conversation, into history, and its calls' titles and
+// kinds, into titles and kinds. 1 read, 0 no open session by that id, -1 the
+// store refused.
+int storeHistoryOf(sqlite3* db, const(char)[] id, ref Reply history, ref Reply titles, ref Reply kinds) {
     sqlite3_stmt* st;
-    enum sql = "SELECT history, titles FROM code_session WHERE id = ?1 AND closed_at = 0\0";
+    enum sql = "SELECT history, titles, kinds FROM code_session WHERE id = ?1 AND closed_at = 0\0";
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &st, null) != SQLITE_OK) return -1;
     bind(st, 1, id);
     auto rc = sqlite3_step(st);
-    if (rc == SQLITE_ROW) { history.add(text(st, 0)); titles.add(text(st, 1)); }
+    if (rc == SQLITE_ROW) { history.add(text(st, 0)); titles.add(text(st, 1)); kinds.add(text(st, 2)); }
     sqlite3_finalize(st);
     if (rc == SQLITE_DONE) return 0;
-    return rc == SQLITE_ROW && !history.full && !titles.full ? 1 : -1;
+    return rc == SQLITE_ROW && !history.full && !titles.full && !kinds.full ? 1 : -1;
 }
 
 int storeTouch(sqlite3* db, const(char)[] id, long now) {

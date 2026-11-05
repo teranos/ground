@@ -69,6 +69,14 @@ struct Advanced {
 
 // The sequence nothing performed until now: read where we are, run that rite,
 // read its code as one of three answers, write it down, move.
+// "An abort that leaves the agent running has aborted nothing."
+// Whether a verdict that lost its revision is retaken on the row as it stands now: only while
+// that row is the walk the verdict is about, on the same rite and still live. An abort leaves
+// the rite where it was, so the rite alone let a verdict walk an aborted performance on.
+bool retakes(const Position mine, const Position now) {
+    return now.current == mine.current && now.state == RitualState.Live;
+}
+
 Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                      const Flattened f, long unixSeconds, const(char)[] shell = "") {
     import rite : prepareRite, runRite, classify;
@@ -429,8 +437,8 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         foreach (attempt; 0 .. 8) {
             if (a.applied) break;
             auto now = byPerformanceId(db, p.id);
-            // Somebody walked it on. Their outcome is the one that stands.
-            if (!now.valid || now.p.current != p.current) break;
+            // Somebody walked it on, or ended it: their outcome is the one that stands.
+            if (!now.valid || !retakes(p, now.p)) break;
             moved.rev = now.p.rev;
             a.applied = writePositionIf(db, moved, now.p.rev);
         }
@@ -661,6 +669,31 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
 // Who a start says it started. `claude --bg` answers with `backgrounded`, a
 // separator, and the id every other claude command takes. Read off that line
 // and no other: the lines under it begin with `claude`, which is nobody's id.
+// "An Error is the entity any layer emits when something breaks intention"
+// "Only pure distilled signal over anything else"
+// What bind says of a start to the session that fired the ritual: nothing of one that exited 0 and
+// named its agent; of one that exited otherwise, its code and what it printed; of one that named
+// no agent, that, and what it printed.
+void startSays(R)(ref R said, int code, const(char)[] agentId, const(char)[] printed) {
+    // Whole, however long: the reason a start failed is at the end of what it printed.
+    if (code != 0) {
+        said.add("the start of the performance's agent exited ");
+        char[12] d = 0;
+        size_t k = 0;
+        uint v = code < 0 ? cast(uint) -code : cast(uint) code;
+        do { d[k++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+        if (code < 0) said.add("-");
+        foreach_reverse (i; 0 .. k) said.add(d[i .. i + 1]);
+        said.add(": ");
+        said.add(printed);
+        return;
+    }
+    if (agentId.length == 0) {
+        said.add("the start printed no agent id, so this performance has an agent ground cannot stop: ");
+        said.add(printed);
+    }
+}
+
 const(char)[] agentIdFrom(const(char)[] printed) {
     enum word = "backgrounded";
     if (printed.length < word.length) return "";
@@ -776,12 +809,18 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
         s.put(" ");
     }
     s.putQuoted(prompt);
-    s.put(")\n");
+    // stderr with stdout, and how it exited, for bind: a start that failed is said, with what it
+    // printed, to the session that fired the ritual.
+    s.put(" 2>&1) && started=0 || started=$?\n");
     // Printed as it always was, so the exec record still holds it, and handed
     // to ground, which binds the agent it names to the performance.
     s.put("printf '%s\\n' \"$said\"\n");
     s.put("printf '%s\\n' \"$said\" | ground bind ");
     s.putQuoted(perfId);
-    s.put("\n");
+    // Bind's answer does not end the script before it says how the start went: it exits as the
+    // start did, and as bind did when the start worked and could not be bound.
+    s.put(" \"$started\" && bound=0 || bound=$?\n");
+    s.put("if [ \"$started\" != 0 ]; then exit \"$started\"; fi\n");
+    s.put("exit \"$bound\"\n");
     return s;
 }

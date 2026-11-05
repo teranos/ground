@@ -153,8 +153,8 @@ unittest {
     assert(sand() is &builtinSand);
 }
 
-// Two sands refused are two reasons, each naming the file it is about, and
-// what is held in their place: one ran into the other, and neither said which.
+// 「[Opus 5.5] Two sands refused are two reasons, each naming the file it is about, and」
+// 「[Opus 5.5] what is held in their place: one ran into the other, and neither said which.」
 unittest {
     import core.sys.posix.stdlib : mkdtemp;
     import core.stdc.stdio : fopen, fputs, fclose;
@@ -197,7 +197,7 @@ unittest {
     assert(sand() is &builtinSand);
 }
 
-// A comet refused beside a local sand that stands says the local sand is held.
+// 「[Opus 5.5] A comet refused beside a local sand that stands says the local sand is held.」
 unittest {
     import core.sys.posix.stdlib : mkdtemp;
     import core.stdc.stdio : fopen, fread, fwrite, fputs, fclose;
@@ -247,9 +247,9 @@ unittest {
     assert(sand() !is &builtinSand);
 }
 
-// Reasons longer than what ground holds are cut, and say they are: what is held still ends
-// the message. Two sands under a long home, each refused with the loader's text naming its
-// path again and again, ran past the buffer and lost "held".
+// 「[Opus 5.5] Reasons longer than what ground holds are cut, and say they are: what is held still ends」
+// 「[Opus 5.5] the message. Two sands under a long home, each refused with the loader's text naming its」
+// 「[Opus 5.5] path again and again, ran past the buffer and lost "held".」
 unittest {
     import core.sys.posix.stdlib : mkdtemp;
     import core.stdc.stdio : fopen, fputs, fclose;
@@ -295,9 +295,9 @@ unittest {
     assert(why.length <= SAID_ROOM);
 }
 
-// Reasons past the room a refusal has are cut, say they are, and what is held ends them. The room
-// leaves what the hook puts before it and around it: "sandload: " in a 4096-byte result, and that
-// in a 4096-byte exec-result row (errors.d formatResult, immediate.d writeExecResult).
+// 「[Opus 5.5] Reasons past the room a refusal has are cut, say they are, and what is held ends them. The room」
+// 「[Opus 5.5] leaves what the hook puts before it and around it: "sandload: " in a 4096-byte result, and that」
+// 「[Opus 5.5] in a 4096-byte exec-result row (errors.d formatResult, immediate.d writeExecResult).」
 unittest {
     import zbuf : ZBuf;
     import matcher : indexOf;
@@ -313,7 +313,7 @@ unittest {
     assert(why[$ - held.length .. $] == held);
     assert(indexOf(why, "[cut: ") >= 0);
 
-    // As the hook stores it, the held layers still end it.
+    // 「[Opus 5.5] As the hook stores it, the held layers still end it.」
     GroundError err;
     err.origin = "sandload";
     err.exitCode = -1;
@@ -321,7 +321,7 @@ unittest {
     auto stored = formatResult(err);
     assert(stored[$ - held.length .. $] == held, stored[$ - 120 .. $]);
 
-    // What fits is not cut.
+    // 「[Opus 5.5] What fits is not cut.」
     said.reset();
     said.put("/h/c: the sand did not load");
     endWithHeld(said, held);

@@ -203,6 +203,18 @@ private struct Turn {
 
 // session/cancel for this turn's session, or $/cancel_request naming the
 // request that asked for it, as libacp reads the line.
+// The kind a call is told back with: the one it was shown with, kept as text, none when that
+// text is empty; read for a call kept before kinds were, when its tool only reads.
+import libjsonc : json_object;
+const(char)[] shownKind(json_object* kept, bool readOnly) {
+    import libjsonc : json_object_get_type, json_type, json_object_get_string, json_object_get_string_len;
+    if (json_object_get_type(kept) == json_type.string_) {
+        auto len = cast(size_t) json_object_get_string_len(kept);
+        return len > 0 ? json_object_get_string(kept)[0 .. len] : null;
+    }
+    return readOnly ? "read" : null;
+}
+
 private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
     import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_cancel_kind, acp_status;
     import core.stdc.string : strlen;
@@ -610,8 +622,11 @@ private int askTerminal(ref Turn turn, const(char)[] pid, const(char)[] request,
 
 // terminal/create for command and its args, in cwd, asked as pid: 1 created, its id in terminalId; 0 the
 // client answered with none, its answer in answered; 2 the turn was called off; -1 not asked, why the reason.
+import libacp : acp_env_variable;
+
 private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] sid, const(char)[] cwd,
-        const(char)* command, const(const(char)*)[] args, ref Reply pid, ref Reply terminalId, ref Reply answered, ref Reply why) {
+        const(char)* command, const(const(char)*)[] args, const(acp_env_variable)[] env, ref Reply pid, ref Reply terminalId,
+        ref Reply answered, ref Reply why) {
     import libacp : acp_terminal_create_request_write, acp_terminal_create_result_read, acp_terminal_id_free,
         acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
@@ -624,7 +639,7 @@ private int terminalCreate(ref Sessions sessions, ref Turn turn, const(char)[] s
     auto t = text.slice().ptr;
     acp_buffer request;
     scope(exit) acp_buffer_free(&request);
-    if (acp_terminal_create_request_write(t + idAt, t + sidAt, command, args.ptr, args.length, t + cwdAt,
+    if (acp_terminal_create_request_write(t + idAt, t + sidAt, command, args.ptr, args.length, env.ptr, env.length, t + cwdAt,
             OUTPUT_BYTE_LIMIT, &request) != acp_status.ACP_OK) {
         why.add(`"libacp could not write terminal/create"`);
         return -1;
@@ -808,13 +823,26 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
         return json_object_get_type(v) == json_type.string_
             && strlen(json_object_get_string(v)) == cast(size_t) json_object_get_string_len(v);
     }
-    auto command = jsonField(root, "command"), list = jsonField(root, "args");
+    auto command = jsonField(root, "command"), list = jsonField(root, "args"), vars = jsonField(root, "env");
+    // json-c reads a member that is null as one that is not there: a list that is there, null
+    // among them, is a list or the call is not run.
+    bool there(const(char)* name) {
+        import libjsonc : json_object_object_get_ex;
+        return json_object_get_type(root) == json_type.object && json_object_object_get_ex(root, name, null) != 0;
+    }
     bool usable = whole(command) && json_object_get_string_len(command) > 0
-        && (list is null || json_object_get_type(list) == json_type.array);
+        && (!there("args") || json_object_get_type(list) == json_type.array)
+        && (!there("env") || json_object_get_type(vars) == json_type.array);
     size_t count = usable && list !is null ? json_object_array_length(list) : 0;
     foreach (i; 0 .. count) if (!whole(json_object_array_get_idx(list, i))) usable = false;
+    // "Environment variables for the command", each a name and a value.
+    size_t envCount = usable && vars !is null ? json_object_array_length(vars) : 0;
+    foreach (i; 0 .. envCount) {
+        auto v = json_object_array_get_idx(vars, i);
+        if (!whole(jsonField(v, "name")) || !whole(jsonField(v, "value"))) usable = false;
+    }
     if (!usable) {
-        result.add(`{"status":"not run","why":"run_command takes command, text, and args, a list of text"}`);
+        result.add(`{"status":"not run","why":"run_command takes command, text, args, a list of text, and env, a list of name and value, each text"}`);
         return 0;
     }
     if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
@@ -822,10 +850,19 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
     if (args is null) { why.add(`"could not allocate run_command's args"`); return -1; }
     scope(exit) free(args);
     foreach (i; 0 .. count) args[i] = json_object_get_string(json_object_array_get_idx(list, i));
+    import libacp : acp_env_variable;
+    auto env = cast(acp_env_variable*) malloc((envCount > 0 ? envCount : 1) * acp_env_variable.sizeof);
+    if (env is null) { why.add(`"could not allocate run_command's env"`); return -1; }
+    scope(exit) free(env);
+    foreach (i; 0 .. envCount) {
+        auto v = json_object_array_get_idx(vars, i);
+        env[i] = acp_env_variable(json_object_get_string(jsonField(v, "name")), json_object_get_string(jsonField(v, "value")));
+    }
 
     Reply answered, asked;
     scope(exit) { answered.dispose(); asked.dispose(); }
-    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], asked, terminalId, answered, why);
+    auto made = terminalCreate(sessions, turn, sid, cwd, json_object_get_string(command), args[0 .. count], env[0 .. envCount], asked, terminalId,
+        answered, why);
     if (made < 0) return -1;
     // Called off before the client answered: the terminal it makes is released when its answer comes.
     if (made == 2) {
@@ -1381,6 +1418,7 @@ struct Open {
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
     Reply titles;   // the title each call was shown with, "id":"title" pairs, so a load tells it back as shown
+    Reply kinds;    // and the kind, "id":"kind" pairs, for each call shown with one
     char[TITLE_BYTES + 4] title; // what the first prompt named it, ellipsis and all
     long costNano;  // what it has cost, when no store keeps it
     size_t titleLen;
@@ -1489,7 +1527,7 @@ private bool putModes(ref Reply r, SessionMode current) {
 
 private void forget(ref Open o) {
     if (o.history !is null) { o.history.dispose(); free(o.history); o.history = null; }
-    o.always.dispose(); o.never.dispose(); o.titles.dispose();
+    o.always.dispose(); o.never.dispose(); o.titles.dispose(); o.kinds.dispose();
 }
 
 // A session/update to the client, written as it happens: a turn's steps are
@@ -2065,14 +2103,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "it restores the session context": a session not live here gets its
         // conversation back from the store, so its next turn goes on from it.
         Reply* restored = null;
-        Reply restoredTitles; // given to the session when it is not live, else its own are kept
-        scope(exit) restoredTitles.dispose();
+        Reply restoredTitles, restoredKinds; // given to the session when it is not live, else its own are kept
+        scope(exit) { restoredTitles.dispose(); restoredKinds.dispose(); }
         if (!live && sessions.db !is null && !__ctfe) {
             import core.stdc.stdlib : malloc;
             restored = cast(Reply*) malloc(Reply.sizeof);
             if (restored is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
             *restored = Reply.init;
-            if (storeHistoryOf(sessions.db, sid, *restored, restoredTitles) != 1) {
+            if (storeHistoryOf(sessions.db, sid, *restored, restoredTitles, restoredKinds) != 1) {
                 restored.dispose(); free(restored);
                 put(`,"error":{"code":-32603,"message":"the store refused the conversation of `);
                 putEscaped(r, sid); put(`"}}`);
@@ -2097,6 +2135,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             o.titles.dispose();
             o.titles = restoredTitles;
             restoredTitles = Reply.init;
+            o.kinds.dispose();
+            o.kinds = restoredKinds;
+            restoredKinds = Reply.init;
         }
         keep(*o, sid, cwd, mode, dirs.slice(), effort);
         o.updatedAt = now(sessions);
@@ -2109,7 +2150,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // the Agent MUST respond to the original session/load request."
         if (load && !__ctfe && o.history !is null) {
             bool tell(const(char)[] update) { return notify(sid, update); }
-            bool readOnly(const(char)[] tool) { return readOnlyTool(o.mcp, tool); }
             // A call is told back with the title it was shown with live; one kept before titles
             // were, as the catalogue it loads with titles it.
             import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
@@ -2126,8 +2166,20 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     title.add(json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)]);
                 else toolTitle(o.mcp, tool, title);
             }
+            // And with the kind it was shown with, none when none was; one kept before kinds
+            // were, read when the catalogue it loads with says its tool only reads.
+            Reply allKinds;
+            scope(exit) allKinds.dispose();
+            allKinds.add("{"); allKinds.add(o.kinds.slice()); allKinds.add("}");
+            auto shownKinds = allKinds.full ? null : parseJson(allKinds.slice());
+            scope(exit) json_object_put(shownKinds);
+            const(char)[] kindOf(const(char)[] callId, const(char)[] tool) {
+                key.len = 0; key.add(callId); key.add("\0");
+                auto was = key.full ? null : jsonField(shownKinds, key.slice().ptr);
+                return shownKind(was, was is null && readOnlyTool(o.mcp, tool));
+            }
             bool warned(const(char)[] title, const(char)[] description) { return tellUser(sessions, sid, "warning", title, description); }
-            if (!replayHistory(o.history.slice(), &tell, &readOnly, &titled, &warned)) {
+            if (!replayHistory(o.history.slice(), &tell, &kindOf, &titled, &warned)) {
                 put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
                 putEscaped(r, sid); put(` back"}}`);
                 return true;
@@ -2442,7 +2494,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // The conversation is the store's as the turn ends, however it
             // ends; a store that refuses it makes the turn's answer an error
             // carrying the answer it would have been.
-            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice(), o.titles.slice()) != 1) {
+            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice(), o.titles.slice(), o.kinds.slice()) != 1) {
                 Reply would;
                 would.add(r.slice());
                 r.len = 0;
@@ -2795,6 +2847,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (o.titles.len > 0) o.titles.add(",");
                     o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
                     putEscaped(o.titles, title.slice()); o.titles.add(`"`);
+                    // None kept as none, so a catalogue that later says its tool only reads does not make it read.
+                    if (o.kinds.len > 0) o.kinds.add(",");
+                    o.kinds.add(`"`); putEscaped(o.kinds, call.id); o.kinds.add(`":"`);
+                    if (kind !is null) o.kinds.add(kind);
+                    o.kinds.add(`"`);
                     // "Tool calls can report the file locations they're working with": ground code's own, which name their file.
                     Reply where;
                     scope(exit) where.dispose();

@@ -674,6 +674,85 @@ Push readPush(DB)(DB db, const(char)[] id) {
     return push;
 }
 
+// Whether a session's transcript stands in projects (Claude Code's <config>/projects), in any of
+// its project directories: a session resumed without one is answered under its old id and ends at
+// once, and the walk goes on with nobody in it.
+bool transcriptStands(const(char)[] projects, const(char)[] session) {
+    import core.sys.posix.dirent : opendir, readdir, closedir;
+    import core.sys.posix.unistd : access, F_OK;
+    if (session.length == 0 || session.length > 64) return false;
+    foreach (c; session) {
+        auto ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_';
+        if (!ok) return false;
+    }
+    char[4096] path = 0;
+    if (projects.length + 1 > path.length) return false;
+    foreach (i, c; projects) path[i] = c;
+    path[projects.length] = 0;
+    auto dir = opendir(path.ptr);
+    if (dir is null) return false;
+    scope(exit) closedir(dir);
+    for (auto e = readdir(dir); e !is null; e = readdir(dir)) {
+        size_t len = 0;
+        while (e.d_name[len] != 0) len++;
+        auto name = e.d_name[0 .. len];
+        if (name == "." || name == "..") continue;
+        auto need = projects.length + 1 + len + 1 + session.length + 6;
+        if (need + 1 > path.length) continue;
+        size_t k = projects.length;
+        path[k++] = '/';
+        foreach (c; name) path[k++] = c;
+        path[k++] = '/';
+        foreach (c; session) path[k++] = c;
+        foreach (c; ".jsonl") path[k++] = c;
+        path[k] = 0;
+        if (access(path.ptr, F_OK) == 0) return holdsConversation(path.ptr);
+    }
+    return false;
+}
+
+// Whether the file at path is a regular transcript with a message in it, user's or assistant's,
+// within its first 64 KiB: an empty one, or a directory named as one, has no conversation to resume.
+private bool holdsConversation(const(char)* path) {
+    import core.sys.posix.sys.stat : stat_t, stat, S_IFMT, S_IFREG;
+    import core.sys.posix.fcntl : open, O_RDONLY;
+    import core.sys.posix.unistd : read, close;
+    stat_t st;
+    if (stat(path, &st) != 0 || (st.st_mode & S_IFMT) != S_IFREG || st.st_size == 0) return false;
+    auto fd = open(path, O_RDONLY);
+    if (fd < 0) return false;
+    scope(exit) close(fd);
+    __gshared char[65536] head = 0;
+    auto n = read(fd, head.ptr, head.length);
+    if (n <= 0) return false;
+    auto text = head[0 .. cast(size_t) n];
+    foreach (want; [`"type":"user"`, `"type":"assistant"`]) {
+        if (text.length < want.length) continue;
+        foreach (i; 0 .. text.length - want.length + 1)
+            if (text[i .. i + want.length] == want) return true;
+    }
+    return false;
+}
+
+// Claude Code's projects directory: $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects, into buf.
+const(char)[] projectsDirInto(char[] buf) {
+    import core.stdc.stdlib : getenv;
+    auto config = getenv("CLAUDE_CONFIG_DIR\0".ptr);
+    const(char)* base = config;
+    const(char)[] tail = "/projects";
+    if (base is null || base[0] == 0) {
+        base = getenv("HOME\0".ptr);
+        tail = "/.claude/projects";
+    }
+    if (base is null) return buf[0 .. 0];
+    size_t n = 0;
+    while (base[n] != 0) n++;
+    if (n + tail.length > buf.length) return buf[0 .. 0];
+    foreach (i; 0 .. n) buf[i] = base[i];
+    foreach (i, c; tail) buf[n + i] = c;
+    return buf[0 .. n + tail.length];
+}
+
 // "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
 // The session that carried this ritual's latest performance in its project.
 const(char)[] lastSessionOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
