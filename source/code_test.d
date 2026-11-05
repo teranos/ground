@@ -1083,7 +1083,7 @@ version (Posix) unittest {
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     // The titles each call was shown with live, by its id: c1's, and none for c2, from before titles were kept.
     enum titles = `"c1":"Read \"it\""`;
-    // And the kind each was shown with, by its id: c1's, read, though no server it loads with says so.
+    // 「[Opus 5.5] And the kind each was shown with, by its id: c1's, read, though no server it loads with says so.」
     enum kinds = `"c1":"read"`;
     assert(storeHistory(db, "code-100-7-1", history, titles, kinds) == 1);
     Reply kept, keptTitles, keptKinds;
@@ -2593,8 +2593,8 @@ version (Posix) unittest {
     // Each call's title is kept as it was shown, so a load tells it back as it was, whatever
     // servers the load brings: here none, so no catalogue titles them.
     assert(s.open[0].titles.slice() == `"c1":"Look around","c2":"Touch a file","c3":"test__break"`);
-    // And the kind each was shown with: look only reads; the others said none, kept as none, so a
-    // catalogue that later says their tool only reads does not make them read.
+    // 「[Opus 5.5] And the kind each was shown with: look only reads; the others said none, kept as none, so a」
+    // 「[Opus 5.5] catalogue that later says their tool only reads does not make them read.」
     assert(s.open[0].kinds.slice() == `"c1":"read","c2":"","c3":""`);
     int[2] l;
     assert(pipe(l) == 0);
@@ -2812,8 +2812,8 @@ version (Posix) unittest {
     s.open[0].history.dispose();
 }
 
-// A replayed call's kind is the one it was shown with, none when it was shown with none;
-// the catalogue's read only for a call kept before kinds were.
+// 「[Opus 5.5] A replayed call's kind is the one it was shown with, none when it was shown with none;」
+// 「[Opus 5.5] the catalogue's read only for a call kept before kinds were.」
 unittest {
     import libjsonc : parseJson, jsonField, json_object_put;
     auto kept = parseJson(`{"c1":"read","c2":""}`);

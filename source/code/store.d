@@ -119,8 +119,8 @@ int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort, long now
 
 // Marks a session active now, as a prompt does. 1 marked, 0 no open session
 // by that id, -1 the store refused.
-// Keeps an open session's conversation, and the titles and kinds its calls were
-// shown with. 1 kept, 0 no open session by that id, -1 the store refused.
+// 「[Opus 5.5] Keeps an open session's conversation, and the titles and kinds its calls were」
+// 「[Opus 5.5] shown with. 1 kept, 0 no open session by that id, -1 the store refused.」
 int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(char)[] titles, const(char)[] kinds) {
     sqlite3_stmt* st;
     enum sql = "UPDATE code_session SET history = ?2, titles = ?3, kinds = ?4 WHERE id = ?1 AND closed_at = 0\0";
@@ -135,9 +135,9 @@ int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(cha
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
-// An open session's conversation, into history, and its calls' titles and
-// kinds, into titles and kinds. 1 read, 0 no open session by that id, -1 the
-// store refused.
+// 「[Opus 5.5] An open session's conversation, into history, and its calls' titles and」
+// 「[Opus 5.5] kinds, into titles and kinds. 1 read, 0 no open session by that id, -1 the」
+// 「[Opus 5.5] store refused.」
 int storeHistoryOf(sqlite3* db, const(char)[] id, ref Reply history, ref Reply titles, ref Reply kinds) {
     sqlite3_stmt* st;
     enum sql = "SELECT history, titles, kinds FROM code_session WHERE id = ?1 AND closed_at = 0\0";
@@ -191,7 +191,7 @@ int storeClearTitle(sqlite3* db, const(char)[] id) {
 
 // Adds an answer's cost, in billionths of a dollar, to what an open session
 // has cost so far, into total. 1 added, 0 no open session by that id, -1 the
-// store refused.
+// 「[Opus 5.5] store refused.」
 int storeAddCost(sqlite3* db, const(char)[] id, long nano, ref long total) {
     sqlite3_stmt* st;
     enum add = "UPDATE code_session SET cost_nano = cost_nano + ?2 WHERE id = ?1 AND closed_at = 0\0";

@@ -887,8 +887,8 @@ private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data
     return !u.full;
 }
 
-// The history, told again. kindOf, when given, says the kind each call is told
-// back with, by its id and its tool, so it says the kind it did live.
+// 「[Opus 5.5] The history, told again. kindOf, when given, says the kind each call is told」
+// 「[Opus 5.5] back with, by its id and its tool, so it says the kind it did live.」
 // warn, when given, tells the user a warning as the turn did; without it, the
 // warning is the agent's message.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,

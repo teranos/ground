@@ -203,8 +203,8 @@ private struct Turn {
 
 // session/cancel for this turn's session, or $/cancel_request naming the
 // request that asked for it, as libacp reads the line.
-// The kind a call is told back with: the one it was shown with, kept as text, none when that
-// text is empty; read for a call kept before kinds were, when its tool only reads.
+// 「[Opus 5.5] The kind a call is told back with: the one it was shown with, kept as text, none when that」
+// 「[Opus 5.5] text is empty; read for a call kept before kinds were, when its tool only reads.」
 import libjsonc : json_object;
 const(char)[] shownKind(json_object* kept, bool readOnly) {
     import libjsonc : json_object_get_type, json_type, json_object_get_string, json_object_get_string_len;
@@ -2166,8 +2166,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     title.add(json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)]);
                 else toolTitle(o.mcp, tool, title);
             }
-            // And with the kind it was shown with, none when none was; one kept before kinds
-            // were, read when the catalogue it loads with says its tool only reads.
+            // 「[Opus 5.5] And with the kind it was shown with, none when none was; one kept before kinds」
+            // 「[Opus 5.5] were, read when the catalogue it loads with says its tool only reads.」
             Reply allKinds;
             scope(exit) allKinds.dispose();
             allKinds.add("{"); allKinds.add(o.kinds.slice()); allKinds.add("}");
@@ -2847,7 +2847,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (o.titles.len > 0) o.titles.add(",");
                     o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
                     putEscaped(o.titles, title.slice()); o.titles.add(`"`);
-                    // None kept as none, so a catalogue that later says its tool only reads does not make it read.
+                    // 「[Opus 5.5] None kept as none, so a catalogue that later says its tool only reads does not make it read.」
                     if (o.kinds.len > 0) o.kinds.add(",");
                     o.kinds.add(`"`); putEscaped(o.kinds, call.id); o.kinds.add(`":"`);
                     if (kind !is null) o.kinds.add(kind);

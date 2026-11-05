@@ -358,7 +358,7 @@ unittest {
         told[toldLen++] = '\n';
         return true;
     }
-    // The kind is the replay's to be told, by the call's id and its tool.
+    // 「[Opus 5.5] The kind is the replay's to be told, by the call's id and its tool.」
     const(char)[] kindOf(const(char)[] id, const(char)[] tool) { return id == "c1" && tool == "fs__look" ? "read" : null; }
     assert(replayHistory(history, &send, &kindOf));
     auto out_ = told[0 .. toldLen];
