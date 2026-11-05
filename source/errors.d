@@ -74,8 +74,10 @@ const(char)[] deliverError(const ref GroundError err) {
         import immediate : writeExecResult;
         auto db = openDb();
         opened = db !is null;
+        auto result = db is null ? null : formatResult(err);
+        // No whole result is nothing stored: the breadcrumb and stderr build theirs from err.
+        if (db !is null && result is null) { sqlite3_close(db); db = null; }
         if (db !is null) {
-            auto result = formatResult(err);
             auto ok = writeExecResult(db, err.sessionId, err.controlName, result, err.stdout, err.stderr);
             // The same error, left for the watcher to post. Every error ground
             // raises reaches sentry this way, and this hook posts nothing.
@@ -263,6 +265,9 @@ const(char)[] formatResult(const ref GroundError err) {
         appendStr(": ");
         appendStr(err.message);
     }
+    // A buffer that could not grow holds part of it: that is no result, and the caller takes the
+    // next channel rather than store or post a part as the whole.
+    if (buf.full) return null;
     return buf.slice();
 }
 

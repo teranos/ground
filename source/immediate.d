@@ -126,7 +126,9 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
     bindPending(stmt, cwd, sessionId, mark);
 
-    __gshared char[128] idBuf = 0;
+    // As wide as the id the writer builds (a ZBuf): one cut here named no row, so its receipt
+    // matched nothing and the row was read and delivered again until the batch was full.
+    __gshared char[4096] idBuf = 0;
     __gshared char[256] nameBuf = 0;
     // An exec result carries the stderr of what failed, and the reason is at
     // the end of it. 512 handed the operator the first quarter of a rite's
@@ -209,10 +211,15 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         if (detText !is null) {
             // A detail longer than a delivery carries is cut where it says so, with the row that
             // holds all of it: cut silently, its tail, where the reason is, never came.
-            enum room = 160;
+            // The notice's room is measured, its row id and byte count whole, before the cut is
+            // placed; and the cut is moved back to a character's start, as a split one is no UTF-8.
+            enum fixedNotice = "\n[ground cut this message at  bytes; the whole of it is the store row ]".length;
+            auto room = fixedNotice + 20 + idLen;
             size_t whole = 0;
             while (detText[whole] != 0) whole++;
             auto keep = whole <= msgBuf.length ? whole : msgBuf.length - room;
+            if (keep < whole)
+                while (keep > 0 && (detText[keep] & 0xC0) == 0x80) keep--;
             foreach (k; 0 .. keep) msgBuf[k] = detText[k];
             mLen = keep;
             if (keep < whole) {

@@ -118,3 +118,51 @@ unittest {
     assert(indexOf(got.message, "[ground cut this message at ") >= 0, got.message[$ - 200 .. $]);
     assert(indexOf(got.message, got.msgId) >= 0, "the cut names the row that holds all of it");
 }
+
+// The notice of a cut is whole however long its row's id, and a cut never splits a character: a
+// split one is no UTF-8, and the hook's JSON carrying it was no JSON.
+unittest {
+    import immediate : writeExecResult, readImmediateMessage, MESSAGE_CAP;
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import matcher : indexOf;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope(exit) sqlite3_close(db);
+    // A long control name makes a long row id.
+    __gshared char[90] control = 'c';
+    // é is two bytes; a run of them puts one across any cut.
+    __gshared char[MESSAGE_CAP * 2] long_ = 0;
+    foreach (i; 0 .. long_.length / 2) { long_[2 * i] = cast(char) 0xC3; long_[2 * i + 1] = cast(char) 0xA9; }
+    assert(writeExecResult(db, "sess-cut2", control[], long_[], "", ""));
+    auto got = readImmediateMessage(db, "/tmp", "sess-cut2");
+    assert(got.message !is null);
+    assert(got.message.length <= MESSAGE_CAP);
+    auto at = indexOf(got.message, "\n[ground cut this message at ");
+    assert(at >= 0);
+    assert(got.message[$ - 1] == ']', "the notice is whole");
+    // The row's own id, as the store holds it, not as the reader cut it.
+    {
+        import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_stmt, sqlite3_column_text, SQLITE_ROW;
+        sqlite3_stmt* st;
+        assert(sqlite3_prepare_v2(db, "SELECT id FROM attestations WHERE id LIKE 'immediate:exec-result:sess-cut2:%'\0".ptr, -1, &st, null) == SQLITE_OK);
+        assert(sqlite3_step(st) == SQLITE_ROW);
+        auto p = sqlite3_column_text(st, 0);
+        size_t n = 0;
+        while (p[n] != 0) n++;
+        auto id = (cast(const(char)*) p)[0 .. n];
+        assert(id.length > 128, "the row id is longer than the 128 bytes the reader kept");
+        assert(got.msgId == id, "the reader carries the row's whole id, so its receipt names it");
+        assert(indexOf(got.message, id) > at, "the notice names the whole row id");
+        sqlite3_finalize(st);
+    }
+    // Every byte before the notice is part of a whole character.
+    auto body_ = got.message[0 .. at];
+    size_t i = 0;
+    while (i < body_.length) {
+        auto c = cast(ubyte) body_[i];
+        size_t width = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : 4;
+        assert(i + width <= body_.length, "a character was split by the cut");
+        i += width;
+    }
+}
