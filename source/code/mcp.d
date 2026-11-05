@@ -85,13 +85,13 @@ private extern(C) void ground_mcp_log(void* context, const(char)* json, size_t l
 alias Hear = void delegate(const(char)[] server, const(char)[] level, const(char)[] data);
 private __gshared Hear hearing; // the call under way's, while one is
 
-// What a session's server reports of the call under way's progress, its message, heard by whoever
-// runs the call. libmcp gives only progress it checked: on the call's token, and increasing.
+// 「[Opus 5.5] What a session's server reports of the call under way's progress, its message, heard by whoever」
+// 「[Opus 5.5] runs the call. libmcp gives only progress it checked: on the call's token, and increasing.」
 alias Progress = void delegate(const(char)[] message);
 private __gshared Progress progressing; // the call under way's, while one is
 
-// A server's notifications/progress for the call under way: its message, when it says one. Progress
-// without one is a number, with nothing to show.
+// 「[Opus 5.5] A server's notifications/progress for the call under way: its message, when it says one. Progress」
+// 「[Opus 5.5] without one is a number, with nothing to show.」
 private void progressLine(json_object* message) {
     if (progressing is null) return;
     auto said = stringAt(jsonField(jsonField(message, "params"), "message"));
@@ -564,8 +564,8 @@ int readMcpResource(ref McpGroup group, const(char)[] uri, ref Reply text, ref R
 // cancels it at the server: MCP_CANCELLED, and no response. ask, when given,
 // answers what the server asks of ground code while the call runs. hear, when
 // given, hears what the server logs at warning or above while the call runs.
-// progress, when given, hears the call's progress: the call asks for it on
-// token, its _meta.progressToken.
+// 「[Opus 5.5] progress, when given, hears the call's progress: the call asks for it on」
+// 「[Opus 5.5] token, its _meta.progressToken.」
 mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
                        const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error,
                        scope bool delegate() stop = null, scope Ask ask = null, scope Hear hear = null,
