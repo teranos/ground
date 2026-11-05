@@ -1,5 +1,7 @@
 A control is a named rule and a message: what it matches on, and what the operator reads at the moment it matches. The event it declares is the set that collects it, so a control nobody collects never runs, however well it matches.
 
+TODO A sand that is there and does not load is said, and the hook runs on the floor alone: the controls, the models block and the rituals only that sand carries are gone until it loads again. Whether a hook refuses instead is undecided.
+
 ## proto-cmdInput
 A control matches a command and answers with a message. omit takes a flag back out of the command it matched; bg says the work runs detached and tmo says how long it may take.
 
