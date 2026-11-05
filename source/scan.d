@@ -1,7 +1,7 @@
 module scan;
 
-// Text scanning that knows nothing of controls: what matcher matches with, and
-// what ground code and the store use without the hooks matcher matches for.
+// 「[Opus 5.5] Text scanning that knows nothing of controls: what matcher matches with, and」
+// 「[Opus 5.5] what ground code and the store use without the hooks matcher matches for.」
 
 bool contains(const(char)[] haystack, const(char)[] needle) {
     if (needle.length == 0) return true;
@@ -68,8 +68,8 @@ const(char)[] strip(const(char)[] s) {
     return s[start .. end];
 }
 
-// The home the shell expands a tilde to, for the callers that read a command
-// at runtime. Empty leaves a tilde alone, which is what CTFE tests want.
+// 「[Opus 5.5] The home the shell expands a tilde to, for the callers that read a command」
+// 「[Opus 5.5] at runtime. Empty leaves a tilde alone, which is what CTFE tests want.」
 const(char)[] shellHome() {
     if (__ctfe) return "";
     import core.stdc.stdlib : getenv;
@@ -80,9 +80,9 @@ const(char)[] shellHome() {
     return h[0 .. n];
 }
 
-// The shell expands a tilde before cd sees it: two pushes made as `cd ~/...; git push` started no ritual,
-// the literal going to git, which found no repo there. Written into a buffer the caller owns, so CTFE and
-// betterC both have somewhere to put it.
+// 「[Opus 5.5] The shell expands a tilde before cd sees it: two pushes made as `cd ~/...; git push` started no ritual,」
+// 「[Opus 5.5] the literal going to git, which found no repo there. Written into a buffer the caller owns, so CTFE and」
+// 「[Opus 5.5] betterC both have somewhere to put it.」
 const(char)[] tildeExpanded(const(char)[] target, const(char)[] home, char[] joined) {
     if (home.length == 0 || target.length == 0 || target[0] != '~') return target;
     if (target.length == 1) return home;
@@ -93,8 +93,8 @@ const(char)[] tildeExpanded(const(char)[] target, const(char)[] home, char[] joi
     return joined[0 .. n];
 }
 
-// The text after a line's `#` or `//`, and whether the line is one. `///` is
-// the reference, not a comment.
+// 「[Opus 5.5] The text after a line's `#` or `//`, and whether the line is one. `///` is」
+// 「[Opus 5.5] the reference, not a comment.」
 bool commentText(const(char)[] line, out const(char)[] text) {
     size_t p = 0;
     while (p < line.length && (line[p] == ' ' || line[p] == '\t')) p++;
@@ -106,8 +106,8 @@ bool commentText(const(char)[] line, out const(char)[] text) {
 }
 
 // "i dont want code comments to be subject to consecutive run"
-// A comment's text is code when it ends in `{` or `}`, or sits inside braces
-// such a line opened. Braces in quotes are text; depth never goes below zero.
+// 「[Opus 5.5] A comment's text is code when it ends in `{` or `}`, or sits inside braces」
+// 「[Opus 5.5] such a line opened. Braces in quotes are text; depth never goes below zero.」
 bool codeText(const(char)[] text, ref int depth) {
     size_t e = text.length;
     while (e > 0 && (text[e - 1] == ' ' || text[e - 1] == '\t' || text[e - 1] == '\r')) e--;
@@ -122,8 +122,8 @@ bool codeText(const(char)[] text, ref int depth) {
     return code;
 }
 
-// Whether the line holding `pos` is code that was commented out. A line that
-// is not a comment ends any block a commented line opened.
+// 「[Opus 5.5] Whether the line holding `pos` is code that was commented out. A line that」
+// 「[Opus 5.5] is not a comment ends any block a commented line opened.」
 bool inCommentedCode(const(char)[] text, size_t pos) {
     int depth = 0;
     size_t i = 0;
