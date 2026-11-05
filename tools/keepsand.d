@@ -1,5 +1,5 @@
-/// keepsand <this tree's .ctfe/sand.projects> <the installed sand>
-/// Exits 1, saying why, when make install would put the floor where the machine's sand is.
+/// 「[Opus 5.5] keepsand <this tree's .ctfe/sand.projects> <the installed sand>」
+/// 「[Opus 5.5] Exits 1, saying why, when make install would put the floor where the machine's sand is.」
 module keepsand;
 
 import keep : refusal, projectsOf, countRefusal;
