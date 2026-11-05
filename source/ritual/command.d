@@ -420,17 +420,43 @@ int handleBind(int argc, const(char)** argv) {
         return 1;
     }
     auto perfId = argv[2][0 .. argLen(argv[2])];
+    // How the start exited, as the spawn script hands it over; a bind run by hand names none.
+    int started = 0;
+    if (argc > 3) {
+        foreach (c; argv[3][0 .. argLen(argv[3])]) {
+            if (c < '0' || c > '9') { started = -1; break; }
+            started = started * 10 + (c - '0');
+        }
+    }
 
     auto printed = readStdin();
     auto agentId = agentIdFrom(printed);
-    if (agentId.length == 0) {
-        emitError("ritual.bind.unnamed",
-                  "the start printed no agent id, so this performance has an agent ground cannot stop",
-                  0, 1, "", "ritual", "", cast(string) perfId, cast(string) printed);
+    auto db = openDb();
+
+    // A start that failed, or named no agent, is said to the session that fired the ritual: its
+    // record otherwise went only to the breadcrumb, and reached nobody.
+    __gshared char[128] parentBuf = 0;
+    const(char)[] parent = "";
+    if (db !is null) {
+        auto row = byPerformanceId(db, perfId);
+        if (row.valid) {
+            size_t pn = 0;
+            foreach (c; row.p.parent) if (pn < parentBuf.length) parentBuf[pn++] = c;
+            parent = parentBuf[0 .. pn];
+        }
+    }
+    import ritual.run : startSays;
+    import code.reply : Reply;
+    Reply says;
+    scope(exit) says.dispose();
+    startSays(says, started, agentId, printed);
+    if (says.len > 0) {
+        if (db !is null) sqlite3_close(db);
+        emitError(started != 0 ? "ritual.start.failed" : "ritual.bind.unnamed", cast(string) says.slice(),
+                  0, started != 0 ? started : 1, cast(string) parent, "ritual", "", cast(string) perfId, "");
         return 1;
     }
 
-    auto db = openDb();
     if (db is null) {
         emitError("ritual.bind.db",
                   "ground could not open its database, so the agent the start named is bound to nothing",
@@ -442,7 +468,7 @@ int handleBind(int argc, const(char)** argv) {
         sqlite3_close(db);
         emitError("ritual.bind.row",
                   "no performance by that id took the agent the start named",
-                  0, 1, "", "ritual", "", cast(string) perfId, cast(string) agentId);
+                  0, 1, cast(string) parent, "ritual", "", cast(string) perfId, cast(string) agentId);
         return 1;
     }
 

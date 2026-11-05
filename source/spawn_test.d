@@ -46,13 +46,19 @@ static assert(repoRoot(parsed, "/home/u/src/other") == "/home/u/src/other");
 // What the start prints is handed to `ground bind`, which is how a performance
 // learns who carries it. An exported variable reached the agent from the claude
 // daemon's environment and not from this script, naming a performance long over.
+// What it printed, stdout and stderr, and how it exited are handed over whole: a start that failed
+// is said by bind to the session that fired the ritual, and the script exits as the start did.
+// Bind's own answer does not end the script first: it exits as the start did, and as bind did
+// when the start worked and bind could not bind it.
 private enum bound(string perf) = "printf '%s\\n' \"$said\"\n"
-    ~ "printf '%s\\n' \"$said\" | ground bind '" ~ perf ~ "'\n";
+    ~ "printf '%s\\n' \"$said\" | ground bind '" ~ perf ~ "' \"$started\" && bound=0 || bound=$?\n"
+    ~ "if [ \"$started\" != 0 ]; then exit \"$started\"; fi\n"
+    ~ "exit \"$bound\"\n";
 
 enum s = spawnScript("/home/u/src/proj", "probe-17", "probe-17", "Performing ritual probe.");
 static assert(s.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj'\n"
-    ~ "said=$(claude -w 'probe-17' --bg --permission-mode dontAsk 'Performing ritual probe.')\n"
+    ~ "said=$(claude -w 'probe-17' --bg --permission-mode dontAsk 'Performing ritual probe.' 2>&1) && started=0 || started=$?\n"
     ~ bound!("probe-17"));
 
 // --bg and not -p. Print mode is one shot and detached, reachable by nothing
@@ -61,7 +67,7 @@ static assert(s.text() ==
 enum bg = spawnScript("/r", "p-1", "p-1", "go");
 static assert(bg.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk 'go')\n"
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk 'go' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-1"));
 
 // "define a CLAUDE.md inline in a ritual" — appended, not replacing, because
@@ -71,7 +77,7 @@ static assert(sys.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
     ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk "
     ~ "--append-system-prompt 'You are a Specialist in Targeted Advertisement Campaigns.' "
-    ~ "'go')\n"
+    ~ "'go' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-1"));
 
 // A ritual that says nothing about it spawns exactly as before.
@@ -81,7 +87,7 @@ static assert(spawnScript("/r", "p-1", "p-1", "go", "").text() == bg.text());
 enum model = spawnScript("/r", "p-1", "p-1", "go", "", "sonnet");
 static assert(model.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'sonnet' 'go')\n"
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'sonnet' 'go' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-1"));
 
 // A model and a system prompt together, each its own flag.
@@ -89,7 +95,7 @@ enum both = spawnScript("/r", "p-1", "p-1", "go", "Be brief.", "fable");
 static assert(both.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
     ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'fable' "
-    ~ "--append-system-prompt 'Be brief.' 'go')\n"
+    ~ "--append-system-prompt 'Be brief.' 'go' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-1"));
 
 // "the same rules for ritual agents should apply to subagents, they should cohere"
@@ -105,7 +111,7 @@ static assert(spawnScript("/r", "p-1", "p-1", "go", "", "").text() == bg.text())
 enum here = spawnScript("/r", "", "p-2", "go");
 static assert(here.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "said=$(claude --bg --permission-mode dontAsk 'go')\n"
+    ~ "said=$(claude --bg --permission-mode dontAsk 'go' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-2"));
 
 // In place the tree cannot say which performance an agent carries: a session a
@@ -117,7 +123,7 @@ static assert(here.text() != spawnScript("/r", "", "p-3", "go").text());
 enum q = spawnScript("/r", "p-1", "p-1", "say 'hi' now");
 static assert(q.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk 'say '\\''hi'\\'' now')\n"
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk 'say '\\''hi'\\'' now' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-1"));
 
 // A prompt too big for the buffer used to lose its closing quote, and sh got a
@@ -145,7 +151,7 @@ static assert(snug.text().length > 0);
 enum again = spawnScript("/r", "", "p-4", "go", "", "", "2f7c2b1f-0762-47b4-8e87-13b41c67be5e");
 static assert(again.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
-    ~ "said=$(claude --bg --resume '2f7c2b1f-0762-47b4-8e87-13b41c67be5e' --permission-mode dontAsk 'go')\n"
+    ~ "said=$(claude --bg --resume '2f7c2b1f-0762-47b4-8e87-13b41c67be5e' --permission-mode dontAsk 'go' 2>&1) && started=0 || started=$?\n"
     ~ bound!("p-4"));
 
 // A ritual that has never run has no session to pick up, and starts one.
@@ -194,3 +200,27 @@ unittest {
 // where the gh invocation is visible in the pbt rather than built in here.
 static assert(!__traits(compiles, { import ritual : prScript; }));
 static assert(!__traits(compiles, { import ritual : commitScript; }));
+
+// "An Error is the entity any layer emits when something breaks intention"
+// "Only pure distilled signal over anything else"
+// What bind says of a start, to the session that fired the ritual: nothing of one that named its
+// agent, and why of one that exited otherwise or named none.
+unittest {
+    import ritual : startSays;
+    import code.reply : Reply;
+    Reply r;
+    scope(exit) r.dispose();
+    startSays(r, 0, "ce9c80d5", "backgrounded · ce9c80d5\n");
+    assert(r.slice() == "");
+    startSays(r, 1, "", "error: daemon not running\n");
+    assert(r.slice() == "the start of the performance's agent exited 1: error: daemon not running\n");
+    r.dispose();
+    startSays(r, 0, "", "something else\n");
+    assert(r.slice() == "the start printed no agent id, so this performance has an agent ground cannot stop: something else\n");
+    r.dispose();
+    // What it printed is carried whole: the reason is at the end of a long one.
+    __gshared char[9000] long_ = 'v';
+    long_[$ - 6 .. $] = "REASON";
+    startSays(r, 3, "", long_[]);
+    assert(r.slice()[$ - 6 .. $] == "REASON");
+}
