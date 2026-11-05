@@ -144,7 +144,7 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
     // mkdir as db declares it, the one declaration ground code links: Darwin's 16-bit mode_t in a second
     // is a different function to the linker. The rest are druntime's, of the same types.
     import db : mkdir;
-    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_EXCL, O_NOFOLLOW;
     import core.sys.posix.unistd : write, close, unlink, fsync;
     import core.stdc.stdio : rename;
     import core.stdc.errno : errno, EEXIST;
@@ -155,6 +155,15 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
         why.add(`","errno":`); putNumber(why, cast(uint) errno); why.add(`,"why":"`); putEscaped(why, e[0 .. strlen(e)]); why.add(`"}`);
     }
     auto path = file[0 .. strlen(file)];
+    {
+        import token : TOKEN_MAX;
+        if (token.length > TOKEN_MAX) {
+            why.add(`{"message":"the node issued a token longer than ground reads back, so it is not kept","bytes":`);
+            putNumber(why, cast(uint) token.length);
+            why.add(`,"reads":`); putNumber(why, cast(uint) TOKEN_MAX); why.add(`}`);
+            return false;
+        }
+    }
     size_t slash = path.length;
     while (slash > 0 && path[slash - 1] != '/') slash--;
     Reply dir, temp;
@@ -173,7 +182,13 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
         }
     }
     temp.add(path); temp.add(".login\0");
-    auto fd = open(temp.slice().ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x180);
+    // A file only this sign-in made: whatever stood at the name, a link planted to read what comes
+    // among them, is taken away first, and the open makes it new or fails.
+    {
+        import core.stdc.errno : ENOENT;
+        if (unlink(temp.slice().ptr) != 0 && errno != ENOENT) { failed("could not clear the way for the token", temp.slice()[0 .. $ - 1]); return false; }
+    }
+    auto fd = open(temp.slice().ptr, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0x180);
     if (fd < 0) { failed("could not write the token", temp.slice()[0 .. $ - 1]); return false; }
     bool ok = write(fd, token.ptr, token.length) == cast(long) token.length && write(fd, "\n".ptr, 1) == 1 && fsync(fd) == 0;
     if (!ok) failed("could not write the token", temp.slice()[0 .. $ - 1]);

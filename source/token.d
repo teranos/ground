@@ -58,9 +58,20 @@ const(char)[] qntxToken(const(char)[] path = "") {
     if (file is null) return null;
     auto fd = open(file, O_RDONLY);
     if (fd < 0) return null;
-    __gshared char[512] tokBuf = 0;
+    __gshared char[TOKEN_MAX + 2] tokBuf = 0;
     auto n = read(fd, &tokBuf[0], tokBuf.length);
     close(fd);
     if (n <= 0) return null;
-    return trimToken(tokBuf[0 .. cast(size_t) n]);
+    auto t = trimToken(tokBuf[0 .. cast(size_t) n]);
+    // Longer than ground reads is no token, never the start of one, and is said.
+    if (t.length > TOKEN_MAX) {
+        import core.stdc.stdio : stderr, fprintf;
+        fprintf(stderr, "ground: the token in %s is longer than the %d bytes ground reads, so it is not used\n",
+                file, cast(int) TOKEN_MAX);
+        return null;
+    }
+    return t;
 }
+
+// The longest token ground reads back, and so the longest it keeps (code/login.d keepToken).
+enum TOKEN_MAX = 4096;

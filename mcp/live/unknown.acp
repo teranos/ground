@@ -1,0 +1,24 @@
+# Unknown sessions: -32002 with data.sessionId for a session-scoped request naming one; close and delete of one succeed with the empty result.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+# A prompt, a mode and a config option for a session that does not exist: -32002, and the session named in data.
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"code-no-such-1","prompt":[{"type":"text","text":"hi"}]}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":"code-no-such-1","modeId":"plan"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/set_config_option","params":{"sessionId":"code-no-such-1","configId":"effort","value":"high"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/resume","params":{"sessionId":"code-no-such-1","cwd":"$CWD"}}
+wait 5
+# Closing is idempotent: the session closed, then closed again, then one that never was, each the empty result.
+{"jsonrpc":"2.0","id":6,"method":"session/close","params":{"sessionId":"$SID"}}
+wait 6
+{"jsonrpc":"2.0","id":7,"method":"session/close","params":{"sessionId":"$SID"}}
+wait 7
+{"jsonrpc":"2.0","id":8,"method":"session/close","params":{"sessionId":"code-no-such-1"}}
+wait 8
+# Deleting one that never existed succeeds silently.
+{"jsonrpc":"2.0","id":9,"method":"session/delete","params":{"sessionId":"code-no-such-1"}}
+wait 9

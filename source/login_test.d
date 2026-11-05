@@ -26,6 +26,10 @@ private struct Node {
     const(char)[] url() return { return urlBuf[0 .. urlLen]; }
 }
 
+// A line the client writes to ground code's input while the node's last request is in flight.
+private __gshared int meanwhileFd = -1;
+private __gshared string meanwhile;
+
 private Node node(string[] answers...) {
     Node n;
     auto fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -63,6 +67,9 @@ private Node node(string[] answers...) {
             }
             write(p[1], got.ptr, have);
             write(p[1], "\0".ptr, 1);
+            // What the client says while this request is in flight, before it is answered.
+            if (answer is answers[$ - 1] && meanwhileFd >= 0)
+                write(meanwhileFd, meanwhile.ptr, meanwhile.length);
             write(c, answer.ptr, answer.length);
             close(c);
         }
@@ -250,7 +257,7 @@ enum METHODS_BOTH = `[{"id":"qntx","name":"Sign in to QNTX","description":"Open 
 // runs one, the agent method to a client that can send the person to a link,
 // and logout to every client.
 unittest {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
     scope(exit) r.dispose();
     assert(answer(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"auth":{"terminal":true},"elicitation":{"url":{}}}}}`, r, s));
@@ -269,7 +276,7 @@ unittest {
 // method sends the person to a link, which a client offering no url
 // elicitation cannot be asked to.
 unittest {
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
     scope(exit) r.dispose();
     answer(`{"jsonrpc":"2.0","id":4,"method":"authenticate","params":{"methodId":"qntx-terminal"}}`, r, s);
@@ -356,7 +363,7 @@ unittest {
     import attest : qntxToken;
     import core.sys.posix.unistd : unlink, access, F_OK;
     auto n = node(DEVICE, PENDING, TOKEN);
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.gateway = cast(string) n.url;
     s.node.url = K_URL;
@@ -388,7 +395,7 @@ unittest {
 // each is said to the client as it happened, and nothing is kept.
 unittest {
     import attest : qntxToken;
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.url = K_URL;
     s.node.token = K_TOKEN;
@@ -443,7 +450,7 @@ unittest {
     assert(keepToken(qntxTokenFile(""), "qntx_abc123", why));
     assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
     scope(exit) unlink(K_TOKEN.ptr);
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.node.token = K_TOKEN;
     Reply r;
     scope(exit) r.dispose();
@@ -474,7 +481,7 @@ unittest {
 unittest {
     enum refused = http!("401 Unauthorized", `{"error":"token expired"}`);
     auto n = node(refused);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = cast(string) n.url; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
     __gshared Spoken opened, prompted;
     speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
@@ -503,7 +510,7 @@ unittest {
     scope(exit) unlink(qntxTokenFile(""));
     assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
     scope(exit) unlink(K_TOKEN.ptr);
-    Sessions s = Sessions(100, 7); s.clock = 1_700_000_000;
+    Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.gateway = cast(string) n.url; s.node.url = K_URL; s.node.model = "m"; s.node.token = K_TOKEN; s.contextSize = 200_000;
     __gshared Spoken opened, prompted;
     speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
@@ -514,4 +521,109 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
     assert(indexOf(heard, "Authorization: Bearer qntx_signed_in\r\n") >= 0);
     assert(indexOf(heard, "qntx_k") < 0);
+}
+
+// A token longer than ground reads back is not kept, and says so: it was kept whole and read back
+// cut to 512 bytes, so every later request sent the cut one and was refused. One on disk that is
+// longer than ground reads is no token, never the start of one.
+unittest {
+    import core.sys.posix.unistd : getpid, unlink, rmdir;
+    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.unistd : write, close;
+    import core.stdc.stdio : snprintf;
+    import attest : qntxToken;
+    import token : TOKEN_MAX;
+    char[160] file;
+    snprintf(file.ptr, file.length, "/tmp/ground-login-long-%d", getpid());
+    size_t fl = 0; while (file[fl] != 0) fl++;
+    __gshared char[TOKEN_MAX + 1] long_ = 'a';
+    Reply why;
+    scope(exit) why.dispose();
+    assert(!keepToken(file.ptr, long_[], why));
+    assert(indexOf(why.slice(), "longer than") >= 0, why.slice());
+    assert(qntxToken(file[0 .. fl]) is null);
+
+    // At the most ground reads, it is kept and read back whole.
+    why.dispose();
+    assert(keepToken(file.ptr, long_[0 .. TOKEN_MAX], why), why.slice());
+    assert(qntxToken(file[0 .. fl]) == long_[0 .. TOKEN_MAX]);
+
+    // Written longer by something else, it is no token.
+    auto fd = open(file.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x180);
+    assert(fd >= 0);
+    assert(write(fd, long_.ptr, long_.length) == long_.length);
+    close(fd);
+    assert(qntxToken(file[0 .. fl]) is null);
+    unlink(file.ptr);
+}
+
+// A sign-in the client calls off while the node is being asked for the token is called off, and
+// keeps nothing, though the node's answer is the token: the cancel was asked before only.
+unittest {
+    import attest : qntxToken;
+    import core.sys.posix.unistd : dup, dup2;
+    import core.stdc.stdio : fflush, stdout;
+    Sessions s = Sessions(100, 7); s.initialized = true;
+    s.elicitsUrls = true;
+    s.node.url = K_URL;
+    s.node.token = K_TOKEN;
+    borrowHome("auth-late");
+    scope(exit) giveBackHome();
+
+    int[2] p;
+    assert(pipe(p) == 0);
+    meanwhileFd = p[1];
+    meanwhile = `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":8}}` ~ "\n";
+    scope(exit) meanwhileFd = -1;
+    auto n = node(DEVICE, TOKEN);
+    s.node.gateway = cast(string) n.url;
+    enum accepted = `{"jsonrpc":"2.0","id":"login-1","result":{"action":"accept"}}` ~ "\n";
+    write(p[1], accepted.ptr, accepted.length);
+    close(p[1]);
+    Input input = Input(p[0]);
+    s.input = &input;
+    scope(exit) { input.dispose(); close(p[0]); s.input = null; }
+    int[2] o;
+    assert(pipe(o) == 0);
+    fflush(stdout);
+    auto saved = dup(1);
+    dup2(o[1], 1);
+    Reply reply;
+    scope(exit) reply.dispose();
+    answer(`{"jsonrpc":"2.0","id":8,"method":"authenticate","params":{"methodId":"qntx"}}`, reply, s);
+    fflush(stdout); dup2(saved, 1); close(saved); close(o[1]); close(o[0]);
+    heardAll(n);
+    assert(reply.slice() == `{"jsonrpc":"2.0","id":8,"error":{"code":-32800,"message":"the client cancelled the sign-in"}}`, reply.slice());
+    assert(qntxToken("") is null);
+}
+
+// The token is written to a file only this sign-in made: one standing at its name beforehand, a
+// link another user planted to read what comes, is not written through.
+unittest {
+    import core.sys.posix.unistd : getpid, unlink, symlink, read, close;
+    import core.sys.posix.fcntl : open, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.unistd : write;
+    import core.stdc.stdio : snprintf;
+    import attest : qntxToken;
+    char[160] file, temp, victim;
+    snprintf(file.ptr, file.length, "/tmp/ground-login-link-%d", getpid());
+    snprintf(temp.ptr, temp.length, "/tmp/ground-login-link-%d.login", getpid());
+    snprintf(victim.ptr, victim.length, "/tmp/ground-login-victim-%d", getpid());
+    auto vf = open(victim.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x1a4);
+    assert(vf >= 0);
+    write(vf, "before".ptr, 6);
+    close(vf);
+    assert(symlink(victim.ptr, temp.ptr) == 0);
+    scope(exit) { unlink(file.ptr); unlink(temp.ptr); unlink(victim.ptr); }
+
+    Reply why;
+    scope(exit) why.dispose();
+    assert(keepToken(file.ptr, "qntx_mine", why), why.slice());
+    char[16] got = 0;
+    auto rf = open(victim.ptr, O_RDONLY);
+    auto n = read(rf, got.ptr, got.length);
+    close(rf);
+    assert(got[0 .. cast(size_t) n] == "before", got[0 .. cast(size_t) n]);
+    size_t fl = 0; while (file[fl] != 0) fl++;
+    assert(qntxToken(file[0 .. fl]) == "qntx_mine");
 }

@@ -130,7 +130,7 @@ unittest {
     scope(exit) sqlite3_close(db);
     auto g = gateway(completion!("stop", "hello"), completion!("content_filter", ""));
     scope(exit) { kill(g.pid, SIGKILL); waitpid(g.pid, null, 0); }
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.db = db;
     opened(s, cast(string) g.url);
     Reply r;
@@ -155,7 +155,7 @@ unittest {
 unittest {
     auto g = gateway(completion!("error", "half an"));
     scope(exit) { kill(g.pid, SIGKILL); waitpid(g.pid, null, 0); }
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     opened(s, cast(string) g.url);
     Reply r;
     scope(exit) r.dispose();
@@ -178,7 +178,7 @@ unittest {
         ~ "\r\nConnection: close\r\n\r\n" ~ refused;
     auto g = gateway(reply);
     scope(exit) { kill(g.pid, SIGKILL); waitpid(g.pid, null, 0); }
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     opened(s, cast(string) g.url);
     Reply r;
     scope(exit) r.dispose();
@@ -201,7 +201,7 @@ unittest {
     scope(exit) sqlite3_close(db);
     auto g = gateway(completion!("content_filter", ""), completion!("stop", "hello"));
     scope(exit) { kill(g.pid, SIGKILL); waitpid(g.pid, null, 0); }
-    Sessions s = Sessions(100, 7);
+    Sessions s = Sessions(100, 7); s.initialized = true;
     s.db = db;
     opened(s, cast(string) g.url);
     Reply r;

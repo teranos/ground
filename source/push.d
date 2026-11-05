@@ -132,6 +132,41 @@ bool deletesOnly(const(char)[] command) {
     return afterPush && (flagged || (specs > 0 && deletes == specs));
 }
 
+// 「[Opus 5.5] The remote branch a git push lands on, when its one refspec names it; empty」
+// 「[Opus 5.5] when it names none (HEAD, or no refspec) or more than one.」
+const(char)[] pushedBranch(const(char)[] command) {
+    size_t i = 0, specs = 0;
+    bool afterPush = false, remoteSeen = false;
+    const(char)[] spec;
+    while (i < command.length) {
+        while (i < command.length && command[i] == ' ') i++;
+        size_t s = i;
+        while (i < command.length && command[i] != ' ') i++;
+        auto tok = command[s .. i];
+        if (tok.length == 0 || tok == "&&" || tok == ";" || tok == "|") break;
+        if (!afterPush) {
+            afterPush = tok == "push";
+            continue;
+        }
+        if (tok[0] == '-' || isRedirect(tok)) continue;
+        if (!remoteSeen) { remoteSeen = true; continue; }
+        specs++;
+        spec = tok;
+    }
+    if (specs != 1) return "";
+    if (spec[0] == '+') spec = spec[1 .. $];
+    foreach_reverse (k, c; spec)
+        if (c == ':') { spec = spec[k + 1 .. $]; break; }
+    enum heads = "refs/heads/";
+    if (spec.length > heads.length && spec[0 .. heads.length] == heads) spec = spec[heads.length .. $];
+    return spec == "HEAD" ? "" : spec;
+}
+
+private bool isRedirect(const(char)[] tok) {
+    foreach (c; tok) if (c == '>' || c == '<') return true;
+    return false;
+}
+
 // Does the newline-separated path list contain a line that starts with `prefix`?
 // Anchored at line start — substring matches inside a path do not count.
 bool hasPathStartingWith(const(char)[] paths, const(char)[] prefix) {

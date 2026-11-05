@@ -28,7 +28,7 @@ all: $(BUILD)/libacp.a $(SHARED)
 $(BUILD):
 	mkdir -p $@
 
-OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o session.o modes.o config.o prompt.o permission.o fs.o terminal.o updates.o)
+OBJECTS = $(addprefix $(BUILD)/,acp.o initialize.o session.o modes.o config.o prompt.o permission.o fs.o terminal.o updates.o client.o)
 
 # Every method name libacp writes or reads, generated from META, as the SDK generates its tables.
 $(BUILD)/methods: tools/methods.c | $(BUILD)
@@ -46,7 +46,7 @@ $(BUILD)/libacp.a: $(OBJECTS)
 $(SHARED): $(OBJECTS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_FLAGS) -o $@ $^ $(LDLIBS)
 
-TESTS = methods initialize session modes config prompt permission fs terminal updates
+TESTS = methods initialize session modes config prompt permission fs terminal updates client
 
 test: all
 	for t in $(TESTS); do \

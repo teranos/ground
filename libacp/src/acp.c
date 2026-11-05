@@ -29,8 +29,9 @@ void acp_buffer_free(acp_buffer *buffer) {
     buffer->length = 0;
 }
 
-// One JSON value, the whole of what was given, or NULL.
-json_object *acp_parse(const char *json, size_t length) {
+// One JSON value, the whole of what was given; *ok says whether it was, as JSON null is NULL.
+static json_object *parse_whole(const char *json, size_t length, int *ok) {
+    *ok = 0;
     if (json == NULL || length > INT32_MAX) return NULL;
     json_tokener *tokener = json_tokener_new();
     if (tokener == NULL) return NULL;
@@ -47,7 +48,107 @@ json_object *acp_parse(const char *json, size_t length) {
         json_object_put(value);
         return NULL;
     }
+    *ok = 1;
     return value;
+}
+
+// RFC 8259's grammar, read from *p: what json-c would also take that JSON is not (single quotes,
+// NaN, comments, a trailing comma) is refused. Each reader moves *p past what it read, or answers 0.
+static void skip_ws(const char **p) {
+    while (**p == ' ' || **p == '\t' || **p == '\n' || **p == '\r') (*p)++;
+}
+
+static int json_value(const char **p, int depth);
+
+static int json_string(const char **p) {
+    if (**p != '"') return 0;
+    (*p)++;
+    while (**p != '"') {
+        unsigned char c = (unsigned char) **p;
+        if (c == 0 || c < 0x20) return 0;
+        if (c == '\\') {
+            (*p)++;
+            if (**p == 'u') {
+                for (int i = 1; i <= 4; i++) {
+                    char h = (*p)[i];
+                    if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') || (h >= 'A' && h <= 'F'))) return 0;
+                }
+                *p += 5;
+                continue;
+            }
+            if (strchr("\"\\/bfnrt", **p) == NULL || **p == 0) return 0;
+        }
+        (*p)++;
+    }
+    (*p)++;
+    return 1;
+}
+
+static int json_number(const char **p) {
+    const char *s = *p;
+    if (*s == '-') s++;
+    if (*s == '0') s++;
+    else if (*s >= '1' && *s <= '9') while (*s >= '0' && *s <= '9') s++;
+    else return 0;
+    if (*s == '.') {
+        s++;
+        if (!(*s >= '0' && *s <= '9')) return 0;
+        while (*s >= '0' && *s <= '9') s++;
+    }
+    if (*s == 'e' || *s == 'E') {
+        s++;
+        if (*s == '+' || *s == '-') s++;
+        if (!(*s >= '0' && *s <= '9')) return 0;
+        while (*s >= '0' && *s <= '9') s++;
+    }
+    *p = s;
+    return 1;
+}
+
+static int json_value(const char **p, int depth) {
+    if (depth > 512) return 0;
+    skip_ws(p);
+    char c = **p;
+    if (c == '"') return json_string(p);
+    if (c == '-' || (c >= '0' && c <= '9')) return json_number(p);
+    if (strncmp(*p, "true", 4) == 0) { *p += 4; return 1; }
+    if (strncmp(*p, "false", 5) == 0) { *p += 5; return 1; }
+    if (strncmp(*p, "null", 4) == 0) { *p += 4; return 1; }
+    if (c == '[' || c == '{') {
+        char close = c == '[' ? ']' : '}';
+        (*p)++;
+        skip_ws(p);
+        if (**p == close) { (*p)++; return 1; }
+        for (;;) {
+            if (close == '}') {
+                skip_ws(p);
+                if (!json_string(p)) return 0;
+                skip_ws(p);
+                if (**p != ':') return 0;
+                (*p)++;
+            }
+            if (!json_value(p, depth + 1)) return 0;
+            skip_ws(p);
+            if (**p == ',') { (*p)++; continue; }
+            if (**p == close) { (*p)++; return 1; }
+            return 0;
+        }
+    }
+    return 0;
+}
+
+// Whether text is one JSON value, whole, as RFC 8259 writes one.
+static int rfc8259(const char *text) {
+    const char *p = text;
+    if (!json_value(&p, 0)) return 0;
+    skip_ws(&p);
+    return *p == 0;
+}
+
+// One JSON value, the whole of what was given, or NULL.
+json_object *acp_parse(const char *json, size_t length) {
+    int ok;
+    return parse_whole(json, length, &ok);
 }
 
 json_object *acp_field(json_object *object, const char *key) {
@@ -61,11 +162,13 @@ int acp_offered(json_object *object, const char *key) {
     return json_object_is_type(acp_field(object, key), json_type_object);
 }
 
-// A string field's value, copied, or NULL when absent or not a string; the caller frees it.
+// A string field's value, copied, or NULL when absent, not a string, or holding a NUL, which
+// would make it another, shorter string; the caller frees it.
 char *acp_string(json_object *object, const char *key) {
     json_object *value = acp_field(object, key);
     if (!json_object_is_type(value, json_type_string)) return NULL;
     const char *s = json_object_get_string(value);
+    if (strlen(s) != (size_t) json_object_get_string_len(value)) return NULL;
     size_t n = strlen(s) + 1;
     char *copy = malloc(n);
     if (copy != NULL) memcpy(copy, s, n);
@@ -114,19 +217,29 @@ static void raw_free(json_object *object, void *userdata) {
     free(userdata);
 }
 
-json_object *acp_raw(const char *text) {
-    if (text == NULL || strlen(text) > INT32_MAX) return NULL;
-    json_object *value = acp_parse(text, strlen(text));
-    if (value == NULL) return json_object_new_string(text);
+int acp_raw(const char *text, json_object **out) {
+    *out = NULL;
+    if (text == NULL || strlen(text) > INT32_MAX) return 0;
+    int ok;
+    // What only a lenient reader takes for JSON (single quotes, NaN, comments) is the text it is:
+    // written as it came, it is JSON no client can read.
+    json_object *value = rfc8259(text) ? parse_whole(text, strlen(text), &ok) : (ok = 0, NULL);
+    if (!ok) return (*out = json_object_new_string(text)) != NULL;
+    // JSON null is json-c's NULL; and a message is one line, so text over lines is written again.
+    if (value == NULL || strpbrk(text, "\r\n") != NULL) {
+        *out = value;
+        return 1;
+    }
     size_t n = strlen(text) + 1;
     char *copy = malloc(n);
     if (copy == NULL) {
         json_object_put(value);
-        return NULL;
+        return 0;
     }
     memcpy(copy, text, n);
     json_object_set_serializer(value, raw_text, copy, raw_free);
-    return value;
+    *out = value;
+    return 1;
 }
 
 json_object *acp_locations(const acp_location *locations, size_t count, int *bad) {

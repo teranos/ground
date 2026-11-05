@@ -77,6 +77,8 @@ static void outcomes(void) {
         "{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"result\":{\"outcome\":{\"outcome\":\"later\"}}}",
         "{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"error\":{\"code\":-32603,\"message\":\"no\"}}",
         "not json",
+        // An option that holds a NUL is not the option it would stop at.
+        "{\"jsonrpc\":\"2.0\",\"id\":\"perm-1\",\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"allow_once\\u0000x\"}}}",
     };
     for (size_t i = 0; i < sizeof neither / sizeof *neither; i++) {
         CHECK(outcome(neither[i], &o) == ACP_OK);

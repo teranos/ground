@@ -125,6 +125,25 @@ enum BOOK_COMMAND = q"EOS
 ground_drive ground-coinflip-1786812152
 EOS";
 
+// 「[Opus 5.5] Whether the parse declares the ritual.」
+bool declares(P)(auto ref const P parsed, const(char)[] ritual) {
+    foreach (i; 0 .. parsed.ritualCount)
+        if (parsed.rituals[i].name == ritual) return true;
+    return false;
+}
+
+unittest {
+    struct R { string name; }
+    struct P { R[2] rituals; size_t ritualCount; }
+    P p;
+    p.rituals[0].name = "deploy";
+    p.ritualCount = 1;
+    assert(declares(p, "deploy"));
+    assert(!declares(p, "grove"), "a ritual no parse holds is not declared");
+    p.ritualCount = 0;
+    assert(!declares(p, "deploy"), "only the rituals counted are declared");
+}
+
 int handleDrive(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import core.stdc.time : time;
@@ -420,6 +439,30 @@ int handleDrive(int argc, const(char)** argv) {
                           cast(string) found.p.parent, cast(string) found.p.ritual, "",
                           cast(string) found.p.id, cast(string) shell.output);
                 cast(void) deliver(db, found.p, PARENT, "ritual-no-shell", unheld.slice(), "");
+            }
+            sqlite3_close(db);
+            continue;
+        }
+
+        // "stuck and silent"
+        // 「[Opus 5.5] A ritual this driver cannot find has nothing to walk, now or later. It」
+        // 「[Opus 5.5] halts and says so; it does not poll forever with the row reading live.」
+        if (!declares(parsed, found.p.ritual)) {
+            import ritual.store : writePositionIf;
+            import ritual.position : step;
+            import ritual.delivery : deliver, PARENT;
+            import exec : emitError;
+            if (writePositionIf(db, step(found.p, Verdict.Halt), found.p.rev)) {
+                endWhy = "the sand this driver holds declares no such ritual, so no rite could run";
+                __gshared ZBuf undeclared;
+                undeclared.reset();
+                undeclared.put(found.p.id);
+                undeclared.put(" halted: ");
+                undeclared.put(endWhy);
+                emitError("ritual.drive.undeclared", cast(string) undeclared.slice(), 0, 1,
+                          cast(string) found.p.parent, cast(string) found.p.ritual, "",
+                          cast(string) found.p.id, cast(string) found.p.worktree);
+                cast(void) deliver(db, found.p, PARENT, "ritual-undeclared", undeclared.slice(), "");
             }
             sqlite3_close(db);
             continue;
