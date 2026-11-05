@@ -31,8 +31,8 @@ const(char)[] toolOf(const(char)[] name) {
     return at < 0 ? name : name[cast(size_t) at + TOOL_MARK.length .. $];
 }
 
-// ground code's own tool, fs/write_text_file's request as the model calls it, in the schema's words.
-// Its name has no TOOL_MARK, so no server's tool is named the same.
+// 「[Opus 5.5] ground code's own tool, fs/write_text_file's request as the model calls it, in the schema's words.」
+// 「[Opus 5.5] Its name has no TOOL_MARK, so no server's tool is named the same.」
 enum WRITE_TOOL = "write_text_file";
 
 void putWriteTool(ref Reply tools) {
@@ -42,8 +42,8 @@ void putWriteTool(ref Reply tools) {
         ~ `"content":{"type":"string","description":"The text content to write to the file."}},"required":["path","content"]}}}`);
 }
 
-// ground code's tool for reading through the client, fs/read_text_file's request as the model calls it,
-// in the schema's words: "including unsaved changes in the editor".
+// 「[Opus 5.5] ground code's tool for reading through the client, fs/read_text_file's request as the model calls it,」
+// 「[Opus 5.5] in the schema's words: "including unsaved changes in the editor".」
 enum READ_TOOL = "read_text_file";
 
 void putReadTool(ref Reply tools) {
@@ -54,7 +54,7 @@ void putReadTool(ref Reply tools) {
         ~ `"limit":{"type":"integer","minimum":0,"maximum":4294967295,"description":"Maximum number of lines to read."}},"required":["path"]}}}`);
 }
 
-// ground code's other own tool, terminal/create's request as the model calls it, in the schema's words.
+// 「[Opus 5.5] ground code's other own tool, terminal/create's request as the model calls it, in the schema's words.」
 enum RUN_TOOL = "run_command";
 
 void putRunTool(ref Reply tools) {
@@ -67,12 +67,12 @@ void putRunTool(ref Reply tools) {
         ~ `"description":"Environment variables for the command."}},"required":["command"]}}}`);
 }
 
-// ground code's tool for the model's plan, ACP's Plan as the model calls it, in the schema's words: "When
-// the language model creates an execution plan, the Agent SHOULD report it to the Client".
+// 「[Opus 5.5] ground code's tool for the model's plan, ACP's Plan as the model calls it, in the schema's words: "When」
+// 「[Opus 5.5] the language model creates an execution plan, the Agent SHOULD report it to the Client".」
 enum PLAN_TOOL = "plan";
-// What the model is told of a plan that is no Plan.
+// 「[Opus 5.5] What the model is told of a plan that is no Plan.」
 enum PLAN_REFUSED = `{"status":"not run","why":"plan takes entries, each a content, a priority (high, medium or low) and a status (pending, in_progress or completed)"}`;
-// What the user is told of a plan that is none, before what the model gave.
+// 「[Opus 5.5] What the user is told of a plan that is none, before what the model gave.」
 enum PLAN_UNREPORTED = "the model's plan is not one ACP can report";
 
 void putPlanTool(ref Reply tools) {
@@ -90,7 +90,7 @@ void putPlanTool(ref Reply tools) {
         ~ `"required":["content","priority","status"]}}},"required":["entries"]}}}`);
 }
 
-// The plan update for what the model called plan with, as libacp writes it, into u: false when it is no Plan.
+// 「[Opus 5.5] The plan update for what the model called plan with, as libacp writes it, into u: false when it is no Plan.」
 bool putPlan(ref Reply u, const(char)[] arguments) {
     import libacp : acp_plan_write, acp_buffer, acp_buffer_free, acp_status;
     acp_buffer written;
@@ -180,19 +180,19 @@ size_t skipValue(const(char)[] json, size_t pos) {
     return pos;
 }
 
-// What a prompt's blocks are: all read, one of another kind, or no prompt libacp reads.
+// 「[Opus 5.5] What a prompt's blocks are: all read, one of another kind, or no prompt libacp reads.」
 enum Blocks { read, other, refused }
 
-// The prompt's text blocks, in order, one line each, as libacp reads params. A
-// resource_link goes into links to be read, its name and its uri each ended by
-// a NUL. A resource embedded with its text, "for pieces of context that are
-// referenced in the message", goes into embedded, its uri and its text each
-// ended by a NUL. An image, "Agent supports ContentBlock::Image", goes into
-// images, its mimeType and its data each ended by a NUL; audio, "Agent
-// supports ContentBlock::Audio", goes into audio the same way. A block of another kind has no text to give the model, and
-// is not pretended to: other gets the type of the first such block, empty when
-// it names none; a resource holding a blob is "resource holding a blob".
-// refused: libacp's refusal of the prompt itself is in said.
+// 「[Opus 5.5] The prompt's text blocks, in order, one line each, as libacp reads params. A」
+// 「[Opus 5.5] resource_link goes into links to be read, its name and its uri each ended by」
+// 「[Opus 5.5] a NUL. A resource embedded with its text, "for pieces of context that are」
+// 「[Opus 5.5] referenced in the message", goes into embedded, its uri and its text each」
+// 「[Opus 5.5] ended by a NUL. An image, "Agent supports ContentBlock::Image", goes into」
+// 「[Opus 5.5] images, its mimeType and its data each ended by a NUL; audio, "Agent」
+// 「[Opus 5.5] supports ContentBlock::Audio", goes into audio the same way. A block of another kind has no text to give the model, and」
+// 「[Opus 5.5] is not pretended to: other gets the type of the first such block, empty when」
+// 「[Opus 5.5] it names none; a resource holding a blob is "resource holding a blob".」
+// 「[Opus 5.5] refused: libacp's refusal of the prompt itself is in said.」
 @Reads("prompt") Blocks promptText(const(char)[] params, ref Reply r, ref Reply other, ref Reply links, ref Reply embedded,
         ref Reply images, ref Reply audio, ref Reply said) {
     import libacp : acp_prompt, acp_prompt_read, acp_prompt_free, acp_block_kind, acp_buffer, acp_buffer_free, acp_status;
@@ -480,8 +480,8 @@ int promptMessages(const(char)[] response, ref Reply history, ref Reply why) {
 
 private void comma(ref Reply h) { if (h.len > 0) h.add(","); }
 
-// The gateway's audio formats, "wav, mp3, flac, m4a, ogg, aiff, aac", each by
-// the mimeTypes it goes by; the first is the one a format is told back as.
+// 「[Opus 5.5] The gateway's audio formats, "wav, mp3, flac, m4a, ogg, aiff, aac", each by」
+// 「[Opus 5.5] the mimeTypes it goes by; the first is the one a format is told back as.」
 private static immutable string[][] AUDIO_FORMATS = [
     ["wav", "audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"],
     ["mp3", "audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"],
@@ -492,8 +492,8 @@ private static immutable string[][] AUDIO_FORMATS = [
     ["aac", "audio/aac"],
 ];
 
-// The gateway's format for audio of this mimeType, as it names it; null for
-// a mimeType ground code knows no format of. A type is the same in any case.
+// 「[Opus 5.5] The gateway's format for audio of this mimeType, as it names it; null for」
+// 「[Opus 5.5] a mimeType ground code knows no format of. A type is the same in any case.」
 const(char)[] audioFormat(const(char)[] mimeType) {
     static bool same(const(char)[] a, const(char)[] b) {
         if (a.length != b.length) return false;
@@ -507,17 +507,17 @@ const(char)[] audioFormat(const(char)[] mimeType) {
     return null;
 }
 
-// The mimeType a format is told back as, on session/load.
+// 「[Opus 5.5] The mimeType a format is told back as, on session/load.」
 private const(char)[] audioMimeOf(const(char)[] format) {
     foreach (f; AUDIO_FORMATS) if (f[0] == format) return f[1];
     return null;
 }
 
-// The user's words, and the images and audio they gave, each a mimeType and
-// its data ended by a NUL: words alone are a string; with either, the content
-// is the gateway's parts, a text part when there are words, then each image
-// as an image_url holding a data URL, then each audio as an input_audio
-// holding its base64 data and its format.
+// 「[Opus 5.5] The user's words, and the images and audio they gave, each a mimeType and」
+// 「[Opus 5.5] its data ended by a NUL: words alone are a string; with either, the content」
+// 「[Opus 5.5] is the gateway's parts, a text part when there are words, then each image」
+// 「[Opus 5.5] as an image_url holding a data URL, then each audio as an input_audio」
+// 「[Opus 5.5] holding its base64 data and its format.」
 void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null, const(char)[] audio = null) {
     comma(h);
     if (images.length == 0 && audio.length == 0) { h.add(`{"role":"user","content":"`); putEscaped(h, text); h.add(`"}`); return; }
@@ -548,7 +548,7 @@ void userMessage(ref Reply h, const(char)[] text, const(char)[] images = null, c
     h.add(`]}`);
 }
 
-// Whether data is base64, as the gateway takes an image's or audio's data.
+// 「[Opus 5.5] Whether data is base64, as the gateway takes an image's or audio's data.」
 bool isBase64(const(char)[] data) {
     if (data.length == 0) return false;
     foreach (c; data)
@@ -557,9 +557,9 @@ bool isBase64(const(char)[] data) {
     return true;
 }
 
-// What would keep an image out of a data URL, "data:" mimeType ";base64," data:
-// a mimeType that is no type/subtype, or data that is not base64. null when
-// nothing does. Whether the model takes the image is the gateway's to say.
+// 「[Opus 5.5] What would keep an image out of a data URL, "data:" mimeType ";base64," data:」
+// 「[Opus 5.5] a mimeType that is no type/subtype, or data that is not base64. null when」
+// 「[Opus 5.5] nothing does. Whether the model takes the image is the gateway's to say.」
 const(char)[] unusableImage(const(char)[] mimeType, const(char)[] data) {
     static bool token(char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
@@ -666,11 +666,11 @@ bool readOnlyTool(ref McpGroup group, const(char)[] full) {
     return readOnly;
 }
 
-// A call's title, "Human-readable title describing what the tool is doing",
-// added to title: the tool's own as MCP orders it, its title ("Intended for
-// UI and end-user contexts"), else its annotations' title, else, as MCP says,
-// "the name should be used for display". A title holding a NUL is none: it is
-// written as a C string, which would end at the NUL.
+// 「[Opus 5.5] A call's title, "Human-readable title describing what the tool is doing",」
+// 「[Opus 5.5] added to title: the tool's own as MCP orders it, its title ("Intended for」
+// 「[Opus 5.5] UI and end-user contexts"), else its annotations' title, else, as MCP says,」
+// 「[Opus 5.5] "the name should be used for display". A title holding a NUL is none: it is」
+// 「[Opus 5.5] written as a C string, which would end at the NUL.」
 void toolTitle(ref McpGroup group, const(char)[] full, ref Reply title) {
     auto before = title.len;
     static bool usable(const(char)[] t) {
@@ -685,7 +685,7 @@ void toolTitle(ref McpGroup group, const(char)[] full, ref Reply title) {
     if (title.len == before) title.add(full);
 }
 
-// The tool the session's catalogue lists under full, handed to each; nothing when none is.
+// 「[Opus 5.5] The tool the session's catalogue lists under full, handed to each; nothing when none is.」
 private void withTool(ref McpGroup group, const(char)[] full, scope void delegate(json_object* tool) each) {
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
@@ -718,9 +718,9 @@ private void withTool(ref McpGroup group, const(char)[] full, scope void delegat
 // false when the history is not one ground code wrote, or send failed.
 // --- what a tool call shows the user ---
 
-// What a call shows, from what it answered as the history keeps it, MCP's content blocks as they came:
+// 「[Opus 5.5] What a call shows, from what it answered as the history keeps it, MCP's content blocks as they came:」
 // "enabling agents to seamlessly forward content from MCP tool outputs without transformation"
-// Or what failed it, as text. Blocks go into blocks as their array, the text into said.
+// 「[Opus 5.5] Or what failed it, as text. Blocks go into blocks as their array, the text into said.」
 void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
     auto root = parseJson(output);
     scope(exit) json_object_put(root);
@@ -740,11 +740,11 @@ void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
         if (found is null && text_.length == 0) {
             text_ = text(jsonField(root, "why"));
             if (text_.length == 0) text_ = text(jsonField(root, "message"));
-            // A command run in the client's terminal: what it printed.
+            // 「[Opus 5.5] A command run in the client's terminal: what it printed.」
             if (text_.length == 0) text_ = text(jsonField(root, "output"));
         }
     }
-    // fs/read_text_file's answer: the text read.
+    // 「[Opus 5.5] fs/read_text_file's answer: the text read.」
     if (json_object_get_type(found) == json_type.string_) said.add(text(found));
     else if (json_object_get_type(found) == json_type.array && json_object_array_length(found) > 0) {
         auto array = json_object_to_json_string_ext(found, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
@@ -752,19 +752,19 @@ void toolContentOf(const(char)[] output, ref Reply blocks, ref Reply said) {
     } else said.add(text_);
 }
 
-// A tool_call, or a tool_call_update when update, as libacp writes it, into u. A field that is
-// null is not written; rawOutput, when given, also gives what the call shows. false when libacp
-// could not write it.
-// "File modification shown as a diff": the file's absolute path, what it held, and what it holds now.
-// held is false for a file that was not there, whose original content is null.
+// 「[Opus 5.5] A tool_call, or a tool_call_update when update, as libacp writes it, into u. A field that is」
+// 「[Opus 5.5] null is not written; rawOutput, when given, also gives what the call shows. false when libacp」
+// 「[Opus 5.5] could not write it.」
+// 「[Opus 5.5] "File modification shown as a diff": the file's absolute path, what it held, and what it holds now.」
+// 「[Opus 5.5] held is false for a file that was not there, whose original content is null.」
 struct FileDiff {
     const(char)[] path, oldText, newText;
     bool held;
 }
 
-// The file a call of ground code's own works with, from what the model called it with, as the call
-// would act on it: write_text_file's path, given content, and read_text_file's path and line, given a
-// line and limit it takes. 0 for a line is none. false for any other call, and for one not run as given.
+// 「[Opus 5.5] The file a call of ground code's own works with, from what the model called it with, as the call」
+// 「[Opus 5.5] would act on it: write_text_file's path, given content, and read_text_file's path and line, given a」
+// 「[Opus 5.5] line and limit it takes. 0 for a line is none. false for any other call, and for one not run as given.」
 bool ownLocation(const(char)[] name, const(char)[] arguments, ref Reply path, ref uint line) {
     import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
         json_object_get_string, json_object_get_string_len, json_object_get_int64;
@@ -773,7 +773,7 @@ bool ownLocation(const(char)[] name, const(char)[] arguments, ref Reply path, re
     auto args = parseJson(arguments);
     scope(exit) json_object_put(args);
     auto given = jsonField(args, "path");
-    // A path is a C string to libacp, so one holding a NUL would name another file.
+    // 「[Opus 5.5] A path is a C string to libacp, so one holding a NUL would name another file.」
     if (json_object_get_type(given) != json_type.string_ || json_object_get_string(given)[0] != '/'
             || strlen(json_object_get_string(given)) != cast(size_t) json_object_get_string_len(given)) return false;
     bool count(const(char)* field, ref uint into) {
@@ -800,11 +800,11 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     import libacp : acp_tool_call, acp_tool_call_write, acp_diff, acp_location, acp_buffer, acp_buffer_free, acp_status;
     Reply blocks, said, text_;
     scope(exit) { blocks.dispose(); said.dispose(); text_.dispose(); }
-    // A call that shows a terminal shows it alone: the terminal holds what the call printed.
+    // 「[Opus 5.5] A call that shows a terminal shows it alone: the terminal holds what the call printed.」
     if (rawOutput !is null && terminalId is null) toolContentOf(rawOutput, blocks, said);
-    // content, when given, is the call's content as text: what it says while it runs.
+    // 「[Opus 5.5] content, when given, is the call's content as text: what it says while it runs.」
     else if (content !is null) said.add(content);
-    // Each field as C reads it, its own bytes and a NUL; size_t.max is one not given.
+    // 「[Opus 5.5] Each field as C reads it, its own bytes and a NUL; size_t.max is one not given.」
     size_t at(const(char)[] s) {
         if (s is null) return size_t.max;
         auto from = text_.len; text_.add(s); text_.add("\0"); return from;
@@ -813,7 +813,7 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     auto inputAt = at(rawInput), outputAt = at(rawOutput);
     auto blocksAt = at(blocks.len > 0 ? blocks.slice() : null), saidAt = at(said.len > 0 ? said.slice() : null);
     auto terminalAt = at(terminalId), locationAt = at(locationPath);
-    // Either text goes by its length, every byte; each is put here so an empty one is still text.
+    // 「[Opus 5.5] Either text goes by its length, every byte; each is put here so an empty one is still text.」
     size_t pathAt = size_t.max, oldAt = size_t.max, newAt = size_t.max;
     if (diff !is null) {
         pathAt = at(diff.path);
@@ -824,7 +824,7 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     const(char)* c(size_t from) { return from == size_t.max ? null : text_.slice().ptr + from; }
     acp_diff changed;
     if (diff !is null) changed = acp_diff(c(pathAt), c(oldAt), diff.oldText.length, c(newAt), diff.newText.length);
-    // "File locations affected by this tool call", when it names its file.
+    // 「[Opus 5.5] "File locations affected by this tool call", when it names its file.」
     auto location = acp_location(c(locationAt), locationLine);
     auto call = acp_tool_call(update, c(idAt), c(titleAt), c(nameAt), c(kindAt), c(statusAt), c(inputAt), c(outputAt),
         c(blocksAt), c(saidAt), c(terminalAt), diff !is null ? &changed : null,
@@ -836,7 +836,7 @@ bool putToolCall(ref Reply u, bool update, const(char)[] id, const(char)[] title
     return !u.full;
 }
 
-// A text chunk, the agent's message, its thought or the user's, as libacp writes it, into u.
+// 「[Opus 5.5] A text chunk, the agent's message, its thought or the user's, as libacp writes it, into u.」
 bool putChunk(ref Reply u, int kind, const(char)[] text_) {
     import libacp : acp_chunk_kind, acp_text_chunk_write, acp_buffer, acp_buffer_free, acp_status;
     acp_buffer written;
@@ -846,8 +846,8 @@ bool putChunk(ref Reply u, int kind, const(char)[] text_) {
     return !u.full;
 }
 
-// The user's image, from the data URL it was given to the model in, as libacp
-// writes a user_message_chunk holding it, into u.
+// 「[Opus 5.5] The user's image, from the data URL it was given to the model in, as libacp」
+// 「[Opus 5.5] writes a user_message_chunk holding it, into u.」
 private bool putImageChunk(ref Reply u, const(char)[] url) {
     import libacp : acp_chunk_kind, acp_image_chunk_write, acp_buffer, acp_buffer_free, acp_status;
     enum head = "data:", tail = ";base64,";
@@ -868,8 +868,8 @@ private bool putImageChunk(ref Reply u, const(char)[] url) {
     return !u.full;
 }
 
-// The user's audio, by the mimeType its format is told back as, as libacp
-// writes a user_message_chunk holding it, into u.
+// 「[Opus 5.5] The user's audio, by the mimeType its format is told back as, as libacp」
+// 「[Opus 5.5] writes a user_message_chunk holding it, into u.」
 private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data) {
     import libacp : acp_chunk_kind, acp_audio_chunk_write, acp_buffer, acp_buffer_free, acp_status;
     auto mime = audioMimeOf(format);
@@ -903,11 +903,11 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
     scope(exit) json_object_put(root);
     if (json_object_get_type(root) != json_type.array) return false;
     bool told(ref Reply u) { bool ok = !u.full && send(u.slice()); u.dispose(); return ok; }
-    // The plan calls not yet answered, each its id and arguments ended by a NUL: a plan call is told
-    // as its answer says it came out live, and is dropped once it is, so only open ones are looked in.
+    // 「[Opus 5.5] The plan calls not yet answered, each its id and arguments ended by a NUL: a plan call is told」
+    // 「[Opus 5.5] as its answer says it came out live, and is dropped once it is, so only open ones are looked in.」
     Reply planned;
     scope(exit) planned.dispose();
-    // The arguments of the open plan call id, taken out of planned into args; false when none is.
+    // 「[Opus 5.5] The arguments of the open plan call id, taken out of planned into args; false when none is.」
     bool takePlan(const(char)[] id, ref Reply args) {
         for (size_t from = 0, at = 0, field = 0, idTo = 0; at < planned.len; at++) {
             if (planned.slice()[at] != '\0') continue;
@@ -937,7 +937,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
         }
         auto parts = jsonField(m, "content");
         if (role == "user" && json_object_get_type(parts) == json_type.array) {
-            // The words and images the user gave, each as it was given.
+            // 「[Opus 5.5] The words and images the user gave, each as it was given.」
             foreach (j; 0 .. json_object_array_length(parts)) {
                 auto part = json_object_array_get_idx(parts, j);
                 auto type = text(jsonField(part, "type"));
@@ -966,7 +966,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                 if (id is null || name is null || args is null) return false;
                 Reply u;
                 scope(exit) u.dispose();
-                // A plan is told when its answer says how it came out.
+                // 「[Opus 5.5] A plan is told when its answer says how it came out.」
                 if (name == PLAN_TOOL) {
                     planned.add(id); planned.add("\0"); planned.add(args); planned.add("\0");
                     if (planned.full) return false;
@@ -992,7 +992,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             if (takePlan(id, planArgs)) {
                 Reply u;
                 scope(exit) u.dispose();
-                // Reported: the plan it was. Refused: the warning the user was given.
+                // 「[Opus 5.5] Reported: the plan it was. Refused: the warning the user was given.」
                 if (content == "{}") {
                     if (!putPlan(u, planArgs.slice()) || !told(u)) return false;
                     continue;
@@ -1005,12 +1005,12 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                     if (said.full || !putChunk(u, 0, said.slice()) || !told(u)) return false;
                     continue;
                 }
-                // Never run, as a cancel leaves it: the call it was, and its answer below.
+                // 「[Opus 5.5] Never run, as a cancel leaves it: the call it was, and its answer below.」
                 if (!putToolCall(u, false, id, PLAN_TOOL, PLAN_TOOL, null, null, planArgs.slice(), null) || !told(u)) return false;
             }
             auto answer = parseJson(content);
             scope(exit) json_object_put(answer);
-            // A command completed as it did live, by exiting 0.
+            // 「[Opus 5.5] A command completed as it did live, by exiting 0.」
             auto exitCode = jsonField(answer, "exitCode");
             bool completed = jsonField(answer, "result") !is null
                 || (json_object_get_type(exitCode) == json_type.int_ && json_object_get_int64(exitCode) == 0);

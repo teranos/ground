@@ -1,7 +1,7 @@
 import json, sys
 # One tool whose annotations say it only reads, one that says nothing, and
 # one that fails as a tool: what a client is told of each is what is tested.
-# look has a title of its own, touch only its annotations' title, break none.
+# 「[Opus 5.5] look has a title of its own, touch only its annotations' title, break none.」
 for line in sys.stdin:
     q=json.loads(line); m=q['method']; p=q.get('params',{})
     if 'id' not in q: continue

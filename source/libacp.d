@@ -1,7 +1,7 @@
 module libacp;
 
-// The C ABI declared in libacp/include/acp.h. No druntime and no GC ownership.
-// acp_buffer.data is freed by acp_buffer_free.
+// 「[Opus 5.5] The C ABI declared in libacp/include/acp.h. No druntime and no GC ownership.」
+// 「[Opus 5.5] acp_buffer.data is freed by acp_buffer_free.」
 
 enum ACP_VERSION = "0.1.0-dev";
 

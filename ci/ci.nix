@@ -32,7 +32,7 @@ in
       steps = [
         checkout
         installNix
-        # -L: each derivation's build log as it runs, so a build that hangs shows where.
+        # 「[Opus 5.5] -L: each derivation's build log as it runs, so a build that hangs shows where.」
         { run = "nix build -L .#ground"; }
         # libacp: its build, and its checkPhase's tests, plain and under ASan/UBSan.
         { run = "nix build -L .#libacp"; }

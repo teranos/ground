@@ -14,7 +14,7 @@ A node named without a token file is spoken to with the one ground attest always
 A coin thrown with no node named anywhere lands nowhere. The build says which coin, rather than posting it nowhere in silence.
 
 ## db-sqlite3_open
-The rows a hook writes from now on are the stream's: qntx_at 0 until the sky posts one. The rows that were there when the column arrived are not: stamped BEFORE_STREAM once, by the migration, and never claimed. The store as it stood before the stream: the column gone, the row there. The indexes name the column, so they go first.
+The rows a hook writes from now on are the stream's: qntx_at 0 until the sky posts one. The rows that were there when the column arrived are not: stamped BEFORE_STREAM once, by the migration, and never claimed. The store as it stood before the stream: the column gone, the row there. 「[Opus 5.5] The indexes name the column, so they go first.」
 
 ## immediate-sqlite3_open
 An exec result carries stdout and stderr, kilobytes of them, and the reason sat past the 512th byte of the one buffer it was read into.

@@ -66,7 +66,7 @@ for line in sys.stdin:
     elif method == "test/cancelled":
         response(req, {"cancelled": cancelled})
     elif method == "tools/call" and p.get("name") == "progress":
-        # A tool that reports its progress on the token its call carries, and what it was asked.
+        # 「[Opus 5.5] A tool that reports its progress on the token its call carries, and what it was asked.」
         token = p.get("_meta", {}).get("progressToken")
         for value in [1, 2] if token is not None else []:
             send(

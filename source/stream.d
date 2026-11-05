@@ -20,7 +20,7 @@ module stream;
 import db : sqlite3, sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_bind_int64,
             sqlite3_bind_text, sqlite3_column_text, sqlite3_column_int64, sqlite3_changes,
             sqlite3_stmt, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT, ZBuf;
-// The store's schema: db stamps the rows there before the stream with it.
+// 「[Opus 5.5] The store's schema: db stamps the rows there before the stream with it.」
 public import db : BEFORE_STREAM;
 
 // The node refuses a request body larger than this: maxAttestationBody in

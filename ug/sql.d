@@ -44,8 +44,8 @@ enum SQLITE_READWRITE = 0x00000002;
 // inside the 300ms debounce, so it costs no frame.
 enum BUSY_MS = 50;
 
-// Every open of ground's store in ug, so each one is set up the same way.
-// What sqlite said, and a handle only when that is SQLITE_OK.
+// 「[Opus 5.5] Every open of ground's store in ug, so each one is set up the same way.」
+// 「[Opus 5.5] What sqlite said, and a handle only when that is SQLITE_OK.」
 int openGround(const(char)* path, ref sqlite3* db) {
     auto rc = sqlite3_open_v2(path, &db, SQLITE_READWRITE, null);
     if (rc != SQLITE_OK) {
@@ -54,8 +54,8 @@ int openGround(const(char)* path, ref sqlite3* db) {
         return rc;
     }
     sqlite3_busy_timeout(db, BUSY_MS);
-    // As ground's own opens: a close that is the last neither checkpoints nor
-    // takes the -wal and -shm (source/db.d).
+    // 「[Opus 5.5] As ground's own opens: a close that is the last neither checkpoints nor」
+    // 「[Opus 5.5] takes the -wal and -shm (source/db.d).」
     sqlite3_db_config(db, SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, 1, null);
     int persist = 1;
     sqlite3_file_control(db, "main\0".ptr, SQLITE_FCNTL_PERSIST_WAL, &persist);

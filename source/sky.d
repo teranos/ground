@@ -696,7 +696,7 @@ int handleSky(int argc, const(char)** argv) {
                 heldReset();
                 if (held.length > 0) toSentry("sky.hold", cast(string) held, -1, sessionId, "");
             }
-            // No close checkpoints any more (db.d), so the pass does, off every hook's path.
+            // 「[Opus 5.5] No close checkpoints any more (db.d), so the pass does, off every hook's path.」
             {
                 import db : walSettle, SQLITE_OK, SQLITE_BUSY;
                 auto settled = walSettle(db);
@@ -926,12 +926,12 @@ private void streamFailed(const(char)[] sessionId, const ref Pass pass, long wai
     toSentry("sky.stream", cast(string) said[0 .. n], -1, sessionId, "");
 }
 
-// A hook gives up on the lock at BUSY_LIMIT_US, and the store's timing rows
-// held 1378 hook waits of a second or more, the holder named ground_sky most.
+// 「[Opus 5.5] A hook gives up on the lock at BUSY_LIMIT_US, and the store's timing rows」
+// 「[Opus 5.5] held 1378 hook waits of a second or more, the holder named ground_sky most.」
 enum HOLD_SAY_US = 1_000_000;
 
-// A write of this watcher's that held the store's lock past HOLD_SAY_US, in
-// milliseconds and by its own SQL; empty below it.
+// 「[Opus 5.5] A write of this watcher's that held the store's lock past HOLD_SAY_US, in」
+// 「[Opus 5.5] milliseconds and by its own SQL; empty below it.」
 const(char)[] holdSaid(long us, const(char)[] sql) {
     __gshared char[400] said = 0;
     size_t n;

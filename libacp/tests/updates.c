@@ -76,8 +76,8 @@ static void tool_calls(void) {
     CHECK(acp_tool_call_write(&spaced, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawInput\":{ \"q\" : 1 },\"rawOutput\":{\"jsonrpc\": \"2.0\", \"id\": 3}}"));
-    // What only a lenient reader takes for JSON is no JSON, and is the text it is: written as it
-    // came, it made a message no client can read.
+    // 「[Opus 5.5] What only a lenient reader takes for JSON is no JSON, and is the text it is: written as it」
+    // 「[Opus 5.5] came, it made a message no client can read.」
     acp_tool_call lenient = {1, "c1", NULL, NULL, NULL, "completed", "{'q':1}", "NaN", NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&lenient, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","

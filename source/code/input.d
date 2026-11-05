@@ -108,8 +108,8 @@ bool more(ref Input input) {
     return !input.eof && !input.failed;
 }
 
-// Waits up to ms for more to arrive, taking what does. false at the end of
-// the input, or when it failed.
+// 「[Opus 5.5] Waits up to ms for more to arrive, taking what does. false at the end of」
+// 「[Opus 5.5] the input, or when it failed.」
 bool within(ref Input input, int ms) {
     fill(input, ms < 0 ? 0 : ms);
     return !input.eof && !input.failed;

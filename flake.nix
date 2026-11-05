@@ -17,9 +17,9 @@
       # kept in this repository at libmcp/ and built as its own flake builds it,
       # with the json-c it is held to. Nothing to lock: it is this checkout's.
       libmcp = (import ./libmcp/flake.nix).outputs { self = { }; inherit nixpkgs; };
-      # What the client and ground link: the library, and the json-c it patched.
+      # 「[Opus 5.5] What the client and ground link: the library, and the json-c it patched.」
       mcpLibs = system: [ libmcp.packages.${system}.libmcp libmcp.packages.${system}.json-c ];
-      # The ACP ground code speaks to its client through: libacp, kept at libacp/ the
+      # 「[Opus 5.5] The ACP ground code speaks to its client through: libacp, kept at libacp/ the」
       # same way, and built against libmcp's json-c so one json-c is linked.
       libacp = (import ./libacp/flake.nix).outputs { self = { }; inherit nixpkgs; };
       acpLib = system: libacp.lib.libacpWith nixpkgs.legacyPackages.${system} libmcp.packages.${system}.json-c;
@@ -166,15 +166,15 @@
             sha256 = sha256.schema;
           };
 
-          # The ACP agents shipped by others, at a commit: their source, which ground
-          # parity reads for what each handles and sends. dir is where it lives in the
-          # repo; sdk the @agentclientprotocol/sdk version its package.json pins.
+          # 「[Opus 5.5] The ACP agents shipped by others, at a commit: their source, which ground」
+          # 「[Opus 5.5] parity reads for what each handles and sends. dir is where it lives in the」
+          # 「[Opus 5.5] repo; sdk the @agentclientprotocol/sdk version its package.json pins.」
           shipped = name: pin: pkgs.fetchFromGitHub {
             inherit (pin) owner repo rev hash;
             name = "shipped-${name}";
           };
 
-          # Each SDK version a shipped agent pins, whose source names every method.
+          # 「[Opus 5.5] Each SDK version a shipped agent pins, whose source names every method.」
           acpSdk = version: pin: pkgs.fetchFromGitHub {
             owner = "agentclientprotocol";
             repo = "typescript-sdk";
@@ -346,7 +346,7 @@
                 { name = "${release}/${dialect}-protocol.js"; path = "${hooks}/protocol.js"; }
               ])
             (pkgs.lib.filterAttrs (name: _: builtins.match "dsh-(claude|codex)-.*" name != null) self.packages.${system})));
-          # Every shipped agent above, a directory per name, and every SDK, a directory per version.
+          # 「[Opus 5.5] Every shipped agent above, a directory per name, and every SDK, a directory per version.」
           shipped-sources = pkgs.linkFarm "shipped-sources" (pkgs.lib.mapAttrsToList
             (name: src: { name = pkgs.lib.removePrefix "shipped-" name; path = src; })
             (pkgs.lib.filterAttrs (name: _: pkgs.lib.hasPrefix "shipped-" name && name != "shipped-sources") self.packages.${system}));

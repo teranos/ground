@@ -1,7 +1,7 @@
 module close_test;
 
-// ug opens ground's store several times a frame. Whichever close is the last
-// must neither write the WAL back nor take the -wal and -shm with it.
+// 「[Opus 5.5] ug opens ground's store several times a frame. Whichever close is the last」
+// 「[Opus 5.5] must neither write the WAL back nor take the -wal and -shm with it.」
 
 import core.stdc.stdio : printf, fopen, fclose;
 import core.stdc.stdlib : getenv, exit;
@@ -45,7 +45,7 @@ extern (C) int main() {
     __gshared char[512] path = void;
     auto pl = dbPathInto(home[0 .. hl], path[]);
 
-    // ug opens a store ground made, and never makes one.
+    // 「[Opus 5.5] ug opens a store ground made, and never makes one.」
     auto made = fopen(&path[0], "w");
     check(made !is null, "the store file could not be made");
     fclose(made);

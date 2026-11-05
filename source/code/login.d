@@ -1,39 +1,39 @@
 module code.login;
 
-// ground code signs in to its QNTX node as QNTX's agents do, by its device
-// flow (RFC 8628, QNTX's server/auth/device.go): "An agent asks for a sign-in,
-// prints a link, and the person approves it with the passkey at home; the
-// agent's token is then the person, as a client's is." The token the node
-// gives is kept in the file every ground reads its token from, so what signed
-// in is what speaks to the node. What the token reaches is the node's to say.
+// 「[Opus 5.5] ground code signs in to its QNTX node as QNTX's agents do, by its device」
+// 「[Opus 5.5] flow (RFC 8628, QNTX's server/auth/device.go): "An agent asks for a sign-in,」
+// 「[Opus 5.5] prints a link, and the person approves it with the passkey at home; the」
+// 「[Opus 5.5] agent's token is then the person, as a client's is." The token the node」
+// 「[Opus 5.5] gives is kept in the file every ground reads its token from, so what signed」
+// 「[Opus 5.5] in is what speaks to the node. What the token reaches is the node's to say.」
 
 import code.reply : Reply, putEscaped, putNumber;
 import libjsonc : json_object, json_type, json_object_get_type, json_object_get_string, json_object_get_string_len,
     json_object_get_int64, json_object_put, jsonField, parseJson;
 
-// The node's own paths: where an agent asks for a sign-in, and where it asks
-// whether its yes came.
+// 「[Opus 5.5] The node's own paths: where an agent asks for a sign-in, and where it asks」
+// 「[Opus 5.5] whether its yes came.」
 enum DEVICE_PATH = "/auth/device";
 enum TOKEN_PATH = "/auth/token";
-// The name the person reads at home before they say yes, and the token is labelled with.
+// 「[Opus 5.5] The name the person reads at home before they say yes, and the token is labelled with.」
 enum LABEL = "ground code";
-// RFC 8628 §3.4's grant_type.
+// 「[Opus 5.5] RFC 8628 §3.4's grant_type.」
 enum DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
-// RFC 8628 §3.5: "the interval MUST be increased by 5 seconds for this and all subsequent requests".
+// 「[Opus 5.5] RFC 8628 §3.5: "the interval MUST be increased by 5 seconds for this and all subsequent requests".」
 enum SLOW_DOWN_SECONDS = 5;
 private enum ANSWER_BYTES = 16384;
 private enum ASK_SECONDS = 30;
 
-// A sign-in the node started: the code the token is asked for with, the code
-// the person compares, the link they follow, and how long to wait between asks.
+// 「[Opus 5.5] A sign-in the node started: the code the token is asked for with, the code」
+// 「[Opus 5.5] the person compares, the link they follow, and how long to wait between asks.」
 struct SignIn {
     Reply deviceCode, userCode, link;
     uint interval;
     void dispose() { deviceCode.dispose(); userCode.dispose(); link.dispose(); }
 }
 
-// application/x-www-form-urlencoded: unreserved bytes as they are, a space as
-// +, every other byte %XX.
+// 「[Opus 5.5] application/x-www-form-urlencoded: unreserved bytes as they are, a space as」
+// 「[Opus 5.5] +, every other byte %XX.」
 private void putForm(ref Reply r, const(char)[] s) {
     enum hex = "0123456789ABCDEF";
     foreach (c; s) {
@@ -48,8 +48,8 @@ private void putForm(ref Reply r, const(char)[] s) {
     }
 }
 
-// What a request to the node came to, as ACP error data: where, the status,
-// libcurl's code and words, and the node's answer, every byte.
+// 「[Opus 5.5] What a request to the node came to, as ACP error data: where, the status,」
+// 「[Opus 5.5] libcurl's code and words, and the node's answer, every byte.」
 private void putAsked(ref Reply why, const(char)[] url, int status, int code, const(char)[] said, const(char)[] body_) {
     why.add(`{"url":"`); putEscaped(why, url);
     why.add(`","status":`); putNumber(why, cast(uint) status);
@@ -64,8 +64,8 @@ private const(char)[] stringOf(json_object* value) {
     return p[0 .. cast(size_t) json_object_get_string_len(value)];
 }
 
-// One form POST to the node, its answer in dest: the status, or -1 when it
-// was not answered, said in why.
+// 「[Opus 5.5] One form POST to the node, its answer in dest: the status, or -1 when it」
+// 「[Opus 5.5] was not answered, said in why.」
 private int ask(const(char)[] url, const(char)[] form, char[] dest, ref size_t len, ref Reply why) {
     import http : httpPostInto;
     auto h = httpPostInto(url, form, null, dest, ASK_SECONDS, "application/x-www-form-urlencoded");
@@ -77,8 +77,8 @@ private int ask(const(char)[] url, const(char)[] form, char[] dest, ref size_t l
     return h.status;
 }
 
-// "POST /auth/device, a form naming the agent in label": 1 the sign-in is
-// started, -1 it is not, the node's answer in why.
+// 「[Opus 5.5] "POST /auth/device, a form naming the agent in label": 1 the sign-in is」
+// 「[Opus 5.5] started, -1 it is not, the node's answer in why.」
 int startSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     Reply url, form;
     scope(exit) { url.dispose(); form.dispose(); }
@@ -109,9 +109,9 @@ int startSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     return s.deviceCode.full || s.userCode.full || s.link.full ? -1 : 1;
 }
 
-// Whether the person said yes: 1 and the token, 0 still waiting
-// (authorization_pending, or slow_down, which waits longer from then on), -1
-// over, the node's answer in why.
+// 「[Opus 5.5] Whether the person said yes: 1 and the token, 0 still waiting」
+// 「[Opus 5.5] (authorization_pending, or slow_down, which waits longer from then on), -1」
+// 「[Opus 5.5] over, the node's answer in why.」
 int pollSignIn(const(char)[] node, ref SignIn s, ref Reply token, ref Reply why) {
     Reply url, form;
     scope(exit) { url.dispose(); form.dispose(); }
@@ -137,12 +137,12 @@ int pollSignIn(const(char)[] node, ref SignIn s, ref Reply token, ref Reply why)
     return -1;
 }
 
-// Keeps token in file: its directory made, only its owner's, if it is not
-// there; the file only its owner's, written beside it and moved over it, so a
-// reader finds the old token or the new one, never half of one.
+// 「[Opus 5.5] Keeps token in file: its directory made, only its owner's, if it is not」
+// 「[Opus 5.5] there; the file only its owner's, written beside it and moved over it, so a」
+// 「[Opus 5.5] reader finds the old token or the new one, never half of one.」
 bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
-    // mkdir as db declares it, the one declaration ground code links: Darwin's 16-bit mode_t in a second
-    // is a different function to the linker. The rest are druntime's, of the same types.
+    // 「[Opus 5.5] mkdir as db declares it, the one declaration ground code links: Darwin's 16-bit mode_t in a second」
+    // 「[Opus 5.5] is a different function to the linker. The rest are druntime's, of the same types.」
     import db : mkdir;
     import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_EXCL, O_NOFOLLOW;
     import core.sys.posix.unistd : write, close, unlink, fsync;
@@ -170,7 +170,7 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
     scope(exit) { dir.dispose(); temp.dispose(); }
     if (slash > 1) {
         dir.add(path[0 .. slash - 1]); dir.add("\0");
-        // Every directory on the way, as mkdir -p makes them.
+        // 「[Opus 5.5] Every directory on the way, as mkdir -p makes them.」
         auto d = cast(char*) dir.slice().ptr;
         foreach (i; 1 .. dir.len) {
             if (d[i] != '/' && d[i] != 0) continue;
@@ -182,8 +182,8 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
         }
     }
     temp.add(path); temp.add(".login\0");
-    // A file only this sign-in made: whatever stood at the name, a link planted to read what comes
-    // among them, is taken away first, and the open makes it new or fails.
+    // 「[Opus 5.5] A file only this sign-in made: whatever stood at the name, a link planted to read what comes」
+    // 「[Opus 5.5] among them, is taken away first, and the open makes it new or fails.」
     {
         import core.stdc.errno : ENOENT;
         if (unlink(temp.slice().ptr) != 0 && errno != ENOENT) { failed("could not clear the way for the token", temp.slice()[0 .. $ - 1]); return false; }
@@ -198,8 +198,8 @@ bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
     return ok;
 }
 
-// Drops the token file: 1 dropped, 0 none was there, -1 it could not be, why
-// in why. The node still holds the token until the person revokes it there.
+// 「[Opus 5.5] Drops the token file: 1 dropped, 0 none was there, -1 it could not be, why」
+// 「[Opus 5.5] in why. The node still holds the token until the person revokes it there.」
 int dropToken(const(char)* file, ref Reply why) {
     import core.sys.posix.unistd : unlink;
     import core.stdc.errno : errno, ENOENT;
@@ -212,9 +212,9 @@ int dropToken(const(char)* file, ref Reply why) {
     return -1;
 }
 
-// `ground code login`, as a client's terminal auth method runs it: the link
-// and the code said, the node asked until the person said yes, the token
-// kept. 0 signed in, 1 not, what the node or the file said given to say.
+// 「[Opus 5.5] `ground code login`, as a client's terminal auth method runs it: the link」
+// 「[Opus 5.5] and the code said, the node asked until the person said yes, the token」
+// 「[Opus 5.5] kept. 0 signed in, 1 not, what the node or the file said given to say.」
 int login(const(char)[] node, const(char)* file, scope void delegate(const(char)[]) say) {
     import core.sys.posix.unistd : sleep;
     SignIn s;

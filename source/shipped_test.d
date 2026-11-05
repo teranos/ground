@@ -2,7 +2,7 @@ module shipped_test;
 
 import shipped;
 
-// What an SDK says each ACP method is called, read from the SDK's own source.
+// 「[Opus 5.5] What an SDK says each ACP method is called, read from the SDK's own source.」
 private enum schemaText = q"EOS
 export const AGENT_METHODS = {
   initialize: "initialize",
@@ -17,7 +17,7 @@ export const CLIENT_METHODS = {
 } as const;
 EOS";
 
-// 0.16's shape: a case per method, calling the agent's or the client's own method.
+// 「[Opus 5.5] 0.16's shape: a case per method, calling the agent's or the client's own method.」
 private enum dispatchText = q"EOS
       switch (method) {
         case schema.AGENT_METHODS.session_new: {
@@ -47,7 +47,7 @@ export class TerminalHandle {
 }
 EOS";
 
-// 2.x's shape: a table of paths, and a spec per interface name.
+// 「[Opus 5.5] 2.x's shape: a table of paths, and a spec per interface name.」
 private enum tableText = q"EOS
 export const methods = {
   agent: {
@@ -89,7 +89,7 @@ private bool sends(ref const Found f, ref const SdkMap map, string method) {
     return i >= 0 && f.sends[i];
 }
 
-// The methods are the SDK's strings, each on the side its table puts it.
+// 「[Opus 5.5] The methods are the SDK's strings, each on the side its table puts it.」
 unittest {
     auto map = mapOf(dispatchText);
     assert(map.indexOf("session/new") >= 0);
@@ -99,7 +99,7 @@ unittest {
 }
 
 // "and compare us against real shipped software instyead of comparing against a number that might not be real"
-// A classic agent handles what the class it hands the SDK defines, and nothing another class defines.
+// 「[Opus 5.5] A classic agent handles what the class it hands the SDK defines, and nothing another class defines.」
 unittest {
     auto map = mapOf(dispatchText);
     enum agent = q"EOS
@@ -130,14 +130,14 @@ EOS";
     assert(!sends(f, map, "terminal/create"));
 }
 
-// A router agent handles what it registers by the SDK's paths, and sends what it notifies.
+// 「[Opus 5.5] A router agent handles what it registers by the SDK's paths, and sends what it notifies.」
 unittest {
     auto map = mapOf(tableText);
     enum agent = q"EOS
   return router
     .onRequest(v2.methods.agent.session.new, async ({ params }) => agent.newSession(params))
     .onNotification(v2.methods.agent.session.cancel, ({ params }) => agent.cancel(params));
-  // a mention in a comment of methods.agent.initialize is still a mention
+  // 「[Opus 5.5] a mention in a comment of methods.agent.initialize is still a mention」
   await this.ctx.notify(methods.client.session.update, notification);
 EOS";
     Found f;
@@ -148,7 +148,7 @@ EOS";
     assert(sends(f, map, "session/update"));
 }
 
-// A handle's method named as plainly as kill is the terminal's only where the agent made one.
+// 「[Opus 5.5] A handle's method named as plainly as kill is the terminal's only where the agent made one.」
 unittest {
     auto map = mapOf(dispatchText);
     Found none;
@@ -163,7 +163,7 @@ unittest {
     assert(sends(made, map, "terminal/kill"));
 }
 
-// The pins read out of flake.nix: each shipped agent at a commit, and each SDK version.
+// 「[Opus 5.5] The pins read out of flake.nix: each shipped agent at a commit, and each SDK version.」
 unittest {
     enum flake = q"EOS
           shipped-pi-acp = shipped "pi-acp" {
