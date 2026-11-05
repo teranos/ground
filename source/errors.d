@@ -285,8 +285,8 @@ size_t breadcrumbDirInto(ref char[512] dirBuf) {
     }
 }
 
-// <home>/.local/share/ground/errors into dirBuf, NUL-ended, or 0 when it does not fit: a path
-// cut short names another directory, and a breadcrumb left there is one nobody reads.
+// 「[Opus 5.5] <home>/.local/share/ground/errors into dirBuf, NUL-ended, or 0 when it does not fit: a path」
+// 「[Opus 5.5] cut short names another directory, and a breadcrumb left there is one nobody reads.」
 size_t errorsDirIn(const(char)[] home, ref char[512] dirBuf) {
     enum tail = "/.local/share/ground/errors";
     if (home.length + tail.length + 1 > dirBuf.length) return 0;
@@ -297,7 +297,7 @@ size_t errorsDirIn(const(char)[] home, ref char[512] dirBuf) {
     return p;
 }
 
-// <dir>/<sessionId>.log into pathBuf, NUL-ended, or 0 when it does not fit.
+// 「[Opus 5.5] <dir>/<sessionId>.log into pathBuf, NUL-ended, or 0 when it does not fit.」
 size_t crumbPathIn(const(char)[] dir, const(char)[] sessionId, ref char[768] pathBuf) {
     if (dir.length + 1 + sessionId.length + 4 + 1 > pathBuf.length) return 0;
     size_t q = 0;
@@ -317,7 +317,7 @@ private bool writeBreadcrumb(const ref GroundError err) {
     // mkdir (idempotent-ish; may fail because it already exists — fine).
     mkdir(&dirBuf[0], octal!755);
 
-    // <dir>/<sessionId>.log, whole, or no breadcrumb: the next channel takes it.
+    // 「[Opus 5.5] <dir>/<sessionId>.log, whole, or no breadcrumb: the next channel takes it.」
     char[768] pathBuf = 0;
     if (crumbPathIn(dirBuf[0 .. p], err.sessionId, pathBuf) == 0) return false;
 
