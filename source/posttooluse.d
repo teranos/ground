@@ -208,10 +208,13 @@ int handlePostToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sess
                 auto db = openDb();
                 if (db is null) break;
                 auto found = readPosition(db, parsed.rituals[i].projectPath);
+                // By its revision: the row read here can be ended by now, halted or aborted, and an
+                // unconditional write put it back Live.
                 if (found.valid && found.p.state == RitualState.Live
                     && found.p.parent.length == 0) {
+                    import ritual.store : writePositionIf;
                     found.p.parent = sessionId;
-                    writePosition(db, found.p);
+                    cast(void) writePositionIf(db, found.p, found.p.rev);
                 }
                 sqlite3_close(db);
                 break;
