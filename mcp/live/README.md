@@ -1,21 +1,21 @@
-# Live checks for ground code
+# 「[Opus 5.5] Live checks for ground code」
 
-Each check drives a `ground_code` over ACP on stdin and stdout, against the real gateway its
-build's qntx block names, with a real model. They are not run by `make test`: they spend model
-tokens and need the node. A PR that changes what ground code says to a client runs the one that
-checks it, and its output is the PR's evidence.
+「[Opus 5.5] Each check drives a `ground_code` over ACP on stdin and stdout, against the real gateway its」
+「[Opus 5.5] build's qntx block names, with a real model. They are not run by `make test`: they spend model」
+「[Opus 5.5] tokens and need the node. A PR that changes what ground code says to a client runs the one that」
+「[Opus 5.5] checks it, and its output is the PR's evidence.」
 
-Every program here is C11 and POSIX, built by the pinned shell's compiler under libacp's warnings,
-and none reads JSON with a library: what a check prints is every line as it went.
+「[Opus 5.5] Every program here is C11 and POSIX, built by the pinned shell's compiler under libacp's warnings,」
+「[Opus 5.5] and none reads JSON with a library: what a check prints is every line as it went.」
 
     make build/acp_live build/echo_server build/elicit_server
     build/acp_live GROUND_CODE CWD SCRIPT
 
-A fresh CWD per run keeps a `session/list` to the sessions that run opened.
+「[Opus 5.5] A fresh CWD per run keeps a `session/list` to the sessions that run opened.」
 
-## acp_live
+## 「[Opus 5.5] acp_live」
 
-A script line is one of:
+「[Opus 5.5] A script line is one of:」
 
 | Line | Does |
 |---|---|
@@ -27,17 +27,17 @@ A script line is one of:
 | `cat FILE` | prints the file, each line after `= ` |
 | `# TEXT` | printed as it is |
 
-`$SID` is the sessionId of the latest `session/new` answer, `$ASKED` the id of the latest request
-ground code made of the client as it stood on the line, and `$LIVE` the directory `acp_live` is in.
+「[Opus 5.5] `$SID` is the sessionId of the latest `session/new` answer, `$ASKED` the id of the latest request」
+「[Opus 5.5] ground code made of the client as it stood on the line, and `$LIVE` the directory `acp_live` is in.」
 
-Printed: `> ` before each line sent, `< ` before each line ground code writes on stdout, `! `
-before each it writes on stderr. stdout and stderr are two pipes, so a `!` line's place among
-the `<` lines is not the order they were written in. A `wait` or `expect` that sees nothing for
-five minutes, or ground code ending first, prints `# FAILED` and exits 1.
+「[Opus 5.5] Printed: `> ` before each line sent, `< ` before each line ground code writes on stdout, `! `」
+「[Opus 5.5] before each it writes on stderr. stdout and stderr are two pipes, so a `!` line's place among」
+「[Opus 5.5] the `<` lines is not the order they were written in. A `wait` or `expect` that sees nothing for」
+「[Opus 5.5] five minutes, or ground code ending first, prints `# FAILED` and exits 1.」
 
-A `wait` or `expect` is met by any line of what it read, and every line of that read is then gone: an `expect` for a line that can arrive in the same read as the last one waits out its five minutes.
+「[Opus 5.5] A `wait` or `expect` is met by any line of what it read, and every line of that read is then gone: an `expect` for a line that can arrive in the same read as the last one waits out its five minutes.」
 
-## The MCP servers a session is handed
+## 「[Opus 5.5] The MCP servers a session is handed」
 
 | Server | Does |
 |---|---|
@@ -45,7 +45,7 @@ A `wait` or `expect` is met by any line of what it read, and every line of that 
 | `mcp/look_server.py`, `mcp/progress_server.py` | ground's test servers, handed by `kept-title.acp` and `progress.acp` |
 | `elicit_server` | tools `ask` and `link` that elicit: `ELICIT_PROTOCOL` legacy asks with a request of its own, modern answers `input_required`; each request and answer it reads goes to `ELICIT_LOG` |
 
-## The checks
+## 「[Opus 5.5] The checks」
 
 | Script | Checks | First run for |
 |---|---|---|
