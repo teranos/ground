@@ -123,10 +123,10 @@ unittest {
 }
 
 // "An abort that leaves the agent running has aborted nothing."
-// A verdict that lost its revision to a write while the rite ran is retaken on the row as it
-// stands only while that row is still the walk it was about: an abort leaves `current` where it
-// was, and the retake wrote the walk on over it. deploy-1793841311 was aborted at 01:24:44 and
-// walked on to done at 01:28:41.
+// 「[Opus 5.5] A verdict that lost its revision to a write while the rite ran is retaken on the row as it」
+// 「[Opus 5.5] stands only while that row is still the walk it was about: an abort leaves `current` where it」
+// 「[Opus 5.5] was, and the retake wrote the walk on over it. deploy-1793841311 was aborted at 01:24:44 and」
+// 「[Opus 5.5] walked on to done at 01:28:41.」
 unittest {
     import ritual : retakes, abort;
     auto p = seeded();
