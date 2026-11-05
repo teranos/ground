@@ -1,11 +1,11 @@
 module acpmethods;
 
-// Every ACP method by its name in schema-v1.26.0's meta.json, read at compile time from the file libacp
-// generates acp_methods.h from, and named as the TypeScript SDK names its tables from the same file.
+// 「[Opus 5.5] Every ACP method by its name in schema-v1.26.0's meta.json, read at compile time from the file libacp」
+// 「[Opus 5.5] generates acp_methods.h from, and named as the TypeScript SDK names its tables from the same file.」
 
 private enum META = import("libacp/schema/v1/meta.json");
 
-// meta.json's groups, the name each table has, and the prefix acp_methods.h gives its names.
+// 「[Opus 5.5] meta.json's groups, the name each table has, and the prefix acp_methods.h gives its names.」
 private static immutable string[3][3] GROUPS = [
     ["agentMethods", "AGENT_METHODS", "ACP_AGENT_"],
     ["clientMethods", "CLIENT_METHODS", "ACP_CLIENT_"],
@@ -17,7 +17,7 @@ private size_t skipSpace()(string s, size_t p) {
     return p;
 }
 
-// The string at p, which meta.json writes without escapes; the position after it.
+// 「[Opus 5.5] The string at p, which meta.json writes without escapes; the position after it.」
 private string stringAt()(string s, ref size_t p) {
     assert(p < s.length && s[p] == '"', "meta.json has no string where a method is");
     auto from = ++p;
@@ -29,7 +29,7 @@ private string stringAt()(string s, ref size_t p) {
     return s[from .. p++];
 }
 
-// Each name in a group and its wire name, in meta.json's order.
+// 「[Opus 5.5] Each name in a group and its wire name, in meta.json's order.」
 private string[2][] methodsIn()(string group) {
     string key = `"` ~ group ~ `"`;
     size_t at = 0;
@@ -62,8 +62,8 @@ private string table()(string group, string name) {
 
 static foreach (g; GROUPS) mixin(table(g[0], g[1]));
 
-// A method by every name it has: its table's, AGENT_METHODS.session_new; acp_methods.h's,
-// ACP_AGENT_SESSION_NEW; and the wire's, session/new.
+// 「[Opus 5.5] A method by every name it has: its table's, AGENT_METHODS.session_new; acp_methods.h's,」
+// 「[Opus 5.5] ACP_AGENT_SESSION_NEW; and the wire's, session/new.」
 private struct Method { string named; string macroName; string wire; }
 
 private Method[] methods()() {
@@ -77,23 +77,23 @@ private Method[] methods()() {
     return all;
 }
 
-// Folded at compile time, so a lookup reads static data: betterC has no GC.
+// 「[Opus 5.5] Folded at compile time, so a lookup reads static data: betterC has no GC.」
 private enum Method[] METHODS = methods();
 private static immutable Method[METHODS.length] TABLE = METHODS;
 
-// The name a wire name has in its table, as code names it; null for one meta.json does not name.
+// 「[Opus 5.5] The name a wire name has in its table, as code names it; null for one meta.json does not name.」
 string methodNamed(const(char)[] wire) {
     foreach (ref m; TABLE) if (m.wire == wire) return m.named;
     return null;
 }
 
-// The wire name of a method as code names it, AGENT_METHODS.session_new; null for one meta.json does not name.
+// 「[Opus 5.5] The wire name of a method as code names it, AGENT_METHODS.session_new; null for one meta.json does not name.」
 string wireOf(const(char)[] named) {
     foreach (ref m; TABLE) if (m.named == named) return m.wire;
     return null;
 }
 
-// The wire name of a method as acp_methods.h names it, ACP_AGENT_SESSION_NEW; null for one it does not.
+// 「[Opus 5.5] The wire name of a method as acp_methods.h names it, ACP_AGENT_SESSION_NEW; null for one it does not.」
 string wireOfMacro(const(char)[] macroName) {
     foreach (ref m; TABLE) if (m.macroName == macroName) return m.wire;
     return null;
