@@ -434,5 +434,66 @@ class Runtime(unittest.TestCase):
         )
 
 
+class CheckedProgress(unittest.TestCase):
+    """A checked tool call carries the _meta it is given, so it can ask for progress."""
+
+    setUp = Runtime.setUp
+    tearDown = Runtime.tearDown
+    finish = Runtime.finish
+
+    def tool(self):
+        from test_schema import wire
+        lib.mcp_tool_compile.argtypes = [C.c_char_p, C.c_void_p, C.POINTER(C.c_void_p), C.POINTER(base.Response), C.POINTER(base.Error)]
+        lib.mcp_tool_destroy.argtypes = [C.c_void_p]
+        t = C.c_void_p()
+        self.assertEqual(
+            lib.mcp_tool_compile(wire({"name": "progress", "inputSchema": {"type": "object"}}), None, C.byref(t), C.byref(self.response), C.byref(self.error)),
+            0,
+            self.error.message,
+        )
+        self.addCleanup(lib.mcp_tool_destroy, t)
+        return t
+
+    def submit_meta(self, tool, args, meta):
+        lib.mcp_tool_submit_meta.argtypes = [C.c_void_p, C.c_void_p, C.c_char_p, C.c_char_p, C.c_int, C.POINTER(C.c_void_p), C.POINTER(base.Error)]
+        req = C.c_void_p()
+        status = lib.mcp_tool_submit_meta(self.client, tool, json.dumps(args).encode(), None if meta is None else meta.encode(), 500, C.byref(req), C.byref(self.error))
+        if req:
+            self.requests.append(req)
+        return status, req
+
+    def test_progress_on_a_checked_call(self):
+        status, req = self.submit_meta(self.tool(), {"x": 1}, '{"progressToken":"call-1"}')
+        self.assertEqual(status, 0, self.error.message)
+        self.assertEqual(self.finish(req), 0)
+        self.assertEqual(
+            [(e["params"]["progressToken"], e["params"]["progress"], e["params"]["message"])
+             for e in self.events if e["method"] == "notifications/progress"],
+            [("call-1", 1, "step 1 of 2"), ("call-1", 2, "step 2 of 2")],
+        )
+        self.assertEqual(lib.mcp_request_take(req, C.byref(self.response), C.byref(self.error)), 0)
+        asked = json.loads(self.response.value()["result"]["content"][0]["text"])
+        # The token joins the _meta libmcp itself sends a modern peer.
+        self.assertEqual(asked["_meta"]["progressToken"], "call-1")
+        self.assertEqual((asked["arguments"], asked["name"]), ({"x": 1}, "progress"))
+
+    def test_no_meta_is_a_plain_checked_call(self):
+        status, req = self.submit_meta(self.tool(), {"x": 1}, None)
+        self.assertEqual(status, 0, self.error.message)
+        self.assertEqual(self.finish(req), 0)
+        self.assertEqual(lib.mcp_request_take(req, C.byref(self.response), C.byref(self.error)), 0)
+        asked = json.loads(self.response.value()["result"]["content"][0]["text"])
+        self.assertNotIn("progressToken", asked.get("_meta", {}))
+        self.assertEqual([e for e in self.events if e["method"] == "notifications/progress"], [])
+
+    def test_meta_that_is_no_object_is_refused_unsent(self):
+        tool = self.tool()
+        for meta in ("[]", "null", "{", '{"progressToken":null}'):
+            with self.subTest(meta=meta):
+                status, req = self.submit_meta(tool, {"x": 1}, meta)
+                self.assertEqual(status, 1)
+                self.assertFalse(req)
+
+
 if __name__ == "__main__":
     unittest.main()

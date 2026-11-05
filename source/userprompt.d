@@ -39,7 +39,22 @@ const(char)[] extractPrompt(const(char)[] json) {
     return extractJsonString(json, `"prompt"`, &buf[0], buf.length);
 }
 
+// Its timing row names each step it walked: sweep, ingest, said, controls, bill.
 int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
+    import hookrun : usecNow;
+    auto t0 = usecNow();
+    long tSweep, tIngest, tSaid, tControls, tBill;
+    scope (exit) {
+        import phases : phaseChain;
+        import hookrun : setPhases;
+        static immutable string[5] KEYS = ["sweep", "ingest", "said", "controls", "bill"];
+        long[5] stamps = [tSweep, tIngest, tSaid, tControls, tBill];
+        __gshared ZBuf prof;
+        prof.reset();
+        phaseChain(prof, t0, KEYS[], stamps[], usecNow(), "none");
+        setPhases(prof.slice());
+    }
+
     auto prompt = extractPrompt(input);
     if (prompt is null) return 0;
 
@@ -51,6 +66,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         import ritual.orphan : sweepOrphans;
         sweepOrphans(db);
     }
+    tSweep = usecNow();
 
     // A message typed mid-turn fires no hook, so the transcript is the only
     // record of it. Without this the corpus holds what was submitted rather
@@ -61,6 +77,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         auto tp = extractTranscriptPath(input);
         if (tp !is null) ingestTranscript(db, tp, sessionId, cwd);
     }
+    tIngest = usecNow();
 
     __gshared ZBuf ctx;
     ctx.reset();
@@ -88,6 +105,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
             }
         }
     }
+    tSaid = usecNow();
 
     foreach (ref sc; userPromptScopes) {
         if (!scopeMatches(sc, cwd))
@@ -116,6 +134,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
             }
         }
     }
+    tControls = usecNow();
 
     // Standing where a ritual performs is enough, whether the session started
     // here or walked in. Said once, so a turn spent here costs nothing after.
@@ -129,6 +148,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
             any = true;
         }
     }
+    tBill = usecNow();
 
     if (db !is null) sqlite3_close(db);
 

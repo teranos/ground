@@ -19,7 +19,7 @@ bool jevReads(size_t diffLines) { return diffLines < JEV_MAX_DIFF_LINES; }
 
 // "IF MORE THAN X TOKENS, I WANT IT TO PASS ANYWAYS"
 bool overTokens(int status, const(char)[] reply) {
-    import matcher : indexOf;
+    import scan : indexOf;
     return status == 400 && indexOf(reply, "max_tokens_exceeded") >= 0;
 }
 
@@ -129,7 +129,7 @@ struct JevAnswer {
 // The answers object of a reply, brace-matched, or the reply itself when it
 // has none. Sentry is sent this and not the usage beside it.
 const(char)[] answersOf(const(char)[] reply) {
-    import matcher : indexOf;
+    import scan : indexOf;
     auto at = indexOf(reply, `"answers":`);
     if (at < 0) return reply;
     size_t i = cast(size_t) at + 10;
@@ -168,7 +168,7 @@ bool parseDecimal(const(char)[] s, ref double v) {
 
 // The number after `"key":` inside obj, or false.
 private bool numberAfter(const(char)[] obj, const(char)[] key, ref double v) {
-    import matcher : indexOf;
+    import scan : indexOf;
     auto at = indexOf(obj, key);
     if (at < 0) return false;
     return parseDecimal(obj[cast(size_t) at + key.length .. $], v);
@@ -176,7 +176,7 @@ private bool numberAfter(const(char)[] obj, const(char)[] key, ref double v) {
 
 // The reply, read by the rite's name.
 bool jevAnswer(const(char)[] reply, const(char)[] rite, ref JevAnswer a) {
-    import matcher : indexOf;
+    import scan : indexOf;
     a = JevAnswer.init;
     char[128] key = 0;
     size_t n = 0;
