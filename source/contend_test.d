@@ -141,3 +141,50 @@ unittest {
     assert(aborted.current == p.current);
     assert(!retakes(p, aborted), "an aborted walk stays aborted");
 }
+
+// "ritual is hands-off, walk away"
+// A start that failed made no agent and no tree, so no rite of the walk can run: the performance
+// is halted where the failure is known, at bind, and not left live for the ten minutes the
+// driver waits on a tree nobody makes. A performance that is not live is not touched.
+unittest {
+    import ritual : haltFailedStart, byPerformanceId;
+    auto db = memDb();
+    auto p = seeded();
+    assert(writePosition(db, p));
+    assert(haltFailedStart(db, "probe-1"));
+    auto now = byPerformanceId(db, "probe-1");
+    assert(now.valid && now.p.state == RitualState.Halted, "a failed start halts its walk");
+
+    auto ended = seeded();
+    ended.id = "probe-2";
+    ended.state = RitualState.Aborted;
+    assert(writePosition(db, ended));
+    assert(!haltFailedStart(db, "probe-2"), "an ended walk is not halted again");
+    assert(byPerformanceId(db, "probe-2").p.state == RitualState.Aborted);
+    assert(!haltFailedStart(db, "no-such"), "no row, nothing to halt");
+    sqlite3_close(db);
+}
+
+// A failed start halts only a walk nobody has touched: once the driver has claimed a rite, or a push
+// waits to land on it, the halt would discard that rite's outcome or be revived by the landing. That
+// walk is left to the driver, which halts it when no tree comes.
+unittest {
+    import ritual : haltFailedStart, byPerformanceId, RiteState;
+    import ritual.store : setLanding;
+    auto db = memDb();
+
+    auto claimed = seeded();
+    claimed.id = "probe-3";
+    claimed.states[0] = RiteState.Running;
+    assert(writePosition(db, claimed));
+    assert(!haltFailedStart(db, "probe-3"), "a rite the driver claimed is its to finish");
+    assert(byPerformanceId(db, "probe-3").p.state == RitualState.Live);
+
+    auto pushed = seeded();
+    pushed.id = "probe-4";
+    assert(writePosition(db, pushed));
+    assert(setLanding(db, "probe-4", "0123456789abcdef0123456789abcdef01234567"));
+    assert(!haltFailedStart(db, "probe-4"), "a push waiting to land is the driver's to walk");
+    assert(byPerformanceId(db, "probe-4").p.state == RitualState.Live);
+    sqlite3_close(db);
+}

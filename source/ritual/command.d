@@ -406,6 +406,27 @@ enum BOOK_COMMAND_BIND = q"EOS
 ground bind ground-coinflip-1786812152 < started.txt
 EOS";
 
+// "ritual is hands-off, walk away"
+// A start that failed made no agent, and no tree for the walk to run in: the performance is halted
+// here, where that is known, rather than left live for the ten minutes the driver waits on a tree
+// (drive.d TREE_WAIT_SEC). True when it was live and is halted now.
+// Only a walk nobody has touched: still on its first rite, that rite not claimed, and no push
+// waiting to land. A rite the driver claimed is its to finish, and a waiting push would revive the
+// halt; such a walk is left to the driver, which halts it when no tree comes.
+bool haltFailedStart(DB)(DB db, const(char)[] perfId) {
+    import ritual.store : byPerformanceId, writePositionIf, landingOf;
+    import ritual.position : step, RitualState, RiteState;
+    import rite : Verdict;
+    foreach (attempt; 0 .. 8) {
+        auto found = byPerformanceId(db, perfId);
+        if (!found.valid || found.p.state != RitualState.Live) return false;
+        if (found.p.current != 0 || found.p.riteCount == 0 || found.p.states[0] != RiteState.Never) return false;
+        if (landingOf(db, perfId).length > 0) return false;
+        if (writePositionIf(db, step(found.p, Verdict.Halt), found.p.rev)) return true;
+    }
+    return false;
+}
+
 int handleBind(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, fputs;
     import db : openDb, sqlite3_close;
@@ -451,6 +472,9 @@ int handleBind(int argc, const(char)** argv) {
     scope(exit) says.dispose();
     startSays(says, started, agentId, printed);
     if (says.len > 0) {
+        // The start failed: its walk is halted now, and that is said with why.
+        if (started != 0 && db !is null && haltFailedStart(db, perfId))
+            says.add(" The performance is halted: with no agent there is no tree, and no rite can run.");
         if (db !is null) sqlite3_close(db);
         emitError(started != 0 ? "ritual.start.failed" : "ritual.bind.unnamed", cast(string) says.slice(),
                   0, started != 0 ? started : 1, cast(string) parent, "ritual", "", cast(string) perfId, "");
