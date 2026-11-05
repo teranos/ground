@@ -46,10 +46,10 @@ static assert(repoRoot(parsed, "/home/u/src/other") == "/home/u/src/other");
 // What the start prints is handed to `ground bind`, which is how a performance
 // learns who carries it. An exported variable reached the agent from the claude
 // daemon's environment and not from this script, naming a performance long over.
-// What it printed, stdout and stderr, and how it exited are handed over whole: a start that failed
-// is said by bind to the session that fired the ritual, and the script exits as the start did.
-// Bind's own answer does not end the script first: it exits as the start did, and as bind did
-// when the start worked and bind could not bind it.
+// 「[Opus 5.5] What it printed, stdout and stderr, and how it exited are handed over whole: a start that failed」
+// 「[Opus 5.5] is said by bind to the session that fired the ritual, and the script exits as the start did.」
+// 「[Opus 5.5] Bind's own answer does not end the script first: it exits as the start did, and as bind did」
+// 「[Opus 5.5] when the start worked and bind could not bind it.」
 private enum bound(string perf) = "printf '%s\\n' \"$said\"\n"
     ~ "printf '%s\\n' \"$said\" | ground bind '" ~ perf ~ "' \"$started\" && bound=0 || bound=$?\n"
     ~ "if [ \"$started\" != 0 ]; then exit \"$started\"; fi\n"
@@ -203,8 +203,8 @@ static assert(!__traits(compiles, { import ritual : commitScript; }));
 
 // "An Error is the entity any layer emits when something breaks intention"
 // "Only pure distilled signal over anything else"
-// What bind says of a start, to the session that fired the ritual: nothing of one that named its
-// agent, and why of one that exited otherwise or named none.
+// 「[Opus 5.5] What bind says of a start, to the session that fired the ritual: nothing of one that named its」
+// 「[Opus 5.5] agent, and why of one that exited otherwise or named none.」
 unittest {
     import ritual : startSays;
     import code.reply : Reply;
@@ -218,7 +218,7 @@ unittest {
     startSays(r, 0, "", "something else\n");
     assert(r.slice() == "the start printed no agent id, so this performance has an agent ground cannot stop: something else\n");
     r.dispose();
-    // What it printed is carried whole: the reason is at the end of a long one.
+    // 「[Opus 5.5] What it printed is carried whole: the reason is at the end of a long one.」
     __gshared char[9000] long_ = 'v';
     long_[$ - 6 .. $] = "REASON";
     startSays(r, 3, "", long_[]);
