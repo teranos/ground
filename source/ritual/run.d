@@ -77,6 +77,16 @@ bool retakes(const Position mine, const Position now) {
     return now.current == mine.current && now.state == RitualState.Live;
 }
 
+// Whether a verdict briefs the agent on the rite it holds on, and whether it tells of a walk that
+// moved: only one that landed. One that did not is about a row that is no longer there.
+bool opensRite(const ref Advanced res) {
+    return res.applied && res.verdict == Verdict.Hold;
+}
+
+bool movesWalk(const ref Advanced res, const Position before) {
+    return res.applied && (res.after.current != before.current || res.after.state != RitualState.Live);
+}
+
 Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                      const Flattened f, long unixSeconds, const(char)[] shell = "") {
     import rite : prepareRite, runRite, classify;
@@ -114,8 +124,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                       0, r.name, r.costgate, g.missing);
             auto stopped = step(p, Verdict.Halt);
             attestRite(db, sessionId, p, r.name, a.verdict, 0, g.missing, unixSeconds);
-            cast(void) writePositionIf(db, stopped, p.rev);
-            a.applied = true;
+            a.applied = writePositionIf(db, stopped, p.rev);
             a.after = stopped;
             return a;
         }
@@ -137,8 +146,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             a.output = why.slice();
             auto moved = step(p, Verdict.Advance);
             attestRite(db, sessionId, p, r.name, a.verdict, 0, a.output, unixSeconds);
-            cast(void) writePositionIf(db, moved, p.rev);
-            a.applied = true;
+            a.applied = writePositionIf(db, moved, p.rev);
             a.after = moved;
             return a;
         }
@@ -165,8 +173,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                   0, r.name, prepared.cmd, "");
         auto stopped = step(p, Verdict.Halt);
         attestRite(db, sessionId, p, r.name, a.verdict, 0, "", unixSeconds);
-        cast(void) writePositionIf(db, stopped, p.rev);
-        a.applied = true;
+        a.applied = writePositionIf(db, stopped, p.rev);
         a.after = stopped;
         return a;
     }
@@ -226,8 +233,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             import ritual.store : writePositionIf;
             auto stopped = step(p, Verdict.Halt);
             attestRite(db, sessionId, p, r.name, a.verdict, did.code, a.output, unixSeconds);
-            cast(void) writePositionIf(db, stopped, p.rev);
-            a.applied = true;
+            a.applied = writePositionIf(db, stopped, p.rev);
             a.after = stopped;
             return a;
         }
