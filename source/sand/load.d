@@ -43,13 +43,23 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
             localBuf[named.length] = 0;
             local = openSand(localBuf.ptr, r);
             import core.sys.posix.unistd : access, F_OK;
+            import core.stdc.errno : errno, ENOENT;
+            import core.stdc.string : strerror;
             if (local is null && access(localBuf.ptr, F_OK) != 0) {
+                // Absent is what the system says when nothing is at the path; anything else, a
+                // directory shut on the way included, is a sand that is there and cannot be reached.
+                auto e = errno;
                 if (r.what == SandHeld.refused) r.said.put("; ");
                 r.what = SandHeld.refused;
                 r.said.put(SAND_VAR);
                 r.said.put(" names ");
                 r.said.put(named);
-                r.said.put(", and nothing is there");
+                if (e == ENOENT) r.said.put(", and nothing is there");
+                else {
+                    auto s = strerror(e);
+                    r.said.put(", and it cannot be reached: ");
+                    r.said.put(s[0 .. lengthOf(s)]);
+                }
             }
         } else {
             r.what = SandHeld.refused;
