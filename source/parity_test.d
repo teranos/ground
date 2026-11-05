@@ -376,10 +376,10 @@ static assert(acpKeys(acpSample, "session/missing").input.slice() == "");
 // hook side would have claimed session/new's cwd: main.d reads a cwd from
 // every hook payload, and that is not ground code handling session/new.
 static assert(has(sideFor("claude", "session/new").reads, "cwd"));
-// logout carries nothing to read, and is answered with its result.
+// 「[Opus 5.5] logout carries nothing to read, and is answered with its result.」
 static assert(sideFor("acp", "logout").reads.slice() == "");
 static assert(has(sideFor("acp", "logout").writes, "result"));
-// authenticate's sign-in is an elicitation tied to its request.
+// 「[Opus 5.5] authenticate's sign-in is an elicitation tied to its request.」
 static assert(has(sideFor("acp", "authenticate").writes, "requestId"));
 static assert(has(sideFor("acp", "authenticate").writes, "url"));
 static assert(has(sideFor("acp", "session/load").reads, "sessionId"));
@@ -411,7 +411,7 @@ static assert(has(sideFor("acp", "session/list").writes, "sessions"));
 static assert(has(sideFor("acp", "session/resume").reads, "sessionId"));
 static assert(has(sideFor("acp", "session/resume").reads, "cwd"));
 static assert(has(sideFor("acp", "session/delete").reads, "sessionId"));
-// Part 15: the creation reader and result writer count through libacp.
+// 「[Opus 5.5] Part 15: the creation reader and result writer count through libacp.」
 static assert(has(sideFor("acp", "session/new").reads, "cwd"));
 static assert(has(sideFor("acp", "session/new").reads, "mcpServers"));
 static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
@@ -420,9 +420,9 @@ static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
 
 // "But parity should cover clientside as well"
-// libacp's client side is read out of libacp/src/client.c: a method's through acp_client_<method>_write,
-// what the client sends for it, and acp_client_<method>_read, what it reads of the agent's, and every
-// helper of the file they call.
+// 「[Opus 5.5] libacp's client side is read out of libacp/src/client.c: a method's through acp_client_<method>_write,」
+// 「[Opus 5.5] what the client sends for it, and acp_client_<method>_read, what it reads of the agent's, and every」
+// 「[Opus 5.5] helper of the file they call.」
 static assert(has(sideFor("acp-client", "session/prompt").writes, "sessionId"));
 static assert(has(sideFor("acp-client", "session/prompt").writes, "prompt"));
 static assert(has(sideFor("acp-client", "session/prompt").reads, "stopReason"));
@@ -431,7 +431,7 @@ static assert(has(sideFor("acp-client", "initialize").writes, "clientCapabilitie
 static assert(has(sideFor("acp-client", "initialize").writes, "clientInfo"));
 static assert(has(sideFor("acp-client", "initialize").reads, "agentCapabilities"));
 static assert(has(sideFor("acp-client", "initialize").reads, "agentInfo"));
-// session/new's servers are written two helpers down, through session_request and servers_of.
+// 「[Opus 5.5] session/new's servers are written two helpers down, through session_request and servers_of.」
 static assert(has(sideFor("acp-client", "session/new").writes, "mcpServers"));
 static assert(has(sideFor("acp-client", "session/new").reads, "sessionId"));
 static assert(has(sideFor("acp-client", "session/load").writes, "sessionId"));
@@ -445,11 +445,11 @@ static assert(has(sideFor("acp-client", "session/request_permission").writes, "o
 static assert(has(sideFor("acp-client", "authenticate").writes, "methodId"));
 static assert(has(sideFor("acp-client", "session/set_config_option").writes, "configId"));
 static assert(has(sideFor("acp-client", "session/set_config_option").writes, "value"));
-// A method the client side has no function for reads and writes nothing.
+// 「[Opus 5.5] A method the client side has no function for reads and writes nothing.」
 static assert(sideFor("acp-client", "fs/read_text_file").reads.slice() == "");
 static assert(sideFor("acp-client", "fs/read_text_file").writes.slice() == "");
-// The client is scored on the spec turned round: what the agent reads, it writes. session/prompt's
-// in is stopReason of stopReason,_meta, its out sessionId,prompt of sessionId,prompt,_meta.
+// 「[Opus 5.5] The client is scored on the spec turned round: what the agent reads, it writes. session/prompt's」
+// 「[Opus 5.5] in is stopReason of stopReason,_meta, its out sessionId,prompt of sessionId,prompt,_meta.」
 static assert(clientScore(acpKeys(acpSample, "session/prompt").input.slice(), acpKeys(acpSample, "session/prompt").output.slice(),
     sideFor("acp-client", "session/prompt")) == score(1, 2, 2, 3));
 static assert(clientScore(acpKeys(acpSample, "session/update").input.slice(), acpKeys(acpSample, "session/update").output.slice(),
@@ -461,9 +461,9 @@ static assert(has(sideFor("acp", "session/new").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/resume").writes, "configOptions"));
 static assert(has(sideFor("acp", "session/set_config_option").reads, "configId"));
 static assert(has(sideFor("acp", "session/set_config_option").writes, "configOptions"));
-// initialize is read and written by libacp, out of its C: it reads the version
-// asked for and the client's capabilities in either shape, and writes the
-// selected version, the agent's capabilities and its info.
+// 「[Opus 5.5] initialize is read and written by libacp, out of its C: it reads the version」
+// 「[Opus 5.5] asked for and the client's capabilities in either shape, and writes the」
+// 「[Opus 5.5] selected version, the agent's capabilities and its info.」
 static assert(has(sideFor("acp", "initialize").writes, "protocolVersion"));
 static assert(has(sideFor("acp", "initialize").writes, "agentInfo"));
 static assert(has(sideFor("acp", "initialize").reads, "clientCapabilities"));
@@ -474,7 +474,7 @@ static assert(has(sideFor("acp", "fs/read_text_file").reads, "content"));
 static assert(has(sideFor("acp", "fs/write_text_file").writes, "sessionId"));
 static assert(has(sideFor("acp", "fs/write_text_file").writes, "path"));
 static assert(has(sideFor("acp", "fs/write_text_file").writes, "content"));
-// Each terminal/* method is measured through its own helper, so one's keys are not another's.
+// 「[Opus 5.5] Each terminal/* method is measured through its own helper, so one's keys are not another's.」
 static assert(has(sideFor("acp", "terminal/create").writes, "command"));
 static assert(has(sideFor("acp", "terminal/create").writes, "cwd"));
 static assert(has(sideFor("acp", "terminal/create").reads, "terminalId"));
@@ -484,18 +484,18 @@ static assert(has(sideFor("acp", "terminal/output").reads, "truncated"));
 static assert(has(sideFor("acp", "terminal/wait_for_exit").reads, "exitCode"));
 static assert(has(sideFor("acp", "terminal/kill").writes, "terminalId"));
 static assert(has(sideFor("acp", "terminal/release").writes, "terminalId"));
-// A turn's answer is libacp's, through putStop: still measured as session/prompt's.
+// 「[Opus 5.5] A turn's answer is libacp's, through putStop: still measured as session/prompt's.」
 static assert(has(sideFor("acp", "session/prompt").writes, "stopReason"));
-// What libacp writes for a session's MCP server: elicitation/create's message, and the update's own fields.
+// 「[Opus 5.5] What libacp writes for a session's MCP server: elicitation/create's message, and the update's own fields.」
 static assert(has(sideFor("acp", "elicitation/create").writes, "message"));
 static assert(has(sideFor("acp", "session/update").writes, "update"));
-// A request libacp writes for ground code is measured through the helper that
-// sends it: the method's own fields, and those of the answer it reads.
+// 「[Opus 5.5] A request libacp writes for ground code is measured through the helper that」
+// 「[Opus 5.5] sends it: the method's own fields, and those of the answer it reads.」
 static assert(has(sideFor("acp", "session/request_permission").writes, "toolCall"));
 static assert(has(sideFor("acp", "session/request_permission").writes, "options"));
 static assert(has(sideFor("acp", "session/request_permission").reads, "outcome"));
-// A notification ground code passes on is written with its own fields, so
-// they are measured: elicitation/complete's elicitationId.
+// 「[Opus 5.5] A notification ground code passes on is written with its own fields, so」
+// 「[Opus 5.5] they are measured: elicitation/complete's elicitationId.」
 static assert(has(sideFor("acp", "elicitation/complete").writes, "elicitationId"));
 
 // "i want it"
