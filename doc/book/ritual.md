@@ -115,7 +115,8 @@ A project block holding no ritual has nothing to switch, however deep it is.
 
 ## regoto-withRegoto
 A second fire starts no performance. The live one's tree is brought onto the push, its walk goes to the named rite with its counts started over, and its agent and parent are told. A fire after the regoto rite sends the walk back to it: regoto-walk on W3, pushed again, stood on W2 in the same row, its tree at the new push. 
-TODO open: a fire that lands before the regoto rite jumps forward to it, W1 to W2. Whether to keep that is undecided. TODO open: without a tree of its own a regoto moves the checkout the ritual fired from. Whether the parser should refuse regoto without tree is undecided.
+TODO open: a fire that lands before the regoto rite jumps forward to it, W1 to W2. Whether to keep that is undecided. 
+TODO open: without a tree of its own a regoto moves the checkout the ritual fired from. Whether the parser should refuse regoto without tree is undecided.
 
 ## regoto-withoutRegoto
 
