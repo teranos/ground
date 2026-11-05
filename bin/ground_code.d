@@ -3,9 +3,9 @@ module ground_code;
 // "similarily i want ground code to be split off from the hooks as well"
 import code : handleCode;
 
-// A D main, so the D runtime is started: ground code is not -betterC.
-// `ground_code login` is the terminal auth method a client runs; with no
-// arguments it speaks ACP on stdin and stdout.
+// 「[Opus 5.5] A D main, so the D runtime is started: ground code is not -betterC.」
+// 「[Opus 5.5] `ground_code login` is the terminal auth method a client runs; with no」
+// 「[Opus 5.5] arguments it speaks ACP on stdin and stdout.」
 int main(string[] args) {
     if (args.length == 2 && args[1] == "login") return signIn();
     if (args.length > 1) {
@@ -17,8 +17,8 @@ int main(string[] args) {
     return handleCode();
 }
 
-// Signs in to q, the node a prompt goes through and the one that owns auth, and keeps its token in
-// ~/.qntx/token. The block's url and token file are the hooks' node for attestations, k, and stay its.
+// 「[Opus 5.5] Signs in to q, the node a prompt goes through and the one that owns auth, and keeps its token in」
+// 「[Opus 5.5] ~/.qntx/token. The block's url and token file are the hooks' node for attestations, k, and stay its.」
 int signIn() {
     import code.login : login;
     import code.node : qntxNode;
