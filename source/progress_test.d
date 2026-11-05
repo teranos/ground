@@ -1,9 +1,9 @@
 module progress_test;
 
-// "As tools execute, Agents send updates to report progress and results." An MCP tool call asks its
-// server for progress, its _meta.progressToken the call's id; each progress the server reports with
-// a message is a tool_call_update whose content is that message, while the call runs. Progress
-// without a message says nothing to show, so nothing is sent for it.
+// 「[Opus 5.5] "As tools execute, Agents send updates to report progress and results." An MCP tool call asks its」
+// 「[Opus 5.5] server for progress, its _meta.progressToken the call's id; each progress the server reports with」
+// 「[Opus 5.5] a message is a tool_call_update whose content is that message, while the call runs. Progress」
+// 「[Opus 5.5] without a message says nothing to show, so nothing is sent for it.」
 
 import code;
 import code.reply : Reply;
@@ -82,11 +82,11 @@ version (Posix) unittest {
     close(o[0]);
     auto out_ = said.slice();
     assert(r.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
-    // The server was asked for progress on the call's own id.
+    // 「[Opus 5.5] The server was asked for progress on the call's own id.」
     enum completed = `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed"`;
     assert(indexOf(out_, `"text":"token \"c1\""`) >= 0);
-    // Each progress with a message, as the call runs: after it is in progress, before it completes.
-    // Only what changed is sent: the content, "Replace the content collection".
+    // 「[Opus 5.5] Each progress with a message, as the call runs: after it is in progress, before it completes.」
+    // 「[Opus 5.5] Only what changed is sent: the content, "Replace the content collection".」
     enum first = `{"sessionUpdate":"tool_call_update","toolCallId":"c1","content":[{"type":"content","content":{"type":"text","text":"counted 1 of 3"}}]}`;
     enum third = `{"sessionUpdate":"tool_call_update","toolCallId":"c1","content":[{"type":"content","content":{"type":"text","text":"counted 3 of 3"}}]}`;
     auto running = indexOf(out_, `{"sessionUpdate":"tool_call","toolCallId":"c1"`);
@@ -94,7 +94,7 @@ version (Posix) unittest {
     assert(indexOf(out_, first) > running);
     assert(indexOf(out_, third) > indexOf(out_, first));
     assert(indexOf(out_, completed) > indexOf(out_, third));
-    // The progress without a message sent nothing: two progress updates, no more.
+    // 「[Opus 5.5] The progress without a message sent nothing: two progress updates, no more.」
     size_t updates = 0;
     for (ptrdiff_t at = 0, from = 0; (at = indexOf(out_[cast(size_t) from .. $], `"toolCallId":"c1","content"`)) >= 0; from += at + 1) updates++;
     assert(updates == 2);
