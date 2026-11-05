@@ -1,8 +1,8 @@
 module finish_test;
 
-// Why the model stopped, as the gateway says it in finish_reason: "tool_calls",
-// "stop", "length", "content_filter", "error" (OpenRouter's
-// ChatFinishReasonEnum), each made the stop reason ACP has for it.
+// 「[Opus 5.5] Why the model stopped, as the gateway says it in finish_reason: "tool_calls",」
+// 「[Opus 5.5] "stop", "length", "content_filter", "error" (OpenRouter's」
+// 「[Opus 5.5] ChatFinishReasonEnum), each made the stop reason ACP has for it.」
 
 import code;
 import code.reply : Reply;
@@ -27,7 +27,7 @@ private enum completion(string finish, string content) = "HTTP/1.1 200 OK\r\nCon
 private enum sayingOf(string finish, string content) =
     `{"choices":[{"finish_reason":"` ~ finish ~ `","message":{"role":"assistant","content":"` ~ content ~ `"}}]}`;
 
-// A gateway that answers each request in turn with the next of answers.
+// 「[Opus 5.5] A gateway that answers each request in turn with the next of answers.」
 private struct Gateway {
     int pid;
     char[32] urlBuf;
@@ -73,11 +73,11 @@ private Gateway gateway(string[] answers...) {
     return g;
 }
 
-// What the client was told by the last prompt.
+// 「[Opus 5.5] What the client was told by the last prompt.」
 private __gshared char[65536] told;
 private __gshared size_t toldLen;
 
-// One prompt, its updates kept in told; the answer into r.
+// 「[Opus 5.5] One prompt, its updates kept in told; the answer into r.」
 private void prompt(ref Sessions s, string text, ref Reply r) {
     import core.stdc.stdio : fflush, stdout;
     import core.sys.posix.fcntl : open, O_WRONLY;
@@ -117,10 +117,10 @@ private void opened(ref Sessions s, string url) {
     assert(indexOf(r.slice(), `"sessionId":"code-100-7-1"`) >= 0);
 }
 
-// "refusal": "The turn ended because the agent refused to continue. The user
-// prompt and everything that comes after it won't be included in the next
-// prompt": the stop reason is refusal, and the conversation, kept and stored,
-// is what it was before the prompt.
+// 「[Opus 5.5] "refusal": "The turn ended because the agent refused to continue. The user」
+// 「[Opus 5.5] prompt and everything that comes after it won't be included in the next」
+// 「[Opus 5.5] prompt": the stop reason is refusal, and the conversation, kept and stored,」
+// 「[Opus 5.5] is what it was before the prompt.」
 unittest {
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
     import code.store : storeHistoryOf;
@@ -149,9 +149,9 @@ unittest {
     s.open[0].history.dispose();
 }
 
-// "error": the gateway says the model's answer failed. That is no end of a
-// turn: it is an error carrying the gateway's answer, and the failed answer is
-// not kept, so the next turn is not built on it.
+// 「[Opus 5.5] "error": the gateway says the model's answer failed. That is no end of a」
+// 「[Opus 5.5] turn: it is an error carrying the gateway's answer, and the failed answer is」
+// 「[Opus 5.5] not kept, so the next turn is not built on it.」
 unittest {
     auto g = gateway(completion!("error", "half an"));
     scope(exit) { kill(g.pid, SIGKILL); waitpid(g.pid, null, 0); }
@@ -163,14 +163,14 @@ unittest {
     assert(r.slice() == `{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"the gateway says the model's answer ended in error","data":`
         ~ sayingOf!("error", "half an") ~ `}}`);
     assert(s.open[0].history.slice() == `{"role":"user","content":"hi"}`);
-    // The client is not shown an answer the turn says failed.
+    // 「[Opus 5.5] The client is not shown an answer the turn says failed.」
     assert(indexOf(told[0 .. toldLen], `agent_message_chunk`) < 0);
     assert(indexOf(told[0 .. toldLen], `half an`) < 0);
     s.open[0].history.dispose();
 }
 
-// What a refused answer cost is the session's all the same: the gateway
-// charged for it, whatever the conversation keeps of it.
+// 「[Opus 5.5] What a refused answer cost is the session's all the same: the gateway」
+// 「[Opus 5.5] charged for it, whatever the conversation keeps of it.」
 unittest {
     enum refused = `{"choices":[{"finish_reason":"content_filter","message":{"role":"assistant","content":""}}],`
         ~ `"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"cost":0.0002}}`;
@@ -189,9 +189,9 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
 }
 
-// A refused first prompt does not name the session: the title it gave is
-// cleared, "Set to null to clear", in the store and to the client, and the
-// next prompt names the session.
+// 「[Opus 5.5] A refused first prompt does not name the session: the title it gave is」
+// 「[Opus 5.5] cleared, "Set to null to clear", in the store and to the client, and the」
+// 「[Opus 5.5] next prompt names the session.」
 unittest {
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
     import code.store : storeList;
