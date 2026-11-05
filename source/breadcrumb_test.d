@@ -22,8 +22,8 @@ unittest {
     assert(crumbPathIn(dir[0 .. n], longSession[], path) == 0, "what does not fit is no path");
 }
 
-// An error is carried whole however long it is: the breadcrumb's line was 2048 bytes and the
-// exec-result row's attributes 4096, and a message past either was cut, or the row not written.
+// 「[Opus 5.5] An error is carried whole however long it is: the breadcrumb's line was 2048 bytes and the」
+// 「[Opus 5.5] exec-result row's attributes 4096, and a message past either was cut, or the row not written.」
 unittest {
     import errors : GroundError, crumbLine;
     import code.reply : Reply;
@@ -66,8 +66,8 @@ unittest {
     sqlite3_finalize(st);
 }
 
-// What deliverError hands the store is whole: formatResult held 4095 bytes, so a longer message
-// reached the growing writer already cut.
+// 「[Opus 5.5] What deliverError hands the store is whole: formatResult held 4095 bytes, so a longer message」
+// 「[Opus 5.5] reached the growing writer already cut.」
 unittest {
     import errors : GroundError, formatResult;
     __gshared char[6000] long_ = 'z';
@@ -81,7 +81,7 @@ unittest {
     assert(r[$ - 4 .. $] == "TAIL");
 }
 
-// stderr, the last channel, carries what the breadcrumb would have: the message and both streams.
+// 「[Opus 5.5] stderr, the last channel, carries what the breadcrumb would have: the message and both streams.」
 unittest {
     import errors : GroundError, stderrRecord;
     import code.reply : Reply;
@@ -100,8 +100,8 @@ unittest {
     assert(indexOf(rec.slice(), "  stderr:\n    why it failed\n") >= 0, rec.slice());
 }
 
-// A detail longer than a delivery carries is said to be, with the row that holds all of it: cut
-// silently, the watcher receipted the prefix, and the tail, where the reason is, never came.
+// 「[Opus 5.5] A detail longer than a delivery carries is said to be, with the row that holds all of it: cut」
+// 「[Opus 5.5] silently, the watcher receipted the prefix, and the tail, where the reason is, never came.」
 unittest {
     import immediate : writeExecResult, readImmediateMessage, MESSAGE_CAP;
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
@@ -119,8 +119,8 @@ unittest {
     assert(indexOf(got.message, got.msgId) >= 0, "the cut names the row that holds all of it");
 }
 
-// The notice of a cut is whole however long its row's id, and a cut never splits a character: a
-// split one is no UTF-8, and the hook's JSON carrying it was no JSON.
+// 「[Opus 5.5] The notice of a cut is whole however long its row's id, and a cut never splits a character: a」
+// 「[Opus 5.5] split one is no UTF-8, and the hook's JSON carrying it was no JSON.」
 unittest {
     import immediate : writeExecResult, readImmediateMessage, MESSAGE_CAP;
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
@@ -129,9 +129,9 @@ unittest {
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
     assert(applySchema(db));
     scope(exit) sqlite3_close(db);
-    // A long control name makes a long row id.
+    // 「[Opus 5.5] A long control name makes a long row id.」
     __gshared char[90] control = 'c';
-    // é is two bytes; a run of them puts one across any cut.
+    // 「[Opus 5.5] é is two bytes; a run of them puts one across any cut.」
     __gshared char[MESSAGE_CAP * 2] long_ = 0;
     foreach (i; 0 .. long_.length / 2) { long_[2 * i] = cast(char) 0xC3; long_[2 * i + 1] = cast(char) 0xA9; }
     assert(writeExecResult(db, "sess-cut2", control[], long_[], "", ""));
@@ -141,7 +141,7 @@ unittest {
     auto at = indexOf(got.message, "\n[ground cut this message at ");
     assert(at >= 0);
     assert(got.message[$ - 1] == ']', "the notice is whole");
-    // The row's own id, as the store holds it, not as the reader cut it.
+    // 「[Opus 5.5] The row's own id, as the store holds it, not as the reader cut it.」
     {
         import db : sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_stmt, sqlite3_column_text, SQLITE_ROW;
         sqlite3_stmt* st;
@@ -156,7 +156,7 @@ unittest {
         assert(indexOf(got.message, id) > at, "the notice names the whole row id");
         sqlite3_finalize(st);
     }
-    // Every byte before the notice is part of a whole character.
+    // 「[Opus 5.5] Every byte before the notice is part of a whole character.」
     auto body_ = got.message[0 .. at];
     size_t i = 0;
     while (i < body_.length) {
