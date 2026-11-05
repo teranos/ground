@@ -1767,7 +1767,9 @@ version (Posix) unittest {
 
     // A call without a command, or whose env is not a list of name and value, each text, is not asked of the client.
     foreach (bad; [`{\"args\":[\"x\"]}`, `{\"command\":\"ls\",\"env\":{\"A\":\"b\"}}`, `{\"command\":\"ls\",\"env\":[{\"name\":\"A\"}]}`,
-            `{\"command\":\"ls\",\"env\":[{\"name\":\"A\",\"value\":1}]}`]) {
+            `{\"command\":\"ls\",\"env\":[{\"name\":\"A\",\"value\":1}]}`,
+            // A list that is there is a list: null is none of the lists it takes.
+            `{\"command\":\"ls\",\"env\":null}`, `{\"command\":\"ls\",\"args\":null}`]) {
         turn(runs, "bypassPermissions", bad, "", s);
         assert(gotBuf[0 .. gotLen] == ended);
         assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
