@@ -179,7 +179,8 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/machine.d tools/machine_test.d
 	ldc2 -c -od=/tmp -I=tools tools/keep.d tools/keep_test.d
 	ldc2 -c -od=/tmp -I=tools tools/stamp.d tools/stamp_test.d
-	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
+	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d tools/notes.d source/fmt.d tools/press_test.d
+	ldc2 -c -od=/tmp -I=tools tools/notes.d tools/cases.d tools/notes_test.d
 
 # Same shape for ug/*_test.d.
 test-ug:
@@ -262,8 +263,8 @@ prune-dub-cache:
 # The book is generated from the source it documents, so it cannot describe a
 # ground that does not exist. Both comment kinds are prose: a // line and a
 # /// line reach the page alike.
-press: tools/press.d tools/cases.d tools/concept.d source/fmt.d
-	ldc2 -of=tools/press -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d
+press: tools/press.d tools/cases.d tools/concept.d tools/notes.d source/fmt.d
+	ldc2 -of=tools/press -I=tools -I=source tools/press.d tools/cases.d tools/concept.d tools/notes.d source/fmt.d
 
 # -J=doc lets bind.d carry doc/book.css, so the stylesheet is a file to read
 # and the pages still stand on their own.
