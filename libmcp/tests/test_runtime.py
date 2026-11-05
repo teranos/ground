@@ -473,7 +473,7 @@ class CheckedProgress(unittest.TestCase):
         )
         self.assertEqual(lib.mcp_request_take(req, C.byref(self.response), C.byref(self.error)), 0)
         asked = json.loads(self.response.value()["result"]["content"][0]["text"])
-        # The token joins the _meta libmcp itself sends a modern peer.
+        # 「[Opus 5.5] The token joins the _meta libmcp itself sends a modern peer.」
         self.assertEqual(asked["_meta"]["progressToken"], "call-1")
         self.assertEqual((asked["arguments"], asked["name"]), ({"x": 1}, "progress"))
 
