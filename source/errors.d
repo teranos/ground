@@ -324,12 +324,22 @@ private bool writeBreadcrumb(const ref GroundError err) {
     int fd = open(&pathBuf[0], O_WRONLY | O_CREAT | O_APPEND, octal!644);
     if (fd < 0) return false;
 
-    // Format one line: "<ts>\t<origin>\t<control>\t<exit>\terrno=<n>\t<message>\n"
-    char[2048] line = 0;
-    size_t lp = 0;
-    void append(const(char)[] s) {
-        foreach (c; s) { if (lp < line.length - 1) line[lp++] = c; }
-    }
+    import code.reply : Reply;
+    Reply line;
+    scope(exit) line.dispose();
+    crumbLine(line, err);
+    if (line.full) { close(fd); return false; }
+    auto text = line.slice();
+    auto n = write(fd, text.ptr, text.length);
+    close(fd);
+    return n == cast(long) text.length;
+}
+
+// The breadcrumb's one record, whole however long:
+// "<ts>\t<origin>\t<control>\texit=<n>\terrno=<n>\t<message>\n", then both streams.
+// It was 2048 bytes, and what ran past them was cut.
+void crumbLine(R)(ref R line, const ref GroundError err) {
+    void append(const(char)[] s) { line.add(s); }
     void appendInt(long v) {
         if (v == 0) { append("0"); return; }
         bool neg = v < 0;
@@ -337,8 +347,8 @@ private bool writeBreadcrumb(const ref GroundError err) {
         char[24] nb = 0;
         int nl = 0;
         while (v > 0 && nl < 23) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; }
-        if (neg) { append("-"); }
-        foreach_reverse (i; 0 .. nl) { if (lp < line.length - 1) line[lp++] = nb[i]; }
+        if (neg) append("-");
+        foreach_reverse (i; 0 .. nl) append(nb[i .. i + 1]);
     }
 
     appendInt(err.timestamp); append("\t");
@@ -350,31 +360,19 @@ private bool writeBreadcrumb(const ref GroundError err) {
     // Preserve BOTH streams in the breadcrumb — the fallback must carry
     // the same information as the primary would have. Labeled, indented
     // for readability. Empty streams are simply omitted.
-    if (err.stdout.length > 0) {
-        append("  stdout:\n");
-        // indent each line
+    void stream(const(char)[] label, const(char)[] text) {
+        if (text.length == 0) return;
+        append(label);
         bool startOfLine = true;
-        foreach (c; err.stdout) {
-            if (startOfLine) { append("    "); startOfLine = false; }
-            if (lp < line.length - 1) line[lp++] = c;
-            if (c == '\n') startOfLine = true;
+        size_t from = 0;
+        foreach (i, c; text) {
+            if (startOfLine) { append("    "); startOfLine = false; from = i; }
+            if (c == '\n') { append(text[from .. i + 1]); startOfLine = true; }
         }
-        if (!startOfLine) append("\n");
+        if (!startOfLine) { append(text[from .. $]); append("\n"); }
     }
-    if (err.stderr.length > 0) {
-        append("  stderr:\n");
-        bool startOfLine = true;
-        foreach (c; err.stderr) {
-            if (startOfLine) { append("    "); startOfLine = false; }
-            if (lp < line.length - 1) line[lp++] = c;
-            if (c == '\n') startOfLine = true;
-        }
-        if (!startOfLine) append("\n");
-    }
-
-    auto n = write(fd, &line[0], lp);
-    close(fd);
-    return n == cast(long) lp;
+    stream("  stdout:\n", err.stdout);
+    stream("  stderr:\n", err.stderr);
 }
 
 // Fallback 2: write to stderr. Grandchild inherits fd 2 from wrapper
@@ -382,18 +380,17 @@ private bool writeBreadcrumb(const ref GroundError err) {
 // dispatch. If any of those chains still has a live consumer, the
 // message reaches somewhere.
 private bool writeStderr(const ref GroundError err) {
-    char[1024] line = 0;
-    size_t lp = 0;
+    // Each piece as it is: a line buffer of 1024 bytes cut the message.
+    bool all = true;
     void append(const(char)[] s) {
-        foreach (c; s) { if (lp < line.length - 1) line[lp++] = c; }
+        if (s.length > 0 && write(STDERR_FD, s.ptr, s.length) != cast(long) s.length) all = false;
     }
     append("ground error: ");
     append(err.origin);
     append(": ");
     append(err.message);
     append("\n");
-    auto n = write(STDERR_FD, &line[0], lp);
-    return n == cast(long) lp;
+    return all;
 }
 
 // --- Exec inflight markers ---

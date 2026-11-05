@@ -1198,22 +1198,26 @@ bool writeExecResult(sqlite3* db,
     ctxBuf.put(sessionId);
     ctxBuf.put(`"]`);
 
-    __gshared ZBuf attrBuf;
-    attrBuf.reset();
-    attrBuf.put(`{"detail":"exec `);
-    putEscaped(attrBuf, controlName);
-    attrBuf.put(`: `);
-    putEscaped(attrBuf, result);
+    // Whole however long: the attributes were 4096 bytes, and a result past them lost its
+    // closing quote and brace, so the row was no JSON and was not written.
+    import code.reply : Reply, putJsonText = putEscaped;
+    Reply attrBuf;
+    scope(exit) attrBuf.dispose();
+    attrBuf.add(`{"detail":"exec `);
+    putJsonText(attrBuf, controlName);
+    attrBuf.add(`: `);
+    putJsonText(attrBuf, result);
     // Preserve BOTH streams. Label so the reader can tell them apart.
     if (stdoutData.length > 0) {
-        attrBuf.put(`\nstdout:\n`);
-        putEscaped(attrBuf, stdoutData);
+        attrBuf.add(`\nstdout:\n`);
+        putJsonText(attrBuf, stdoutData);
     }
     if (stderrData.length > 0) {
-        attrBuf.put(`\nstderr:\n`);
-        putEscaped(attrBuf, stderrData);
+        attrBuf.add(`\nstderr:\n`);
+        putJsonText(attrBuf, stderrData);
     }
-    attrBuf.put(`","after":0}`);
+    attrBuf.add(`","after":0}`);
+    if (attrBuf.full) return false;
 
     auto ts = formatTimestamp();
 
@@ -1243,7 +1247,7 @@ bool writeExecResult(sqlite3* db,
         sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.slice().ptr, cast(int) attrBuf.slice().length, SQLITE_TRANSIENT);
 
         auto step = sqlite3_step(stmt);
         sqlite3_finalize(stmt);
