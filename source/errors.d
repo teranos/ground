@@ -74,8 +74,10 @@ const(char)[] deliverError(const ref GroundError err) {
         import immediate : writeExecResult;
         auto db = openDb();
         opened = db !is null;
+        auto result = db is null ? null : formatResult(err);
+        // No whole result is nothing stored: the breadcrumb and stderr build theirs from err.
+        if (db !is null && result is null) { sqlite3_close(db); db = null; }
         if (db !is null) {
-            auto result = formatResult(err);
             auto ok = writeExecResult(db, err.sessionId, err.controlName, result, err.stdout, err.stderr);
             // The same error, left for the watcher to post. Every error ground
             // raises reaches sentry this way, and this hook posts nothing.
@@ -230,15 +232,21 @@ private void leaveForSentry(void* db, const ref GroundError err, const(char)[] r
 // Uses a shared static buffer — no GC, no allocations. Caller must copy
 // the returned slice before the next call if it needs to retain it.
 const(char)[] formatResult(const ref GroundError err) {
-    // As wide as the row it lands in, which is a ZBuf too.
-    import zbuf : ZBuf;
-    __gshared ZBuf buf;
-    buf.reset();
+    // As wide as the error is: the row it lands in grows (immediate.d writeExecResult), and a
+    // 4096-byte buffer here cut it before it got there.
+    import code.reply : Reply;
+    __gshared Reply buf;
+    buf.len = 0;
+    buf.full = false;
 
-    void appendStr(const(char)[] s) { buf.put(s); }
+    void appendStr(const(char)[] s) { buf.add(s); }
     void appendInt(long v) {
         if (v < 0) { appendStr("-"); v = -v; }
-        buf.putUint(cast(ulong) v);
+        char[20] d = 0;
+        size_t n = 0;
+        auto u = cast(ulong) v;
+        do { d[n++] = cast(char)('0' + u % 10); u /= 10; } while (u > 0);
+        foreach_reverse (i; 0 .. n) appendStr(d[i .. i + 1]);
     }
 
     if (err.exitCode >= 0) {
@@ -257,6 +265,9 @@ const(char)[] formatResult(const ref GroundError err) {
         appendStr(": ");
         appendStr(err.message);
     }
+    // A buffer that could not grow holds part of it: that is no result, and the caller takes the
+    // next channel rather than store or post a part as the whole.
+    if (buf.full) return null;
     return buf.slice();
 }
 
@@ -324,12 +335,22 @@ private bool writeBreadcrumb(const ref GroundError err) {
     int fd = open(&pathBuf[0], O_WRONLY | O_CREAT | O_APPEND, octal!644);
     if (fd < 0) return false;
 
-    // Format one line: "<ts>\t<origin>\t<control>\t<exit>\terrno=<n>\t<message>\n"
-    char[2048] line = 0;
-    size_t lp = 0;
-    void append(const(char)[] s) {
-        foreach (c; s) { if (lp < line.length - 1) line[lp++] = c; }
-    }
+    import code.reply : Reply;
+    Reply line;
+    scope(exit) line.dispose();
+    crumbLine(line, err);
+    if (line.full) { close(fd); return false; }
+    auto text = line.slice();
+    auto n = write(fd, text.ptr, text.length);
+    close(fd);
+    return n == cast(long) text.length;
+}
+
+// The breadcrumb's one record, whole however long:
+// "<ts>\t<origin>\t<control>\texit=<n>\terrno=<n>\t<message>\n", then both streams.
+// It was 2048 bytes, and what ran past them was cut.
+void crumbLine(R)(ref R line, const ref GroundError err) {
+    void append(const(char)[] s) { line.add(s); }
     void appendInt(long v) {
         if (v == 0) { append("0"); return; }
         bool neg = v < 0;
@@ -337,8 +358,8 @@ private bool writeBreadcrumb(const ref GroundError err) {
         char[24] nb = 0;
         int nl = 0;
         while (v > 0 && nl < 23) { nb[nl++] = cast(char)('0' + v % 10); v /= 10; }
-        if (neg) { append("-"); }
-        foreach_reverse (i; 0 .. nl) { if (lp < line.length - 1) line[lp++] = nb[i]; }
+        if (neg) append("-");
+        foreach_reverse (i; 0 .. nl) append(nb[i .. i + 1]);
     }
 
     appendInt(err.timestamp); append("\t");
@@ -347,34 +368,28 @@ private bool writeBreadcrumb(const ref GroundError err) {
     append("exit="); appendInt(err.exitCode); append("\t");
     append("errno="); appendInt(err.errnoVal); append("\t");
     append(err.message); append("\n");
+    crumbStreams(line, err);
+}
+
+// Both streams, labelled and indented; an empty one is left out.
+void crumbStreams(R)(ref R line, const ref GroundError err) {
+    void append(const(char)[] s) { line.add(s); }
     // Preserve BOTH streams in the breadcrumb — the fallback must carry
     // the same information as the primary would have. Labeled, indented
     // for readability. Empty streams are simply omitted.
-    if (err.stdout.length > 0) {
-        append("  stdout:\n");
-        // indent each line
+    void stream(const(char)[] label, const(char)[] text) {
+        if (text.length == 0) return;
+        append(label);
         bool startOfLine = true;
-        foreach (c; err.stdout) {
-            if (startOfLine) { append("    "); startOfLine = false; }
-            if (lp < line.length - 1) line[lp++] = c;
-            if (c == '\n') startOfLine = true;
+        size_t from = 0;
+        foreach (i, c; text) {
+            if (startOfLine) { append("    "); startOfLine = false; from = i; }
+            if (c == '\n') { append(text[from .. i + 1]); startOfLine = true; }
         }
-        if (!startOfLine) append("\n");
+        if (!startOfLine) { append(text[from .. $]); append("\n"); }
     }
-    if (err.stderr.length > 0) {
-        append("  stderr:\n");
-        bool startOfLine = true;
-        foreach (c; err.stderr) {
-            if (startOfLine) { append("    "); startOfLine = false; }
-            if (lp < line.length - 1) line[lp++] = c;
-            if (c == '\n') startOfLine = true;
-        }
-        if (!startOfLine) append("\n");
-    }
-
-    auto n = write(fd, &line[0], lp);
-    close(fd);
-    return n == cast(long) lp;
+    stream("  stdout:\n", err.stdout);
+    stream("  stderr:\n", err.stderr);
 }
 
 // Fallback 2: write to stderr. Grandchild inherits fd 2 from wrapper
@@ -382,18 +397,37 @@ private bool writeBreadcrumb(const ref GroundError err) {
 // dispatch. If any of those chains still has a live consumer, the
 // message reaches somewhere.
 private bool writeStderr(const ref GroundError err) {
-    char[1024] line = 0;
-    size_t lp = 0;
-    void append(const(char)[] s) {
-        foreach (c; s) { if (lp < line.length - 1) line[lp++] = c; }
+    // The whole record, the streams too, as the breadcrumb would have carried them, in one write
+    // the kernel is asked to take whole and finished where it took less: a 1024-byte line cut the
+    // message, and pieces written one by one mixed with another hook's.
+    import code.reply : Reply;
+    import core.stdc.errno : errno, EINTR;
+    Reply rec;
+    scope(exit) rec.dispose();
+    stderrRecord(rec, err);
+    if (rec.full) return false;
+    auto text = rec.slice();
+    size_t done = 0;
+    while (done < text.length) {
+        auto n = write(STDERR_FD, text.ptr + done, text.length - done);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return false;
+        done += cast(size_t) n;
     }
-    append("ground error: ");
-    append(err.origin);
-    append(": ");
-    append(err.message);
-    append("\n");
-    auto n = write(STDERR_FD, &line[0], lp);
-    return n == cast(long) lp;
+    return true;
+}
+
+// stderr's record: "ground error: <origin>: <message>", then both streams as the breadcrumb has them.
+void stderrRecord(R)(ref R rec, const ref GroundError err) {
+    rec.add("ground error: ");
+    rec.add(err.origin);
+    rec.add(": ");
+    rec.add(err.message);
+    rec.add("\n");
+    GroundError streams;
+    streams.stdout = err.stdout;
+    streams.stderr = err.stderr;
+    crumbStreams(rec, streams);
 }
 
 // --- Exec inflight markers ---

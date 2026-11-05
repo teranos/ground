@@ -126,7 +126,9 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
     bindPending(stmt, cwd, sessionId, mark);
 
-    __gshared char[128] idBuf = 0;
+    // As wide as the id the writer builds (a ZBuf): one cut here named no row, so its receipt
+    // matched nothing and the row was read and delivered again until the batch was full.
+    __gshared char[4096] idBuf = 0;
     __gshared char[256] nameBuf = 0;
     // An exec result carries the stderr of what failed, and the reason is at
     // the end of it. 512 handed the operator the first quarter of a rite's
@@ -207,7 +209,31 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         size_t mLen = 0;
         auto detText = sqlite3_column_text(stmt, 4);
         if (detText !is null) {
-            while (detText[mLen] != 0 && mLen < msgBuf.length) { msgBuf[mLen] = detText[mLen]; mLen++; }
+            // A detail longer than a delivery carries is cut where it says so, with the row that
+            // holds all of it: cut silently, its tail, where the reason is, never came.
+            // The notice's room is measured, its row id and byte count whole, before the cut is
+            // placed; and the cut is moved back to a character's start, as a split one is no UTF-8.
+            enum fixedNotice = "\n[ground cut this message at  bytes; the whole of it is the store row ]".length;
+            auto room = fixedNotice + 20 + idLen;
+            size_t whole = 0;
+            while (detText[whole] != 0) whole++;
+            auto keep = whole <= msgBuf.length ? whole : msgBuf.length - room;
+            if (keep < whole)
+                while (keep > 0 && (detText[keep] & 0xC0) == 0x80) keep--;
+            foreach (k; 0 .. keep) msgBuf[k] = detText[k];
+            mLen = keep;
+            if (keep < whole) {
+                char[20] d = 0;
+                size_t dn = 0;
+                auto v = keep;
+                do { d[dn++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+                void say(const(char)[] t) { foreach (c; t) if (mLen < msgBuf.length) msgBuf[mLen++] = c; }
+                say("\n[ground cut this message at ");
+                foreach_reverse (k; 0 .. dn) say(d[k .. k + 1]);
+                say(" bytes; the whole of it is the store row ");
+                say(idBuf[0 .. idLen]);
+                say("]");
+            }
         } else {
             foreach (s; ["immediate row ", cast(string) idBuf[0 .. idLen], " carries no detail to deliver"])
                 foreach (c; s) if (mLen < msgBuf.length) msgBuf[mLen++] = c;
@@ -1198,22 +1224,26 @@ bool writeExecResult(sqlite3* db,
     ctxBuf.put(sessionId);
     ctxBuf.put(`"]`);
 
-    __gshared ZBuf attrBuf;
-    attrBuf.reset();
-    attrBuf.put(`{"detail":"exec `);
-    putEscaped(attrBuf, controlName);
-    attrBuf.put(`: `);
-    putEscaped(attrBuf, result);
+    // Whole however long: the attributes were 4096 bytes, and a result past them lost its
+    // closing quote and brace, so the row was no JSON and was not written.
+    import code.reply : Reply, putJsonText = putEscaped;
+    Reply attrBuf;
+    scope(exit) attrBuf.dispose();
+    attrBuf.add(`{"detail":"exec `);
+    putJsonText(attrBuf, controlName);
+    attrBuf.add(`: `);
+    putJsonText(attrBuf, result);
     // Preserve BOTH streams. Label so the reader can tell them apart.
     if (stdoutData.length > 0) {
-        attrBuf.put(`\nstdout:\n`);
-        putEscaped(attrBuf, stdoutData);
+        attrBuf.add(`\nstdout:\n`);
+        putJsonText(attrBuf, stdoutData);
     }
     if (stderrData.length > 0) {
-        attrBuf.put(`\nstderr:\n`);
-        putEscaped(attrBuf, stderrData);
+        attrBuf.add(`\nstderr:\n`);
+        putJsonText(attrBuf, stderrData);
     }
-    attrBuf.put(`","after":0}`);
+    attrBuf.add(`","after":0}`);
+    if (attrBuf.full) return false;
 
     auto ts = formatTimestamp();
 
@@ -1243,7 +1273,7 @@ bool writeExecResult(sqlite3* db,
         sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 7, srcBuf.ptr(), cast(int) srcBuf.len, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 8, attrBuf.ptr(), cast(int) attrBuf.len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, attrBuf.slice().ptr, cast(int) attrBuf.slice().length, SQLITE_TRANSIENT);
 
         auto step = sqlite3_step(stmt);
         sqlite3_finalize(stmt);
