@@ -295,12 +295,12 @@ bool withinRootsOnDisk(const(char)[] cwd, const(char)[] dirs, const(char)[] path
     {
         char[4096] z = 0;
         if (path.length >= z.length) return false;
-        z[0 .. path.length] = path[];
+        foreach (k, c; path) z[k] = c;
         auto whole = realpath(z.ptr, null);
         if (whole !is null) {
             auto l = strlen(whole);
             if (l >= want.length) { free(whole); return false; }
-            want[0 .. l] = whole[0 .. l];
+            foreach (k; 0 .. l) want[k] = whole[k];
             wn = l;
             free(whole);
         } else {
@@ -313,9 +313,9 @@ bool withinRootsOnDisk(const(char)[] cwd, const(char)[] dirs, const(char)[] path
             auto l = strlen(dir);
             auto name = path[slash .. $];
             if (l + 1 + name.length >= want.length) { free(dir); return false; }
-            want[0 .. l] = dir[0 .. l];
+            foreach (k; 0 .. l) want[k] = dir[k];
             want[l] = '/';
-            want[l + 1 .. l + 1 + name.length] = name[];
+            foreach (k, c; name) want[l + 1 + k] = c;
             wn = l + 1 + name.length;
             free(dir);
         }
@@ -324,7 +324,7 @@ bool withinRootsOnDisk(const(char)[] cwd, const(char)[] dirs, const(char)[] path
     bool under(const(char)[] root) {
         char[4096] z = 0;
         if (root.length == 0 || root.length >= z.length) return false;
-        z[0 .. root.length] = root[];
+        foreach (k, c; root) z[k] = c;
         auto r = realpath(z.ptr, null);
         if (r is null) return false;
         scope(exit) free(r);
