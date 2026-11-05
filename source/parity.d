@@ -1097,8 +1097,8 @@ string sentBlock()(string src, string method) {
 
 private CodeSides buildCodeSides()() {
     CodeSides cs;
-    // A method code/acp.d handles is tested by its name in meta.json's tables, AGENT_METHODS.session_new;
-    // a method tested by any other name is not ACP's.
+    // 「[Opus 5.5] A method code/acp.d handles is tested by its name in meta.json's tables, AGENT_METHODS.session_new;」
+    // 「[Opus 5.5] a method tested by any other name is not ACP's.」
     import acpmethods : wireOf;
     enum key = `method == `;
     size_t from = 0;
@@ -1141,9 +1141,9 @@ private CodeSides buildCodeSides()() {
     return cs;
 }
 
-// --- acp: the part of a method ground code reads and writes through libacp ---
+// 「[Opus 5.5] --- acp: the part of a method ground code reads and writes through libacp ---」
 
-// The library as ground links it, kept in this repository at libacp/.
+// 「[Opus 5.5] The library as ground links it, kept in this repository at libacp/.」
 private static immutable string[10] libacpSources = [
     import("libacp/src/acp.c"), import("libacp/src/initialize.c"), import("libacp/src/session.c"),
     import("libacp/src/modes.c"), import("libacp/src/config.c"), import("libacp/src/prompt.c"),
@@ -1163,7 +1163,7 @@ private LibFns libacpFns()() {
     return all;
 }
 
-// Every libacp function a block calls, and one level of the library's own it calls in turn.
+// 「[Opus 5.5] Every libacp function a block calls, and one level of the library's own it calls in turn.」
 private void libacpKeys()(const(char)[] block, ref GroundSide side) {
     auto lib = libacpFns();
     foreach (f; lib.items[0 .. lib.count]) {
@@ -1176,7 +1176,7 @@ private void libacpKeys()(const(char)[] block, ref GroundSide side) {
     }
 }
 
-// ground code's own helpers a block calls, one level: libacp read through them counts for the block.
+// 「[Opus 5.5] ground code's own helpers a block calls, one level: libacp read through them counts for the block.」
 private void helperKeys()(const(char)[] block, ref GroundSide side) {
     size_t from = 0;
     while (true) {
@@ -1195,8 +1195,8 @@ private void helperKeys()(const(char)[] block, ref GroundSide side) {
     }
 }
 
-// A request libacp writes for ground code: the method its writer names, measured through each
-// helper of code/acp.d that calls the writer, and the helpers that one calls in turn.
+// 「[Opus 5.5] A request libacp writes for ground code: the method its writer names, measured through each」
+// 「[Opus 5.5] helper of code/acp.d that calls the writer, and the helpers that one calls in turn.」
 private void libacpSent()(ref CodeSides cs) {
     import acpmethods : wireOfMacro;
     enum mark = `"method", json_object_new_string(`;
@@ -1205,7 +1205,7 @@ private void libacpSent()(ref CodeSides cs) {
         auto body_ = libacpSources[f.src][f.fn.from .. f.fn.to];
         auto at = indexIn(body_, mark);
         if (at < 0) continue;
-        // The writer's method by its name in acp_methods.h, ACP_CLIENT_TERMINAL_KILL, generated from meta.json.
+        // 「[Opus 5.5] The writer's method by its name in acp_methods.h, ACP_CLIENT_TERMINAL_KILL, generated from meta.json.」
         auto nameFrom = cast(size_t) at + mark.length;
         auto nameEnd = nameFrom;
         while (nameEnd < body_.length && isIdent(body_[nameEnd])) nameEnd++;
@@ -1234,14 +1234,14 @@ private void libacpSent()(ref CodeSides cs) {
 
 private static immutable CodeSides codeSides = buildCodeSides();
 
-// --- acp: libacp's client side, read out of its C at compile time ---
+// 「[Opus 5.5] --- acp: libacp's client side, read out of its C at compile time ---」
 
 // "But parity should cover clientside as well"
-// What a client sends for a method is acp_client_<method>_write, and what it reads of the agent's is
-// acp_client_<method>_read, the method by its name in meta.json's tables.
+// 「[Opus 5.5] What a client sends for a method is acp_client_<method>_write, and what it reads of the agent's is」
+// 「[Opus 5.5] acp_client_<method>_read, the method by its name in meta.json's tables.」
 private enum clientSource = import("libacp/src/client.c");
 
-// The wire name of a method as a client function names it, session_prompt; null for one meta.json does not name.
+// 「[Opus 5.5] The wire name of a method as a client function names it, session_prompt; null for one meta.json does not name.」
 private string clientWire()(const(char)[] named) {
     import acpmethods : wireOf;
     static immutable string[3] tables = ["AGENT_METHODS.", "CLIENT_METHODS.", "PROTOCOL_METHODS."];
@@ -1253,7 +1253,7 @@ private string clientWire()(const(char)[] named) {
     return null;
 }
 
-// What a client function reads and writes: its own calls, and every function of client.c it reaches.
+// 「[Opus 5.5] What a client function reads and writes: its own calls, and every function of client.c it reaches.」
 private void clientKeys()(ref const CFns fns, size_t at, ref bool[256] seen, ref GroundSide side) {
     if (seen[at]) return;
     seen[at] = true;
@@ -1273,7 +1273,7 @@ private CodeSides buildClientSides()() {
         auto rest = name[prefix.length .. $];
         size_t cut = endsWith(rest, "_write") ? "_write".length : endsWith(rest, "_read") ? "_read".length : 0;
         if (cut == 0) continue;
-        // A function no method names, as a message or an error any method may be, is no method's side.
+        // 「[Opus 5.5] A function no method names, as a message or an error any method may be, is no method's side.」
         auto wire = clientWire(rest[0 .. $ - cut]);
         if (wire is null) continue;
         size_t k = cs.count;
@@ -1290,20 +1290,20 @@ private CodeSides buildClientSides()() {
 
 private static immutable CodeSides clientSides = buildClientSides();
 
-// A method's client side scored on the spec turned round: the client writes what the agent reads, and
-// reads what the agent writes.
-// input and output are the agent's, as acpSpec gives them.
+// 「[Opus 5.5] A method's client side scored on the spec turned round: the client writes what the agent reads, and」
+// 「[Opus 5.5] reads what the agent writes.」
+// 「[Opus 5.5] input and output are the agent's, as acpSpec gives them.」
 int clientScore(const(char)[] input, const(char)[] output, ref const GroundSide side) {
     return score(covered(output, side.reads.slice()), countOf(output), covered(input, side.writes.slice()), countOf(input));
 }
 
-// Whether libacp's client side has a function for a method.
+// 「[Opus 5.5] Whether libacp's client side has a function for a method.」
 bool clientHas(const(char)[] method) {
     foreach (ref s; clientSides.items[0 .. clientSides.count]) if (s.event == method) return true;
     return false;
 }
 
-// The methods code/acp.d has a branch for, which it handles; the rest of codeSides it sends.
+// 「[Opus 5.5] The methods code/acp.d has a branch for, which it handles; the rest of codeSides it sends.」
 private struct CodeHandles { string[32] items; size_t count; }
 
 private CodeHandles buildCodeHandles()() {
@@ -1446,8 +1446,8 @@ private ptrdiff_t named(const(char)[] s, const(char)[] ident, size_t from = 0) {
     }
 }
 
-// Every literal in the second argument of each call to fn in a region: a
-// ternary between two keys reads either.
+// 「[Opus 5.5] Every literal in the second argument of each call to fn in a region: a」
+// 「[Opus 5.5] ternary between two keys reads either.」
 private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys) {
     size_t from = 0;
     while (true) {
@@ -1460,8 +1460,8 @@ private void keyArgs(const(char)[] region, const(char)[] fn, ref GroundKeys keys
     }
 }
 
-// The one way a C library's side is read: json-c's own calls, and the wrappers
-// the library reads and writes a key through, the key their second argument.
+// 「[Opus 5.5] The one way a C library's side is read: json-c's own calls, and the wrappers」
+// 「[Opus 5.5] the library reads and writes a key through, the key their second argument.」
 private struct CReader { string[] reads; string[] writes; }
 private static immutable CReader mcpReader = CReader(["mcp_field", "mcp_has"], ["mcp_add"]);
 private static immutable CReader acpReader = CReader(["acp_field", "acp_offered", "acp_flag", "acp_string"], ["add_string"]);
@@ -2047,7 +2047,7 @@ private void readMcp(const(char)[] text) {
     }
 }
 
-// --- reading a shipped agent's source ---
+// 「[Opus 5.5] --- reading a shipped agent's source ---」
 
 import shipped : ShippedPin, ShippedSet, readShipped, SdkMap, Found, readSdk, measureAgent;
 
@@ -2055,7 +2055,7 @@ private static immutable ShippedSet shippedSet = readShipped(import("flake.nix")
 private __gshared SdkMap shippedMap;
 private __gshared Found shippedFound;
 
-// make install links the pinned sources here from the store, and each SDK beside them.
+// 「[Opus 5.5] make install links the pinned sources here from the store, and each SDK beside them.」
 private void shippedPath(ref Measured m, const(char)[] tail1, const(char)[] tail2, const(char)[] tail3) {
     import db : getenv;
     auto home = getenv("HOME\0".ptr);
@@ -2067,7 +2067,7 @@ private void shippedPath(ref Measured m, const(char)[] tail1, const(char)[] tail
     m.pathLen = n;
 }
 
-// Live when the agent's source and its SDK's were both read; absent names the one that was not.
+// 「[Opus 5.5] Live when the agent's source and its SDK's were both read; absent names the one that was not.」
 private Measured measureShipped(ref const ShippedPin pin) {
     Measured m;
     shippedMap = SdkMap.init;
@@ -2172,7 +2172,7 @@ bool storeSpecs(sqlite3* db, const(char)[] agent, const(char)[] release, const(c
     return ok;
 }
 
-// A shipped agent read live replaces what the store held for it, whole or not at all.
+// 「[Opus 5.5] A shipped agent read live replaces what the store held for it, whole or not at all.」
 bool storeShipped(sqlite3* db, const(char)[] agent, const(char)[] rev, ref const SdkMap map, ref const Found f, long now) {
     if (sqlite3_exec(db, "BEGIN IMMEDIATE\0".ptr, null, null, null) != SQLITE_OK) return false;
     bool ok = false;
@@ -2248,7 +2248,7 @@ unittest {
     f.sends[map.indexOf("session/update")] = true;
     assert(storeShipped(db, "pi-acp", "aa", map, f, 100));
 
-    // A second read replaces the first whole: what it no longer sends is gone.
+    // 「[Opus 5.5] A second read replaces the first whole: what it no longer sends is gone.」
     f.sends[map.indexOf("session/update")] = false;
     f.sends[map.indexOf("fs/read_text_file")] = true;
     assert(storeShipped(db, "pi-acp", "bb", map, f, 200));
@@ -2266,15 +2266,15 @@ unittest {
     assert(sqlite3_step(st) == SQLITE_DONE);
     sqlite3_finalize(st);
 
-    // What is stored is the pin's it was measured at: rows of another rev are not this pin's.
+    // 「[Opus 5.5] What is stored is the pin's it was measured at: rows of another rev are not this pin's.」
     assert(storedAt(db, "pi-acp", "bb") == 200);
     assert(storedAt(db, "pi-acp", "aa") == 0);
     assert(storedAt(db, "other", "bb") == 0);
     sqlite3_close(db);
 }
 
-// When the shipped agent's methods were last stored for rev, or 0 when they were stored for none:
-// rows of another pin are that pin's, and are not said beside this one.
+// 「[Opus 5.5] When the shipped agent's methods were last stored for rev, or 0 when they were stored for none:」
+// 「[Opus 5.5] rows of another pin are that pin's, and are not said beside this one.」
 long storedAt(sqlite3* db, const(char)[] agent, const(char)[] rev) {
     long at = 0;
     sqlite3_stmt* st;
@@ -2451,7 +2451,7 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
                 put(percentText(cell, pb)); put("\n");
                 putEventKeys("  in   ", ic, it, input, reads);
                 putEventKeys("  out  ", oc, ot, output, writes);
-                // libacp's client side of the same method, on the spec turned round.
+                // 「[Opus 5.5] libacp's client side of the same method, on the spec turned round.」
                 if (pin.agent == "acp" && clientHas(event)) {
                     auto client = &sideFor("acp-client", event);
                     put("libacp client "); put(pin.release); put("  "); put(event); put("  ");
@@ -2620,7 +2620,7 @@ private __gshared Measured[maxShipped] shippedStatus;
 import shipped : maxShipped;
 
 // "and compare us against real shipped software instyead of comparing against a number that might not be real"
-// Per ACP method, ground code's coverage beside what each shipped agent's source does with it.
+// 「[Opus 5.5] Per ACP method, ground code's coverage beside what each shipped agent's source does with it.」
 private void shippedTable(sqlite3* db) {
     static struct ShipRow { char[48] method = 0; size_t len; ubyte[maxShipped] how; }
     static ShipRow[96] srows;
@@ -2642,7 +2642,7 @@ private void shippedTable(sqlite3* db) {
             auto how = cstr(sqlite3_column_text(st, 2));
             auto rev = cstr(sqlite3_column_text(st, 3));
             foreach (si; 0 .. shippedSet.count) {
-                // A row of another pin is that pin's, not this one's.
+                // 「[Opus 5.5] A row of another pin is that pin's, not this one's.」
                 if (shippedSet.items[si].name != agent || shippedSet.items[si].rev != rev) continue;
                 auto r = rowOf(cstr(sqlite3_column_text(st, 1)));
                 if (r is null) break;
@@ -2654,13 +2654,13 @@ private void shippedTable(sqlite3* db) {
     foreach (ref s; codeSides.items[0 .. codeSides.count]) rowOf(s.event);
     foreach (ref s; clientSides.items[0 .. clientSides.count]) rowOf(s.event);
 
-    // In method order, so a namespace reads together.
+    // 「[Opus 5.5] In method order, so a namespace reads together.」
     foreach (i; 1 .. n)
         for (size_t j = i; j > 0 && srows[j].method[0 .. srows[j].len] < srows[j - 1].method[0 .. srows[j - 1].len]; j--) {
             auto t = srows[j]; srows[j] = srows[j - 1]; srows[j - 1] = t;
         }
 
-    // Ground code's cell is its coverage under the acp pin, where the pinned schema names the method.
+    // 「[Opus 5.5] Ground code's cell is its coverage under the acp pin, where the pinned schema names the method.」
     ptrdiff_t acpPin = -1;
     foreach (pi, ref pin; pins) if (pin.agent == "acp" && acpPin < 0) acpPin = cast(ptrdiff_t) pi;
 
@@ -2695,7 +2695,7 @@ private void shippedTable(sqlite3* db) {
             }
         } else g("-");
         putPad(gb[0 .. gn], groundWidth);
-        // libacp's client side, under the same pin, where it has a function for the method.
+        // 「[Opus 5.5] libacp's client side, under the same pin, where it has a function for the method.」
         cell();
         char[8] cb;
         int clientCell = -1;

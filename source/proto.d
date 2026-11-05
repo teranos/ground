@@ -267,7 +267,7 @@ struct ParsedSentry {
 
 // "no double or split config, they all need to go to the same call from the same token"
 // "isnt there a top level place where its actually defined"
-// The qntx { } block and its reader, in a module of their own for ground code.
+// 「[Opus 5.5] The qntx { } block and its reader, in a module of their own for ground code.」
 public import qntxblock : ParsedQntx, parseQntxBlock;
 
 // A ritual is the only thing that can be invoked, and it lives inside the

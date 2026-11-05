@@ -20,8 +20,8 @@ unittest {
     assert(b.slice() == `Active deployment is running on: q.abcd.nl\nmanaged by\tdeployment repo`);
 }
 
-// A prompt's handler took 1430ms with nothing to say where; its row now names
-// each step it walked.
+// 「[Opus 5.5] A prompt's handler took 1430ms with nothing to say where; its row now names」
+// 「[Opus 5.5] each step it walked.」
 unittest {
     import userprompt : handleUserPromptSubmit;
     import hookrun : getPhases, setPhases;

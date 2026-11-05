@@ -1,17 +1,17 @@
 module read_test;
 
-// File System, "Reading files": "The `fs/read_text_file` method allows Agents to read text file
-// contents from the Client's filesystem, including unsaved changes in the editor." ground code offers
-// the model read_text_file, the request in the schema's words, when the client offers fs.readTextFile;
-// a call to it reads through the client, what it read the call's content, the client's answer the
-// model's.
+// 「[Opus 5.5] File System, "Reading files": "The `fs/read_text_file` method allows Agents to read text file」
+// 「[Opus 5.5] contents from the Client's filesystem, including unsaved changes in the editor." ground code offers」
+// 「[Opus 5.5] the model read_text_file, the request in the schema's words, when the client offers fs.readTextFile;」
+// 「[Opus 5.5] a call to it reads through the client, what it read the call's content, the client's answer the」
+// 「[Opus 5.5] model's.」
 
 import code;
 import code.prompt : putReadTool, READ_TOOL;
 import code.reply : Reply;
 import matcher : indexOf;
 
-// The tool, as the model is offered it: ReadTextFileRequest's path, line and limit.
+// 「[Opus 5.5] The tool, as the model is offered it: ReadTextFileRequest's path, line and limit.」
 unittest {
     Reply tools;
     scope(exit) tools.dispose();
@@ -28,8 +28,8 @@ version (Posix) private struct Ran {
     void dispose() { said.dispose(); asked.dispose(); answered.dispose(); history.dispose(); }
 }
 
-// A turn in mode, the client offering caps, whose model calls read_text_file with args and then
-// answers "done"; the client sends queued once the model has called.
+// 「[Opus 5.5] A turn in mode, the client offering caps, whose model calls read_text_file with args and then」
+// 「[Opus 5.5] answers "done"; the client sends queued once the model has called.」
 version (Posix) private void readTurn(const(char)[] caps, const(char)[] mode, const(char)[] args, const(char)[] queued, ref Ran ran) {
     import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2, alarm;
     import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
@@ -128,8 +128,8 @@ enum READS = `{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":tr
 enum ENDED = `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`;
 enum TEXT = `{"jsonrpc":"2.0","id":"read-1","result":{"content":"two\n"}}`;
 
-// Offered and read: the request carries line and limit as given; the call is a read, in plan mode
-// too, as reading changes nothing; what was read is its content, and the client's answer the model's.
+// 「[Opus 5.5] Offered and read: the request carries line and limit as given; the call is a read, in plan mode」
+// 「[Opus 5.5] too, as reading changes nothing; what was read is its content, and the client's answer the model's.」
 version (Posix) unittest {
     foreach (mode; ["bypassPermissions", "plan"]) {
         Ran ran;
@@ -138,7 +138,7 @@ version (Posix) unittest {
         assert(ran.answered.slice() == ENDED);
         assert(indexOf(ran.asked.slice(), `{"type":"function","function":{"name":"read_text_file","description":"Request to read content from a text file."`) >= 0);
         assert(indexOf(ran.said.slice(), `{"jsonrpc":"2.0","id":"read-1","method":"fs/read_text_file","params":{"sessionId":"code-100-7-1","path":"/tmp/a b","line":2,"limit":1}}`) >= 0);
-        // "Tool calls can report the file locations they're working with": the path, and the line read from.
+        // 「[Opus 5.5] "Tool calls can report the file locations they're working with": the path, and the line read from.」
         assert(indexOf(ran.said.slice(), `{"sessionUpdate":"tool_call","toolCallId":"r1","title":"read_text_file","name":"read_text_file","kind":"read","status":"in_progress",`
             ~ `"locations":[{"path":"/tmp/a b","line":2}],`) >= 0);
         assert(indexOf(ran.said.slice(), `{"sessionUpdate":"tool_call_update","toolCallId":"r1","status":"completed","rawOutput":` ~ TEXT
@@ -147,7 +147,7 @@ version (Posix) unittest {
     }
 }
 
-// The whole file when the model names no line or limit, and its location no line.
+// 「[Opus 5.5] The whole file when the model names no line or limit, and its location no line.」
 version (Posix) unittest {
     Ran ran;
     scope(exit) ran.dispose();
@@ -156,7 +156,7 @@ version (Posix) unittest {
     assert(indexOf(ran.said.slice(), `"locations":[{"path":"/tmp/a"}]`) >= 0);
 }
 
-// Asked in Manual: the permission names the file as the call does.
+// 「[Opus 5.5] Asked in Manual: the permission names the file as the call does.」
 version (Posix) unittest {
     Ran ran;
     scope(exit) ran.dispose();
@@ -168,7 +168,7 @@ version (Posix) unittest {
         ~ `"title":"read_text_file","name":"read_text_file","kind":"read","status":"pending","locations":[{"path":"/tmp/a","line":7}],`) >= 0);
 }
 
-// The client could not read it: the call failed with the client's answer, which the model is told.
+// 「[Opus 5.5] The client could not read it: the call failed with the client's answer, which the model is told.」
 version (Posix) unittest {
     Ran ran;
     scope(exit) ran.dispose();
@@ -179,8 +179,8 @@ version (Posix) unittest {
     assert(indexOf(ran.history.slice(), `"content":"{\"jsonrpc\":\"2.0\",\"id\":\"read-1\",\"error\":{\"code\":-32002,\"message\":\"no such file\"}}"}`) >= 0);
 }
 
-// A path that is not absolute, or a line or limit that is no uint32, is not asked of the client, and
-// names no location.
+// 「[Opus 5.5] A path that is not absolute, or a line or limit that is no uint32, is not asked of the client, and」
+// 「[Opus 5.5] names no location.」
 version (Posix) unittest {
     foreach (args; [`{\"path\":\"a b\"}`, `{\"path\":\"/tmp/a\",\"line\":-1}`, `{\"path\":\"/tmp/a\",\"limit\":4294967296}`, `{\"path\":\"/tmp/a\",\"line\":\"2\"}`]) {
         Ran ran;
@@ -194,8 +194,8 @@ version (Posix) unittest {
     }
 }
 
-// "If readTextFile ... is false or not present, the Agent MUST NOT attempt to call the corresponding
-// filesystem method": not offered, and a call by its name is no read.
+// 「[Opus 5.5] "If readTextFile ... is false or not present, the Agent MUST NOT attempt to call the corresponding」
+// 「[Opus 5.5] filesystem method": not offered, and a call by its name is no read.」
 version (Posix) unittest {
     Ran ran;
     scope(exit) ran.dispose();

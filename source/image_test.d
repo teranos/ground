@@ -1,8 +1,8 @@
 module image_test;
 
-// "Agent supports ContentBlock::Image": the image a client puts in a prompt is
-// read, given to the model as the gateway takes an image, and told back with
-// the rest of the conversation.
+// 「[Opus 5.5] "Agent supports ContentBlock::Image": the image a client puts in a prompt is」
+// 「[Opus 5.5] read, given to the model as the gateway takes an image, and told back with」
+// 「[Opus 5.5] the rest of the conversation.」
 
 import code;
 import code.prompt : promptText, Blocks, userMessage, replayHistory, unusableImage;
@@ -11,8 +11,8 @@ import matcher : indexOf;
 
 enum PNG = "iVBORw0KGgo=";
 
-// The prompt's images, each a mimeType and its data, ended by a NUL, in order,
-// beside its text: an image is something given, not a block refused.
+// 「[Opus 5.5] The prompt's images, each a mimeType and its data, ended by a NUL, in order,」
+// 「[Opus 5.5] beside its text: an image is something given, not a block refused.」
 unittest {
     Reply text, other, links, embedded, images, audio, said;
     scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); audio.dispose(); said.dispose(); }
@@ -22,16 +22,16 @@ unittest {
     assert(blocks == Blocks.read);
     assert(text.slice() == "what is this\nand this");
     assert(images.slice() == "image/png\0" ~ PNG ~ "\0image/jpeg\0/9j/\0");
-    // An image missing its data is still another kind, said by its type.
+    // 「[Opus 5.5] An image missing its data is still another kind, said by its type.」
     Reply t2, o2, l2, e2, i2, a2, s2;
     scope(exit) { t2.dispose(); o2.dispose(); l2.dispose(); e2.dispose(); i2.dispose(); a2.dispose(); s2.dispose(); }
     assert(promptText(`{"prompt":[{"type":"image","mimeType":"image/png"}]}`, t2, o2, l2, e2, i2, a2, s2) == Blocks.other);
     assert(o2.slice() == "image");
 }
 
-// The model is given the user's words and images as one message, as the
-// gateway takes them: a text part, then each image as an image_url holding a
-// data URL. Words alone stay a string, as they were.
+// 「[Opus 5.5] The model is given the user's words and images as one message, as the」
+// 「[Opus 5.5] gateway takes them: a text part, then each image as an image_url holding a」
+// 「[Opus 5.5] data URL. Words alone stay a string, as they were.」
 unittest {
     Reply h;
     scope(exit) h.dispose();
@@ -46,9 +46,9 @@ unittest {
     assert(h.slice() == `{"role":"user","content":"hi"}`);
 }
 
-// A data URL is "data:" mimeType ";base64," data: a mimeType that is no type
-// and subtype, or data that is not base64, would make it another URL, so the
-// image is refused by what is wrong with it.
+// 「[Opus 5.5] A data URL is "data:" mimeType ";base64," data: a mimeType that is no type」
+// 「[Opus 5.5] and subtype, or data that is not base64, would make it another URL, so the」
+// 「[Opus 5.5] image is refused by what is wrong with it.」
 unittest {
     assert(unusableImage("image/png", PNG) is null);
     assert(unusableImage("image/svg+xml", "PHN2Zz4=") is null);
@@ -58,8 +58,8 @@ unittest {
     assert(unusableImage("image/png", "") == "its data is empty");
 }
 
-// Told back on session/load: the user's words, then each image, as the user
-// gave them.
+// 「[Opus 5.5] Told back on session/load: the user's words, then each image, as the user」
+// 「[Opus 5.5] gave them.」
 unittest {
     Reply told;
     scope(exit) told.dispose();
@@ -73,7 +73,7 @@ unittest {
         ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"a pixel"}}` ~ "\n");
 }
 
-// "Other variants must be explicitly opted in to": ground code opts in to images.
+// 「[Opus 5.5] "Other variants must be explicitly opted in to": ground code opts in to images.」
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
@@ -82,8 +82,8 @@ unittest {
     assert(indexOf(r.slice(), `"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true}`) >= 0);
 }
 
-// An image the data URL cannot carry is refused before the model is asked, by
-// what is wrong with it.
+// 「[Opus 5.5] An image the data URL cannot carry is refused before the model is asked, by」
+// 「[Opus 5.5] what is wrong with it.」
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.contextSize = 200_000;
@@ -97,8 +97,8 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
 }
 
-// A turn with an image: the gateway is asked with the image in the user's
-// message, and the history keeps it, so the next turn and a load have it.
+// 「[Opus 5.5] A turn with an image: the gateway is asked with the image in the user's」
+// 「[Opus 5.5] message, and the history keeps it, so the next turn and a load have it.」
 version (Posix) unittest {
     import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2;
     import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;

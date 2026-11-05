@@ -35,8 +35,8 @@ struct Buf {
     }
 }
 
-// The text scanning matcher matches with, in a module of its own so what
-// needs only it does not compile the controls matcher matches against.
+// 「[Opus 5.5] The text scanning matcher matches with, in a module of its own so what」
+// 「[Opus 5.5] needs only it does not compile the controls matcher matches against.」
 public import scan;
 
 // Strip "git -C <path> " prefix, returning the normalized segment.

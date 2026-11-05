@@ -1,7 +1,7 @@
 module polling;
 
-// poll(2), the one declaration of it the binaries have: exec waits on a
-// script's pipes with it, and ground code on its client's input.
+// 「[Opus 5.5] poll(2), the one declaration of it the binaries have: exec waits on a」
+// 「[Opus 5.5] script's pipes with it, and ground code on its client's input.」
 
 extern (C) {
     struct pollfd {

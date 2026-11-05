@@ -10,13 +10,13 @@ enum BOOK_COMMAND = q"EOS
 ground decay
 EOS";
 
-// Every row decay has not decayed, by its predicate and age: step 1 and 2 read the rows they change and
-// no other. Built here, once, not by the store's schema, so the one read of every row it costs is
-// decay's, which make install runs, and not a hook's, which would wait it out.
+// 「[Opus 5.5] Every row decay has not decayed, by its predicate and age: step 1 and 2 read the rows they change and」
+// 「[Opus 5.5] no other. Built here, once, not by the store's schema, so the one read of every row it costs is」
+// 「[Opus 5.5] decay's, which make install runs, and not a hook's, which would wait it out.」
 enum UNDECAYED_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_undecayed ON attestations("
     ~ "json_extract(predicates, '$[0]'), created_at) WHERE json_extract(attributes, '$.decayed') IS NULL\0";
 
-// 1. Strip PostToolUse/PreToolUse attributes > 7 days
+// 「[Opus 5.5] 1. Strip PostToolUse/PreToolUse attributes > 7 days」
 enum STRIP_TOOL_USE = "UPDATE attestations SET attributes = json_object("
     ~ "'tool_name', json_extract(attributes, '$.tool_name'), "
     ~ "'file_path', json_extract(attributes, '$.tool_input.file_path'), "
@@ -27,7 +27,7 @@ enum STRIP_TOOL_USE = "UPDATE attestations SET attributes = json_object("
     ~ "AND created_at < datetime('now', '-7 days') "
     ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
 
-// 2. Strip SubagentStop attributes > 7 days
+// 「[Opus 5.5] 2. Strip SubagentStop attributes > 7 days」
 enum STRIP_SUBAGENT = "UPDATE attestations SET attributes = json_object("
     ~ "'session_id', json_extract(attributes, '$.session_id'), "
     ~ "'original_size', length(attributes), "
@@ -49,9 +49,9 @@ enum TIMING_AGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_timing_shipped_age ON ti
 enum DELETE_TIMING = "DELETE FROM timing INDEXED BY idx_timing_shipped_age "
     ~ "WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
 
-// 4. Immediate rows nobody claimed in seven days, and their receipts, once the node has them: a session
-// that ended marks nothing, so its rows stayed pending, 11,297 of them on 2026-09-22, 695ms a sky pass.
-// Receipts are found by a range over the predicate index, as a LIKE would read every row.
+// 「[Opus 5.5] 4. Immediate rows nobody claimed in seven days, and their receipts, once the node has them: a session」
+// 「[Opus 5.5] that ended marks nothing, so its rows stayed pending, 11,297 of them on 2026-09-22, 695ms a sky pass.」
+// 「[Opus 5.5] Receipts are found by a range over the predicate index, as a LIKE would read every row.」
 enum DROP_GONE = "DROP TABLE IF EXISTS temp.decay_gone\0";
 enum GONE_SELECT = "SELECT id FROM attestations "
     ~ "WHERE json_extract(predicates, '$[0]') >= 'immediate:' AND json_extract(predicates, '$[0]') < 'immediate;' "
@@ -64,7 +64,7 @@ enum DELETE_RECEIPTS = "DELETE FROM attestations WHERE json_extract(predicates, 
     ~ "AND substr(json_extract(predicates, '$[0]'), 11) IN (SELECT id FROM temp.decay_gone)\0";
 enum DELETE_IMMEDIATE = "DELETE FROM attestations WHERE id IN (SELECT id FROM temp.decay_gone)\0";
 
-// One step, run, and on failure said, which and as sqlite said it: decay ends on it.
+// 「[Opus 5.5] One step, run, and on failure said, which and as sqlite said it: decay ends on it.」
 private bool step(sqlite3* db, string sql, string what) {
     import db : sqlite3_errmsg;
     if (sqlite3_exec(db, sql.ptr, null, null, null) == SQLITE_OK) return true;
@@ -385,9 +385,9 @@ unittest {
     sqlite3_close(db);
 }
 
-// No step reads attestations whole: each finds its rows through an index, so none holds the write lock
-// longer than a hook waits for it. On 2026-10-30's 1.4 GB store a step that scanned held it 17.3 s, and
-// the hooks it held out were refused with SQLITE_BUSY.
+// 「[Opus 5.5] No step reads attestations whole: each finds its rows through an index, so none holds the write lock」
+// 「[Opus 5.5] longer than a hook waits for it. On 2026-10-30's 1.4 GB store a step that scanned held it 17.3 s, and」
+// 「[Opus 5.5] the hooks it held out were refused with SQLITE_BUSY.」
 unittest {
     import db : sqlite3_open, applySchema;
     import scan : indexOf;
@@ -411,12 +411,12 @@ unittest {
     sqlite3_close(db);
 }
 
-// A step that fails ends decay, and says which and why: an error is never dropped.
+// 「[Opus 5.5] A step that fails ends decay, and says which and why: an error is never dropped.」
 unittest {
     import db : sqlite3_open;
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
-    // No schema: the first step, the index on attestations, has no table to stand on.
+    // 「[Opus 5.5] No schema: the first step, the index on attestations, has no table to stand on.」
     assert(decayDb(db) == 1);
     sqlite3_close(db);
 }

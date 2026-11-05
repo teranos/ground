@@ -1,11 +1,11 @@
-// echo_server: an MCP server on stdio, at 2025-11-25, offering one tool, echo, that answers echoed.
-// It refuses server/discover as a server from before 2026-07-28 does, so a client falls back.
+// 「[Opus 5.5] echo_server: an MCP server on stdio, at 2025-11-25, offering one tool, echo, that answers echoed.」
+// 「[Opus 5.5] It refuses server/discover as a server from before 2026-07-28 does, so a client falls back.」
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
 #include <string.h>
 
-// The text of a request's id, as it stands in the line, or NULL for a notification.
+// 「[Opus 5.5] The text of a request's id, as it stands in the line, or NULL for a notification.」
 static const char *id_of(const char *line, size_t *length) {
     const char *at = strstr(line, "\"id\":");
     if (at == NULL) return NULL;
@@ -22,7 +22,7 @@ static const char *id_of(const char *line, size_t *length) {
     return at;
 }
 
-// The method as the line spells it, each / as it is or as JSON may write it, \/.
+// 「[Opus 5.5] The method as the line spells it, each / as it is or as JSON may write it, \/.」
 static int method_is(const char *line, const char *method) {
     char want[64], escaped[96];
     snprintf(want, sizeof want, "\"method\":\"%s\"", method);

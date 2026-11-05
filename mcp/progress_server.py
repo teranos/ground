@@ -1,6 +1,6 @@
 import json, sys
-# One tool that reports its progress on the token its call carries: twice with
-# a message and once without, then answers with the token it was given.
+# 「[Opus 5.5] One tool that reports its progress on the token its call carries: twice with」
+# 「[Opus 5.5] a message and once without, then answers with the token it was given.」
 def send(x): print(json.dumps(x), flush=True)
 for line in sys.stdin:
     q=json.loads(line); m=q['method']; p=q.get('params',{})

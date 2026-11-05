@@ -22,7 +22,7 @@ static assert(toolOf("echo") == "echo");
 
 // The prompt's text blocks, in order, one line each; a resource_link is handed
 // back to be read, a name and a uri each; a block of another kind has no text
-// to give, and its type is said instead of dropped. libacp reads the blocks.
+// 「[Opus 5.5] to give, and its type is said instead of dropped. libacp reads the blocks.」
 private struct Read {
     Reply text, other, links, embedded, images, audio, said;
     Blocks blocks;
@@ -51,15 +51,15 @@ unittest {
     assert(otherIs(`{"prompt":[{"type":"resource_link","uri":"file:///a","name":"a"}]}`, "all text"));
     assert(linksAre(`{"prompt":[{"type":"text","text":"see"},{"type":"resource_link","uri":"file:///a","name":"a"},{"type":"resource_link","name":"b","uri":"file:///b"}]}`,
         "a\0file:///a\0b\0file:///b\0"));
-    // "required": name and uri. A link missing one is no link to read.
+    // 「[Opus 5.5] "required": name and uri. A link missing one is no link to read.」
     assert(otherIs(`{"prompt":[{"type":"resource_link","uri":"file:///a"}]}`, "resource_link"));
     assert(otherIs(`{"prompt":[{"text":"a"}]}`, ""));
     assert(otherIs(`{"prompt":[{"type":"text","text":"a"}]}`, "all text"));
     assert(otherIs(`{"prompt":[]}`, "all text"));
-    // embeddedContext: "the Client is allowed to include ContentBlock::Resource in
-    // prompt requests for pieces of context that are referenced in the message".
-    // A text resource is handed back by its uri and its text; one holding a blob
-    // has no text to give the model, and is said, not dropped.
+    // 「[Opus 5.5] embeddedContext: "the Client is allowed to include ContentBlock::Resource in」
+    // 「[Opus 5.5] prompt requests for pieces of context that are referenced in the message".」
+    // 「[Opus 5.5] A text resource is handed back by its uri and its text; one holding a blob」
+    // 「[Opus 5.5] has no text to give the model, and is said, not dropped.」
     assert(embeddedIs(`{"prompt":[{"type":"text","text":"see"},{"type":"resource","resource":{"uri":"file:///a.d","mimeType":"text/x-d","text":"int x;"}}]}`,
         "file:///a.d\0int x;\0"));
     assert(otherIs(`{"prompt":[{"type":"resource","resource":{"uri":"file:///a.d","text":"int x;"}}]}`, "all text"));
@@ -68,7 +68,7 @@ unittest {
     assert(otherIs(`{"prompt":[{"type":"resource","resource":{"text":"no uri"}}]}`, "resource"));
     assert(textIs(`{"prompt":[{"type":"text","text":"say \"hi\""}]}`, `say "hi"`));
     assert(textIs(`{"prompt":[]}`, ""));
-    // prompt is required: a request with none, or one only in _meta, has no prompt to read.
+    // 「[Opus 5.5] prompt is required: a request with none, or one only in _meta, has no prompt to read.」
     static immutable string[2] promptless = [`{}`, `{"_meta":{"prompt":[]}}`];
     foreach (params; promptless) {
         auto p = Read(params); scope(exit) p.dispose();
@@ -167,16 +167,16 @@ unittest {
     assert(!readOnlyTool(group, "other__look"));
 }
 
-// A call's title, "Human-readable title describing what the tool is doing",
-// is the tool's own, as MCP orders it: its title, "Intended for UI and
-// end-user contexts", else annotations.title, "A human-readable title for the
-// tool"; a tool with neither, or none the catalogue has, keeps its name.
+// 「[Opus 5.5] A call's title, "Human-readable title describing what the tool is doing",」
+// 「[Opus 5.5] is the tool's own, as MCP orders it: its title, "Intended for UI and」
+// 「[Opus 5.5] end-user contexts", else annotations.title, "A human-readable title for the」
+// 「[Opus 5.5] tool"; a tool with neither, or none the catalogue has, keeps its name.」
 unittest {
     import code.mcp : McpGroup, McpServer, McpPage;
     import code.prompt : toolTitle;
     enum page = `{"result":{"tools":[{"name":"look","title":"Look around","annotations":{"title":"Glance"}},`
         ~ `{"name":"touch","annotations":{"title":"Touch a file"}},{"name":"plain"},{"name":"blank","title":""},`
-        // A title holding a NUL is none: the title is written as a C string, which would end at it.
+        // 「[Opus 5.5] A title holding a NUL is none: the title is written as a C string, which would end at it.」
         ~ `{"name":"cut","title":"Cut\u0000here","annotations":{"title":"Cut it"}},{"name":"lead","title":"\u0000Lead"},`
         ~ `{"name":"both","title":"a\u0000","annotations":{"title":"\u0000b"}}]}}`;
     McpPage p;
@@ -202,14 +202,14 @@ unittest {
     assert(titled("fs__both", "fs__both"));
 }
 
-// A call told back on session/load has the title it had live.
+// 「[Opus 5.5] A call told back on session/load has the title it had live.」
 unittest {
     import code.prompt : replayHistory;
     import matcher : indexOf;
     Reply told;
     scope(exit) told.dispose();
     bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
-    // The call's id comes with its tool, so the title it was shown with can be found.
+    // 「[Opus 5.5] The call's id comes with its tool, so the title it was shown with can be found.」
     void title(const(char)[] id, const(char)[] tool, ref Reply t) { t.add(id == "c1" && tool == "fs__look" ? "Look around" : tool); }
     assert(replayHistory(`{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"fs__look","arguments":"{}"}}]}`,
         &send, null, &title));
@@ -314,7 +314,7 @@ unittest {
     import code.prompt : putToolCall;
     import code.reply : Reply;
     import matcher : indexOf;
-    // The update libacp writes for a call that answered output: its content, or none.
+    // 「[Opus 5.5] The update libacp writes for a call that answered output: its content, or none.」
     bool shows(const(char)[] output, const(char)[] want) {
         Reply u;
         scope(exit) u.dispose();
@@ -367,8 +367,8 @@ unittest {
     assert(indexOf(out_, `"content":[{"type":"content","content":{"type":"text","text":"seen"}}]}`) >= 0);
 }
 
-// A call ground code reads or writes a file with is told back on session/load with the location it
-// had live; an MCP tool's arguments name no file ground code knows of, so its call has none.
+// 「[Opus 5.5] A call ground code reads or writes a file with is told back on session/load with the location it」
+// 「[Opus 5.5] had live; an MCP tool's arguments name no file ground code knows of, so its call has none.」
 unittest {
     import code.prompt : replayHistory;
     import matcher : indexOf;

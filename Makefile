@@ -31,8 +31,8 @@ wind: tools/wind.d tools/filelist.d tools/openapi.d tools/floor.d tools/machine.
 # modules the entry point reaches, so no list of them is kept by hand.
 # -d-version=Floor: an engine is built from ground's tracked controls alone (source/sand/text.d).
 BIN_FLAGS = -betterC --lowmem -O -release -d-version=Floor -J=. -I=source -i
-# -betterC and -O are for the hooks, started once an event. ground code runs a whole client
-# session and waits on the network, not the CPU: unoptimised, it compiles in 16 s, not 45 s.
+# 「[Opus 5.5] -betterC and -O are for the hooks, started once an event. ground code runs a whole client」
+# 「[Opus 5.5] session and waits on the network, not the CPU: unoptimised, it compiles in 16 s, not 45 s.」
 ground_code: BIN_FLAGS = --lowmem -release -d-version=Floor -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
@@ -152,7 +152,7 @@ test-mcp: build ground_code
 	ldc2 -betterC -I=source -of=build/abort-test mcp/abort.d source/code/mcp.d source/code/reply.d source/libjsonc.d $(MCP_LIBS)
 	python3 mcp/test_abort.py build/abort-test
 
-# The live checks' driver and the MCP servers they hand a session: C11 and POSIX, under libacp's warnings.
+# 「[Opus 5.5] The live checks' driver and the MCP servers they hand a session: C11 and POSIX, under libacp's warnings.」
 LIVE_CFLAGS = -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes \
 	-Wmissing-prototypes -Wcast-qual -Wformat=2 -Wundef -Wvla -Wnull-dereference -Wimplicit-fallthrough
 build/acp_live: mcp/live/acp_live.c

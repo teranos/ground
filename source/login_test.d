@@ -1,9 +1,9 @@
 module login_test;
 
-// ground code's sign-in to its QNTX node, against a node that answers as
-// QNTX's server/auth/device.go does: /auth/device starts it, /auth/token says
-// authorization_pending until the person says yes at the passkey, then gives
-// the token, once.
+// 「[Opus 5.5] ground code's sign-in to its QNTX node, against a node that answers as」
+// 「[Opus 5.5] QNTX's server/auth/device.go does: /auth/device starts it, /auth/token says」
+// 「[Opus 5.5] authorization_pending until the person says yes at the passkey, then gives」
+// 「[Opus 5.5] the token, once.」
 
 import code.login;
 import code.reply : Reply;
@@ -16,8 +16,8 @@ import core.sys.posix.netinet.in_ : sockaddr_in, htons, htonl, INADDR_LOOPBACK;
 import core.sys.posix.sys.wait : waitpid;
 import matcher : indexOf;
 
-// A node that answers each request in turn with the next of answers, and
-// writes each request it was sent, a NUL after it, into heard.
+// 「[Opus 5.5] A node that answers each request in turn with the next of answers, and」
+// 「[Opus 5.5] writes each request it was sent, a NUL after it, into heard.」
 private struct Node {
     int pid;
     int heard;
@@ -26,7 +26,7 @@ private struct Node {
     const(char)[] url() return { return urlBuf[0 .. urlLen]; }
 }
 
-// A line the client writes to ground code's input while the node's last request is in flight.
+// 「[Opus 5.5] A line the client writes to ground code's input while the node's last request is in flight.」
 private __gshared int meanwhileFd = -1;
 private __gshared string meanwhile;
 
@@ -43,9 +43,9 @@ private Node node(string[] answers...) {
     assert(pipe(p) == 0);
     auto child = fork();
     if (child == 0) {
-        // A test that failed before it heard the node leaves it waiting on a
-        // request that never comes; it ends on its own rather than holding
-        // the test's output open.
+        // 「[Opus 5.5] A test that failed before it heard the node leaves it waiting on a」
+        // 「[Opus 5.5] request that never comes; it ends on its own rather than holding」
+        // 「[Opus 5.5] the test's output open.」
         import core.sys.posix.unistd : alarm;
         alarm(30);
         close(p[0]);
@@ -53,7 +53,7 @@ private Node node(string[] answers...) {
             auto c = accept(fd, null, null);
             char[8192] got;
             size_t have = 0;
-            // The head, then as much body as it says.
+            // 「[Opus 5.5] The head, then as much body as it says.」
             while (have < got.length) {
                 auto r = read(c, got.ptr + have, got.length - have);
                 if (r <= 0) break;
@@ -67,7 +67,7 @@ private Node node(string[] answers...) {
             }
             write(p[1], got.ptr, have);
             write(p[1], "\0".ptr, 1);
-            // What the client says while this request is in flight, before it is answered.
+            // 「[Opus 5.5] What the client says while this request is in flight, before it is answered.」
             if (answer is answers[$ - 1] && meanwhileFd >= 0)
                 write(meanwhileFd, meanwhile.ptr, meanwhile.length);
             write(c, answer.ptr, answer.length);
@@ -87,9 +87,9 @@ private Node node(string[] answers...) {
     return n;
 }
 
-// Every request the node was sent. What it still waits to be asked never
-// comes once the calls are over, so it is stopped first: a request ground
-// code did not make fails the test rather than hanging it.
+// 「[Opus 5.5] Every request the node was sent. What it still waits to be asked never」
+// 「[Opus 5.5] comes once the calls are over, so it is stopped first: a request ground」
+// 「[Opus 5.5] code did not make fails the test rather than hanging it.」
 private const(char)[] heardAll(ref Node n) {
     import core.sys.posix.signal : kill, SIGKILL;
     kill(n.pid, SIGKILL);
@@ -122,8 +122,8 @@ enum TOKEN = http!("200 OK", `{"access_token":"qntx_abc123","token_type":"Bearer
 enum EXPIRED = http!("400 Bad Request", `{"error":"expired_token","error_description":"nobody said yes within 10m0s"}`);
 
 // "label names the agent asking, which the person reads before saying yes":
-// the sign-in is asked for as ground code, a form, and what the node answers
-// is read whole.
+// 「[Opus 5.5] the sign-in is asked for as ground code, a form, and what the node answers」
+// 「[Opus 5.5] is read whole.」
 unittest {
     auto n = node(DEVICE);
     SignIn s;
@@ -141,7 +141,7 @@ unittest {
     assert(s.interval == 0);
 }
 
-// What the node refuses with is said as it said it.
+// 「[Opus 5.5] What the node refuses with is said as it said it.」
 unittest {
     auto n = node(http!("400 Bad Request", `{"error":"label names the agent asking"}`));
     SignIn s;
@@ -154,10 +154,10 @@ unittest {
     assert(indexOf(why.slice(), `/auth/device`) >= 0);
 }
 
-// The token endpoint is asked with RFC 8628's grant and the device code, form
-// encoded: waiting while it says authorization_pending, five seconds more
-// between asks on slow_down, then the token; and over on expired_token, the
-// node's words kept.
+// 「[Opus 5.5] The token endpoint is asked with RFC 8628's grant and the device code, form」
+// 「[Opus 5.5] encoded: waiting while it says authorization_pending, five seconds more」
+// 「[Opus 5.5] between asks on slow_down, then the token; and over on expired_token, the」
+// 「[Opus 5.5] node's words kept.」
 unittest {
     auto n = node(PENDING, SLOW, TOKEN);
     SignIn s;
@@ -182,9 +182,9 @@ unittest {
     assert(indexOf(over.slice(), `expired_token`) >= 0 && indexOf(over.slice(), `nobody said yes within 10m0s`) >= 0);
 }
 
-// The token is kept where every ground reads it: its directory made, the file
-// only its owner's, replaced whole; and dropped again, a file that is not
-// there being nothing to drop.
+// 「[Opus 5.5] The token is kept where every ground reads it: its directory made, the file」
+// 「[Opus 5.5] only its owner's, replaced whole; and dropped again, a file that is not」
+// 「[Opus 5.5] there being nothing to drop.」
 unittest {
     import core.sys.posix.sys.stat : stat_t, stat, S_IFMT, S_IFDIR;
     import core.sys.posix.unistd : getpid;
@@ -215,9 +215,9 @@ unittest {
     cast(void) dl;
 }
 
-// `ground code login`: the link and the code said, the node asked until the
-// person said yes, and the token kept; exit 0. A sign-in nobody said yes to
-// is said as the node said it; exit 1 and nothing kept.
+// 「[Opus 5.5] `ground code login`: the link and the code said, the node asked until the」
+// 「[Opus 5.5] person said yes, and the token kept; exit 0. A sign-in nobody said yes to」
+// 「[Opus 5.5] is said as the node said it; exit 1 and nothing kept.」
 unittest {
     import core.sys.posix.unistd : getpid, unlink, rmdir;
     import core.stdc.stdio : snprintf;
@@ -245,17 +245,17 @@ unittest {
     assert(qntxToken(file[0 .. fl]) is null);
 }
 
-// ---- What ground code says of signing in, over ACP. ----
+// 「[Opus 5.5] ---- What ground code says of signing in, over ACP. ----」
 
 import code : Sessions, answer, Input;
 
 enum METHODS_BOTH = `[{"id":"qntx","name":"Sign in to QNTX","description":"Open the link ground code gives, and approve it at your QNTX node with your passkey"},`
     ~ `{"type":"terminal","id":"qntx-terminal","name":"Sign in to QNTX in a terminal","description":"Runs ground_code login, which prints the link to approve at your QNTX node with your passkey","args":["login"]}]`;
 
-// "Agents MUST advertise this method only when the client enabled its
-// terminal authentication capability": the terminal method to a client that
-// runs one, the agent method to a client that can send the person to a link,
-// and logout to every client.
+// 「[Opus 5.5] "Agents MUST advertise this method only when the client enabled its」
+// 「[Opus 5.5] terminal authentication capability": the terminal method to a client that」
+// 「[Opus 5.5] runs one, the agent method to a client that can send the person to a link,」
+// 「[Opus 5.5] and logout to every client.」
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
@@ -272,9 +272,9 @@ unittest {
     assert(indexOf(r.slice(), `"authMethods":[]`) >= 0);
 }
 
-// "The client MUST NOT pass this method to authenticate"; and the agent
-// method sends the person to a link, which a client offering no url
-// elicitation cannot be asked to.
+// 「[Opus 5.5] "The client MUST NOT pass this method to authenticate"; and the agent」
+// 「[Opus 5.5] method sends the person to a link, which a client offering no url」
+// 「[Opus 5.5] elicitation cannot be asked to.」
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
@@ -286,8 +286,8 @@ unittest {
     assert(r.slice() == `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"qntx sends the person to their node's link, and the client offers no url elicitation"}}`);
 }
 
-// A turn's worth of ACP: ground code answers line with the client's answers
-// already queued in its input, and what it writes the client is kept.
+// 「[Opus 5.5] A turn's worth of ACP: ground code answers line with the client's answers」
+// 「[Opus 5.5] already queued in its input, and what it writes the client is kept.」
 private struct Spoken {
     Reply reply;
     char[65536] said = 0;
@@ -327,8 +327,8 @@ private const(char)[] tokenFile(ref char[160] buf, string name) {
     return buf[0 .. cast(size_t) n];
 }
 
-// q's token is kept in ~/.qntx/token: a test borrows a home of its own, so nobody's token is touched,
-// and gives back the home the tests after it run in, every byte. QNTX_TOKEN, read first, is unset.
+// 「[Opus 5.5] q's token is kept in ~/.qntx/token: a test borrows a home of its own, so nobody's token is touched,」
+// 「[Opus 5.5] and gives back the home the tests after it run in, every byte. QNTX_TOKEN, read first, is unset.」
 private __gshared char[512] keptHome = 0;
 private __gshared size_t keptLen;
 private __gshared bool hadHome;
@@ -352,13 +352,13 @@ private void giveBackHome() {
     if (hadHome) setenv("HOME", keptHome.ptr, 1); else unsetenv("HOME");
 }
 
-// Auth is q's, the block's gateway; its url and token file are k's, the hooks' node, and are left alone.
+// 「[Opus 5.5] Auth is q's, the block's gateway; its url and token file are k's, the hooks' node, and are left alone.」
 enum K_URL = "http://127.0.0.1:9";
 enum K_TOKEN = "/tmp/ground-k-token-left-alone";
 
-// authenticate qntx: q starts a sign-in, the person is sent to its link by an elicitation tied to the
-// authenticate request, q is asked until they said yes, its token is kept in ~/.qntx/token, the
-// elicitation is said complete, and authenticate is answered.
+// 「[Opus 5.5] authenticate qntx: q starts a sign-in, the person is sent to its link by an elicitation tied to the」
+// 「[Opus 5.5] authenticate request, q is asked until they said yes, its token is kept in ~/.qntx/token, the」
+// 「[Opus 5.5] elicitation is said complete, and authenticate is answered.」
 unittest {
     import attest : qntxToken;
     import core.sys.posix.unistd : unlink, access, F_OK;
@@ -368,7 +368,7 @@ unittest {
     s.node.gateway = cast(string) n.url;
     s.node.url = K_URL;
     s.node.token = K_TOKEN;
-    // From no k token, so one an aborted run left cannot stand in for one this run wrote.
+    // 「[Opus 5.5] From no k token, so one an aborted run left cannot stand in for one this run wrote.」
     unlink(K_TOKEN.ptr);
     borrowHome("auth");
     scope(exit) giveBackHome();
@@ -391,8 +391,8 @@ unittest {
     unlink(kept.ptr);
 }
 
-// The person declines, the client calls authenticate off, or nobody says yes:
-// each is said to the client as it happened, and nothing is kept.
+// 「[Opus 5.5] The person declines, the client calls authenticate off, or nobody says yes:」
+// 「[Opus 5.5] each is said to the client as it happened, and nothing is kept.」
 unittest {
     import attest : qntxToken;
     Sessions s = Sessions(100, 7); s.initialized = true;
@@ -433,9 +433,9 @@ unittest {
     assert(qntxToken("") is null);
 }
 
-// logout drops q's token, the one ground code signed in with; k's is left alone:
+// 「[Opus 5.5] logout drops q's token, the one ground code signed in with; k's is left alone:」
 // "Terminates the current authenticated session."
-// A second logout has nothing left to drop, and one QNTX_TOKEN gives, read before the file, it cannot end.
+// 「[Opus 5.5] A second logout has nothing left to drop, and one QNTX_TOKEN gives, read before the file, it cannot end.」
 unittest {
     import attest : qntxToken, qntxTokenFile;
     import core.sys.posix.stdlib : setenv, unsetenv;
@@ -470,14 +470,14 @@ unittest {
         answer(`{"jsonrpc":"2.0","id":9,"method":"logout","params":{}}`, r, s);
         assert(r.slice() == `{"jsonrpc":"2.0","id":9,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
     }
-    // The home the tests after this one run in is the one they were given, every byte.
+    // 「[Opus 5.5] The home the tests after this one run in is the one they were given, every byte.」
     auto isHome = getenv("HOME");
     assert((wasHome is null) == (isHome is null));
     if (isHome !is null) assert(strlen(isHome) == wasLen && isHome[0 .. wasLen] == keptHome[0 .. wasLen]);
 }
 
-// A 401 from the node is "Authentication required": its answer is the
-// client's, and the client can sign in again.
+// 「[Opus 5.5] A 401 from the node is "Authentication required": its answer is the」
+// 「[Opus 5.5] client's, and the client can sign in again.」
 unittest {
     enum refused = http!("401 Unauthorized", `{"error":"token expired"}`);
     auto n = node(refused);
@@ -495,8 +495,8 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
 }
 
-// One token: what ground code signed in with, ~/.qntx/token, is what it prompts q with. The block's
-// token file is k's, and no prompt carries it.
+// 「[Opus 5.5] One token: what ground code signed in with, ~/.qntx/token, is what it prompts q with. The block's」
+// 「[Opus 5.5] token file is k's, and no prompt carries it.」
 unittest {
     import attest : qntxTokenFile;
     import core.sys.posix.unistd : unlink;
@@ -523,9 +523,9 @@ unittest {
     assert(indexOf(heard, "qntx_k") < 0);
 }
 
-// A token longer than ground reads back is not kept, and says so: it was kept whole and read back
-// cut to 512 bytes, so every later request sent the cut one and was refused. One on disk that is
-// longer than ground reads is no token, never the start of one.
+// 「[Opus 5.5] A token longer than ground reads back is not kept, and says so: it was kept whole and read back」
+// 「[Opus 5.5] cut to 512 bytes, so every later request sent the cut one and was refused. One on disk that is」
+// 「[Opus 5.5] longer than ground reads is no token, never the start of one.」
 unittest {
     import core.sys.posix.unistd : getpid, unlink, rmdir;
     import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
@@ -543,12 +543,12 @@ unittest {
     assert(indexOf(why.slice(), "longer than") >= 0, why.slice());
     assert(qntxToken(file[0 .. fl]) is null);
 
-    // At the most ground reads, it is kept and read back whole.
+    // 「[Opus 5.5] At the most ground reads, it is kept and read back whole.」
     why.dispose();
     assert(keepToken(file.ptr, long_[0 .. TOKEN_MAX], why), why.slice());
     assert(qntxToken(file[0 .. fl]) == long_[0 .. TOKEN_MAX]);
 
-    // Written longer by something else, it is no token.
+    // 「[Opus 5.5] Written longer by something else, it is no token.」
     auto fd = open(file.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x180);
     assert(fd >= 0);
     assert(write(fd, long_.ptr, long_.length) == long_.length);
@@ -557,8 +557,8 @@ unittest {
     unlink(file.ptr);
 }
 
-// A sign-in the client calls off while the node is being asked for the token is called off, and
-// keeps nothing, though the node's answer is the token: the cancel was asked before only.
+// 「[Opus 5.5] A sign-in the client calls off while the node is being asked for the token is called off, and」
+// 「[Opus 5.5] keeps nothing, though the node's answer is the token: the cancel was asked before only.」
 unittest {
     import attest : qntxToken;
     import core.sys.posix.unistd : dup, dup2;
@@ -597,8 +597,8 @@ unittest {
     assert(qntxToken("") is null);
 }
 
-// The token is written to a file only this sign-in made: one standing at its name beforehand, a
-// link another user planted to read what comes, is not written through.
+// 「[Opus 5.5] The token is written to a file only this sign-in made: one standing at its name beforehand, a」
+// 「[Opus 5.5] link another user planted to read what comes, is not written through.」
 unittest {
     import core.sys.posix.unistd : getpid, unlink, symlink, read, close;
     import core.sys.posix.fcntl : open, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC;
