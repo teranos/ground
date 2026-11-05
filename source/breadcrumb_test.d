@@ -1,8 +1,8 @@
 module breadcrumb_test;
 
-// A breadcrumb lands in the directory its path names, or nowhere: a home longer than the path
-// holds was cut, and the breadcrumb was written into the directory the cut named, which is not
-// the one anyone reads.
+// 「[Opus 5.5] A breadcrumb lands in the directory its path names, or nowhere: a home longer than the path」
+// 「[Opus 5.5] holds was cut, and the breadcrumb was written into the directory the cut named, which is not」
+// 「[Opus 5.5] the one anyone reads.」
 import errors : errorsDirIn, crumbPathIn;
 
 unittest {
