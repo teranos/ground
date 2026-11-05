@@ -706,7 +706,30 @@ bool transcriptStands(const(char)[] projects, const(char)[] session) {
         foreach (c; session) path[k++] = c;
         foreach (c; ".jsonl") path[k++] = c;
         path[k] = 0;
-        if (access(path.ptr, F_OK) == 0) return true;
+        if (access(path.ptr, F_OK) == 0) return holdsConversation(path.ptr);
+    }
+    return false;
+}
+
+// Whether the file at path is a regular transcript with a message in it, user's or assistant's,
+// within its first 64 KiB: an empty one, or a directory named as one, has no conversation to resume.
+private bool holdsConversation(const(char)* path) {
+    import core.sys.posix.sys.stat : stat_t, stat, S_IFMT, S_IFREG;
+    import core.sys.posix.fcntl : open, O_RDONLY;
+    import core.sys.posix.unistd : read, close;
+    stat_t st;
+    if (stat(path, &st) != 0 || (st.st_mode & S_IFMT) != S_IFREG || st.st_size == 0) return false;
+    auto fd = open(path, O_RDONLY);
+    if (fd < 0) return false;
+    scope(exit) close(fd);
+    __gshared char[65536] head = 0;
+    auto n = read(fd, head.ptr, head.length);
+    if (n <= 0) return false;
+    auto text = head[0 .. cast(size_t) n];
+    foreach (want; [`"type":"user"`, `"type":"assistant"`]) {
+        if (text.length < want.length) continue;
+        foreach (i; 0 .. text.length - want.length + 1)
+            if (text[i .. i + want.length] == want) return true;
     }
     return false;
 }

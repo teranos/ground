@@ -20,8 +20,18 @@ unittest {
     snprintf(file.ptr, file.length, "%s/-Users-u-repo/05cf89a6-7fcb-41c9-b8cb-c38f12ab8f8f.jsonl", base.ptr);
     assert(mkdir(dir.ptr, 493) == 0);
     auto f = fopen(file.ptr, "w");
+    import core.stdc.stdio : fputs;
+    fputs(`{"type":"user","message":{"role":"user","content":"go"}}` ~ "\n", f);
     fclose(f);
-    scope(exit) { unlink(file.ptr); rmdir(dir.ptr); rmdir(base.ptr); }
+    // An empty transcript, and a directory named as one, hold no conversation to resume.
+    char[256] empty = 0, named = 0;
+    snprintf(empty.ptr, empty.length, "%s/-Users-u-repo/e0e0e0e0-0000-0000-0000-000000000000.jsonl", base.ptr);
+    snprintf(named.ptr, named.length, "%s/-Users-u-repo/d1d1d1d1-0000-0000-0000-000000000000.jsonl", base.ptr);
+    fclose(fopen(empty.ptr, "w"));
+    assert(mkdir(named.ptr, 493) == 0);
+    scope(exit) { unlink(file.ptr); unlink(empty.ptr); rmdir(named.ptr); rmdir(dir.ptr); rmdir(base.ptr); }
+    assert(!transcriptStands(base[0 .. n], "e0e0e0e0-0000-0000-0000-000000000000"), "an empty transcript is no conversation");
+    assert(!transcriptStands(base[0 .. n], "d1d1d1d1-0000-0000-0000-000000000000"), "a directory is no transcript");
 
     assert(transcriptStands(base[0 .. n], "05cf89a6-7fcb-41c9-b8cb-c38f12ab8f8f"));
     assert(!transcriptStands(base[0 .. n], "27c94e9d-584e-4dea-b3e0-33428b8fc939"), "no transcript, no resume");
