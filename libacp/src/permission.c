@@ -34,6 +34,18 @@ acp_status acp_permission_request_write(const acp_permission_request *request, a
     json_object_object_add(call, "status", json_object_new_string(request->status));
     if (locations != NULL) json_object_object_add(call, "locations", locations);
     json_object_object_add(call, "rawInput", input);
+    // "Exiting plan modes": the call shows what it asks about, as a tool call's content does.
+    if (request->content_text != NULL) {
+        json_object *text = json_object_new_object();
+        json_object_object_add(text, "type", json_object_new_string("text"));
+        json_object_object_add(text, "text", json_object_new_string(request->content_text));
+        json_object *block = json_object_new_object();
+        json_object_object_add(block, "type", json_object_new_string("content"));
+        json_object_object_add(block, "content", text);
+        json_object *content = json_object_new_array();
+        json_object_array_add(content, block);
+        json_object_object_add(call, "content", content);
+    }
     json_object *options = json_object_new_array();
     for (size_t i = 0; i < request->count; i++) {
         json_object *option = json_object_new_object();

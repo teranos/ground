@@ -107,6 +107,7 @@ extern (C) nothrow @nogc {
         size_t count;
         const(acp_location)* locations;
         size_t location_count;
+        const(char)* content_text;
     }
 
     struct acp_location {
@@ -264,6 +265,8 @@ extern (C) nothrow @nogc {
     acp_status acp_plan_write(const(char)*, size_t, acp_buffer*);
     acp_status acp_usage_update_write(ulong, ulong, const(char)*, const(char)*, acp_buffer*);
     acp_status acp_session_info_update_write(const(char)*, const(char)*, acp_buffer*);
+    acp_status acp_current_mode_update_write(const(char)*, acp_buffer*);
+    acp_status acp_config_option_update_write(const(char)*, acp_buffer*);
     acp_status acp_session_title_clear_write(const(char)*, acp_buffer*);
     acp_status acp_available_commands_update_write(const(char)*, acp_buffer*);
     acp_status acp_notice_write(const(char)*, const(char)*, const(char)*, acp_buffer*);

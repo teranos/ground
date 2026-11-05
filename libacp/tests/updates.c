@@ -171,6 +171,15 @@ static void others(void) {
     CHECK(acp_usage_update_write(124, 1000000, NULL, NULL, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"usage_update\",\"used\":124,\"size\":1000000}"));
     CHECK(acp_usage_update_write(1, 2, "lots", "USD", &out) == ACP_INVALID_ARGUMENT);
+    // "The Agent can also change its own mode and let the Client know by sending the current_mode_update".
+    CHECK(acp_current_mode_update_write("default", &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"default\"}"));
+    CHECK(acp_current_mode_update_write(NULL, &out) == ACP_INVALID_ARGUMENT);
+    // "notify the Client by sending a config_option_update": the complete configuration state.
+    CHECK(acp_config_option_update_write("[{\"id\":\"mode\",\"currentValue\":\"default\"}]", &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"mode\",\"currentValue\":\"default\"}]}"));
+    CHECK(acp_config_option_update_write("{\"id\":\"mode\"}", &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_config_option_update_write(NULL, &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_session_info_update_write("Fix the build", "2026-10-27T17:03:27Z", &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"session_info_update\",\"title\":\"Fix the build\",\"updatedAt\":\"2026-10-27T17:03:27Z\"}"));
     // "Set to null to clear."

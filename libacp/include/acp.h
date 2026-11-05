@@ -218,6 +218,7 @@ typedef struct acp_permission_request {
     size_t count;
     const acp_location *locations; // the call's locations, location_count of them; none when 0
     size_t location_count;
+    const char *content_text;      // the call's content, one text block; none when NULL
 } acp_permission_request;
 
 acp_status acp_permission_request_write(const acp_permission_request *request, acp_buffer *message_json);
@@ -397,6 +398,13 @@ acp_status acp_usage_update_write(unsigned long long used, unsigned long long si
     const char *currency, acp_buffer *update_json);
 
 // session_info_update: the title when one is given, and updatedAt.
+// "The Agent can also change its own mode and let the Client know by sending the
+// current_mode_update session notification": the update, for acp_session_update_write.
+acp_status acp_current_mode_update_write(const char *mode_id, acp_buffer *update_json);
+// "The Agent can also change configuration options and notify the Client by sending a
+// config_option_update": config_options_json is the complete configuration state, a JSON array,
+// as acp_config_options_write writes it.
+acp_status acp_config_option_update_write(const char *config_options_json, acp_buffer *update_json);
 acp_status acp_session_info_update_write(const char *title, const char *updated_at, acp_buffer *update_json);
 // session_info_update clearing the title, "Set to null to clear.", and updatedAt.
 acp_status acp_session_title_clear_write(const char *updated_at, acp_buffer *update_json);

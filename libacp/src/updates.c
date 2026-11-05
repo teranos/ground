@@ -245,6 +245,27 @@ acp_status acp_usage_update_write(unsigned long long used, unsigned long long si
     return acp_finish(update, update_json);
 }
 
+acp_status acp_current_mode_update_write(const char *mode_id, acp_buffer *update_json) {
+    if (mode_id == NULL || update_json == NULL) return ACP_INVALID_ARGUMENT;
+    json_object *update = json_object_new_object();
+    add_string(update, "sessionUpdate", "current_mode_update");
+    add_string(update, "currentModeId", mode_id);
+    return acp_finish(update, update_json);
+}
+
+acp_status acp_config_option_update_write(const char *config_options_json, acp_buffer *update_json) {
+    if (config_options_json == NULL || update_json == NULL) return ACP_INVALID_ARGUMENT;
+    json_object *options = acp_parse(config_options_json, strlen(config_options_json));
+    if (!json_object_is_type(options, json_type_array)) {
+        json_object_put(options);
+        return ACP_INVALID_ARGUMENT;
+    }
+    json_object *update = json_object_new_object();
+    add_string(update, "sessionUpdate", "config_option_update");
+    json_object_object_add(update, "configOptions", options);
+    return acp_finish(update, update_json);
+}
+
 acp_status acp_session_info_update_write(const char *title, const char *updated_at, acp_buffer *update_json) {
     if (updated_at == NULL || update_json == NULL) return ACP_INVALID_ARGUMENT;
     json_object *update = json_object_new_object();
