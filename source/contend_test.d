@@ -188,3 +188,32 @@ unittest {
     assert(byPerformanceId(db, "probe-4").p.state == RitualState.Live);
     sqlite3_close(db);
 }
+
+// A verdict that did not land speaks of nothing: held, it does not brief the agent on a rite,
+// and moved, it does not tell of a walk, as the row it was about is not the row there now. An
+// aborted walk's agent was briefed on its rite after the abort.
+unittest {
+    import ritual : Advanced, opensRite, movesWalk;
+    auto p = seeded();
+    Advanced held;
+    held.ran = true;
+    held.verdict = Verdict.Hold;
+    held.after = p;
+    held.applied = true;
+    assert(opensRite(held));
+    held.applied = false;
+    assert(!opensRite(held), "an unapplied hold briefs nobody");
+
+    Advanced on;
+    on.ran = true;
+    on.verdict = Verdict.Advance;
+    on.after = p;
+    on.after.current = p.current + 1;
+    on.applied = true;
+    assert(movesWalk(on, p));
+    on.applied = false;
+    assert(!movesWalk(on, p), "an unapplied move tells of no walk");
+    on.applied = true;
+    on.after = p;
+    assert(!movesWalk(on, p), "a verdict that left the walk where it was moves nothing");
+}

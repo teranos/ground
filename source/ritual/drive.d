@@ -4,7 +4,7 @@ module ritual.drive;
 
 import ritual.position : RitualState;
 import ritual.resolve : flatten;
-import ritual.run : advance, briefing;
+import ritual.run : advance, briefing, opensRite, movesWalk;
 import ritual.store : readPositionAt;
 import rite : Verdict;
 
@@ -506,18 +506,18 @@ int handleDrive(int argc, const(char)** argv) {
                 jevSaid = jevMetricsEnvelope(dsn, cast(long) time(null), said);
             }
 
-            // A held rite waits on the world, so asking twice a second is noise.
-            nextSleep = res.verdict == Verdict.Hold ? 15 : 2;
+            // A held rite waits on the world, so asking twice a second is noise. A verdict that
+            // did not land is read again at once: the row moved, and may have ended.
+            nextSleep = opensRite(res) ? 15 : 2;
 
             // A rite the agent has not met, said to the agent. Its watcher
             // delivers this as a wake — the driver otherwise notices a stall
             // every fifteen seconds and tells nobody.
-            if (res.verdict == Verdict.Hold && found.p.agentSession.length > 0)
+            if (opensRite(res) && found.p.agentSession.length > 0)
                 writeNote(db, found.p.agentSession, "rite-open",
                           briefing(found.p, flat).text());
 
-            if (res.after.current != found.p.current
-                || res.after.state != RitualState.Live) {
+            if (movesWalk(res, found.p)) {
                 moved = true;
                 if (found.p.agentSession.length > 0)
                     writeNote(db, found.p.agentSession, "ritual-moved",
