@@ -203,6 +203,18 @@ private struct Turn {
 
 // session/cancel for this turn's session, or $/cancel_request naming the
 // request that asked for it, as libacp reads the line.
+// The kind a call is told back with: the one it was shown with, kept as text, none when that
+// text is empty; read for a call kept before kinds were, when its tool only reads.
+import libjsonc : json_object;
+const(char)[] shownKind(json_object* kept, bool readOnly) {
+    import libjsonc : json_object_get_type, json_type, json_object_get_string, json_object_get_string_len;
+    if (json_object_get_type(kept) == json_type.string_) {
+        auto len = cast(size_t) json_object_get_string_len(kept);
+        return len > 0 ? json_object_get_string(kept)[0 .. len] : null;
+    }
+    return readOnly ? "read" : null;
+}
+
 private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
     import libacp : acp_cancel, acp_cancel_read, acp_cancel_free, acp_cancel_kind, acp_status;
     import core.stdc.string : strlen;
@@ -1406,6 +1418,7 @@ struct Open {
     size_t dirsLen;
     Reply* history; // the turns so far, as the model's messages; none until the first prompt
     Reply titles;   // the title each call was shown with, "id":"title" pairs, so a load tells it back as shown
+    Reply kinds;    // and the kind, "id":"kind" pairs, for each call shown with one
     char[TITLE_BYTES + 4] title; // what the first prompt named it, ellipsis and all
     long costNano;  // what it has cost, when no store keeps it
     size_t titleLen;
@@ -1514,7 +1527,7 @@ private bool putModes(ref Reply r, SessionMode current) {
 
 private void forget(ref Open o) {
     if (o.history !is null) { o.history.dispose(); free(o.history); o.history = null; }
-    o.always.dispose(); o.never.dispose(); o.titles.dispose();
+    o.always.dispose(); o.never.dispose(); o.titles.dispose(); o.kinds.dispose();
 }
 
 // A session/update to the client, written as it happens: a turn's steps are
@@ -2090,14 +2103,14 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // "it restores the session context": a session not live here gets its
         // conversation back from the store, so its next turn goes on from it.
         Reply* restored = null;
-        Reply restoredTitles; // given to the session when it is not live, else its own are kept
-        scope(exit) restoredTitles.dispose();
+        Reply restoredTitles, restoredKinds; // given to the session when it is not live, else its own are kept
+        scope(exit) { restoredTitles.dispose(); restoredKinds.dispose(); }
         if (!live && sessions.db !is null && !__ctfe) {
             import core.stdc.stdlib : malloc;
             restored = cast(Reply*) malloc(Reply.sizeof);
             if (restored is null) { put(`,"error":{"code":-32603,"message":"could not allocate the session's history"}}`); return true; }
             *restored = Reply.init;
-            if (storeHistoryOf(sessions.db, sid, *restored, restoredTitles) != 1) {
+            if (storeHistoryOf(sessions.db, sid, *restored, restoredTitles, restoredKinds) != 1) {
                 restored.dispose(); free(restored);
                 put(`,"error":{"code":-32603,"message":"the store refused the conversation of `);
                 putEscaped(r, sid); put(`"}}`);
@@ -2122,6 +2135,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             o.titles.dispose();
             o.titles = restoredTitles;
             restoredTitles = Reply.init;
+            o.kinds.dispose();
+            o.kinds = restoredKinds;
+            restoredKinds = Reply.init;
         }
         keep(*o, sid, cwd, mode, dirs.slice(), effort);
         o.updatedAt = now(sessions);
@@ -2134,7 +2150,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         // the Agent MUST respond to the original session/load request."
         if (load && !__ctfe && o.history !is null) {
             bool tell(const(char)[] update) { return notify(sid, update); }
-            bool readOnly(const(char)[] tool) { return readOnlyTool(o.mcp, tool); }
             // A call is told back with the title it was shown with live; one kept before titles
             // were, as the catalogue it loads with titles it.
             import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
@@ -2151,8 +2166,20 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     title.add(json_object_get_string(was)[0 .. cast(size_t) json_object_get_string_len(was)]);
                 else toolTitle(o.mcp, tool, title);
             }
+            // And with the kind it was shown with, none when none was; one kept before kinds
+            // were, read when the catalogue it loads with says its tool only reads.
+            Reply allKinds;
+            scope(exit) allKinds.dispose();
+            allKinds.add("{"); allKinds.add(o.kinds.slice()); allKinds.add("}");
+            auto shownKinds = allKinds.full ? null : parseJson(allKinds.slice());
+            scope(exit) json_object_put(shownKinds);
+            const(char)[] kindOf(const(char)[] callId, const(char)[] tool) {
+                key.len = 0; key.add(callId); key.add("\0");
+                auto was = key.full ? null : jsonField(shownKinds, key.slice().ptr);
+                return shownKind(was, was is null && readOnlyTool(o.mcp, tool));
+            }
             bool warned(const(char)[] title, const(char)[] description) { return tellUser(sessions, sid, "warning", title, description); }
-            if (!replayHistory(o.history.slice(), &tell, &readOnly, &titled, &warned)) {
+            if (!replayHistory(o.history.slice(), &tell, &kindOf, &titled, &warned)) {
                 put(`,"error":{"code":-32603,"message":"could not tell the conversation of `);
                 putEscaped(r, sid); put(` back"}}`);
                 return true;
@@ -2467,7 +2494,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // The conversation is the store's as the turn ends, however it
             // ends; a store that refuses it makes the turn's answer an error
             // carrying the answer it would have been.
-            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice(), o.titles.slice()) != 1) {
+            scope(exit) if (sessions.db !is null && storeHistory(sessions.db, sid, o.history.slice(), o.titles.slice(), o.kinds.slice()) != 1) {
                 Reply would;
                 would.add(r.slice());
                 r.len = 0;
@@ -2820,6 +2847,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     if (o.titles.len > 0) o.titles.add(",");
                     o.titles.add(`"`); putEscaped(o.titles, call.id); o.titles.add(`":"`);
                     putEscaped(o.titles, title.slice()); o.titles.add(`"`);
+                    // None kept as none, so a catalogue that later says its tool only reads does not make it read.
+                    if (o.kinds.len > 0) o.kinds.add(",");
+                    o.kinds.add(`"`); putEscaped(o.kinds, call.id); o.kinds.add(`":"`);
+                    if (kind !is null) o.kinds.add(kind);
+                    o.kinds.add(`"`);
                     // "Tool calls can report the file locations they're working with": ground code's own, which name their file.
                     Reply where;
                     scope(exit) where.dispose();
