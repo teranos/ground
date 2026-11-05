@@ -227,8 +227,8 @@ static void messages(void) {
     CHECK(msg.error_message != NULL && strcmp(msg.error_message, "broke") == 0);
     CHECK(msg.error_data != NULL && strcmp(msg.error_data, "{\"why\":1}") == 0);
     acp_message_free(&msg);
-    // An agent that could not read a request's id answers its error with "id":null, and the id
-    // there is JSON's null: the error is read, not left unread.
+    // 「[Opus 5.5] An agent that could not read a request's id answers its error with "id":null, and the id」
+    // 「[Opus 5.5] there is JSON's null: the error is read, not left unread.」
     const char *unread = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"Parse error\"}}";
     CHECK(acp_client_message_read(unread, strlen(unread), &msg) == ACP_OK);
     CHECK(msg.kind == ACP_MESSAGE_RESPONSE && msg.id != NULL && strcmp(msg.id, "null") == 0);
