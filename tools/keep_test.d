@@ -1,0 +1,28 @@
+module keep_test;
+
+import keep : refusal, projectsOf;
+
+// "make ground aget fix it"
+// An install from a tree without controls/local, a worktree's, put the floor where the machine's
+// sand was: the owner's controls were off the laptop, and nothing said so. The sand installed says
+// how many projects it folded; an install that would put none where there were some is refused.
+static assert(refusal(true, 19, 0, "/h/sand") != "");
+static assert(refusal(true, 19, 0, "/h/sand") ==
+    "make install refuses: this tree's sand folds 0 projects, and the sand installed at /h/sand folds 19."
+    ~ " wind found no project here: controls/local is untracked, so a worktree has none."
+    ~ " Install from the checkout whose controls/local declares them, or remove /h/sand to install the floor.");
+
+// No sand installed is a first install; a sand that says nothing of its projects was installed
+// before they were counted; projects where there were some, more or fewer, are the operator's.
+static assert(refusal(false, -1, 0, "/h/sand") == "");
+static assert(refusal(true, -1, 0, "/h/sand") == "");
+static assert(refusal(true, 0, 0, "/h/sand") == "");
+static assert(refusal(true, 19, 5, "/h/sand") == "");
+static assert(refusal(true, 19, 19, "/h/sand") == "");
+
+// What wind writes: the count, a line. Anything else is no count.
+static assert(projectsOf("19\n") == 19);
+static assert(projectsOf("0\n") == 0);
+static assert(projectsOf("") == -1);
+static assert(projectsOf("x\n") == -1);
+static assert(projectsOf("1 9\n") == -1);

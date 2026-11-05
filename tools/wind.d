@@ -9,6 +9,7 @@ import std.algorithm : sort;
 import std.array : array;
 import std.path : baseName, absolutePath, buildNormalizedPath;
 import std.stdio : stderr;
+import std.format : format;
 import std.string : indexOf, splitLines, strip;
 
 import filelist : renderFileList;
@@ -187,6 +188,8 @@ void main() {
     }
 
     write(".ctfe/sand", sand);
+    // make install keeps the count beside the sand it installs, and refuses one of none in its place (tools/keep.d).
+    write(".ctfe/sand.projects", format("%d\n", projects.length));
     stderr.writefln("wind: .ctfe/sand (%d bytes, %d files from %d projects)",
         sand.length, totalFiles, projects.length);
 

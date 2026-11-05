@@ -23,6 +23,7 @@ ground_drive
 ground_parity
 ground-test-application
 tools/wind
+tools/keepsand
 tools/press
 tools/binder
 tools/editor
