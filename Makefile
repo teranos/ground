@@ -1,4 +1,4 @@
-.PHONY: build sand test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
+.PHONY: build sand keep-sand test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
 
 PREFIX ?= $(HOME)/.local
 
@@ -179,6 +179,7 @@ test-tools:
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
 	ldc2 -c -od=/tmp -I=tools tools/floor.d tools/floor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/machine.d tools/machine_test.d
+	ldc2 -c -od=/tmp -I=tools tools/keep.d tools/keep_test.d
 	ldc2 -c -od=/tmp -I=tools tools/stamp.d tools/stamp_test.d
 	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
 
@@ -218,13 +219,27 @@ install-ug: ug
 	cp ug/ug $(PREFIX)/bin/ug.new
 	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
 
-install: build $(BINS) install-ug sand
+# "make ground aget fix it"
+# A tree without controls/local folds no project, and its sand in place of the machine's is the floor:
+# refused before anything is copied (tools/keep.d).
+INSTALLED_SAND = $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB))
+tools/keepsand: tools/keepsand.d tools/keep.d
+	ldc2 -of=tools/keepsand -I=tools tools/keepsand.d tools/keep.d
+
+keep-sand: sand tools/keepsand
+	tools/keepsand .ctfe/sand.projects $(INSTALLED_SAND)
+
+# ug is installed by the recipe, after keep-sand has passed: as a prerequisite beside it, make -j
+# could copy ug before the check refused.
+install: build $(BINS) keep-sand
+	$(MAKE) install-ug
 	mkdir -p $(PREFIX)/bin
 	for b in ground $(BINS); do cp $$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
 # "i want FLOOR+LOCALSAND+COMET"
 # This machine's own sand, held with the floor and any comet (source/sand/load.d).
 	mkdir -p $(HOME)/.local/share/ground/sand
 	cp $(SAND_LIB) $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new && mv -f $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB)).new $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB))
+	cp .ctfe/sand.projects $(INSTALLED_SAND).projects.new && mv -f $(INSTALLED_SAND).projects.new $(INSTALLED_SAND).projects
 # The ACP schemas flake.nix pins, linked from the store; the link roots them
 # against a garbage collection. ground parity reads them under ~/.local, so a
 # PREFIX elsewhere shows the schema as absent rather than measuring another.
