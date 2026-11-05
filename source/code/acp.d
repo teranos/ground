@@ -282,6 +282,70 @@ Verdict modeVerdict(SessionMode mode, bool always, bool never, bool readOnly, bo
     }
 }
 
+// withinRoots as the disk resolves it: the path, or for a file not there yet its directory, and
+// each root, through every link. What resolves to nothing is not known to be in the roots.
+bool withinRootsOnDisk(const(char)[] cwd, const(char)[] dirs, const(char)[] path) {
+    import core.sys.posix.stdlib : realpath;
+    import core.stdc.stdlib : free;
+    import core.stdc.string : strlen;
+    if (!withinRoots(cwd, dirs, path)) return false;
+    // What path names, resolved: itself when it stands, else its directory and its name.
+    char[4096] want = 0;
+    size_t wn = 0;
+    {
+        char[4096] z = 0;
+        if (path.length >= z.length) return false;
+        z[0 .. path.length] = path[];
+        auto whole = realpath(z.ptr, null);
+        if (whole !is null) {
+            auto l = strlen(whole);
+            if (l >= want.length) { free(whole); return false; }
+            want[0 .. l] = whole[0 .. l];
+            wn = l;
+            free(whole);
+        } else {
+            size_t slash = path.length;
+            while (slash > 0 && path[slash - 1] != '/') slash--;
+            if (slash <= 1) return false;
+            z[slash - 1] = 0;
+            auto dir = realpath(z.ptr, null);
+            if (dir is null) return false;
+            auto l = strlen(dir);
+            auto name = path[slash .. $];
+            if (l + 1 + name.length >= want.length) { free(dir); return false; }
+            want[0 .. l] = dir[0 .. l];
+            want[l] = '/';
+            want[l + 1 .. l + 1 + name.length] = name[];
+            wn = l + 1 + name.length;
+            free(dir);
+        }
+    }
+    // Each root, resolved, asked of the resolved path.
+    bool under(const(char)[] root) {
+        char[4096] z = 0;
+        if (root.length == 0 || root.length >= z.length) return false;
+        z[0 .. root.length] = root[];
+        auto r = realpath(z.ptr, null);
+        if (r is null) return false;
+        scope(exit) free(r);
+        return withinRoots(r[0 .. strlen(r)], "", want[0 .. wn]);
+    }
+    if (under(cwd)) return true;
+    size_t i = 0;
+    while (i < dirs.length) {
+        if (dirs[i] != '"') { i++; continue; }
+        auto from = ++i;
+        while (i < dirs.length && dirs[i] != '"') i += dirs[i] == '\\' ? 2 : 1;
+        // A root spelled with an escape is read as withinRoots read it, and only plain ones here.
+        auto root = dirs[from .. i < dirs.length ? i : dirs.length];
+        bool plain = true;
+        foreach (c; root) if (c == '\\') plain = false;
+        if (plain && under(root)) return true;
+        i++;
+    }
+    return false;
+}
+
 // Whether path stands in the session's cwd or one of its additionalDirectories (dirs, the JSON
 // array of them), as written: a path with a . or .. segment is in none, as it can climb out.
 bool withinRoots(const(char)[] cwd, const(char)[] dirs, const(char)[] path) {
@@ -2709,7 +2773,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                         auto v = jsonField(parsed, "path");
                         const(char)[] named = v !is null && json_object_get_type(v) == json_type.string_
                             ? json_object_get_string(v)[0 .. cast(size_t) json_object_get_string_len(v)] : "";
-                        outside = !withinRoots(o.cwd[0 .. o.cwdLen], o.dirs[0 .. o.dirsLen], named);
+                        outside = !withinRootsOnDisk(o.cwd[0 .. o.cwdLen], o.dirs[0 .. o.dirsLen], named);
                     }
                     auto verdict = verdictOf(*o, call.name, reads || readOnlyTool(o.mcp, call.name), own, outside, why);
                     // "Agents SHOULD include it in the first report when available

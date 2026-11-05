@@ -54,3 +54,43 @@ static assert(sameId(`"a\/b"`, `"a/b"`));
 static assert(sameId(`7`, `7`));
 static assert(!sameId(`"b"`, `"a"`));
 static assert(!sameId(`7`, `"7"`));
+
+// As the disk resolves them: a link in the roots to a file outside them is outside, and a path
+// that resolves to nothing, nor its directory, is not known to be in them.
+unittest {
+    import code.acp : withinRootsOnDisk;
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.sys.posix.unistd : symlink, unlink, rmdir;
+    import core.stdc.stdio : fopen, fclose, snprintf;
+    import errors : mkdir;
+    char[64] base = "/tmp/ground-roots-XXXXXX\0";
+    assert(mkdtemp(base.ptr) !is null);
+    size_t n = 0;
+    while (base[n] != 0) n++;
+    char[256] repo = 0, outside = 0, link = 0, inside = 0, linkdir = 0, fresh = 0;
+    snprintf(repo.ptr, repo.length, "%s/repo", base.ptr);
+    snprintf(outside.ptr, outside.length, "%s/secret", base.ptr);
+    snprintf(link.ptr, link.length, "%s/repo/link", base.ptr);
+    snprintf(inside.ptr, inside.length, "%s/repo/a", base.ptr);
+    snprintf(linkdir.ptr, linkdir.length, "%s/repo/out", base.ptr);
+    snprintf(fresh.ptr, fresh.length, "%s/repo/out/new", base.ptr);
+    assert(mkdir(repo.ptr, 493) == 0);
+    auto f = fopen(outside.ptr, "w"); fclose(f);
+    f = fopen(inside.ptr, "w"); fclose(f);
+    assert(symlink(outside.ptr, link.ptr) == 0);
+    assert(symlink(base.ptr, linkdir.ptr) == 0);
+    scope(exit) { unlink(link.ptr); unlink(linkdir.ptr); unlink(inside.ptr); unlink(outside.ptr); rmdir(repo.ptr); rmdir(base.ptr); }
+    size_t len(const(char)[] b) { size_t k = 0; while (b[k] != 0) k++; return k; }
+    auto r = repo[0 .. len(repo)];
+
+    assert(withinRootsOnDisk(r, "", inside[0 .. len(inside)]));
+    // A file not there yet stands where its directory does.
+    char[256] made = 0;
+    snprintf(made.ptr, made.length, "%s/repo/b", base.ptr);
+    assert(withinRootsOnDisk(r, "", made[0 .. len(made)]));
+    assert(!withinRootsOnDisk(r, "", link[0 .. len(link)]), "a link to a file outside is outside");
+    assert(!withinRootsOnDisk(r, "", fresh[0 .. len(fresh)]), "a new file under a linked directory outside is outside");
+    char[256] nowhere = 0;
+    snprintf(nowhere.ptr, nowhere.length, "%s/repo/no/such/file", base.ptr);
+    assert(!withinRootsOnDisk(r, "", nowhere[0 .. len(nowhere)]), "what resolves to nothing is not known to be in");
+}
