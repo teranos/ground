@@ -14,6 +14,7 @@ import std.string : indexOf, splitLines, strip;
 import filelist : renderFileList;
 import openapi : renderRoutes;
 import libgit2 : Repo;
+import stamp : revStamp;
 
 // What `git describe --tags --always` printed into .version, read by libgit2, and HEAD's whole id
 // into .rev: the engine names that commit when it asks for its comet (source/comet.d), where a
@@ -24,14 +25,13 @@ void stampVersion() {
     // A tree that is no repository keeps the .version its builder wrote: a comet's, by the node.
     if (!g.open(".")) {
         if (!exists(".version")) write(".version", "");
-        if (!exists(".rev")) write(".rev", "");
+        write(".rev", revStamp(false, null));
         return;
     }
     string stamp = "";
     auto d = g.describeHead(buf[]);
     if (d !is null) stamp = d.idup ~ "\n";
-    auto head = g.headId();
-    string rev = head is null ? "" : head.idup ~ "\n";
+    auto rev = revStamp(true, g.headId());
     g.close();
     write(".version", stamp);
     write(".rev", rev);
