@@ -48,6 +48,11 @@ in
         # press, concept and cases are built by ldc2 too, so `dub test` runs
         # none of the book's tests.
         { run = "nix develop .#default --command sh -c 'make test-tools'"; }
+        # "i expect to edit the book of ground by linking it via obsidia"
+        # The book's prose is doc/book/, edited in the vault and returned by a
+        # pull request. press joins every note to its case or stops naming the
+        # file and line, so a pull request whose notes cannot be set is red.
+        { run = "nix develop .#default --command sh -c 'make press && ./tools/press'"; }
       ];
     };
 
