@@ -141,3 +141,26 @@ unittest {
     assert(aborted.current == p.current);
     assert(!retakes(p, aborted), "an aborted walk stays aborted");
 }
+
+// "ritual is hands-off, walk away"
+// A start that failed made no agent and no tree, so no rite of the walk can run: the performance
+// is halted where the failure is known, at bind, and not left live for the ten minutes the
+// driver waits on a tree nobody makes. A performance that is not live is not touched.
+unittest {
+    import ritual : haltFailedStart, byPerformanceId;
+    auto db = memDb();
+    auto p = seeded();
+    assert(writePosition(db, p));
+    assert(haltFailedStart(db, "probe-1"));
+    auto now = byPerformanceId(db, "probe-1");
+    assert(now.valid && now.p.state == RitualState.Halted, "a failed start halts its walk");
+
+    auto ended = seeded();
+    ended.id = "probe-2";
+    ended.state = RitualState.Aborted;
+    assert(writePosition(db, ended));
+    assert(!haltFailedStart(db, "probe-2"), "an ended walk is not halted again");
+    assert(byPerformanceId(db, "probe-2").p.state == RitualState.Aborted);
+    assert(!haltFailedStart(db, "no-such"), "no row, nothing to halt");
+    sqlite3_close(db);
+}
