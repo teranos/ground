@@ -267,10 +267,10 @@ acp_status acp_write_text_file_request_write(const char *request_id, const char 
 // written, and 0 for any other answer, an error among them.
 acp_status acp_write_text_file_result_read(const char *message_json, size_t length, int *written);
 
-// terminal/create, whole: request_id is JSON text, command run with its arg_count args and its
-// env_count env, "Environment variables for the command", in order. cwd, an absolute path, is written
-// when given, and output_byte_limit when it is not 0.
-// "An environment variable to set": its name and its value.
+// 「[Opus 5.5] terminal/create, whole: request_id is JSON text, command run with its arg_count args and its」
+// 「[Opus 5.5] env_count env, "Environment variables for the command", in order. cwd, an absolute path, is written」
+// 「[Opus 5.5] when given, and output_byte_limit when it is not 0.」
+// 「[Opus 5.5] "An environment variable to set": its name and its value.」
 typedef struct acp_env_variable {
     const char *name;
     const char *value;

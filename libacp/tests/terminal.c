@@ -29,7 +29,7 @@ static void create(void) {
     CHECK(acp_terminal_create_request_write("term-1", "code-1-1-1", "ls", NULL, 0, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", NULL, NULL, 0, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
     CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", "ls", NULL, 1, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
-    // "Environment variables for the command", each its name and its value, in order.
+    // 「[Opus 5.5] "Environment variables for the command", each its name and its value, in order.」
     acp_env_variable env[] = {{"RUST_LOG", "debug"}, {"A B", "x=\"y\""}};
     CHECK(acp_terminal_create_request_write("\"term-2\"", "code-1-1-1", "cargo", NULL, 0, env, 2, NULL, 0, &out) == ACP_OK);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"term-2\",\"method\":\"terminal/create\",\"params\":"
