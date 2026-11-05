@@ -39,7 +39,7 @@ const(char)[] extractPrompt(const(char)[] json) {
     return extractJsonString(json, `"prompt"`, &buf[0], buf.length);
 }
 
-// Its timing row names each step it walked: sweep, ingest, said, controls, bill.
+// 「[Opus 5.5] Its timing row names each step it walked: sweep, ingest, said, controls, bill.」
 int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import hookrun : usecNow;
     auto t0 = usecNow();
