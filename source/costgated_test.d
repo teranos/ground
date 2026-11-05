@@ -8,6 +8,7 @@ import ritual : advance, flatten, start, Position, RiteState;
 import rite : Verdict;
 import db : sqlite3, sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
 
+// book: costgated-src
 enum src = `
 rites orchard {
   APPLE {

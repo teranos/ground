@@ -25,9 +25,11 @@ static assert(sessionOf(p, Receiver.AgentLlm) == "agent-session");
 // "PARENT: HUMAN / HOSTLLM"
 // "CHILD : RITE  / AGENTLLM"
 // "WE NEED TO SAY THAT RITUAL IS THE RECEIVER, NOT RITE, RITE IS JUST A PIECE OF THE RITUAL, RITUAL DRIVES THE CHAT VIA RITES"
+// book: delivery-sessionOf
 static assert(sessionOf(p, Receiver.Ritual) is null);
 
 // "AGENTLLM STOP OUTPUT FIRST TWO SENTENCES OF LAST MESSAGE NEEDS TO BE SEEN BY BOTH HUMAN AND HOSTLLM"
+// book: delivery-wants
 static assert(wants(PARENT, Receiver.Human));
 static assert(wants(PARENT, Receiver.HostLlm));
 static assert(!wants(PARENT, Receiver.AgentLlm));
@@ -51,8 +53,7 @@ static assert(deliverable(solo, Receiver.HostLlm, null));
 static assert(deliverable(solo, Receiver.AgentLlm, null));
 
 // "THIS KEEPS REPORTING BACK FOR NO FUCKING REASON"
-// q-deploy has no agent. The session that started it stops in the checkout it
-// performs in, so it was the one speaking, and its own words came back to it.
+// book: delivery-perf
 enum echo = { auto q = perf(); q.agentSession = ""; return q; }();
 static assert(!deliverable(echo, Receiver.HostLlm, "parent-session"));
 
@@ -88,8 +89,7 @@ unittest {
     // "mic makes sure it also gets to us"
     // "if it goes through the mic, it means both the parent and the child agent would be receivers"
     // "nothing / msg / mic / msg+mic are all possible"
-    // "the outcome is what is spoken back into the mic to both the agent and
-    // parent" — one call, two sessions.
+    // book: delivery-memDb
     auto db = memDb();
     auto q = perf();
     assert(deliver(db, q, both(PARENT, Receiver.AgentLlm), "ci:willow-1:JUDGE", "all checks passed"));
@@ -118,8 +118,7 @@ unittest {
 unittest {
     // "to: agent doesnt make sense"
     // "not part of the api"
-    // A rite that names nobody is silent to the parent and still answers the
-    // one that ran it.
+    // book: delivery-memDb-2
     auto db = memDb();
     auto q = perf();
     assert(deliver(db, q, Receiver.None, "rite:willow-1:CHERRY", "CHERRY passed"));

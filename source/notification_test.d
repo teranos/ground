@@ -31,6 +31,7 @@ import rite : Verdict;
 static assert(riteLine("willow", "APPLE", Verdict.Hold, "Took the APPLE out. Six left.").text()
     == "willow APPLE held · Took the APPLE out. Six left.");
 // "its technically correct, and i want to keep it, but its too positive"
+// book: notification-riteLine
 static assert(riteLine("willow", "APPLE", Verdict.Advance, "Done.").text()
     == "willow APPLE passed through · Done.");
 static assert(riteLine("willow", "APPLE", Verdict.Halt, "I cannot find it.").text()
@@ -57,6 +58,7 @@ static assert(verdictWord(1, true) == "held");
 static assert(verdictWord(2, true) == "halted");
 
 // "shouldnt dispatch rites say what happened, which is dispatched workflow.yml"
+// book: notification-riteLine-2
 static assert(riteLine("coinflip", "FLIP1", Verdict.Advance, "", "", "",
                        "sbvh-nl/grove long-coin.yml").text()
     == "coinflip FLIP1 dispatched sbvh-nl/grove long-coin.yml");

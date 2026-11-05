@@ -529,6 +529,7 @@ Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
 }
 
 unittest {
+    // book: stream-sqlite3_open
     import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, attestEventAt;
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
@@ -625,6 +626,7 @@ unittest {
 }
 
 unittest {
+    // book: stream-retryable
     assert(retryable(0), "no answer");
     assert(retryable(-7), "libcurl could not connect");
     assert(retryable(500));
@@ -638,6 +640,7 @@ unittest {
 
 unittest {
     // "be gentle with sending at the start until it catches up"
+    // book: stream-p
     Pace p;
     assert(p.take == 1, "a sky starts with one row");
     paceLanded(p, true);
@@ -668,6 +671,7 @@ unittest {
 }
 
 unittest {
+    // book: stream-sqlite3_open-2
     import db : sqlite3_open, sqlite3_close, applySchema, attestEventAt;
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);

@@ -4,7 +4,7 @@ import proto : parsePbt, envLookup;
 
 // --- Env lookup CTFE tests ---
 
-// Two projects with different ports
+// book: env-envInput
 enum envInput = `
 project {
   path: "/Users/dev/tmp1/QNTX"
@@ -33,7 +33,7 @@ static assert(envLookup(envParsed, "/Users/dev/other-project", "port") is null);
 // Unknown key in matching project — returns null
 static assert(envLookup(envParsed, "/Users/dev/tmp1/QNTX", "unknown") is null);
 
-// Multiple env variables
+// book: env-multiEnvInput
 enum multiEnvInput = `
 project {
   path: "/app"
@@ -47,7 +47,7 @@ enum multiEnvParsed = parsePbt(multiEnvInput);
 static assert(envLookup(multiEnvParsed, "/app/src", "port") == "3000");
 static assert(envLookup(multiEnvParsed, "/app/src", "host") == "localhost");
 
-// Longest path wins
+// book: env-overlapInput
 enum overlapInput = `
 project {
   path: "/workspace"

@@ -182,8 +182,7 @@ unittest {
 
 unittest {
     // "i want to know on a time series if Fable, or Opus or Sonnet was active"
-    // The session's model, as ug last wrote it down, is on every item the
-    // session leaves. A session ug never saw leaves its items as they are.
+    // book: outbox-sqlite3_open
     import db : sqlite3_open, sqlite3_close, applySchema, recordModel, SQLITE_OK,
                 sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize, sqlite3_column_text, sqlite3_stmt, SQLITE_ROW;
     import sentry : openItem;

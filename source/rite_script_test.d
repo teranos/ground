@@ -5,8 +5,7 @@ module rite_script_test;
 import rite : buildRiteScript, RiteScript, RITE_UNREACHED, runRite;
 
 // "wouldnt the pipefail need to be present essentially everywhere?"
-// Every rite runs under the same three flags. They are not hygiene — each
-// one closes a way a rite can report a pass it did not earn.
+// book: rite_script-buildRiteScript
 enum bare = buildRiteScript("", "make parity", [], []);
 static assert(bare.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity\n");
 
@@ -17,8 +16,7 @@ enum piped = buildRiteScript("", `make parity | grep "$row"`, [], []);
 static assert(piped.text() == "#!/usr/bin/env bash\nset -euo pipefail\nmake parity | grep \"$row\"\n");
 
 // "how do i set the row param from the ritual"
-// A param is an assignment above the command, in the script the operator can
-// read, not an environment the operator has to be told about.
+// book: rite_script-buildRiteScript-2
 enum withParam = buildRiteScript("", `grep "$row"`, ["row"], ["watchers"]);
 static assert(withParam.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\nrow='watchers'\ngrep \"$row\"\n");
@@ -47,7 +45,7 @@ static assert(located.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/home/u/src/proj-probe' || exit 125\nmake test\n");
 
 // "One nix shell held across a ritual's rites, re-entered only when flake.nix or flake.lock changed."
-// Sourced after the cd, because a shellHook reads the tree it stands in.
+// book: rite_script-buildRiteScript-3
 enum held = buildRiteScript("/t/QNTX", "make ats", [], [], "/s/shell/q-deploy-1.sh");
 static assert(held.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/t/QNTX' || exit 125\n"

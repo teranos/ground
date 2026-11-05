@@ -8,9 +8,7 @@ auto perm(PR)(const PR r, size_t sc, size_t i) { return r.permPool[r.scopes[sc].
 
 // --- Static assert tests ---
 
-// A control matches a command and answers with a message. omit takes a flag
-// back out of the command it matched; bg says the work runs detached and tmo
-// says how long it may take.
+// book: proto-cmdInput
 enum cmdInput = `
 scope {
   path: ""
@@ -46,8 +44,7 @@ static assert(ctrl(cmdParsed, 0, 0).msg == "Don't skip hooks");
 static assert(ctrl(cmdParsed, 0, 1).bg == true);
 static assert(ctrl(cmdParsed, 0, 1).tmo == 5000);
 
-// A trigger is a phrase the answer is watched for. Written as a repeated key,
-// each one adds to the same list rather than replacing it.
+// book: proto-stopRepeatInput
 enum stopRepeatInput = `
 scope {
   path: "/QNTX"
@@ -69,8 +66,7 @@ static assert(ctrl(stopRepeatParsed, 0, 0).triggerCount == 2);
 static assert(ctrl(stopRepeatParsed, 0, 0).triggers[0] == "likely because");
 static assert(ctrl(stopRepeatParsed, 0, 0).triggers[1] == "probably because");
 
-// Delivery can be put off: one handler says when the message is due, another
-// writes what it says. A line opening with # is a comment.
+// book: proto-deferInput
 enum deferInput = `
 # Comment line
 scope {
@@ -92,8 +88,7 @@ static assert(ctrl(deferParsed, 0, 0).delayHandler == "ciDelay");
 static assert(ctrl(deferParsed, 0, 0).deliverHandler == "ciDeliver");
 static assert(ctrl(deferParsed, 0, 0).deferMsg == "");
 
-// A check handler is asked, when the session opens, whether what the control
-// has to say is still true.
+// book: proto-checkInput
 enum checkInput = `
 scope {
   path: ""
@@ -110,8 +105,7 @@ scope {
 enum checkParsed = parsePbt(checkInput);
 static assert(ctrl(checkParsed, 0, 0).checkHandler == "testCheck");
 
-// Left out is not the same as empty. A scope naming no path stands everywhere,
-// and one naming no decision carries none of its own.
+// book: proto-defaultsInput
 enum defaultsInput = `
 # Defaults test — no path, no decision
 scope {
@@ -129,8 +123,7 @@ static assert(defaultsParsed.scopes[0].decision == "");
 static assert(ctrl(defaultsParsed, 0, 0).name == "test-defaults");
 static assert(ctrl(defaultsParsed, 0, 0).msg == "");
 
-// The same list of triggers, written as a list. Six phrases under one control,
-// which is the form to reach for once a repeated key stops reading as one.
+// book: proto-stopListInput
 enum stopListInput = `
 scope {
   event: "Stop"
@@ -195,7 +188,7 @@ static assert(testStopBuilt.items[1].controls[0].trigger.len == 6);
 static assert(testStopBuilt.items[1].controls[0].trigger._buf[0] == "each conversation starts fresh");
 static assert(testStopBuilt.items[1].controls[0].trigger._buf[5] == "dialogue isn't stored anywhere");
 
-// Test Stop with deliver_handler + interval (upstream-briefing pattern)
+// book: proto-stopDeliverInput
 enum stopDeliverInput = `
 scope {
   path: "/my-fork"
@@ -225,7 +218,7 @@ static assert(stopDeliverBuilt.items[0].controls[0].defer.deliver == "testDelive
 static assert(stopDeliverBuilt.items[0].controls[0].interval == 604800);
 static assert(stopDeliverBuilt.items[0].controls[0].trigger.len == 0);
 
-// Minimal list parse test
+// book: proto-listInput
 enum listInput = `
 scope {
   event: "Stop"
@@ -244,6 +237,7 @@ static assert(ctrl(listParsed, 0, 0).triggers[2] == "c");
 
 // --- Permission parsing tests ---
 
+// book: proto-permInput
 enum permInput = `
 scope {
   path: "/"
@@ -269,7 +263,7 @@ static assert(perm(permParsed, 0, 0).deny[0] == "*rm -rf*");
 static assert(perm(permParsed, 0, 0).deny[1] == "*--force*");
 static assert(perm(permParsed, 0, 0).msg == "Destructive operations blocked");
 
-// Permission with all three decision types
+// book: proto-permFullInput
 enum permFullInput = `
 scope {
   path: "/"
@@ -288,7 +282,7 @@ static assert(perm(permFullParsed, 0, 0).ask[0] == "*DELETE*");
 static assert(perm(permFullParsed, 0, 0).ask[1] == "*DROP*");
 static assert(perm(permFullParsed, 0, 0).denyCount == 1);
 
-// Permissions coexist with controls in the same scope
+// book: proto-permMixedInput
 enum permMixedInput = `
 scope {
   path: "/my-project"
@@ -312,7 +306,7 @@ static assert(permMixedParsed.scopes[0].permissionCount == 1);
 static assert(perm(permMixedParsed, 0, 0).mode == "");
 static assert(perm(permMixedParsed, 0, 0).allow[0] == "npm run*");
 
-// Multiple permissions in one scope
+// book: proto-permMultiInput
 enum permMultiInput = `
 scope {
   path: "/"
@@ -331,7 +325,7 @@ static assert(perm(permMultiParsed, 0, 0).allowCount == 2);
 static assert(perm(permMultiParsed, 0, 1).denyCount == 1);
 static assert(perm(permMultiParsed, 0, 1).msg == "No destructive ops");
 
-// Top-level permission (no scope) — defaults to path "/"
+// book: proto-permTopLevelInput
 enum permTopLevelInput = `
 permission {
   allow: ["go build*", "make*"]
@@ -365,7 +359,7 @@ static assert(perm(permTopParsed, 1, 0).msg == "No force pushes");
 static assert(permTopParsed.scopes[2].paths[0] == "/my-project");
 static assert(permTopParsed.scopes[2].controlCount == 1);
 
-// Top-level control (no scope) — wraps in scope with path "/"
+// book: proto-ctrlTopLevelInput
 enum ctrlTopLevelInput = `
 control {
   name: "check-logs"
@@ -383,6 +377,7 @@ static assert(ctrl(ctrlTopParsed, 0, 0).triggers[0] == "check the*log");
 
 // --- PostToolUse filepath matching ---
 
+// book: proto-ptuFileInput
 enum ptuFileInput = `
 scope {
   path: "/ground"
@@ -414,6 +409,7 @@ static assert(!contains("/Users/me/ground/source/main.d", ".pbt"));
 
 // --- chmod-style mode syntax ---
 
+// book: proto-modeInput
 enum modeInput = `
 scope {
   path: "/ground"
@@ -439,7 +435,7 @@ static assert(ctrl(modeParsed, 0, 0).mode == "w");
 static assert(ctrl(modeParsed, 0, 1).name == "pbt-access");
 static assert(ctrl(modeParsed, 0, 1).mode == "rw");
 
-// permission with mode
+// book: proto-permModeInput
 enum permModeInput = `
 permission.r {
   deny: [".env", "secrets/*"]
@@ -452,6 +448,7 @@ static assert(perm(permModeParsed, 0, 0).mode == "r");
 
 // --- Nested scope tests ---
 
+// book: proto-nestedInput
 enum nestedInput = `
 scope {
   path: "/ground"
@@ -483,7 +480,7 @@ static assert(nestedParsed.scopes[1].paths[0] == "/ground");
 static assert(nestedParsed.scopes[1].event == "PostToolUse");
 static assert(ctrl(nestedParsed, 1, 0).name == "nested-post");
 
-// Child inherits event from parent
+// book: proto-nestedEventInput
 enum nestedEventInput = `
 scope {
   event: "PreToolUse"
@@ -512,7 +509,7 @@ static assert(nestedEventParsed.scopes[0].event == "PreToolUse");
 static assert(nestedEventParsed.scopes[1].event == "PreToolUse");
 static assert(nestedEventParsed.scopes[1].decision == "deny");
 
-// Child inherits path but can override
+// book: proto-nestedOverrideInput
 enum nestedOverrideInput = `
 scope {
   path: "/ground"
@@ -532,7 +529,7 @@ enum nestedOverrideParsed = parsePbt(nestedOverrideInput);
 static assert(nestedOverrideParsed.scopeCount == 1);
 static assert(nestedOverrideParsed.scopes[0].paths[0] == "/other");
 
-// Nested scope inherits decision from parent
+// book: proto-nestedDecisionInput
 enum nestedDecisionInput = `
 scope {
   path: "/ground"
@@ -555,7 +552,7 @@ static assert(nestedDecisionParsed.scopes[0].paths[0] == "/ground");
 
 // --- edited: scope field ---
 
-// Simple edited (no !) — existence check
+// book: proto-editedSimpleInput
 enum editedSimpleInput = `
 scope {
   edited: ["*.sql"]
@@ -574,7 +571,7 @@ static assert(editedSimpleParsed.scopes[0].editedCount == 1);
 static assert(editedSimpleParsed.scopes[0].edited[0] == "*.sql");
 static assert(editedSimpleParsed.scopes[0].event == "Stop");
 
-// Nested: outer path, inner edited with ! (subtractive)
+// book: proto-editedNestedInput
 enum editedNestedInput = `
 scope {
   path: "/QNTX"
@@ -608,6 +605,7 @@ static assert(editedBuilt.items[0].edited[1] == "!/qntx-plugins/");
 
 // --- userprompt list syntax ---
 
+// book: proto-upListInput
 enum upListInput = `
 scope {
   event: "UserPromptSubmit"
@@ -638,6 +636,7 @@ static assert(ctrl(upListParsed, 0, 1).userprompts[0] == "permission");
 
 // --- cmd: scope field (session command history gate) ---
 
+// book: proto-cmdScopeInput
 enum cmdScopeInput = `
 scope {
   path: "/QNTX"
@@ -666,6 +665,7 @@ static assert(cmdScopeBuilt.items[0].cmds[0] == "!make install");
 
 // --- event: array syntax (multi-event scopes) ---
 
+// book: proto-multiEventInput
 enum multiEventInput = `
 scope {
   path: "/ground"
@@ -698,6 +698,7 @@ static assert(multiEventStop.len == 0);
 
 // --- mcp_tool scope field + mcp_arg control field ---
 
+// book: proto-mcpInput
 enum mcpInput = `
 scope {
   path: "/SBVH"
@@ -736,6 +737,7 @@ static assert(mcpBuilt.items[0].controls[1].mcpArg.value == "Bob");
 
 // --- attestation block ---
 
+// book: proto-qntxInput
 enum qntxInput = `
 attestation {
   subject: "beacon:channel:10001"
@@ -767,6 +769,7 @@ static assert(qntxParsed.attestations[1].attributes.length == 0);
 
 // --- cmd: array syntax at control level ---
 
+// book: proto-cmdArrayInput
 enum cmdArrayInput = `
 scope {
   event: "PreToolUse"
@@ -794,6 +797,7 @@ static assert(cmdArrayBuilt.items[0].controls[0].cmd.values[1] == "gh pr edit");
 
 // --- content field on Control ---
 
+// book: proto-contentInput
 enum contentInput = `
 scope {
   event: "PreToolUse"
@@ -818,7 +822,7 @@ static assert(contentBuilt.len == 1);
 static assert(contentBuilt.items[0].controls[0].content.value == "CREATE TABLE");
 static assert(contentBuilt.items[0].controls[0].msg.value == "STOP. Tables only through migrations.");
 
-// Scope-level cmd with control-level content — cmd stays on scope, not inherited by control
+// book: proto-scopeCmdContentInput
 enum scopeCmdContentInput = `
 scope {
   path: "/project"
@@ -854,6 +858,7 @@ static assert(ParsedProject.files.length >= 533);
 // Handler reads named params via lookupParam(name). Omitted or empty → handler
 // receives no params and falls back to its own behavior (return false / no fire).
 
+// book: proto-handlerParamsInput
 enum handlerParamsInput = `
 scope {
   event: "PreToolUse"
@@ -876,7 +881,7 @@ static assert(ctrl(handlerParamsParsed, 0, 0).paramCount == 1);
 static assert(ctrl(handlerParamsParsed, 0, 0).paramKeys[0] == "depth");
 static assert(ctrl(handlerParamsParsed, 0, 0).paramValues[0] == "4");
 
-// Multiple pairs — up to 8.
+// book: proto-handlerParamsMultiInput
 enum handlerParamsMultiInput = `
 scope {
   event: "PreToolUse"
@@ -901,7 +906,7 @@ static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramValues[1] == "strict");
 static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramKeys[2] == "max_files");
 static assert(ctrl(handlerParamsMultiParsed, 0, 0).paramValues[2] == "100");
 
-// No block → paramCount == 0.
+// book: proto-handlerParamsAbsentInput
 enum handlerParamsAbsentInput = `
 scope {
   event: "PreToolUse"

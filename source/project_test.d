@@ -7,7 +7,7 @@ import proto_test : ctrl, perm;
 
 // --- Project block tests ---
 
-// A project is a repo ground knows about, by the path of its checkout.
+// book: project-projectStandaloneInput
 enum projectStandaloneInput = `
 project {
   path: "/Users/me/code/ground"
@@ -17,7 +17,7 @@ enum projectStandaloneParsed = parsePbt(projectStandaloneInput);
 static assert(projectStandaloneParsed.projectCount == 1);
 static assert(projectStandaloneParsed.projects[0].path == "/Users/me/code/ground");
 
-// Project with children — scopes, controls, permissions all work inside
+// book: project-projectWithChildrenInput
 enum projectWithChildrenInput = `
 project {
   path: "/Users/me/code/myproject"
@@ -44,7 +44,7 @@ static assert(projectWithChildrenParsed.scopes[0].event == "PreToolUse");
 static assert(ctrl(projectWithChildrenParsed, 0, 0).name == "proj-ctrl");
 static assert(projectWithChildrenParsed.permPoolLen == 1);
 
-// Project inside a scope
+// book: project-projectInScopeInput
 enum projectInScopeInput = `
 scope {
   event: "PreToolUse"
@@ -57,7 +57,7 @@ enum projectInScopeParsed = parsePbt(projectInScopeInput);
 static assert(projectInScopeParsed.projectCount == 1);
 static assert(projectInScopeParsed.projects[0].path == "/Users/me/code/nested");
 
-// Project with control directly (no scope wrapper)
+// book: project-projectWithControlInput
 enum projectWithControlInput = `
 project {
   path: "/Users/me/code/direct"
@@ -73,8 +73,7 @@ static assert(projectWithControlParsed.projectCount == 1);
 static assert(projectWithControlParsed.scopeCount == 1);
 static assert(ctrl(projectWithControlParsed, 0, 0).name == "direct-ctrl");
 
-// Every file git tracks in the checkout, written into the block by wind at
-// build. A file named in a reply is then a file ground can ask about.
+// book: project-projectWithFilesInput
 enum projectWithFilesInput = `
 project {
   path: "/Users/me/code/ground"
@@ -89,8 +88,7 @@ static assert(projectWithFilesParsed.projects[0].files[0] == "source/main.d");
 static assert(projectWithFilesParsed.projects[0].files[1] == "source/proto.d");
 static assert(projectWithFilesParsed.projects[0].files[2] == "controls/controls.pbt");
 
-// Values a project's controls may use by name, such as the port its server
-// listens on.
+// book: project-projectWithEnvInput
 enum projectWithEnvInput = `
 project {
   path: "/Users/Alice/projects/hygrometer-server"
@@ -110,9 +108,7 @@ static assert(projectWithEnvParsed.envs[0].count == 1);
 
 // "no double or split config, they all need to go to the same call from the same token"
 // "isnt there a top level place where its actually defined"
-// The node every project attests to is named once, at the top level, the way
-// sentry is: its url and the file holding the token it is spoken to with. A
-// project says nothing about the node.
+// book: project-backedInput
 enum backedInput = `
 qntx {
   url: "https://qntx.alice.example"
@@ -132,8 +128,7 @@ static assert(backedParsed.qntx.token == "~/.qntx/ground-token");
 
 // "I'm saying, I want to kill it, and make sure QNTX takes over"
 // "All the UDP machinery can also go given how sky handles it"
-// A project's qntx block named the loom's port and nothing else. With the loom
-// gone a project names nothing of QNTX, and a port named anywhere is refused.
+// book: project-loomInput
 enum loomInput = `
 project {
   path: "/Users/Alice/projects/QNTX"
@@ -155,7 +150,7 @@ static assert(!nodelessParsed.qntx.present);
 static assert(nodelessParsed.qntx.url == "");
 
 // "yes, thats the shape, and you can set it top level or inside of project or inside of ritual"
-// Every ritual in this project runs under sonnet, unless the ritual sets its own.
+// book: project-projectModelsInput
 enum projectModelsInput = `
 project {
   path: "/Users/Alice/projects/hygrometer-server"
@@ -178,7 +173,7 @@ static assert(singleFiles.files[0] == "source/main.d");
 static assert(singleFiles.files[1] == "source/proto.d");
 static assert(singleFiles.files[2] == "controls/controls.pbt");
 
-// Multiple projects
+// book: project-multiProjectInput
 enum multiProjectInput = `
 project {
   path: "/Users/me/code/alpha"
@@ -202,7 +197,7 @@ static assert(noFilesFiles.len == 0);
 
 // --- Path list tests ---
 
-// Scope with path list — OR matching
+// book: project-pathListInput
 enum pathListInput = `
 scope {
   path: ["/ctp/", "/qntx-plugins/"]
@@ -220,7 +215,7 @@ static assert(pathListParsed.scopes[0].pathCount == 2);
 static assert(pathListParsed.scopes[0].paths[0] == "/ctp/");
 static assert(pathListParsed.scopes[0].paths[1] == "/qntx-plugins/");
 
-// Scope with single path — still works
+// book: project-singlePathInput
 enum singlePathInput = `
 scope {
   path: "/ground"

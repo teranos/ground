@@ -120,7 +120,7 @@ unittest {
 }
 
 // "no double or split config, they all need to go to the same call from the same token"
-// The one node, named at the top level, with its token file.
+// book: checks-backendsSrc
 enum backendsSrc = `
 qntx {
   url: "https://q.one.example"

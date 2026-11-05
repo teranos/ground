@@ -3,8 +3,7 @@ module binary_test;
 import proto : parsePbt, buildScopes;
 import binary : binaryGateApplies;
 
-// A repo whose content IS the binaries declares itself. Everywhere else the
-// gate stands, including when no pbt says anything at all.
+// book: binary-contentInput
 enum contentInput = `
 scope {
   path: "/dossier"
@@ -26,8 +25,7 @@ static assert(binaryGateApplies(contentScopes[], "/home/me/app") == true);
 // segment put in force, so reaching out of the dossier answers on the target.
 static assert(binaryGateApplies(contentScopes[], "nested") == true);
 
-// Fails closed. An empty control set is not an exemption, it is the absence
-// of one, so deleting the pbt above turns the gate back on rather than off.
+// book: binary-silentInput
 enum silentInput = `
 scope {
   path: "/dossier"

@@ -127,8 +127,7 @@ unittest {
 }
 
 // "READER NOTE: is this an example to demonstrate what we do NOT want??"
-// A scope naming two paths says when the control fires, not where a ritual
-// performs. Refused at compile time rather than guessed at on a push.
+// book: control_ritual-twoPaths
 enum twoPaths = `
 rites obedience {
   MARK {
@@ -180,7 +179,7 @@ private enum nidx = () {
 static assert(nidx >= 0, "a scope carrying a negation still registers its ritual");
 static assert(narrowedParsed.rituals[cast(size_t) nidx].projectPath == "/teranos/QNTX");
 
-// A negated path is a place a ritual must not be, which resolves to nowhere.
+// book: control_ritual-negated
 enum negated = `
 rites obedience {
   MARK {
@@ -235,8 +234,7 @@ unittest {
 // "dont make it investigate, its sole duty is to report back as honestly and factually as possible with zero temperature"
 // "i want anything else than success to report back no matter what"
 // "What does this demonstrate?"
-// A control that names one instead of carrying one resolves the same way
-// `ground ritual <name>` does.
+// book: control_ritual-namedSrc
 enum namedSrc = `
 rites obedience {
   MARK {

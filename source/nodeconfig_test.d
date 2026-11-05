@@ -56,6 +56,7 @@ unittest {
 
 // The node sky streams to and lands from: the one the held sand names, else the one nodes.pbt names.
 unittest {
+    // book: nodeconfig-write
     import nodeconfig : nodeHere;
     import controls : holdSand;
     import sand.view : Sand;

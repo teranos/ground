@@ -94,8 +94,7 @@ static assert(contains(s.text(), "^GROUND_REF="));
 static assert(contains(s.text(), "could not read the default branch of"));
 
 // "in the more sophisticated version, the ci rite happens while the agent continues onto the next rite without needing to wait for ci to finish"
-// "the dispatch happened thus we move on from the rite". It sends the job and
-// ends. No run id, no status, no waiting — none of that is the rite's.
+// book: dispatch-contains
 static assert(!contains(s.text(), "--json status"));
 static assert(!contains(s.text(), "--json databaseId"));
 static assert(!contains(s.text(), "exit 75"));

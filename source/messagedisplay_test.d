@@ -8,6 +8,7 @@ import db : ZBuf;
 import immediate : spoken;
 // "i need to see it in the transcript without me having to press ctrl-o"
 // "i want MessageDisplay and displayContent"
+// book: messagedisplay-spoken
 static assert(!spoken("ci-status"));
 static assert(!spoken("dispatch"));
 static assert(spoken("note"));
@@ -21,12 +22,14 @@ static assert(contains(skySource, "spoken(imm.name)"), "sky asks the same");
 
 // "  ░▓▓▏[REPONAME] [BRANCHNAME] ci all checks passed ✓"
 // "   ░░▏Nix / build-go (linux-latest, goat_binary) (pull_request) Successful in 8m"
+// book: messagedisplay-CI_GUTTER
 static assert(CI_GUTTER == "  ░▓▓▏");
 static assert(CHECK_GUTTER == "   ░░▏");
 
 // "it looks the same as your text, its as if you said it, but its coming from a rite of a ritual no?"
 // "  ░░▒▓▏ritual"
 // "    ░░▏rite"
+// book: messagedisplay-RITE_GUTTER
 static assert(RITE_GUTTER == "  ░░▏");
 static assert(RITUAL_GUTTER == "░░▒▓▏");
 

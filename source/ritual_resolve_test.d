@@ -6,6 +6,7 @@ module ritual_resolve_test;
 import proto : parsePbt;
 import ritual : flatten, indexOfRite;
 
+// book: ritual_resolve-src
 enum src = `
 rites parity {
   params: [row]
@@ -79,6 +80,7 @@ import ritual.resolve : lastOfBlock;
 // "a RITUAL is not finished until each of its rites blocks finished"
 // "a dispatch gates a rites block from finishing until it results something, a result"
 // "ci passing would still gate the end of a ritual (read ritual not rite)"
+// book: ritual_resolve-lastOfBlock
 static assert(lastOfBlock(flat, 0));
 static assert(!lastOfBlock(flat, 1));
 static assert(lastOfBlock(flat, 2));
@@ -92,6 +94,7 @@ static assert(!lastOfBlock(flat, 3));
 // with the copy belongs to the copy.
 import ritual.resolve : indexOfRiteFrom;
 
+// book: ritual_resolve-twinSrc
 enum twinSrc = `
 rites first {
   TRAMPOLINE1 {

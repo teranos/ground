@@ -4,7 +4,7 @@ import permission : buildPermissions, evaluatePermission, agentPermission, Decis
 import proto : parsePbt;
 import sessionmode : SessionMode;
 
-// Build + evaluate test via parsed pbt
+// book: permission-testPermPbt
 enum testPermPbt = `
 scope {
   path: "/"
@@ -90,7 +90,7 @@ static assert(r1.name == "go build"); // allow match
 static assert(r3.name == "go build"); // deny match — name is per-block, not per-list
 static assert(r4.name == "go build"); // ask match — same block, same inferred name
 
-// Explicit name overrides inference
+// book: permission-namedPermPbt
 enum namedPermPbt = `
 scope {
   path: "/"
@@ -122,6 +122,7 @@ static assert(n3.decision == Decision.none);
 
 // --- Path matching tests (Read/Write/Edit) ---
 
+// book: permission-pathPermPbt
 enum pathPermPbt = `
 scope {
   path: "/"
@@ -165,7 +166,7 @@ static assert(n3.name == "");
 
 // --- git -C normalization tests ---
 
-// "git -C /path log" should match "git log*" permission
+// book: permission-gitCPermPbt
 enum gitCPermPbt = `
 scope {
   path: "/"
@@ -203,7 +204,7 @@ static assert(gc6.decision == Decision.allow);
 
 // --- WebFetch URL permission tests (f mode) ---
 
-// f mode implies trailing /* — bare domains match any path
+// book: permission-fetchPermPbt
 enum fetchPermPbt = `
 scope {
   path: "/"
@@ -245,6 +246,7 @@ static assert(f7.decision == Decision.none);
 
 // --- Compound command tests (&&, ;, ||) ---
 
+// book: permission-compoundPermPbt
 enum compoundPermPbt = `
 scope {
   path: "/"
@@ -287,6 +289,7 @@ static assert(c7.decision == Decision.allow);
 
 // --- session-mode qualified permissions ---
 
+// book: permission-sessionPermPbt
 enum sessionPermPbt = `
 scope {
   path: "/"
@@ -341,9 +344,7 @@ static assert(s9.decision == Decision.none);
 enum s10 = evaluatePermission(sessionSet[], "/x", "Write", "/teranos/ground/x.d", SessionMode.unknown);
 static assert(s10.decision == Decision.none);
 
-// --- Agent spawn ---
-// A rule's ask ignores the session segment, so the mode is decided by
-// agentPermission and not by the rule.
+// book: permission-agentPbt
 enum agentPbt = `
 scope {
   path: "/"
@@ -379,7 +380,7 @@ enum ag6 = evaluatePermission(agentSet[], "/x", "Agent", "", SessionMode.auto_);
 static assert(ag6.decision == Decision.ask);
 
 // "deny it even on auto"
-// A deny holds in every mode; only the question is confined to manual.
+// book: permission-agentDenyPbt
 enum agentDenyPbt = `
 scope {
   path: "/"

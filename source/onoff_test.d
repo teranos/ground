@@ -17,6 +17,7 @@ private sqlite3* memDb() {
 
 unittest {
     // "all rituals are disabled by default, project sessions and paths opt into them"
+    // book: onoff-memDb
     auto db = memDb();
     assert(!ritualsOn(db, "/teranos/QNTX"), "a project nobody switched is off");
     assert(offBecause(db, "/teranos/QNTX") ==
@@ -26,6 +27,7 @@ unittest {
 
 unittest {
     // "if a ritual get's enabled or disabled, a controls fires as to give direct feedback as to what happens in a simple manner."
+    // book: onoff-memDb-2
     auto db = memDb();
     char[512] buf;
     // A ParseResult is 3.3MB. Three enum temporaries in one frame came to more
@@ -48,6 +50,7 @@ unittest {
 
 unittest {
     // "persitence is forever, the playbill is supposed to inform about this"
+    // book: onoff-memDb-3
     auto db = memDb();
     assert(setRituals(db, "/teranos/QNTX", true, "session-a", 1000));
     assert(ritualsOn(db, "/teranos/QNTX"), "the store holds it, not the session that said it");
@@ -56,7 +59,7 @@ unittest {
 }
 
 // "also for subdirs yes"
-// A place under a project's path stands in that project.
+// book: onoff-nested
 enum nested = `
 rites walk {
   ONE {
@@ -87,7 +90,7 @@ static assert(projectAt(parsed, "/Users/x/teranos/QNTX/server", "", "") == "/ter
 
 // "rituals off and rituals on take no arguments"
 // "it should be easy for me to switch, simply by saying the words"
-// A sentence with one of them inside it is a sentence, not the phrase.
+// book: onoff-saidOf
 static assert(saidOf("rituals on") == Said.On);
 static assert(saidOf("rituals off") == Said.Off);
 static assert(saidOf("  rituals off\n") == Said.Off);
@@ -100,6 +103,7 @@ static assert(saidOf("") == Said.Nothing);
 
 unittest {
     // "if session A is saying rituals off, no new rituals can fire there until either Session A or Session B say rituals on again"
+    // book: onoff-memDb-4
     auto db = memDb();
     assert(setRituals(db, "/teranos/QNTX", true, "session-a", 1000));
     assert(setRituals(db, "/teranos/QNTX", false, "session-b", 1001));
@@ -110,7 +114,7 @@ unittest {
 }
 
 // "rituals on or off is always tied to the project { } block"
-// The deepest project wins, and a project inside another has a switch of its own.
+// book: onoff-projectAt
 static assert(projectAt(parsed, "/Users/x/teranos/QNTX/web/src", "", "") == "/teranos/QNTX/web");
 static assert(projectAt(parsed, "/Users/x/teranos/QNTX-App", "", "") == "");
 static assert(projectAt(parsed, "/Users/x/elsewhere", "", "") == "");
@@ -118,7 +122,7 @@ static assert(projectAt(parsed, "/Users/x/elsewhere", "", "") == "");
 // A tree cut from the repo, wherever it sits on disk, is the repo's project.
 static assert(projectAt(parsed, "/tmp/qntx-deploy-1000", "/Users/x/teranos/QNTX", "") == "/teranos/QNTX");
 
-// A project that names its repo is every checkout of it.
+// book: onoff-byOrigin
 enum byOrigin = `
 rites walk {
   ONE {
@@ -137,7 +141,7 @@ project {
 `;
 static assert(projectAt(parsePbt(byOrigin), "/tmp/qntx-chapter-1", "", "teranos/QNTX") == "/teranos/QNTX");
 
-// A project block holding no ritual has nothing to switch, however deep it is.
+// book: onoff-wound
 enum wound = `
 rites walk {
   ONE {

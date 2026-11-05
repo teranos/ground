@@ -13,6 +13,7 @@ import effort : MEDIUM_AT, ACCOUNT_LOW_AT, FABLE_LOW_AT, wantedFor,
                 FABLE_MODEL, ACCOUNT_MODELS;
 
 // "for weekly 95+ should be put to low and 80+ should be set to medium"
+// book: effort_ladder-MEDIUM_AT
 static assert(MEDIUM_AT == 800, "tenths, as the usage table keeps a reading");
 static assert(ACCOUNT_LOW_AT == 950);
 // "fable's own 85+ would set it to low on 85+ limit hit"

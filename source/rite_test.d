@@ -5,7 +5,7 @@ module rite_test;
 import proto : parsePbt;
 import rite : classify, Verdict;
 
-// A rite that declares nothing takes the defaults: 0 advances, 1 holds.
+// book: rite-defaultsInput
 enum defaultsInput = `
 rites d {
   plain {
@@ -18,11 +18,11 @@ static assert(classify(0, plain) == Verdict.Advance);
 
 // "so catch means hold, until true"
 // "the rite is like a bucket we are currently intending to throw a Stop in, if the condition is not met we throw it back allowing the agent to continue, because the rite is blocking the Stop"
+// book: rite-classify
 static assert(classify(1, plain) == Verdict.Hold);
 
 // "if its non 0/1 we should just stop and halt the agent and leave on the screen the non 0 non 1 was and its message"
-// Anything neither declared is the third outcome. 2 is not a worse 1 —
-// it is a different kind of answer, and the rite cannot read it.
+// book: rite-classify-2
 static assert(classify(2, plain) == Verdict.Halt);
 
 // 127 is the shell saying the command does not exist. Under a two-outcome
@@ -33,8 +33,7 @@ static assert(classify(127, plain) == Verdict.Halt);
 static assert(classify(130, plain) == Verdict.Halt);
 
 // "i meant, from 0 to 1, the gate is from 0 to 1"
-// Shell negation flattens every non-zero to 0, so a broken command reads as
-// a pass. Declared instead of inverted.
+// book: rite-invertedInput
 enum invertedInput = `
 rites g {
   scratch {
@@ -49,8 +48,7 @@ static assert(classify(1, scratch) == Verdict.Advance);
 static assert(classify(0, scratch) == Verdict.Hold);
 static assert(classify(2, scratch) == Verdict.Halt);
 
-// "catch: [7, 22]" — curl exits 7 when it cannot connect and 22 on an HTTP
-// error. Both mean the box is not answering yet, neither means it failed.
+// book: rite-multiInput
 enum multiInput = `
 rites b {
   answers {
@@ -65,8 +63,7 @@ static assert(classify(7,  answers) == Verdict.Hold);
 static assert(classify(22, answers) == Verdict.Hold);
 static assert(classify(6,  answers) == Verdict.Halt);
 
-// A rite with a goto still classifies as Hold. Where a held position moves
-// is a separate question from what the code meant.
+// book: rite-gotoInput
 enum gotoInput = `
 rites b {
   target {
@@ -84,8 +81,7 @@ static assert(classify(22, survived) == Verdict.Hold);
 static assert(classify(0,  survived) == Verdict.Advance);
 
 // "A DISPATCH ISNT A QUESTION BEING ASKED"
-// long-coin knows three rigs: none, heads, tails. Asked to rig an edge, GitHub
-// refuses at the door and the dispatch exits 1.
+// book: rite-edgeInput
 enum edgeInput = `
 rites toss {
   params: [rig]
@@ -109,8 +105,7 @@ static assert(classify(1, flip) == Verdict.Halt);
 
 // "msg i also want as anotgher optional one"
 // "i want APP to be silent about its non zero exit"
-// The author foresaw the refusal. Caught, it holds and goes to REST, and what
-// is said about it is the author's sentence, not the exit.
+// book: rite-foreseenInput
 enum foreseenInput = `
 rites toss {
   params: [rig]

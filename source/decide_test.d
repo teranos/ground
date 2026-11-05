@@ -11,7 +11,7 @@ static assert(combine("allow", Decision.deny) == "deny");
 static assert(combine("deny", Decision.allow) == "deny");
 
 // "a control can't invalidate a permission"
-// A permission's allow stands over a control's ask: the person granted it.
+// book: decide-combine
 static assert(combine("ask", Decision.allow) == "allow");
 static assert(combine("", Decision.allow) == "allow");
 

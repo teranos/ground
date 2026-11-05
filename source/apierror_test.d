@@ -21,6 +21,7 @@ static assert(!apiErrorFromWord("").valid);
 static assert(!apiErrorFromWord("teapot").valid);
 
 // "you always get one of these with the ZALGO retained"
+// book: apierror-angry
 static assert(angry(ApiError.RateLimit)            == "R̶A̸T̵E̵_̴L̸I̵M̸I̷T̶");
 static assert(angry(ApiError.Overloaded)           == "O̶V̸E̴R̷L̸O̵A̷D̶E̸D̵");
 static assert(angry(ApiError.AuthenticationFailed) == "A̷U̷T̴H̶E̴N̴T̷I̸C̵A̵T̴I̵O̸N̶_̸F̸A̵I̴L̷E̸D̴");
@@ -34,6 +35,7 @@ static assert(angry(ApiError.Unknown)              == "U̴N̶K̶N̶O̷W̷N̸");
 static assert(angry(ApiError.ServerError)          == "̵S̵E̸R̴V̷E̴R̸_̴E̸R̷R̸O̷R̸");
 
 // "it is the error code that is holding the mic"
+// book: apierror-holderFor
 static assert(holderFor(ApiError.RateLimit) == Mic.Error);
 static assert(holderFor(ApiError.Overloaded) == Mic.Error);
 static assert(holderFor(ApiError.ServerError) == Mic.Error);
@@ -49,9 +51,11 @@ static assert(holderFor(ApiError.MaxOutputTokens) == Mic.Human);
 // "this kind of shit, the quota error, it should not even try to continue the entire thing should just halt"
 // "+70% GLOBALQUOTA USE MEANS ADDING 10s BEFORE EVERY gh TOOL CALL"
 // "Halt is the refusal to guess"
+// book: apierror-holderFor-2
 static assert(holderFor(ApiError.Unknown) == Mic.Human);
 
 // "rate limit just means retry not now but in incremental backoff"
+// book: apierror-retryable
 static assert(retryable(ApiError.RateLimit));
 static assert(retryable(ApiError.Overloaded));
 static assert(retryable(ApiError.ServerError));

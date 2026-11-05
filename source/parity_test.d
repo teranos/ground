@@ -159,9 +159,7 @@ static assert(sideOf("agy", "Stop").writes.slice() == "");
 static assert(sideOf("codex", "PostToolUse").writes.slice() == sideOf("claude", "PostToolUse").writes.slice());
 
 // "Pin the latest stable deepseek harness In parity"
-// dsh has no hook contract of its own: it runs Claude Code's and Codex's hooks,
-// each a plugin of its own. Its pins are those bridges' bundles, the same on
-// every platform, each beside the hook-protocol bundle that reads a hook's reply.
+// book: parity-pins
 static assert(pins[10].agent == "dsh-claude" && pins[10].release == "0.2.1-rc.5");
 static assert(pins[10].sha256 == "c4f3f5d92c82e790593d977d95eef0afa4ffad07bb9b9d1609ae613fe6a76283");
 static assert(pins[10].protocol == "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132");
@@ -420,9 +418,7 @@ static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
 
 // "But parity should cover clientside as well"
-// libacp's client side is read out of libacp/src/client.c: a method's through acp_client_<method>_write,
-// what the client sends for it, and acp_client_<method>_read, what it reads of the agent's, and every
-// helper of the file they call.
+// book: parity-has
 static assert(has(sideFor("acp-client", "session/prompt").writes, "sessionId"));
 static assert(has(sideFor("acp-client", "session/prompt").writes, "prompt"));
 static assert(has(sideFor("acp-client", "session/prompt").reads, "stopReason"));
@@ -499,8 +495,7 @@ static assert(has(sideFor("acp", "session/request_permission").reads, "outcome")
 static assert(has(sideFor("acp", "elicitation/complete").writes, "elicitationId"));
 
 // "i want it"
-// MCP's pins are each released schema.json at one spec commit, the version as
-// the release. libmcp is the client the table measures.
+// book: parity-pins-2
 static assert(pins.length == 12);
 static assert(pins[5].agent == "mcp" && pins[5].release == "2024-11-05");
 static assert(pins[5].sha256 == "61cea2392d4f284092d09bc84b9ac488c0d5618ac2b38a56942fc5b99fd960ce");
@@ -685,6 +680,7 @@ static assert(has(groundWrites!"Stop", "decision"));
 static assert(has(groundWrites!"Stop", "stopReason"));
 
 // "in is 50% and out is 50%"
+// book: parity-score
 static assert(score(1, 2, 1, 4) == 375);        // per mille: 0.5*500 + 0.5*250
 static assert(score(7, 13, 3, 10) == 419);
 static assert(score(1, 2, 0, 0) == 500);        // a side the spec does not have weighs nothing
@@ -696,7 +692,7 @@ static assert(covered("a,b,c", "b,c,d") == 2);
 static assert(covered("", "b") == 0);
 
 // "is to record how we are doing on parity over time against different specs and also have that plot as a line."
-// A harness's total is the mean of its cells. A spec with neither side is no cell.
+// book: parity-total
 static assert(total([390, 610, -1]) == 500);
 static assert(total([-1, -1]) == -1);
 

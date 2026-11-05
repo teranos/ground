@@ -1332,9 +1332,7 @@ unittest {
 
 unittest {
     // "today will be the day of recording to parquet, so its a clean slate in that regard"
-    // The rows a hook writes from now on are the stream's: qntx_at 0 until the
-    // sky posts one. The rows that were there when the column arrived are not:
-    // stamped BEFORE_STREAM once, by the migration, and never claimed.
+    // book: db-sqlite3_open
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
     assert(applySchema(db));

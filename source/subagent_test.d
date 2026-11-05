@@ -39,7 +39,7 @@ ModelInputs quiet() {
 }
 
 // "Subagents Alwys Opus, never Fable, Fable is for what is worth human attention span"
-// Outside every project, the top level's model.
+// book: subagent-modelsAt
 enum outside = modelsAt(parsed, "/home/u/elsewhere");
 static assert(!outside[0].present);
 static assert(!outside[1].present);
@@ -57,8 +57,7 @@ static assert(() { auto i = quiet(); i.fiveTenths = 950; return resolveModel(inG
 static assert(resolveModel(modelsAt(parsePbt(`project { path: "/p" }`), "/p"), quiet()).model == DEFAULT_MODEL);
 
 // "and agents always on medium effort please"
-// How hard a model thinks is not the block's to say: it is the model's own
-// setting, which the usage windows move, for a subagent as for a ritual.
+// book: subagent-__traits
 static assert(!__traits(compiles, { enum bad = parsePbt(`models { effort: "medium" }`); }));
 
 private string set(string region, string model) {
@@ -80,8 +79,7 @@ static assert(told(`{"description":"d","prompt":"p"}`, "opus").changed);
 
 // "i want a main session to be at very high effort, maybe even xhigh,"
 // "but i cat ave each of its agents be xhigh as well"
-// What the call asked for is not what it gets: the model is the one picked,
-// and an effort the call names is dropped, so the model's own setting holds.
+// book: subagent-set
 static assert(set(`{"description":"d","model":"fable","prompt":"p","effort":"xhigh"}`, "opus")
     == `{"description":"d","prompt":"p","model":"opus"}`);
 static assert(told(`{"prompt":"p","model":"opus","effort":"medium"}`, "opus").changed);

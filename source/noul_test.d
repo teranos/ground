@@ -9,7 +9,7 @@ module noul_test;
 import proto : parsePbt, validateRituals;
 import noul : jevBody, jevAnswer, JevAnswer;
 
-// The key is the primitive, the value its instructions, as eval: is a command.
+// book: noul-noulSrc
 enum noulSrc = `
 rites judged {
   NEEDED {
@@ -28,7 +28,7 @@ static assert(parsePbt(noulSrc).rites[0].rites[0].noul
 static assert(parsePbt(noulSrc).rites[0].rites[0].criteriaCount == 0);
 static assert(validateRituals(parsePbt(noulSrc)).text().length == 0);
 
-// A score's levels are Jev's `criteria`, in order, the first one the no.
+// book: noul-scoreSrc
 enum scoreSrc = `
 rites judged {
   IMPACT {
@@ -56,7 +56,7 @@ static assert(parsePbt(scoreSrc).rites[0].rites[0].criteriaCount == 3);
 static assert(parsePbt(scoreSrc).rites[0].rites[0].criteria[2] == "Data is stored differently");
 static assert(validateRituals(parsePbt(scoreSrc)).text().length == 0);
 
-// A score without levels has no spectrum to place the state on.
+// book: noul-noLevelsSrc
 enum noLevelsSrc = `
 rites judged {
   X {
@@ -73,7 +73,7 @@ project {
 static assert(validateRituals(parsePbt(noLevelsSrc)).text()
               == "rite X: a score names its levels in `criteria`");
 
-// One rite, one way to answer.
+// book: noul-bothSrc
 enum bothSrc = `
 rites judged {
   X {
@@ -91,6 +91,7 @@ project {
 static assert(validateRituals(parsePbt(bothSrc)).text()
               == "rite X: `noul` and `eval` are two answers to one question");
 
+// book: noul-twoJevSrc
 enum twoJevSrc = `
 rites judged {
   X {
@@ -109,8 +110,7 @@ project {
 static assert(validateRituals(parsePbt(twoJevSrc)).text()
               == "rite X: `noul` and `score` are two answers to one question");
 
-// A choice's options are Jev's `criteria` map: each option a rite the walk
-// can go to, its description what sends it there.
+// book: noul-choiceSrc
 enum choiceSrc = `
 rites judged {
   ROUTE {
@@ -139,7 +139,7 @@ static assert(parsePbt(choiceSrc).rites[0].rites[0].criteriaKeys[0] == "DEPLOY")
 static assert(parsePbt(choiceSrc).rites[0].rites[0].criteria[1] == "Nothing a running box would notice");
 static assert(validateRituals(parsePbt(choiceSrc)).text().length == 0);
 
-// An option that names no rite is a place the walk cannot go.
+// book: noul-strayChoiceSrc
 enum strayChoiceSrc = `
 rites judged {
   ROUTE {

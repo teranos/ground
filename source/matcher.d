@@ -908,8 +908,7 @@ unittest {
     // "so widen, but dont widen beyond 100 extra lines"
     // "becasue its cheap to add 100 in my mental picture, cpmpared to not reading the top of the file"
 
-    // The head is what the widening is for, and the head is the comment run the
-    // file opens with: 38 lines of it are 38 lines spent, not 100.
+    // book: matcher-applyRange
     assert(applyRange("1,+10,100", "sed -n 740,748p f.d", 0, 38).slice()
            == "sed -n 1,38p;740,758p f.d");
     assert(applyRange("1,+10,100", "sed -n '740,748p' f.d", 0, 38).slice()
@@ -941,8 +940,7 @@ unittest {
 
 unittest {
     // "the sed rewrite rule, i want it to behave differently based on our usage. if our weekly is over 40% it should start to taper down in how much it gives back with 70%+ weekly usage going back to what the model normally does. so at 70% the sed rewrite rule would not even be applied anymore. do you hear what im saying actually?"
-    // How much of the widening is given up, in permille of the way from the
-    // taper's start to its end. The week is read in tenths of a percent.
+    // book: matcher-taperOf
     assert(taperOf("40,70", 390) == 0);
     assert(taperOf("40,70", 400) == 0);
     assert(taperOf("40,70", 550) == 500);
@@ -1001,8 +999,7 @@ long headRun(const(char)[] content, long cap) {
 
 unittest {
     // "i want top section to be preferred on adding extra context if its commnts, of the 100"
-    // The module line, its prose and the blank between them are the head; the
-    // first import is where it stops.
+    // book: matcher-f
     enum d = "module m;\n\n// why this exists\n// and what it holds\n\nimport std;\nvoid f() {}\n";
     assert(headRun(d, 100) == 5);
 

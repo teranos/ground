@@ -78,7 +78,7 @@ project {
   }
 }
 `;
-// The whole is what the parts say, composed rather than written twice.
+// book: org-projects
 enum src = orgs ~ projects;
 enum parsed = parsePbt(src);
 

@@ -6,8 +6,7 @@ import proto : parsePbt, extractProjectRoutes;
 import routes : saysWord, routeApplies, fitRoutes, buildRoutesMessage;
 
 // "on a match ground should inject the specific bit"
-// A project names its spec, relative to its path. Wind reads it at build and
-// writes one route block per path back: the word said, and the text injected.
+// book: routes-routedInput
 enum routedInput = `
 project {
   path: "/Users/me/code/qntx"

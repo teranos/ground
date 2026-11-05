@@ -21,8 +21,7 @@ static assert(!micFromWord("qntx").valid);
 
 // "a rite can only take hostage for at most 2 sec"
 // "the white state color should be occupied for at most 2 sec"
-// "ground, or the rite should have no reason to keep holding the mic for
-// longer than 2s" — it evaluates and speaks, so there is nothing to wait for.
+// book: mic-blocking
 static assert(!blocking(Mic.Ground, 2, 0, 0));
 static assert(blocking(Mic.Ground, 3, 0, 0));
 
@@ -36,9 +35,7 @@ static assert(blocking(Mic.Ci, 400, 20, 0));
 static assert(!blocking(Mic.Ci, 4000, 0, 0));
 
 // "make the message a property of the mic"
-// "and that is before the faulty commit from yours" — one complaint gets
-// stapled to six rites when the words attached are the agent's most recent
-// rather than what it said while holding.
+// book: mic-wordsHash
 static assert(wordsHash("I plucked a CHERRY.") != wordsHash("I plucked a MANGO."));
 static assert(wordsHash("") == 0);
 
@@ -64,6 +61,7 @@ static assert(blocking(Mic.Agent, 605, 0, 60));
 // "there needs to be a way for the ball to land in the court of ci"
 // "and ci keeps holding the mic in this case"
 // "it keeps holding the mic until ci has an outcome"
+// book: mic-holder
 static assert(holder(20) == Mic.Ci);
 
 // "ground, or the rite should have no reason to keep holding the mic for

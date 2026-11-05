@@ -9,10 +9,7 @@ import proto : parsePbt, validateRituals;
 // "the 2nd instance sees there is already one running, the ritual never runs"
 // "think of it like a goto"
 // "the parameter is the rite"
-// A second fire starts no performance. The live one's tree is brought onto the push, its walk goes to the named rite with its counts started over, and its agent and parent are told.
-// A fire after the regoto rite sends the walk back to it: regoto-walk on W3, pushed again, stood on W2 in the same row, its tree at the new push.
-// TODO open: a fire that lands before the regoto rite jumps forward to it, W1 to W2. Whether to keep that is undecided.
-// TODO open: without a tree of its own a regoto moves the checkout the ritual fired from. Whether the parser should refuse regoto without tree is undecided.
+// book: regoto-withRegoto
 enum withRegoto = `
 rites steps {
   STEP1 {
@@ -45,6 +42,7 @@ static assert(validateRituals(parsePbt(withRegoto)).text() == "");
 
 // "its an opt-in as well, this behaviour"
 // "a ritual that hasnt opted in behaves like it does today, parralel agent sessions in individual rituals"
+// book: regoto-withoutRegoto
 enum withoutRegoto = `
 rites judged {
   ROUTE {
@@ -63,7 +61,7 @@ project {
 static assert(parsePbt(withoutRegoto).rituals[0].regoto == "");
 
 // "why not regoto"
-// A regoto naming no rite of its own ritual is a jump into the dark, as a goto is.
+// book: regoto-badRegoto
 enum badRegoto = `
 rites judged {
   ROUTE {
@@ -310,7 +308,7 @@ unittest {
 unittest {
     // "maybe i just want it to throw the whole tree away and reinit"
     // "or that can be a fallback"
-    // When the stash, pull or unstash fails, the tree is set to the push and cleaned; when that fails too, the performance halts where it stands.
+    // book: regoto-stage
     import ritual : moveTree;
     auto s = stage();
     sh("printf 'mine\\n' > '", s.tree.text(), "/steps.txt'");
@@ -367,7 +365,7 @@ unittest {
 
 unittest {
     // "because the new one should be the one that is the change"
-    // Two pushes while one rite runs: the newer is the one that waits.
+    // book: regoto-stage-2
     import ritual : landOn, landingOf;
     auto s = stage();
     auto db = memDb();
@@ -383,8 +381,7 @@ unittest {
 
 unittest {
     // "But regoto should wait for the existing rite to finish and then resolve"
-    // The fire leaves the push waiting on the row. The rite in flight runs on in
-    // a tree nobody moves, and the walk stays where it is.
+    // book: regoto-stage-3
     import ritual : landOn, byPerformanceId, readPush, landingOf;
     auto s = stage();
     auto db = memDb();
@@ -513,6 +510,7 @@ static assert(!has(regotoSource, "kill("), "a fire does not kill the rite in fli
 // "and happens for ground repo"
 // "THE REGOTO SHOULD BE W2"
 // "W4 IS ANOTHER 10 SEC"
+// book: regoto-regotoWalk
 enum regotoWalk = `
 project {
   path: "/teranos/ground"
