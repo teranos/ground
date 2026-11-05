@@ -35,16 +35,99 @@ extern (C) int getpid();
 // its quotes, or null. An id is echoed, never interpreted.
 // The object a key names, braces and all, however it is spaced; null when
 // the key is absent or names no object.
+// The object an object's own member key holds, or null: the member of json itself, never a
+// key quoted in a string or one in a nested object, as _meta.params is.
 const(char)[] objectValue(const(char)[] json, const(char)[] key) {
-    auto at = indexOf(json, key);
-    if (at < 0) return null;
-    size_t p = cast(size_t) at + key.length;
-    while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++;
-    if (p >= json.length || json[p] != ':') return null;
-    p++;
-    while (p < json.length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r')) p++;
-    if (p >= json.length || json[p] != '{') return null;
-    return json[p .. skipValue(json, p)];
+    auto v = memberValue(json, key);
+    return v.length > 0 && v[0] == '{' ? v : null;
+}
+
+// The value json's own member key holds, as its text, or null when json is no object holding it.
+// key is quoted, as `"params"`.
+const(char)[] memberValue(const(char)[] json, const(char)[] key) {
+    static bool ws(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+    static size_t afterString(const(char)[] s, size_t i) {
+        i++;
+        while (i < s.length && s[i] != '"') i += s[i] == '\\' ? 2 : 1;
+        return i < s.length ? i + 1 : s.length;
+    }
+    static size_t afterValue(const(char)[] s, size_t i) {
+        if (i >= s.length) return i;
+        if (s[i] == '"') return afterString(s, i);
+        if (s[i] == '{' || s[i] == '[') {
+            size_t depth = 0;
+            while (i < s.length) {
+                if (s[i] == '"') { i = afterString(s, i); continue; }
+                if (s[i] == '{' || s[i] == '[') depth++;
+                else if (s[i] == '}' || s[i] == ']') { depth--; if (depth == 0) return i + 1; }
+                i++;
+            }
+            return i;
+        }
+        while (i < s.length && s[i] != ',' && s[i] != '}' && s[i] != ']' && !ws(s[i])) i++;
+        return i;
+    }
+    size_t i = 0;
+    while (i < json.length && ws(json[i])) i++;
+    if (i >= json.length || json[i] != '{') return null;
+    i++;
+    while (i < json.length) {
+        while (i < json.length && (ws(json[i]) || json[i] == ',')) i++;
+        if (i >= json.length || json[i] != '"') return null;
+        auto keyEnd = afterString(json, i);
+        auto name = json[i .. keyEnd];
+        i = keyEnd;
+        while (i < json.length && ws(json[i])) i++;
+        if (i >= json.length || json[i] != ':') return null;
+        i++;
+        while (i < json.length && ws(json[i])) i++;
+        auto end = afterValue(json, i);
+        if (end <= i) return null;
+        if (name == key) return json[i .. end];
+        i = end;
+    }
+    return null;
+}
+
+// Whether two ids are one: the same number, or strings that read the same once their escapes are,
+// as the client may spell a request's id one way in it and another in the cancel that names it.
+bool sameId(const(char)[] a, const(char)[] b) {
+    static bool text(const(char)[] s, ref char[512] buf, ref size_t n) {
+        if (s.length < 2 || s[0] != '"' || s[$ - 1] != '"') return false;
+        s = s[1 .. $ - 1];
+        n = 0;
+        size_t i = 0;
+        void put(char c) { if (n < buf.length) buf[n++] = c; }
+        while (i < s.length) {
+            if (s[i] != '\\') { put(s[i++]); continue; }
+            if (i + 1 >= s.length) return false;
+            auto e = s[i + 1];
+            i += 2;
+            if (e == 'u') {
+                if (i + 4 > s.length) return false;
+                uint cp = 0;
+                foreach (k; 0 .. 4) {
+                    auto c = s[i + k];
+                    uint h = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 99;
+                    if (h == 99) return false;
+                    cp = cp * 16 + h;
+                }
+                i += 4;
+                if (cp < 0x80) put(cast(char) cp);
+                else if (cp < 0x800) { put(cast(char)(0xC0 | (cp >> 6))); put(cast(char)(0x80 | (cp & 0x3F))); }
+                else { put(cast(char)(0xE0 | (cp >> 12))); put(cast(char)(0x80 | ((cp >> 6) & 0x3F))); put(cast(char)(0x80 | (cp & 0x3F))); }
+                continue;
+            }
+            put(e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == 'b' ? '\b' : e == 'f' ? '\f' : e);
+        }
+        return n <= buf.length;
+    }
+    char[512] x, y;
+    size_t xn, yn;
+    auto xs = text(a, x, xn), ys = text(b, y, yn);
+    if (xs != ys) return false;
+    if (xs) return x[0 .. xn] == y[0 .. yn];
+    return a == b;
 }
 
 const(char)[] rawValue(const(char)[] json, const(char)[] key) {
@@ -126,7 +209,7 @@ private bool cancels(const(char)[] line, const(char)[] sid, const(char)[] id) {
     acp_cancel c;
     scope(exit) acp_cancel_free(&c);
     if (acp_cancel_read(line.ptr, line.length, &c) != acp_status.ACP_OK) return false;
-    if (c.kind == acp_cancel_kind.ACP_CANCEL_REQUEST) return c.request_id !is null && c.request_id[0 .. strlen(c.request_id)] == id;
+    if (c.kind == acp_cancel_kind.ACP_CANCEL_REQUEST) return c.request_id !is null && sameId(id, c.request_id[0 .. strlen(c.request_id)]);
     if (c.kind == acp_cancel_kind.ACP_CANCEL_SESSION) return c.session_id !is null && c.session_id[0 .. strlen(c.session_id)] == sid;
     return false;
 }
@@ -153,7 +236,7 @@ private bool listed(const(char)[] names, const(char)[] name) {
 // What a session's mode makes of a call its turn asks for. Manual asks the
 // client; acceptEdits runs an edit unasked, unless the user always rejects it,
 // and asks the rest as Manual does; auto has no classifier, so it asks as well.
-private enum Verdict { run, ask, refuse }
+enum Verdict { run, ask, refuse }
 // "If a session-scoped request names a session that does not exist or is not active on the connection,
 // the Agent SHOULD respond with -32002 and set data.sessionId to the requested ID": what it was asked to
 // do, the session it named, into r.
@@ -162,27 +245,83 @@ private void unknownSession(ref Reply r, const(char)[] message, const(char)[] si
     r.add(`","data":{"sessionId":"`); putEscaped(r, sid); r.add(`"}}}`);
 }
 
-private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, bool edit, ref const(char)[] why) {
+private Verdict verdictOf(ref Open o, const(char)[] tool, bool readOnly, bool edit, bool outside, ref const(char)[] why) {
+    auto always = listed(o.always.slice(), tool), never = listed(o.never.slice(), tool);
     final switch (o.mode) {
+        case SessionMode.plan: why = "plan mode runs only tools whose MCP annotations say readOnlyHint"; break;
+        case SessionMode.dontAsk: why = "dontAsk mode runs only what is approved ahead, and nothing is"; break;
+        case SessionMode.bypassPermissions:
+        case SessionMode.manual:
+        case SessionMode.acceptEdits:
+        case SessionMode.auto_:
+        case SessionMode.unknown: why = "the user rejected it"; break;
+    }
+    return modeVerdict(o.mode, always, never, readOnly, edit, outside);
+}
+
+// What a mode does with a call: the user's always and never for it, whether it only reads, whether
+// it is an edit, and whether the file it reads or writes is outside the session's cwd and
+// additionalDirectories. A read or an edit outside them is asked, in the modes that would run it
+// unasked: plan read ~/.ssh, and Accept edits wrote ~/.bashrc, and nobody was asked.
+Verdict modeVerdict(SessionMode mode, bool always, bool never, bool readOnly, bool edit, bool outside) {
+    final switch (mode) {
         case SessionMode.bypassPermissions: return Verdict.run;
         case SessionMode.plan:
-            why = "plan mode runs only tools whose MCP annotations say readOnlyHint";
-            return readOnly ? Verdict.run : Verdict.refuse;
+            if (!readOnly) return Verdict.refuse;
+            return outside ? Verdict.ask : Verdict.run;
         case SessionMode.dontAsk:
-            why = "dontAsk mode runs only what is approved ahead, and nothing is";
             return Verdict.refuse;
         case SessionMode.manual:
         case SessionMode.acceptEdits:
         case SessionMode.auto_:
         case SessionMode.unknown:
-            if (listed(o.always.slice(), tool)) return Verdict.run;
-            why = "the user rejected it";
-            if (listed(o.never.slice(), tool)) return Verdict.refuse;
-            if (o.mode == SessionMode.acceptEdits && edit) return Verdict.run;
+            if (always) return Verdict.run;
+            if (never) return Verdict.refuse;
+            if (mode == SessionMode.acceptEdits && edit && !outside) return Verdict.run;
             return Verdict.ask;
     }
 }
 
+// Whether path stands in the session's cwd or one of its additionalDirectories (dirs, the JSON
+// array of them), as written: a path with a . or .. segment is in none, as it can climb out.
+bool withinRoots(const(char)[] cwd, const(char)[] dirs, const(char)[] path) {
+    if (path.length == 0 || path[0] != '/') return false;
+    size_t seg = 1;
+    foreach (i; 1 .. path.length + 1) {
+        if (i < path.length && path[i] != '/') continue;
+        auto part = path[seg .. i];
+        if (part == "." || part == "..") return false;
+        seg = i + 1;
+    }
+    bool under(const(char)[] root) {
+        while (root.length > 1 && root[$ - 1] == '/') root = root[0 .. $ - 1];
+        if (root.length == 0 || root[0] != '/') return false;
+        if (path == root) return true;
+        return path.length > root.length && path[0 .. root.length] == root && (root == "/" || path[root.length] == '/');
+    }
+    if (under(cwd)) return true;
+    // The array's strings, their escapes read: libacp writes each root as one.
+    size_t i = 0;
+    while (i < dirs.length) {
+        if (dirs[i] != '"') { i++; continue; }
+        char[1024] buf;
+        size_t n = 0;
+        i++;
+        bool fits = true;
+        while (i < dirs.length && dirs[i] != '"') {
+            char c = dirs[i];
+            if (c == '\\' && i + 1 < dirs.length) {
+                c = dirs[++i];
+                if (c != '"' && c != '\\' && c != '/') fits = false;
+            }
+            if (n < buf.length) buf[n++] = c; else fits = false;
+            i++;
+        }
+        i++;
+        if (fits && under(buf[0 .. n])) return true;
+    }
+    return false;
+}
 // The client's answer to the request ground code sent it as pid, into
 // answered, the turn waiting on it and still on a cancel: 1 answered, 2 the
 // turn was called off, -1 the client's input ended first.
@@ -631,6 +770,17 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
         return 2;
     }
     if (made == 0) { result.add(answered.slice()); return 1; }
+    // A terminal the client made is released however this call ends: one left behind keeps its
+    // command running. What could not release it is said.
+    bool unfreed = true;
+    scope(exit) if (unfreed) {
+        Reply gone, failed;
+        scope(exit) { gone.dispose(); failed.dispose(); }
+        if (terminalRelease(sessions, turn, sid, terminalId.slice(), gone, failed) < 0) {
+            fputs("ground code: the terminal ", stderr); fwrite(terminalId.slice().ptr, 1, terminalId.len, stderr);
+            fputs(" was left: its release could not be asked: ", stderr); fwrite(failed.slice().ptr, 1, failed.len, stderr); fputs("\n", stderr);
+        }
+    }
     // The terminal is shown in the call before it is released:
     // "The terminal must be added before calling `terminal/release`."
     {
@@ -658,6 +808,7 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
     scope(exit) readAnswer.dispose();
     auto read = terminalOutput(sessions, turn, sid, terminalId.slice(), output, truncated, readAnswer, why);
     if (read < 0) return -1;
+    unfreed = false;
     auto freed = terminalRelease(sessions, turn, sid, terminalId.slice(), released, why);
     if (freed < 0) return -1;
     void tail() {
@@ -898,6 +1049,8 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
                 return error(-32603, "the client's input ended while ground code waited on the sign-in");
         }
     }
+    // A cancel the client sent while the node was asked is a sign-in called off: nothing is kept.
+    if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
     why.len = 0;
     if (!keepToken(file.slice().ptr, token.slice(), why)) return error(-32603, "signed in, but the token could not be kept", why.slice());
     // "Notification sent by the agent when a URL-based elicitation is complete."
@@ -1673,7 +1826,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         import libacp : acp_session_list, acp_session_list_read, acp_session_list_free, acp_session_info,
             acp_session_info_write, acp_buffer, acp_buffer_free, acp_status;
         import core.stdc.string : strlen;
-        auto params = objectValue(line, `"params"`);
+        // params that are no object are libacp's to refuse, not read as none.
+        auto params = memberValue(line, `"params"`);
         if (params is null) params = "{}";
         acp_session_list asked;
         scope(exit) acp_session_list_free(&asked);
@@ -2545,7 +2699,19 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                     bool runs = call.name == RUN_TOOL && sessions.clientRunsCommands;
                     // Reading through the client changes nothing, so it is read-only as a tool that says so is.
                     bool reads = call.name == READ_TOOL && sessions.clientReadsFiles;
-                    auto verdict = verdictOf(*o, call.name, reads || readOnlyTool(o.mcp, call.name), own, why);
+                    // A file read or written through the client, outside the session's roots, is asked.
+                    bool outside = false;
+                    if (reads || own) {
+                        import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type,
+                            json_object_get_string, json_object_get_string_len;
+                        auto parsed = parseJson(call.arguments);
+                        scope(exit) json_object_put(parsed);
+                        auto v = jsonField(parsed, "path");
+                        const(char)[] named = v !is null && json_object_get_type(v) == json_type.string_
+                            ? json_object_get_string(v)[0 .. cast(size_t) json_object_get_string_len(v)] : "";
+                        outside = !withinRoots(o.cwd[0 .. o.cwdLen], o.dirs[0 .. o.dirsLen], named);
+                    }
+                    auto verdict = verdictOf(*o, call.name, reads || readOnlyTool(o.mcp, call.name), own, outside, why);
                     // "Agents SHOULD include it in the first report when available
                     // and SHOULD NOT change it later": the name the model called,
                     // here and in no update after.

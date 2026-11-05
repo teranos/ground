@@ -2265,7 +2265,26 @@ unittest {
     assert(cstr(sqlite3_column_text(st, 1)) == "handles");
     assert(sqlite3_step(st) == SQLITE_DONE);
     sqlite3_finalize(st);
+
+    // What is stored is the pin's it was measured at: rows of another rev are not this pin's.
+    assert(storedAt(db, "pi-acp", "bb") == 200);
+    assert(storedAt(db, "pi-acp", "aa") == 0);
+    assert(storedAt(db, "other", "bb") == 0);
     sqlite3_close(db);
+}
+
+// When the shipped agent's methods were last stored for rev, or 0 when they were stored for none:
+// rows of another pin are that pin's, and are not said beside this one.
+long storedAt(sqlite3* db, const(char)[] agent, const(char)[] rev) {
+    long at = 0;
+    sqlite3_stmt* st;
+    if (sqlite3_prepare_v2(db, "SELECT max(measured_at) FROM parity_shipped WHERE agent = ?1 AND rev = ?2\0".ptr, -1, &st, null) == SQLITE_OK) {
+        bind(st, 1, agent);
+        bind(st, 2, rev);
+        if (sqlite3_step(st) == SQLITE_ROW) at = sqlite3_column_int64(st, 0);
+        sqlite3_finalize(st);
+    }
+    return at;
 }
 
 private const(char)[] cstr(const(char)* p) {
@@ -2584,13 +2603,7 @@ private void render(sqlite3* db, const(char)[] only, ref Measured[maxPins] statu
     foreach (si; 0 .. shippedSet.count) {
         auto pin = &shippedSet.items[si];
         auto m = &shippedStatus[si];
-        long at = 0;
-        sqlite3_stmt* st;
-        if (sqlite3_prepare_v2(db, "SELECT max(measured_at) FROM parity_shipped WHERE agent = ?1\0".ptr, -1, &st, null) == SQLITE_OK) {
-            bind(st, 1, pin.name);
-            if (sqlite3_step(st) == SQLITE_ROW) at = sqlite3_column_int64(st, 0);
-            sqlite3_finalize(st);
-        }
+        long at = storedAt(db, pin.name, pin.rev);
         put("shipped "); put(pin.name); put(" "); put(pin.rev[0 .. 12]); put(" sdk "); put(pin.sdk); put("  ");
         if (m.access == Access.live) put("live    ");
         else put(at > 0 ? "stored  " : "never   ");
@@ -2623,12 +2636,14 @@ private void shippedTable(sqlite3* db) {
     }
 
     sqlite3_stmt* st;
-    if (sqlite3_prepare_v2(db, "SELECT agent, method, how FROM parity_shipped\0".ptr, -1, &st, null) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, "SELECT agent, method, how, rev FROM parity_shipped\0".ptr, -1, &st, null) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             auto agent = cstr(sqlite3_column_text(st, 0));
             auto how = cstr(sqlite3_column_text(st, 2));
+            auto rev = cstr(sqlite3_column_text(st, 3));
             foreach (si; 0 .. shippedSet.count) {
-                if (shippedSet.items[si].name != agent) continue;
+                // A row of another pin is that pin's, not this one's.
+                if (shippedSet.items[si].name != agent || shippedSet.items[si].rev != rev) continue;
                 auto r = rowOf(cstr(sqlite3_column_text(st, 1)));
                 if (r is null) break;
                 r.how[si] = how == "handles" ? 1 : 2;

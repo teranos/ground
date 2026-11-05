@@ -227,6 +227,14 @@ static void messages(void) {
     CHECK(msg.error_message != NULL && strcmp(msg.error_message, "broke") == 0);
     CHECK(msg.error_data != NULL && strcmp(msg.error_data, "{\"why\":1}") == 0);
     acp_message_free(&msg);
+    // An agent that could not read a request's id answers its error with "id":null, and the id
+    // there is JSON's null: the error is read, not left unread.
+    const char *unread = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"Parse error\"}}";
+    CHECK(acp_client_message_read(unread, strlen(unread), &msg) == ACP_OK);
+    CHECK(msg.kind == ACP_MESSAGE_RESPONSE && msg.id != NULL && strcmp(msg.id, "null") == 0);
+    CHECK(msg.is_error == 1 && msg.error_code == -32700);
+    CHECK(msg.error_message != NULL && strcmp(msg.error_message, "Parse error") == 0);
+    acp_message_free(&msg);
     CHECK(acp_client_message_read("not json", 8, &msg) == ACP_PARSE_ERROR && msg.kind == ACP_MESSAGE_UNREAD);
     const char *neither = "{\"jsonrpc\":\"2.0\",\"id\":7}";
     CHECK(acp_client_message_read(neither, strlen(neither), &msg) == ACP_OK && msg.kind == ACP_MESSAGE_UNREAD);
