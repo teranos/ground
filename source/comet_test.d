@@ -110,12 +110,26 @@ unittest {
     want.put(base.slice());
     want.put("?digest&ground=23a58f7");
     ZBuf url;
-    cometAskInto(url, "https://n", "abcd-nl/grove", "v0.19.1-880-g23a58f7\n");
+    cometAskInto(url, "https://n", "abcd-nl/grove", "v0.19.1-880-g23a58f7\n", "");
     assert(url.slice() == want.slice(), url.slice());
 
     ZBuf bare;
     bare.put(base.slice());
     bare.put("?digest");
-    cometAskInto(url, "https://n", "abcd-nl/grove", "");
+    cometAskInto(url, "https://n", "abcd-nl/grove", "", "");
     assert(url.slice() == bare.slice(), url.slice());
+
+    // The commit wind stamped beside the version is the one named: a tag that only looks like
+    // describe's suffix, or one with a slash in it, is not read for a commit.
+    enum head = "0123456789abcdef0123456789abcdef01234567";
+    ZBuf named;
+    named.put(base.slice());
+    named.put("?digest&ground=" ~ head);
+    cometAskInto(url, "https://n", "abcd-nl/grove", "v1.0-gdeadbeef\n", head ~ "\n");
+    assert(url.slice() == named.slice(), url.slice());
+    cometAskInto(url, "https://n", "abcd-nl/grove", "release/v1.2\n", head ~ "\n");
+    assert(url.slice() == named.slice(), url.slice());
+    // What is no whole commit is not one: the version is read instead.
+    cometAskInto(url, "https://n", "abcd-nl/grove", "v0.19.1-880-g23a58f7\n", "0123\n");
+    assert(url.slice() == want.slice(), url.slice());
 }
