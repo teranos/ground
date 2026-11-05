@@ -1,6 +1,6 @@
-// elicit_server: an MCP server on stdio whose tools ask the user through elicitation/create.
-// ELICIT_PROTOCOL legacy asks with a request of its own; modern answers input_required, as 2026-07-28 does.
-// Every request it reads, and every answer to its own, is written to ELICIT_LOG.
+// 「[Opus 5.5] elicit_server: an MCP server on stdio whose tools ask the user through elicitation/create.」
+// 「[Opus 5.5] ELICIT_PROTOCOL legacy asks with a request of its own; modern answers input_required, as 2026-07-28 does.」
+// 「[Opus 5.5] Every request it reads, and every answer to its own, is written to ELICIT_LOG.」
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
@@ -13,7 +13,7 @@ static const char form[] = "\"message\":\"Which branch?\",\"requestedSchema\":{\
                            "\"properties\":{\"branch\":{\"type\":\"string\"}},\"required\":[\"branch\"]}";
 static const char link[] = "\"mode\":\"url\",\"message\":\"Sign in\",\"elicitationId\":\"x1\",\"url\":\"https://example.com/sign-in\"";
 
-// Where the JSON value starting at p ends: a string, an object or array with its nesting, or a scalar.
+// 「[Opus 5.5] Where the JSON value starting at p ends: a string, an object or array with its nesting, or a scalar.」
 static const char *value_end(const char *p) {
     if (*p == '"') {
         for (p++; *p && *p != '"'; p += *p == '\\' && p[1] ? 2 : 1) {}
@@ -32,7 +32,7 @@ static const char *value_end(const char *p) {
     return p;
 }
 
-// The value key first names in line, as it stands, or NULL.
+// 「[Opus 5.5] The value key first names in line, as it stands, or NULL.」
 static const char *value_of(const char *line, const char *key, size_t *length) {
     char want[64];
     snprintf(want, sizeof want, "\"%s\":", key);
@@ -43,7 +43,7 @@ static const char *value_of(const char *line, const char *key, size_t *length) {
     return at;
 }
 
-// The method as the line spells it, each / as it is or as JSON may write it, \/.
+// 「[Opus 5.5] The method as the line spells it, each / as it is or as JSON may write it, \/.」
 static int method_is(const char *line, const char *method) {
     char want[64], escaped[96];
     snprintf(want, sizeof want, "\"method\":\"%s\"", method);
@@ -57,7 +57,7 @@ static int method_is(const char *line, const char *method) {
     return strstr(line, want) != NULL || strstr(line, escaped) != NULL;
 }
 
-// The text as a JSON string's contents.
+// 「[Opus 5.5] The text as a JSON string's contents.」
 static void put_escaped(const char *s, size_t n) {
     for (size_t i = 0; i < n; i++) {
         if (s[i] == '\n') { fputs("\\n", stdout); continue; }
