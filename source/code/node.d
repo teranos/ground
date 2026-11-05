@@ -1,11 +1,11 @@
 module code.node;
 
-// The node ground code prompts through: the top-level qntx block of the controls wind gathered, read
-// alone by the reader controls reads it with, so ground code compiles none of the hooks controls drive.
+// 「[Opus 5.5] The node ground code prompts through: the top-level qntx block of the controls wind gathered, read」
+// 「[Opus 5.5] alone by the reader controls reads it with, so ground code compiles none of the hooks controls drive.」
 
 import qntxblock : ParsedQntx, parseQntxBlock;
 
-// A top-level block starts its line, as `ground fmt` lays every pbt out; one nested in another does not.
+// 「[Opus 5.5] A top-level block starts its line, as `ground fmt` lays every pbt out; one nested in another does not.」
 private ParsedQntx qntxIn()(string sand) {
     ParsedQntx found;
     size_t line = 0;
