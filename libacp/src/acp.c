@@ -52,8 +52,8 @@ static json_object *parse_whole(const char *json, size_t length, int *ok) {
     return value;
 }
 
-// RFC 8259's grammar, read from *p: what json-c would also take that JSON is not (single quotes,
-// NaN, comments, a trailing comma) is refused. Each reader moves *p past what it read, or answers 0.
+// 「[Opus 5.5] RFC 8259's grammar, read from *p: what json-c would also take that JSON is not (single quotes,」
+// 「[Opus 5.5] NaN, comments, a trailing comma) is refused. Each reader moves *p past what it read, or answers 0.」
 static void skip_ws(const char **p) {
     while (**p == ' ' || **p == '\t' || **p == '\n' || **p == '\r') (*p)++;
 }
@@ -137,7 +137,7 @@ static int json_value(const char **p, int depth) {
     return 0;
 }
 
-// Whether text is one JSON value, whole, as RFC 8259 writes one.
+// 「[Opus 5.5] Whether text is one JSON value, whole, as RFC 8259 writes one.」
 static int rfc8259(const char *text) {
     const char *p = text;
     if (!json_value(&p, 0)) return 0;
@@ -221,8 +221,8 @@ int acp_raw(const char *text, json_object **out) {
     *out = NULL;
     if (text == NULL || strlen(text) > INT32_MAX) return 0;
     int ok;
-    // What only a lenient reader takes for JSON (single quotes, NaN, comments) is the text it is:
-    // written as it came, it is JSON no client can read.
+    // 「[Opus 5.5] What only a lenient reader takes for JSON (single quotes, NaN, comments) is the text it is:」
+    // 「[Opus 5.5] written as it came, it is JSON no client can read.」
     json_object *value = rfc8259(text) ? parse_whole(text, strlen(text), &ok) : (ok = 0, NULL);
     if (!ok) return (*out = json_object_new_string(text)) != NULL;
     // JSON null is json-c's NULL; and a message is one line, so text over lines is written again.
