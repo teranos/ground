@@ -222,14 +222,39 @@ void writeContextResponse(const(char)[] context, const(char)[] decision) {
     fputs("\n", stdout);
 }
 
+// The question, built into a buffer the caller owns so a test can read it. An
+// updated input rides along when there is one: what is asked about is the call
+// as it will run.
+const(char)[] askResponse(char[] dest, const(char)[] reason, const(char)[] updatedInput) {
+    size_t n;
+    void put(const(char)[] s) { foreach (c; s) if (n < dest.length) dest[n++] = c; }
+    put(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"`);
+    putJsonString(dest, n, reason);
+    put(`"`);
+    if (updatedInput.length > 0) {
+        put(`,"updatedInput":`);
+        put(updatedInput);
+    }
+    put(`}}`);
+    return dest[0 .. n];
+}
+
 // The question, asked the way a denial is answered: the reason rides on the
 // decision, so the prompt says who is asking and why. codex has no ask, and
 // its own approval policy decides: the reason is said to the model instead.
 void writeAskResponse(const(char)[] reason) {
     if (codexAsks) { writeContextResponse(reason, ""); return; }
-    fputs(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"`, stdout);
-    writeJsonString(reason);
-    fputs(`"}}`, stdout);
+    __gshared char[262144] out_ = "";
+    __gshared char[4096] said = 0;
+    size_t sn;
+    void say(const(char)[] s) { foreach (c; s) if (sn < said.length) said[sn++] = c; }
+    say(reason);
+    if (pendingWhy.length > 0) {
+        if (sn > 0) say(" ");
+        say(pendingWhy);
+    }
+    auto r = askResponse(out_[], said[0 .. sn], pendingRewrite);
+    fwrite(r.ptr, 1, r.length, stdout);
     fputs("\n", stdout);
 }
 
@@ -362,6 +387,71 @@ StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
         }
     }
     return StandingPair(null, null, true);
+}
+
+// "the same rules for ritual agents should apply to subagents, they should cohere"
+// "Subagents Alwys Opus, never Fable, Fable is for what is worth human attention span"
+//
+// An Agent call is made into one that names the model and the effort the models
+// block picks, from the same layers, rules and readings a ritual's agent is
+// started on. What it became is left in pendingRewrite with the reason in
+// pendingWhy; a call that cannot be made into that is refused in pendingDeny.
+void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
+    import controls : parsedOnce;
+    import parse : extractToolInputRegion;
+    import ritual.resolve : modelsAt, resolveModel, resolveEffort, ModelInputs;
+    import ritual.command : modelInputs;
+    import subagent : agentInput, Set;
+    import db : openDb, sqlite3_close;
+    import exec : emitError;
+
+    ModelInputs inputs;
+    auto db = openDb();
+    if (db !is null) {
+        inputs = modelInputs(db);
+        sqlite3_close(db);
+    }
+    auto layers = modelsAt(parsedOnce, cwd);
+    auto choice = resolveModel(layers, inputs);
+    auto effort = resolveEffort(layers);
+    if (choice.missing.length > 0)
+        emitError("subagent.model",
+                  "a models rule could not be asked: nothing current is recorded for its input",
+                  0, 1, cast(string) sessionId, "subagent-model", "", "",
+                  cast(string) choice.missing);
+
+    __gshared char[512] why = 0;
+    size_t wn;
+    void say(const(char)[] t) { foreach (c; t) if (wn < why.length) why[wn++] = c; }
+    void sayPick() {
+        say(choice.model);
+        if (effort.length > 0) { say(" at "); say(effort); say(" effort"); }
+    }
+
+    auto region = extractToolInputRegion(input);
+    __gshared char[196608] became = 0;
+    Set set;
+    if (region !is null) set = agentInput(region, choice.model, effort, became[]);
+    if (!set.fit) {
+        say("ground could not make this Agent call into one that runs on ");
+        sayPick();
+        say(": its input is not an object ground reads to its end, or is larger than ground reads. It is not started; make the call smaller.");
+        pendingDeny = why[0 .. wn];
+        return;
+    }
+    if (set.fork) {
+        say("a fork runs on its session's model and effort whatever it is told, and the models block picks ");
+        sayPick();
+        say(" for a subagent. Start it as a subagent that is not a fork.");
+        pendingDeny = why[0 .. wn];
+        return;
+    }
+    if (!set.changed) return;
+    say("ground started this subagent on ");
+    sayPick();
+    say(": the models block picks what a subagent runs on, as it does for a ritual.");
+    pendingRewrite = became[0 .. set.len];
+    pendingWhy = why[0 .. wn];
 }
 
 // Computes the rewritten tool_input for a Write or Edit and leaves it in
@@ -1154,6 +1244,17 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         import controls : permissionScopes;
         import permission : agentPermission, Decision;
         import fired : noteFiredNow;
+        // What the subagent runs on is settled before any rule is asked, so
+        // every answer below carries it.
+        subagentRewrite(input, cwd, sessionId);
+        if (pendingDeny.length > 0) {
+            exitLabel = "subagent-deny";
+            noteFiredNow(sessionId, "PreToolUse", "rewrite", "subagent-model", "deny", cwd);
+            writeDenyResponse(pendingDeny);
+            return 0;
+        }
+        if (pendingRewrite.length > 0)
+            noteFiredNow(sessionId, "PreToolUse", "rewrite", "subagent-model", "rewrite", cwd);
         auto agentPerm = agentPermission(permissionScopes, cwd, sessionMode);
         if (agentPerm.decision == Decision.deny) {
             exitLabel = "agent-deny";

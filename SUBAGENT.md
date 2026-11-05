@@ -14,18 +14,31 @@ Nothing here is defined.
 
 "and agents always on medium effort please"
 
+"the same rules for ritual agents should apply to subagents, they should cohere"
+
 A session starts a subagent with the Agent tool. A call that names no model
-starts it on the session's own, at the session's effort. A models block names
-what a subagent runs on instead:
+starts it on the session's own, at the session's effort. The models block
+picks what a subagent runs on instead, as it picks what a ritual's agent runs
+on:
 
     models {
-      subagent: "opus"
-      subagent_effort: "medium"
+      model: "opus"
+      effort: "medium"
     }
 
-Ground rewrites every Agent call to those two before it runs, whatever the
-call asked for. A fork runs on its session's model whatever it is told, so a
-fork is refused. A call ground cannot read is refused, not let through.
+One pick, `resolveModel`, is made for both. A ritual's layers are the ritual,
+its project and the top level. A subagent has no ritual: its layers are the
+project its session stands in and the top level. Every rule is asked before
+any plain model, from the same plan and window readings, and no models block
+anywhere is the same default.
+
+`effort:` is the nearest layer's that names one. A ritual's agent is started
+with it as `--effort`; an Agent call is given it as `effort`.
+
+Ground rewrites every Agent call to the two before it runs, whatever the call
+asked for, and says so to the session that made it. A fork runs on its
+session's model whatever it is told, so a fork is refused. A call ground
+cannot read is refused, not let through.
 
 | | nr |
 |---|---|

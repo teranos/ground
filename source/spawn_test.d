@@ -91,6 +91,17 @@ static assert(both.text() ==
     ~ "--append-system-prompt 'Be brief.' 'go')\n"
     ~ bound!("p-1"));
 
+// "the same rules for ritual agents should apply to subagents, they should cohere"
+// The effort the models block names goes to claude as its flag, beside the model.
+enum effort = spawnScript("/r", "p-1", "p-1", "go", "", "opus", "", "medium");
+static assert(effort.text() ==
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"
+    ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'opus' --effort 'medium' 'go')\n"
+    ~ bound!("p-1"));
+
+// No effort named is no flag.
+static assert(spawnScript("/r", "p-1", "p-1", "go", "", "", "", "").text() == bg.text());
+
 // No model resolved is no flag.
 static assert(spawnScript("/r", "p-1", "p-1", "go", "", "").text() == bg.text());
 

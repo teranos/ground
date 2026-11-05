@@ -1,0 +1,164 @@
+/// A subagent runs on the model and the effort the models block picks.
+///
+/// "the same rules for ritual agents should apply to subagents, they should cohere"
+///
+/// A session starts a subagent with the Agent tool, and a call that names no
+/// model starts it on the session's own, at the session's effort. What the
+/// call's input becomes is made here; the handler answers with it.
+module subagent;
+
+/// What an Agent call's input became.
+struct Set {
+    /// How much of the buffer it is.
+    size_t len;
+    /// The input was an object ground read to its end, and what it became fit.
+    bool fit;
+    /// What it became is not what the call asked for.
+    bool changed;
+    /// The call is a fork, which runs on its session's model whatever it is told.
+    bool fork;
+}
+
+private enum NONE = size_t.max;
+
+private size_t skipWs(const(char)[] s, size_t i) {
+    while (i < s.length && (s[i] == ' ' || s[i] == '\n' || s[i] == '\r' || s[i] == '\t')) i++;
+    return i;
+}
+
+// The index after the string that opens at i, or NONE when it never closes.
+private size_t afterString(const(char)[] s, size_t i) {
+    i++;
+    while (i < s.length) {
+        if (s[i] == '\\') { i += 2; continue; }
+        if (s[i] == '"') return i + 1;
+        i++;
+    }
+    return NONE;
+}
+
+// The index after the value that starts at i, or NONE when it does not end.
+private size_t afterValue(const(char)[] s, size_t i) {
+    if (i >= s.length) return NONE;
+    if (s[i] == '"') return afterString(s, i);
+    if (s[i] == '{' || s[i] == '[') {
+        size_t depth = 0;
+        while (i < s.length) {
+            auto c = s[i];
+            if (c == '"') {
+                i = afterString(s, i);
+                if (i == NONE) return NONE;
+                continue;
+            }
+            if (c == '{' || c == '[') depth++;
+            else if (c == '}' || c == ']') {
+                depth--;
+                if (depth == 0) return i + 1;
+            }
+            i++;
+        }
+        return NONE;
+    }
+    auto start = i;
+    while (i < s.length && s[i] != ',' && s[i] != '}' && s[i] != ' '
+           && s[i] != '\n' && s[i] != '\r' && s[i] != '\t') i++;
+    return i > start ? i : NONE;
+}
+
+// Whether a value is the string wanted, and nothing else.
+private bool isString(const(char)[] val, const(char)[] want) {
+    return val.length == want.length + 2 && val[0] == '"' && val[$ - 1] == '"'
+        && val[1 .. $ - 1] == want;
+}
+
+/// The input of an Agent call with its model and its effort set to the ones
+/// picked, written into dest. An empty one is left as the call had it. Only the
+/// call's own keys are read: a prompt that quotes one is text.
+Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, char[] dest) {
+    Set none;
+    size_t n = 0;
+    bool full = false;
+    void putc(char c) { if (n < dest.length) dest[n++] = c; else full = true; }
+    void put(const(char)[] t) { foreach (c; t) putc(c); }
+    void putQuoted(const(char)[] t) {
+        putc('"');
+        foreach (c; t) {
+            if (c == '"' || c == '\\') putc('\\');
+            putc(c);
+        }
+        putc('"');
+    }
+
+    auto i = skipWs(region, 0);
+    if (i >= region.length || region[i] != '{') return none;
+    i++;
+    putc('{');
+
+    bool first = true;
+    size_t models = 0, efforts = 0;
+    bool modelIs = false, effortIs = false;
+    bool fork = false;
+
+    while (true) {
+        i = skipWs(region, i);
+        if (i >= region.length) return none;
+        if (region[i] == '}') { i++; break; }
+        if (region[i] == ',') { i++; continue; }
+        if (region[i] != '"') return none;
+
+        auto keyStart = i;
+        auto keyEnd = afterString(region, i);
+        if (keyEnd == NONE) return none;
+        auto key = region[keyStart + 1 .. keyEnd - 1];
+
+        i = skipWs(region, keyEnd);
+        if (i >= region.length || region[i] != ':') return none;
+        auto valStart = skipWs(region, i + 1);
+        auto valEnd = afterValue(region, valStart);
+        if (valEnd == NONE) return none;
+        auto val = region[valStart .. valEnd];
+        i = valEnd;
+
+        if (key == "model" && model.length > 0) {
+            models++;
+            modelIs = isString(val, model);
+            continue;
+        }
+        if (key == "effort" && effort.length > 0) {
+            efforts++;
+            effortIs = isString(val, effort);
+            continue;
+        }
+        if (key == "subagent_type" && isString(val, "fork")) fork = true;
+
+        if (!first) putc(',');
+        first = false;
+        put(region[keyStart .. valEnd]);
+    }
+    if (skipWs(region, i) != region.length) return none;
+
+    if (model.length > 0) {
+        if (!first) putc(',');
+        first = false;
+        put(`"model":`);
+        putQuoted(model);
+    }
+    if (effort.length > 0) {
+        if (!first) putc(',');
+        first = false;
+        put(`"effort":`);
+        putQuoted(effort);
+    }
+    putc('}');
+    if (full) return none;
+
+    Set r;
+    r.len = n;
+    r.fit = true;
+    r.fork = fork;
+    // A key named twice is read by its last, so only one that is the one
+    // wanted is the call already being what was picked.
+    r.changed = (model.length > 0 && !(models == 1 && modelIs))
+        || (effort.length > 0 && !(efforts == 1 && effortIs));
+    return r;
+}
