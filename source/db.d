@@ -6,18 +6,18 @@ import scan : indexOf, contains;
 import core.stdc.stdio : FILE;
 import core.stdc.time : time, time_t, tm, gmtime;
 
-// The path an edit's record names, whole or after decay. The index on it is
-// partial on PostToolUse, so a query must say both alike.
+// 「[Opus 5.5] The path an edit's record names, whole or after decay. The index on it is」
+// 「[Opus 5.5] partial on PostToolUse, so a query must say both alike.」
 enum EDIT_PATH = "coalesce(json_extract(attributes, '$.tool_input.file_path'), json_extract(attributes, '$.file_path'))";
 enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON attestations(" ~ EDIT_PATH
     ~ ") WHERE json_extract(predicates, '$[0]') = 'PostToolUse'\0";
 
 // "today will be the day of recording to parquet, so its a clean slate in that regard"
-// A unix second no post ever lands at, so a reader of "landed" (> BEFORE_STREAM)
-// and of "claimed" (< 0) is never fooled by it.
+// 「[Opus 5.5] A unix second no post ever lands at, so a reader of "landed" (> BEFORE_STREAM)」
+// 「[Opus 5.5] and of "claimed" (< 0) is never fooled by it.」
 enum BEFORE_STREAM = 1;
 
-// The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.
+// 「[Opus 5.5] The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.」
 enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
 
 // --- sqlite3 C bindings (minimal) ---
@@ -239,8 +239,8 @@ extern (C) {
 enum SQLITE_TRACE_STMT = 1;
 enum SQLITE_TRACE_PROFILE = 2;
 
-// The longest one write of this process held the store's write lock, and the
-// write: its run less what it slept in groundBusy waiting to get the lock.
+// 「[Opus 5.5] The longest one write of this process held the store's write lock, and the」
+// 「[Opus 5.5] write: its run less what it slept in groundBusy waiting to get the lock.」
 __gshared long heldUs;
 __gshared char[256] heldSqlBuf = 0;
 __gshared size_t heldSqlLen;
@@ -268,8 +268,8 @@ void traceWrites(sqlite3* db) {
     sqlite3_trace_v2(db, SQLITE_TRACE_STMT | SQLITE_TRACE_PROFILE, &heldTrace, null);
 }
 
-// A write slow enough to be measured is the longest this process held the lock;
-// a read takes no write lock and is not counted.
+// 「[Opus 5.5] A write slow enough to be measured is the longest this process held the lock;」
+// 「[Opus 5.5] a read takes no write lock and is not counted.」
 unittest {
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
@@ -359,9 +359,9 @@ sqlite3* openStandaloneDb() {
     // Per connection, so said on every open. The measure is at its test.
     sqlite3_exec(db, "PRAGMA synchronous = NORMAL\0".ptr, null, null, null);
 
-    // Explicit checkpoints in SessionStart/PreCompact only, none when a WAL crosses
-    // 4MB (1-2s stalls on a large db) and none at a close, which leaves the -wal
-    // and -shm where they are: the last close used to write the whole WAL back.
+    // 「[Opus 5.5] Explicit checkpoints in SessionStart/PreCompact only, none when a WAL crosses」
+    // 「[Opus 5.5] 4MB (1-2s stalls on a large db) and none at a close, which leaves the -wal」
+    // 「[Opus 5.5] and -shm where they are: the last close used to write the whole WAL back.」
     sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0\0".ptr, null, null, null);
     sqlite3_db_config(db, SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, 1, null);
     int persist = 1;
@@ -424,8 +424,8 @@ unittest {
     assert(size("-wal") > 0, "the last close took the -wal with it");
     assert(size("-shm") > 0, "the last close took the -shm with it");
 
-    // With no close to do it, a sky pass copies the WAL back, so no hook reads
-    // through one that only grows: on l it reached 56MB and PreToolUse 122ms.
+    // 「[Opus 5.5] With no close to do it, a sky pass copies the WAL back, so no hook reads」
+    // 「[Opus 5.5] through one that only grows: on l it reached 56MB and PreToolUse 122ms.」
     db = openStandaloneDb();
     auto settled = walSettle(db);
     assert(settled.rc == SQLITE_OK, "the pass's checkpoint did not run");
@@ -521,8 +521,8 @@ bool applySchema(sqlite3* db) {
     // The pending set is small against the table, so the index is partial.
     enum idxStream = "CREATE INDEX IF NOT EXISTS idx_attestations_stream ON attestations(qntx_at) WHERE qntx_at <= 0\0";
     sqlite3_exec(db, idxStream.ptr, null, null, null);
-    // The claim's own, without the refused rows: 45870 of them sat at qntx_at 0
-    // beside 6 pending, and each claim read them all under the write lock, 1356ms.
+    // 「[Opus 5.5] The claim's own, without the refused rows: 45870 of them sat at qntx_at 0」
+    // 「[Opus 5.5] beside 6 pending, and each claim read them all under the write lock, 1356ms.」
     enum idxOpen = "CREATE INDEX IF NOT EXISTS idx_attestations_stream_open ON attestations(qntx_at) "
         ~ "WHERE qntx_at <= 0 AND NOT " ~ REFUSED_SQL ~ "\0";
     sqlite3_exec(db, idxOpen.ptr, null, null, null);
@@ -707,7 +707,7 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, paritySpecSchema.ptr, null, null, null);
 
     // "and compare us against real shipped software instyead of comparing against a number that might not be real"
-    // What each shipped ACP agent does with a method at the commit pinned, `handles` or `sends`.
+    // 「[Opus 5.5] What each shipped ACP agent does with a method at the commit pinned, `handles` or `sends`.」
     enum parityShippedSchema = "CREATE TABLE IF NOT EXISTS parity_shipped (agent TEXT NOT NULL, "
         ~ "rev TEXT NOT NULL, method TEXT NOT NULL, how TEXT NOT NULL, measured_at INTEGER NOT NULL, "
         ~ "PRIMARY KEY (agent, method))\0";
@@ -733,8 +733,8 @@ bool applySchema(sqlite3* db) {
     // Its conversation, as the model's messages: the inside of the messages
     // array a turn sends, empty before the first.
     ensureColumn(db, "code_session", "history", "TEXT NOT NULL DEFAULT ''");
-    // The title each of its tool calls was shown with live, by call id: the inside of a JSON object,
-    // "id":"title" pairs, so a load tells a call back as it was shown.
+    // 「[Opus 5.5] The title each of its tool calls was shown with live, by call id: the inside of a JSON object,」
+    // 「[Opus 5.5] "id":"title" pairs, so a load tells a call back as it was shown.」
     ensureColumn(db, "code_session", "titles", "TEXT NOT NULL DEFAULT ''");
     // Its title, from the first prompt that typed something; empty before.
     ensureColumn(db, "code_session", "title", "TEXT NOT NULL DEFAULT ''");
@@ -752,8 +752,8 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, idxPredSession.ptr, null, null, null);
     sqlite3_exec(db, idxSubjectTs.ptr, null, null, null);
     sqlite3_exec(db, EDIT_INDEX.ptr, null, null, null);
-    // Whether a typed line is stored already, asked for each one in a
-    // transcript's tail on every prompt (queued.d).
+    // 「[Opus 5.5] Whether a typed line is stored already, asked for each one in a」
+    // 「[Opus 5.5] transcript's tail on every prompt (queued.d).」
     enum idxQueuedPrompt = "CREATE INDEX IF NOT EXISTS idx_attestations_queued_prompt ON attestations(json_extract(contexts, '$[0]'), json_extract(attributes, '$.prompt')) WHERE json_extract(predicates, '$[0]') = 'QueuedPromptSubmit'\0";
     sqlite3_exec(db, idxQueuedPrompt.ptr, null, null, null);
 
@@ -785,11 +785,11 @@ void walCheckpoint(sqlite3* db) {
 extern (C) int sqlite3_wal_checkpoint_v2(sqlite3* db, const(char)* zDb, int eMode, int* pnLog, int* pnCkpt);
 enum SQLITE_CHECKPOINT_PASSIVE = 0;
 
-// What one pass's checkpoint did: the frames in the WAL, the frames copied
-// back, and what sqlite said. SQLITE_BUSY is another checkpoint already running.
+// 「[Opus 5.5] What one pass's checkpoint did: the frames in the WAL, the frames copied」
+// 「[Opus 5.5] back, and what sqlite said. SQLITE_BUSY is another checkpoint already running.」
 struct Settled { int rc; int log; int copied; }
 
-// PASSIVE waits on nobody and blocks nobody, so a pass can run it every time.
+// 「[Opus 5.5] PASSIVE waits on nobody and blocks nobody, so a pass can run it every time.」
 Settled walSettle(sqlite3* db) {
     Settled s;
     s.rc = sqlite3_wal_checkpoint_v2(db, null, SQLITE_CHECKPOINT_PASSIVE, &s.log, &s.copied);
@@ -1341,7 +1341,7 @@ unittest {
 
     attestEventAt(db, "PreToolUse", "/tmp", "sess-old", `{"probe":"old"}`, "2026-09-19T09:00:00Z", 1);
     // The store as it stood before the stream: the column gone, the row there.
-    // The indexes name the column, so they go first.
+    // 「[Opus 5.5] The indexes name the column, so they go first.」
     assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream\0".ptr, null, null, null) == SQLITE_OK);
     assert(sqlite3_exec(db, "DROP INDEX idx_attestations_stream_open\0".ptr, null, null, null) == SQLITE_OK);
     assert(sqlite3_exec(db, "ALTER TABLE attestations DROP COLUMN qntx_at\0".ptr, null, null, null) == SQLITE_OK);
