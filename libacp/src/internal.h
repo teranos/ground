@@ -8,8 +8,9 @@
 // Every key libacp reads goes through acp_field, acp_offered, acp_flag or acp_string, and
 // every key it writes through json_object_object_add: parity reads both out of this source.
 json_object *acp_parse(const char *json, size_t length);
-// JSON text as the value it is, written back byte for byte; text that is not JSON as a string.
-json_object *acp_raw(const char *text);
+// The caller's JSON as a value, written back as it was given when it is on one line; text
+// that is no JSON is the string it is. 0 only when out of memory; *out is NULL for JSON null.
+int acp_raw(const char *text, json_object **out);
 json_object *acp_field(json_object *object, const char *key);
 int acp_offered(json_object *object, const char *key);
 int acp_flag(json_object *object, const char *key);

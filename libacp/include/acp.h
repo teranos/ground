@@ -1,7 +1,7 @@
 #ifndef ACP_H
 #define ACP_H
 
-// libacp: the Agent Client Protocol, agent side, in C11 with a C ABI.
+// libacp: the Agent Client Protocol, agent and client side, in C11 with a C ABI.
 // v1 at schema-v1.26.0, v2 at schema-v2.0.0-alpha.9: https://agentclientprotocol.com
 
 #include <stddef.h>
@@ -479,6 +479,176 @@ typedef struct acp_config_select {
 
 // configOptions: the selects, in the order given.
 acp_status acp_config_options_write(const acp_config_select *selects, size_t count, acp_buffer *out_json);
+
+// --- The client side: what a client writes to an agent, and reads of what the agent sends. ---
+// acp_client_<method>_write writes what the client sends for the method, and acp_client_<method>_read
+// reads what the agent sends for it, the method by its name in acp_methods.h: ground parity measures each
+// method's keys through them.
+
+// A message as it came: a request, with its id and method; a notification, a method and no id; or a
+// response, an id and a result or an error. UNREAD for any other. id is JSON text, as it was sent;
+// params, a request's or a notification's, is JSON text for the reader of its method; error_data is
+// the error's data as JSON text. Each is NULL when there is none. libacp owns the strings until
+// acp_message_free.
+typedef enum acp_message_kind {
+    ACP_MESSAGE_UNREAD,
+    ACP_MESSAGE_REQUEST,
+    ACP_MESSAGE_NOTIFICATION,
+    ACP_MESSAGE_RESPONSE
+} acp_message_kind;
+
+typedef struct acp_message {
+    acp_message_kind kind;
+    char *id;
+    char *method;
+    int is_error;
+    int error_code;
+    char *error_message;
+    char *error_data;
+    char *params;
+} acp_message;
+
+// ACP_PARSE_ERROR for text that is not one JSON value.
+acp_status acp_client_message_read(const char *message_json, size_t length, acp_message *out);
+void acp_message_free(acp_message *message);
+
+// An error answering request_id, JSON text: a request the client does not answer otherwise.
+acp_status acp_client_error_write(const char *request_id, int code, const char *message, acp_buffer *message_json);
+
+// initialize, whole, from the client: the version it asks for, 1 or 2, what it offers, in that
+// version's shape, and who it is. v2 offers only elicitation and auth, as acp_initialize_read reads them.
+acp_status acp_client_initialize_write(const char *request_id, unsigned version, const acp_client_capabilities *offered,
+    const char *client_name, const char *client_version, acp_buffer *message_json);
+
+// What the agent answers initialize with: the version it speaks, 0 for an answer of any other kind,
+// what it offers, and who it is, either NULL when it does not say. libacp owns the names until
+// acp_agent_info_free.
+typedef struct acp_agent_info {
+    unsigned protocol_version;
+    int load_session;
+    int session_resume;
+    int prompt_image;
+    int prompt_audio;
+    int prompt_embedded_context;
+    int mcp_http;
+    int mcp_sse;
+    char *agent_name;
+    char *agent_version;
+} acp_agent_info;
+
+acp_status acp_client_initialize_read(const char *message_json, size_t length, acp_agent_info *out);
+void acp_agent_info_free(acp_agent_info *info);
+
+// An MCP server a session connects to over HTTP, "Only available when the Agent capabilities indicate
+// mcp_capabilities.http is true": its name, its url, and the headers each request carries.
+typedef struct acp_http_header {
+    const char *name;
+    const char *value;
+} acp_http_header;
+
+typedef struct acp_mcp_http {
+    const char *name;
+    const char *url;
+    const acp_http_header *headers;
+    size_t header_count;
+} acp_mcp_http;
+
+// session/new, session/load and session/resume, whole, in v1: cwd absolute, and the servers, [] when none.
+acp_status acp_client_session_new_write(const char *request_id, const char *cwd,
+    const acp_mcp_http *servers, size_t count, acp_buffer *message_json);
+acp_status acp_client_session_load_write(const char *request_id, const char *session_id, const char *cwd,
+    const acp_mcp_http *servers, size_t count, acp_buffer *message_json);
+acp_status acp_client_session_resume_write(const char *request_id, const char *session_id, const char *cwd,
+    const acp_mcp_http *servers, size_t count, acp_buffer *message_json);
+
+// The sessionId the agent answers session/new with; NULL for any other answer. libacp owns it until
+// acp_session_id_free.
+acp_status acp_client_session_new_read(const char *message_json, size_t length, char **session_id);
+void acp_session_id_free(char **session_id);
+
+// session/prompt, whole: one text block, every byte of text.
+acp_status acp_client_session_prompt_write(const char *request_id, const char *session_id, const char *text, size_t length,
+    acp_buffer *message_json);
+
+// Why the agent stopped the turn: stopped is 1 for a result naming one of the five, which is in reason,
+// and 0 for any other answer, an error among them.
+acp_status acp_client_session_prompt_read(const char *message_json, size_t length, int *stopped, acp_stop_reason *reason);
+
+// authenticate, whole: the method, one of the authMethods the agent's initialize result offered.
+acp_status acp_client_authenticate_write(const char *request_id, const char *method_id, acp_buffer *message_json);
+
+// session/set_config_option, whole: the option set to one of its value ids.
+acp_status acp_client_session_set_config_option_write(const char *request_id, const char *session_id,
+    const char *config_id, const char *value, acp_buffer *message_json);
+
+// session/cancel, whole: a notification.
+acp_status acp_client_session_cancel_write(const char *session_id, acp_buffer *message_json);
+
+// A session/update as the client reads it: its kind, and what is shown of each.
+typedef enum acp_update_kind {
+    ACP_UPDATE_UNREAD,
+    ACP_UPDATE_OTHER,
+    ACP_UPDATE_USER_MESSAGE,
+    ACP_UPDATE_AGENT_MESSAGE,
+    ACP_UPDATE_AGENT_THOUGHT,
+    ACP_UPDATE_TOOL_CALL,
+    ACP_UPDATE_TOOL_CALL_UPDATE,
+    ACP_UPDATE_USAGE
+} acp_update_kind;
+
+// update is the SessionUpdate whole, as JSON text, and type its sessionUpdate. A chunk's text is every
+// byte of it, when its content is text. A tool call's fields are NULL when not sent; raw_input and
+// raw_output are JSON text. A usage update's cost_amount is its JSON number as text. libacp owns every
+// string until acp_update_free.
+typedef struct acp_update {
+    acp_update_kind kind;
+    char *session_id;
+    char *type;
+    char *update;
+    char *text;
+    size_t text_length;
+    char *tool_call_id;
+    char *title;
+    char *name;
+    char *tool_kind;
+    char *status;
+    char *raw_input;
+    char *raw_output;
+    unsigned long long used;
+    unsigned long long size;
+    char *cost_amount;
+    char *cost_currency;
+} acp_update;
+
+// Reads a whole session/update notification; UNREAD when it holds no update naming its kind.
+acp_status acp_client_session_update_read(const char *message_json, size_t length, acp_update *out);
+void acp_update_free(acp_update *update);
+
+// session/request_permission's params, as the client reads them: the session, the call it asks about,
+// and the options to choose from. raw_input is JSON text; a field not sent is NULL. libacp owns every
+// string until acp_permission_asked_free.
+typedef struct acp_permission_choice {
+    char *option_id;
+    char *name;
+    char *kind;
+} acp_permission_choice;
+
+typedef struct acp_permission_asked {
+    char *session_id;
+    char *tool_call_id;
+    char *title;
+    char *tool_kind;
+    char *raw_input;
+    acp_permission_choice *options;
+    size_t count;
+} acp_permission_asked;
+
+// ACP_INVALID_PARAMS when sessionId, toolCall's toolCallId or options is missing.
+acp_status acp_client_session_request_permission_read(const char *params_json, size_t length, acp_permission_asked *out);
+void acp_permission_asked_free(acp_permission_asked *asked);
+
+// The client's answer to session/request_permission: option_id selected, or cancelled when NULL.
+acp_status acp_client_session_request_permission_write(const char *request_id, const char *option_id, acp_buffer *message_json);
 
 #ifdef __cplusplus
 }

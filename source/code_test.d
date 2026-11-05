@@ -1639,6 +1639,8 @@ version (Posix) unittest {
             close(c);
             if (late) sleep(1);
             write(p[1], queued.ptr, queued.length);
+            // What the client says is all it says: its input ends there.
+            close(p[1]);
             c = accept(fd, null, null);
             read(c, got.ptr, got.length);
             write(c, done.ptr, done.length);
@@ -1647,6 +1649,7 @@ version (Posix) unittest {
         }
         close(fd);
         close(first[1]);
+        close(p[1]);
         __gshared char[32] urlBuf;
         ushort port = htons(a.sin_port);
         size_t len = 0;
@@ -1658,7 +1661,7 @@ version (Posix) unittest {
         s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
         s.input = &input;
-        scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
+        scope(exit) { input.dispose(); close(p[0]); kill(child, SIGKILL); waitpid(child, null, 0); }
         int[2] o;
         assert(pipe(o) == 0);
         fflush(stdout);
@@ -1800,6 +1803,12 @@ version (Posix) unittest {
     assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-2","method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
     s.open[0].history.dispose();
+
+    // The client's input ends while the command is waited on: the terminal it made is released, not
+    // left with its command running.
+    turn(runs, "bypassPermissions", args, created, s);
+    assert(indexOf(said[0 .. saidLen], `"method":"terminal/release","params":{"sessionId":"code-100-7-1","terminalId":"t-1"}}`) >= 0, said[0 .. saidLen]);
+    if (s.open[0].history !is null) s.open[0].history.dispose();
 
     // Not offered: no such tool is offered, and a call by its name runs nothing.
     turn(`{"protocolVersion":1,"clientCapabilities":{"terminal":false}}`, "bypassPermissions", args, "", s);

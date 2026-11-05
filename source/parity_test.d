@@ -14,7 +14,7 @@ static assert(sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934c
 static assert(pins[0].agent == "claude" && pins[0].release == "2.1.303");
 static assert(pins[1].agent == "claude" && pins[1].release == "2.1.304");
 static assert(pins[2].agent == "codex" && pins[2].release == "0.163.0");
-static assert(pins[3].agent == "agy" && pins[3].release == "1.4.4");
+static assert(pins[3].agent == "agy" && pins[3].release == "1.4.12");
 // ACP's pin is its release's schema.json, the same file on every platform.
 static assert(pins[4].agent == "acp" && pins[4].release == "1.26.0");
 static assert(pins[4].sha256 == "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6");
@@ -24,11 +24,11 @@ version (OSX) {
         // codex's pin is the binary the tarball unpacks to, not the tarball.
         static assert(pins[2].sha256 == "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31");
         // agy's pin is the antigravity binary its tarball unpacks to.
-        static assert(pins[3].sha256 == "9abb478686dc08d48699ba1604c14d15819ef6a2542d5d32173acbd5f02d712d");
+        static assert(pins[3].sha256 == "34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3");
     } else {
         static assert(pins[1].sha256 == "f2ae409b46b1bdc1dec7afa12c6a094ff64e7d4ca272ca09f69dd0080c846703");
         static assert(pins[2].sha256 == "73697f229103f463acaafd8659976caaa4892ec11e2c246c7fa97f93d523f90e");
-        static assert(pins[3].sha256 == "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253");
+        static assert(pins[3].sha256 == "f6c42421a6d40dd12b77afa9353935938ce1040bd0a92c0d7ab61ded8b0d8dee");
     }
 }
 
@@ -418,6 +418,43 @@ static assert(has(sideFor("acp", "session/new").writes, "sessionId"));
 static assert(has(sideFor("acp", "session/new").writes, "modes"));
 static assert(has(sideFor("acp", "session/resume").writes, "modes"));
 static assert(has(sideFor("acp", "session/set_mode").reads, "modeId"));
+
+// "But parity should cover clientside as well"
+// libacp's client side is read out of libacp/src/client.c: a method's through acp_client_<method>_write,
+// what the client sends for it, and acp_client_<method>_read, what it reads of the agent's, and every
+// helper of the file they call.
+static assert(has(sideFor("acp-client", "session/prompt").writes, "sessionId"));
+static assert(has(sideFor("acp-client", "session/prompt").writes, "prompt"));
+static assert(has(sideFor("acp-client", "session/prompt").reads, "stopReason"));
+static assert(!has(sideFor("acp-client", "session/prompt").writes, "clientCapabilities"));
+static assert(has(sideFor("acp-client", "initialize").writes, "clientCapabilities"));
+static assert(has(sideFor("acp-client", "initialize").writes, "clientInfo"));
+static assert(has(sideFor("acp-client", "initialize").reads, "agentCapabilities"));
+static assert(has(sideFor("acp-client", "initialize").reads, "agentInfo"));
+// session/new's servers are written two helpers down, through session_request and servers_of.
+static assert(has(sideFor("acp-client", "session/new").writes, "mcpServers"));
+static assert(has(sideFor("acp-client", "session/new").reads, "sessionId"));
+static assert(has(sideFor("acp-client", "session/load").writes, "sessionId"));
+static assert(has(sideFor("acp-client", "session/resume").writes, "cwd"));
+static assert(has(sideFor("acp-client", "session/cancel").writes, "sessionId"));
+static assert(has(sideFor("acp-client", "session/update").reads, "sessionId"));
+static assert(has(sideFor("acp-client", "session/update").reads, "update"));
+static assert(has(sideFor("acp-client", "session/request_permission").reads, "toolCall"));
+static assert(has(sideFor("acp-client", "session/request_permission").reads, "options"));
+static assert(has(sideFor("acp-client", "session/request_permission").writes, "outcome"));
+static assert(has(sideFor("acp-client", "authenticate").writes, "methodId"));
+static assert(has(sideFor("acp-client", "session/set_config_option").writes, "configId"));
+static assert(has(sideFor("acp-client", "session/set_config_option").writes, "value"));
+// A method the client side has no function for reads and writes nothing.
+static assert(sideFor("acp-client", "fs/read_text_file").reads.slice() == "");
+static assert(sideFor("acp-client", "fs/read_text_file").writes.slice() == "");
+// The client is scored on the spec turned round: what the agent reads, it writes. session/prompt's
+// in is stopReason of stopReason,_meta, its out sessionId,prompt of sessionId,prompt,_meta.
+static assert(clientScore(acpKeys(acpSample, "session/prompt").input.slice(), acpKeys(acpSample, "session/prompt").output.slice(),
+    sideFor("acp-client", "session/prompt")) == score(1, 2, 2, 3));
+static assert(clientScore(acpKeys(acpSample, "session/update").input.slice(), acpKeys(acpSample, "session/update").output.slice(),
+    sideFor("acp-client", "session/update")) == 1000);
+static assert(clientHas("session/prompt") && !clientHas("fs/read_text_file"));
 static assert(has(sideFor("acp", "session/new").reads, "additionalDirectories"));
 static assert(has(sideFor("acp", "session/resume").reads, "additionalDirectories"));
 static assert(has(sideFor("acp", "session/new").writes, "configOptions"));

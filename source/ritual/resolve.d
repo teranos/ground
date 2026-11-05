@@ -478,6 +478,25 @@ ModelChoice resolveModel(const ParsedModels[3] layers, const ModelInputs i) {
     return c;
 }
 
+// "the same rules for ritual agents should apply to subagents, they should cohere"
+// The layers a subagent is picked from. It has no ritual, so the nearest is the
+// project its session stands in, the deepest one when several do, and then the
+// top level.
+ParsedModels[3] modelsAt(PR)(auto ref const PR r, const(char)[] cwd) {
+    import hooks : pathMatch;
+    ParsedModels[3] layers;
+    layers[2] = r.models;
+    size_t best = 0;
+    foreach (i; 0 .. r.projectCount) {
+        auto p = r.projects[i].path;
+        if (!r.projects[i].models.present) continue;
+        if (p.length <= best || !pathMatch(cwd, p)) continue;
+        best = p.length;
+        layers[1] = r.projects[i].models;
+    }
+    return layers;
+}
+
 // "make the default for ritual runs Sonnet, not Opus"
 // What a walk runs on when no models block says. It was the model of the
 // session that performed it, which is whatever the operator was talking to.

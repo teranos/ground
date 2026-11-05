@@ -14,7 +14,9 @@
 #include <unistd.h>
 
 // How long a wait or expect reads before it fails.
+#ifndef WAIT_MS
 #define WAIT_MS 300000
+#endif
 
 typedef struct line_buffer {
     char *data;
@@ -143,7 +145,12 @@ static int read_for(ground *g, long ms, const char *want) {
 // Closes ground code's stdin, prints what it still writes, and says how it ended.
 static void finish(ground *g) {
     close(g->in);
-    while (read_for(g, WAIT_MS, NULL) == 0) {}
+    // ground code's stdout ends when it does. One still open WAIT_MS after its input closed is a
+    // hang: said, and ended, so the check reports how it ended rather than waiting forever.
+    if (read_for(g, WAIT_MS, NULL) == 0) {
+        printf("# ground code kept its stdout open %d ms after its input closed, and is killed\n", WAIT_MS);
+        kill(g->pid, SIGKILL);
+    }
     while (g->err >= 0) {
         if (!fill(g->err, &g->err_lines)) { close(g->err); g->err = -1; }
         lines_out(&g->err_lines, "! ", NULL);

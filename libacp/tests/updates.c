@@ -25,6 +25,9 @@ static void envelope(void) {
     // The update as it was written, so what it carries raw is passed on byte for byte.
     CHECK(acp_session_update_write("code-1-1-1", "{\"rawOutput\":{\"a\": 1}}", &out) == ACP_OK);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"code-1-1-1\",\"update\":{\"rawOutput\":{\"a\": 1}}}}"));
+    // A message is one line: what was written over lines is written again as one.
+    CHECK(acp_session_update_write("code-1-1-1", "\n{\"rawOutput\":{\n  \"a\": 1\r\n}}", &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"code-1-1-1\",\"update\":{\"rawOutput\":{\"a\":1}}}}"));
 }
 
 // #164: thought chunks; and the message chunks the replay tells, every byte.
@@ -46,6 +49,11 @@ static void tool_calls(void) {
     CHECK(acp_tool_call_write(&first, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\",\"kind\":\"read\","
                      "\"status\":\"pending\",\"rawInput\":{\"q\":1}}"));
+    // Raw input and output over lines are written on one, and null is null, not the text "null".
+    acp_tool_call lines = {0, "c1", "x__y", "x__y", NULL, NULL, "{\n  \"q\": 1\n}", "null", NULL, NULL, NULL, NULL, NULL, 0};
+    CHECK(acp_tool_call_write(&lines, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\","
+                     "\"rawInput\":{\"q\":1},\"rawOutput\":null}"));
     acp_tool_call replayed = {0, "c1", "x__y", "x__y", NULL, NULL, "", NULL, NULL, NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&replayed, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\",\"title\":\"x__y\",\"name\":\"x__y\",\"rawInput\":\"\"}"));
@@ -68,6 +76,16 @@ static void tool_calls(void) {
     CHECK(acp_tool_call_write(&spaced, &out) == ACP_OK);
     CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
                      "\"rawInput\":{ \"q\" : 1 },\"rawOutput\":{\"jsonrpc\": \"2.0\", \"id\": 3}}"));
+    // What only a lenient reader takes for JSON is no JSON, and is the text it is: written as it
+    // came, it made a message no client can read.
+    acp_tool_call lenient = {1, "c1", NULL, NULL, NULL, "completed", "{'q':1}", "NaN", NULL, NULL, NULL, NULL, NULL, 0};
+    CHECK(acp_tool_call_write(&lenient, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
+                     "\"rawInput\":\"{'q':1}\",\"rawOutput\":\"NaN\"}"));
+    acp_tool_call commented = {1, "c1", NULL, NULL, NULL, "completed", "{\"q\":1 /* c */}", NULL, NULL, NULL, NULL, NULL, NULL, 0};
+    CHECK(acp_tool_call_write(&commented, &out) == ACP_OK);
+    CHECK(says(&out, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"completed\","
+                     "\"rawInput\":\"{\\\"q\\\":1 /* c */}\"}"));
     // Output that is no JSON is the text it is; no blocks and no text, no content.
     acp_tool_call bare = {1, "c1", NULL, NULL, NULL, "failed", NULL, "boom", "[]", NULL, NULL, NULL, NULL, 0};
     CHECK(acp_tool_call_write(&bare, &out) == ACP_OK);
@@ -184,11 +202,12 @@ static void elicitation(void) {
     CHECK(mode == ACP_ELICIT_URL);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"elicit-2\",\"method\":\"elicitation/create\",\"params\":{\"sessionId\":\"code-1-1-1\","
                      "\"toolCallId\":\"c1\",\"mode\":\"url\",\"message\":\"Sign in\",\"elicitationId\":\"x1\",\"url\":\"https://example.com/a\"}}"));
-    const char *other = "{\"mode\":\"voice\"}";
+    const char *other = "{\"mode\":\"voice\",\"message\":\"Say it\"}";
     CHECK(acp_elicitation_create_write("\"elicit-3\"", "code-1-1-1", "c1", other, strlen(other), &mode, &out) == ACP_OK);
     CHECK(mode == ACP_ELICIT_OTHER);
     acp_buffer_free(&out);
-    const char *none[] = {"[]", "{\"mode\":7}", "nope"};
+    // "message" is required: none, or one not text, is no request.
+    const char *none[] = {"[]", "{\"mode\":7}", "nope", "{}", "{\"mode\":\"form\",\"message\":7}"};
     for (size_t i = 0; i < sizeof none / sizeof *none; i++) {
         CHECK(acp_elicitation_create_write("\"elicit-4\"", "code-1-1-1", "c1", none[i], strlen(none[i]), &mode, &out) == ACP_INVALID_PARAMS);
         CHECK(out.data == NULL);

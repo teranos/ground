@@ -5,6 +5,7 @@ module spawn_test;
 
 import proto : parsePbt;
 import ritual : repoRoot, spawnScript;
+import matcher : indexOf;
 
 enum src = `
 project {
@@ -90,6 +91,11 @@ static assert(both.text() ==
     ~ "said=$(claude -w 'p-1' --bg --permission-mode dontAsk --model 'fable' "
     ~ "--append-system-prompt 'Be brief.' 'go')\n"
     ~ bound!("p-1"));
+
+// "the same rules for ritual agents should apply to subagents, they should cohere"
+// No effort is named at the start: how hard the model thinks is its own
+// setting, which the usage windows move.
+static assert(indexOf(model.text(), "--effort") < 0);
 
 // No model resolved is no flag.
 static assert(spawnScript("/r", "p-1", "p-1", "go", "", "").text() == bg.text());

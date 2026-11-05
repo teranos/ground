@@ -98,6 +98,10 @@ static void additional_directories(void) {
     CHECK(dirs("{\"additionalDirectories\":[\"/lib\",7]}", &list, &error) == ACP_INVALID_PARAMS);
     CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be a list of paths\"}"));
     acp_buffer_free(&error);
+    // A path that holds a NUL is not the path it would stop at.
+    CHECK(dirs("{\"additionalDirectories\":[\"/lib\\u0000/x\"]}", &list, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be a list of paths\"}"));
+    acp_buffer_free(&error);
     CHECK(dirs("{\"additionalDirectories\":[\"\"]}", &list, &error) == ACP_INVALID_PARAMS);
     CHECK(says(&error, "{\"code\":-32602,\"message\":\"additionalDirectories must be absolute paths: \"}"));
     acp_buffer_free(&error);
@@ -122,6 +126,12 @@ static void lists(void) {
     CHECK(in.cursor && strcmp(in.cursor, "c1") == 0);
     acp_session_list_free(&in);
     CHECK(in.cwd == NULL && in.cursor == NULL);
+    // params that are no object are refused, not read as asking for every session.
+    CHECK(list("[]", &in, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"session/list params are not a JSON object\"}"));
+    acp_buffer_free(&error);
+    CHECK(list("\"x\"", &in, &error) == ACP_INVALID_PARAMS);
+    acp_buffer_free(&error);
     CHECK(list("{\"cwd\":\"work\"}", &in, &error) == ACP_INVALID_PARAMS);
     CHECK(says(&error, "{\"code\":-32602,\"message\":\"cwd must be an absolute path: work\"}"));
     acp_buffer_free(&error);
@@ -153,6 +163,11 @@ static void session_info(void) {
     // The roots are a JSON array of paths, or nothing is written.
     acp_session_info stray = {"code-1-1-1", "/work", "{\"a\":1}", NULL, NULL};
     CHECK(acp_session_info_write(&stray, &out) == ACP_INVALID_ARGUMENT);
+    // Each root an absolute path, as the request's reader takes them.
+    acp_session_info relative = {"code-1-1-1", "/work", "[\"lib\"]", NULL, NULL};
+    CHECK(acp_session_info_write(&relative, &out) == ACP_INVALID_ARGUMENT);
+    acp_session_info number = {"code-1-1-1", "/work", "[\"/lib\",7]", NULL, NULL};
+    CHECK(acp_session_info_write(&number, &out) == ACP_INVALID_ARGUMENT);
     acp_session_info nameless = {NULL, "/work", NULL, NULL, NULL};
     CHECK(acp_session_info_write(&nameless, &out) == ACP_INVALID_ARGUMENT);
 }
@@ -177,6 +192,11 @@ static void loads(void) {
         {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"w\",\"mcpServers\":[]}", "cwd must be an absolute path: w"},
         {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\"}", "session/load needs mcpServers"},
         {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\",\"mcpServers\":{}}", "session/load needs mcpServers"},
+        // Its servers are read as session/new reads them.
+        {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\",\"mcpServers\":[7]}", "session/load has an invalid MCP server configuration"},
+        {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\",\"mcpServers\":[{\"name\":\"fs\"}]}", "session/load has an invalid MCP server configuration"},
+        // A cwd that holds a NUL is not the path it would stop at.
+        {"{\"sessionId\":\"code-1-1-1\",\"cwd\":\"/w\\u0000/x\",\"mcpServers\":[]}", "session/load needs cwd"},
     };
     for (size_t i = 0; i < sizeof refused_ / sizeof *refused_; i++) {
         char want[256];

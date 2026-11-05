@@ -81,3 +81,23 @@ static assert(!deletesOnly("git push origin main"));
 static assert(!deletesOnly("git push -u origin feature"));
 static assert(!deletesOnly("git push origin main :old-branch"));
 static assert(!deletesOnly("git status"));
+
+// 「[Opus 5.5] --- pushedBranch: the remote branch a push lands on, when its one refspec names it ---」
+// 「[Opus 5.5] A push of HEAD:libacp from a detached worktree was read against origin/main:」
+// 「[Opus 5.5] every commit libacp holds, two seconds, for a push carrying a few.」
+import push : pushedBranch;
+static assert(pushedBranch("git push -q origin HEAD:libacp 2>&1") == "libacp");
+static assert(pushedBranch("git push origin +HEAD:libacp") == "libacp");
+static assert(pushedBranch("git push origin HEAD:refs/heads/libacp") == "libacp");
+static assert(pushedBranch("git push --force-with-lease=libacp:abc origin HEAD:libacp") == "libacp");
+static assert(pushedBranch("git -C /srv/app push origin local-name:remote-name") == "remote-name");
+static assert(pushedBranch("git push -u origin feature") == "feature");
+static assert(pushedBranch("git push origin refs/heads/feature") == "feature");
+// 「[Opus 5.5] Nothing named: the branch checked out answers, as it did.」
+static assert(pushedBranch("git push") == "");
+static assert(pushedBranch("git push origin") == "");
+static assert(pushedBranch("git push -q -u origin HEAD") == "");
+static assert(pushedBranch("git push -q origin HEAD 2>&1") == "");
+// 「[Opus 5.5] More than one landing place is not one range.」
+static assert(pushedBranch("git push origin a b") == "");
+static assert(pushedBranch("git status") == "");
