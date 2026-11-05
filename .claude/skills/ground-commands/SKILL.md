@@ -36,9 +36,6 @@ ground events
 ground fmt controls/controls.pbt
 ground fmt source/proto_test.d
 
-# the author's tool, in the ground checkout: every case editable in a browser
-ground author
-
 # how much of each rate limit is used, and how the week got there:
 ground usage
 

@@ -38,10 +38,6 @@ extern (C) int main(int argc, const(char)** argv) {
             import fmtcmd : handleFmt;
             return handleFmt(argc, argv);
         }
-        if (cmd == "author") {
-            import author : handleAuthor;
-            return handleAuthor();
-        }
         if (cmd == "usage") {
             import usagecmd : handleUsage;
             return handleUsage();
