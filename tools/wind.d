@@ -17,9 +17,9 @@ import openapi : renderRoutes;
 import libgit2 : Repo;
 import stamp : revStamp;
 
-// What `git describe --tags --always` printed into .version, read by libgit2, and HEAD's whole id
-// into .rev: the engine names that commit when it asks for its comet (source/comet.d), where a
-// describe string can be a tag that only looks like a commit. Nothing to describe leaves each empty.
+// 「[Opus 5.5] What `git describe --tags --always` printed into .version, read by libgit2, and HEAD's whole id」
+// 「[Opus 5.5] into .rev: the engine names that commit when it asks for its comet (source/comet.d), where a」
+// 「[Opus 5.5] describe string can be a tag that only looks like a commit. Nothing to describe leaves each empty.」
 void stampVersion() {
     Repo g;
     char[256] buf;
