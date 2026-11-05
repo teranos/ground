@@ -193,7 +193,7 @@ void main() {
     }
 
     write(".ctfe/sand", sand);
-    // make install keeps the count beside the sand it installs, and refuses one of none in its place (tools/keep.d).
+    // 「[Opus 5.5] make install keeps the count beside the sand it installs, and refuses one of none in its place (tools/keep.d).」
     write(".ctfe/sand.projects", format("%d\n", projects.length));
     stderr.writefln("wind: .ctfe/sand (%d bytes, %d files from %d projects)",
         sand.length, totalFiles, projects.length);

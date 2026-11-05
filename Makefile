@@ -220,8 +220,8 @@ install-ug: ug
 	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
 
 # "make ground aget fix it"
-# A tree without controls/local folds no project, and its sand in place of the machine's is the floor:
-# refused before anything is copied (tools/keep.d).
+# 「[Opus 5.5] A tree without controls/local folds no project, and its sand in place of the machine's is the floor:」
+# 「[Opus 5.5] refused before anything is copied (tools/keep.d).」
 INSTALLED_SAND = $(HOME)/.local/share/ground/sand/$(notdir $(SAND_LIB))
 tools/keepsand: tools/keepsand.d tools/keep.d
 	ldc2 -of=tools/keepsand -I=tools tools/keepsand.d tools/keep.d
@@ -229,8 +229,8 @@ tools/keepsand: tools/keepsand.d tools/keep.d
 keep-sand: sand tools/keepsand
 	tools/keepsand .ctfe/sand.projects $(INSTALLED_SAND)
 
-# ug is installed by the recipe, after keep-sand has passed: as a prerequisite beside it, make -j
-# could copy ug before the check refused.
+# 「[Opus 5.5] ug is installed by the recipe, after keep-sand has passed: as a prerequisite beside it, make -j」
+# 「[Opus 5.5] could copy ug before the check refused.」
 install: build $(BINS) keep-sand
 	$(MAKE) install-ug
 	mkdir -p $(PREFIX)/bin
