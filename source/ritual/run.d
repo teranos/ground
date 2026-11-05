@@ -674,28 +674,24 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
 // What bind says of a start to the session that fired the ritual: nothing of one that exited 0 and
 // named its agent; of one that exited otherwise, its code and what it printed; of one that named
 // no agent, that, and what it printed.
-const(char)[] startSays(int code, const(char)[] agentId, const(char)[] printed) {
-    __gshared char[4096] said = 0;
-    size_t n = 0;
-    void put(const(char)[] t) { foreach (c; t) if (n < said.length) said[n++] = c; }
+void startSays(R)(ref R said, int code, const(char)[] agentId, const(char)[] printed) {
+    // Whole, however long: the reason a start failed is at the end of what it printed.
     if (code != 0) {
-        put("the start of the performance's agent exited ");
+        said.add("the start of the performance's agent exited ");
         char[12] d = 0;
         size_t k = 0;
         uint v = code < 0 ? cast(uint) -code : cast(uint) code;
         do { d[k++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
-        if (code < 0) put("-");
-        foreach_reverse (i; 0 .. k) put(d[i .. i + 1]);
-        put(": ");
-        put(printed);
-        return said[0 .. n];
+        if (code < 0) said.add("-");
+        foreach_reverse (i; 0 .. k) said.add(d[i .. i + 1]);
+        said.add(": ");
+        said.add(printed);
+        return;
     }
     if (agentId.length == 0) {
-        put("the start printed no agent id, so this performance has an agent ground cannot stop: ");
-        put(printed);
-        return said[0 .. n];
+        said.add("the start printed no agent id, so this performance has an agent ground cannot stop: ");
+        said.add(printed);
     }
-    return said[0 .. 0];
 }
 
 const(char)[] agentIdFrom(const(char)[] printed) {
@@ -821,7 +817,10 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
     s.put("printf '%s\\n' \"$said\"\n");
     s.put("printf '%s\\n' \"$said\" | ground bind ");
     s.putQuoted(perfId);
-    s.put(" \"$started\"\n");
-    s.put("exit \"$started\"\n");
+    // Bind's answer does not end the script before it says how the start went: it exits as the
+    // start did, and as bind did when the start worked and could not be bound.
+    s.put(" \"$started\" && bound=0 || bound=$?\n");
+    s.put("if [ \"$started\" != 0 ]; then exit \"$started\"; fi\n");
+    s.put("exit \"$bound\"\n");
     return s;
 }

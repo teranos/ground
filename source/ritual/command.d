@@ -433,10 +433,13 @@ int handleBind(int argc, const(char)** argv) {
         }
     }
     import ritual.run : startSays;
-    auto says = startSays(started, agentId, printed);
-    if (says.length > 0) {
+    import code.reply : Reply;
+    Reply says;
+    scope(exit) says.dispose();
+    startSays(says, started, agentId, printed);
+    if (says.len > 0) {
         if (db !is null) sqlite3_close(db);
-        emitError(started != 0 ? "ritual.start.failed" : "ritual.bind.unnamed", cast(string) says,
+        emitError(started != 0 ? "ritual.start.failed" : "ritual.bind.unnamed", cast(string) says.slice(),
                   0, started != 0 ? started : 1, cast(string) parent, "ritual", "", cast(string) perfId, "");
         return 1;
     }

@@ -48,9 +48,12 @@ static assert(repoRoot(parsed, "/home/u/src/other") == "/home/u/src/other");
 // daemon's environment and not from this script, naming a performance long over.
 // What it printed, stdout and stderr, and how it exited are handed over whole: a start that failed
 // is said by bind to the session that fired the ritual, and the script exits as the start did.
+// Bind's own answer does not end the script first: it exits as the start did, and as bind did
+// when the start worked and bind could not bind it.
 private enum bound(string perf) = "printf '%s\\n' \"$said\"\n"
-    ~ "printf '%s\\n' \"$said\" | ground bind '" ~ perf ~ "' \"$started\"\n"
-    ~ "exit \"$started\"\n";
+    ~ "printf '%s\\n' \"$said\" | ground bind '" ~ perf ~ "' \"$started\" && bound=0 || bound=$?\n"
+    ~ "if [ \"$started\" != 0 ]; then exit \"$started\"; fi\n"
+    ~ "exit \"$bound\"\n";
 
 enum s = spawnScript("/home/u/src/proj", "probe-17", "probe-17", "Performing ritual probe.");
 static assert(s.text() ==
@@ -204,9 +207,20 @@ static assert(!__traits(compiles, { import ritual : commitScript; }));
 // agent, and why of one that exited otherwise or named none.
 unittest {
     import ritual : startSays;
-    assert(startSays(0, "ce9c80d5", "backgrounded · ce9c80d5\n") == "");
-    assert(startSays(1, "", "error: daemon not running\n")
-        == "the start of the performance's agent exited 1: error: daemon not running\n");
-    assert(startSays(0, "", "something else\n")
-        == "the start printed no agent id, so this performance has an agent ground cannot stop: something else\n");
+    import code.reply : Reply;
+    Reply r;
+    scope(exit) r.dispose();
+    startSays(r, 0, "ce9c80d5", "backgrounded · ce9c80d5\n");
+    assert(r.slice() == "");
+    startSays(r, 1, "", "error: daemon not running\n");
+    assert(r.slice() == "the start of the performance's agent exited 1: error: daemon not running\n");
+    r.dispose();
+    startSays(r, 0, "", "something else\n");
+    assert(r.slice() == "the start printed no agent id, so this performance has an agent ground cannot stop: something else\n");
+    r.dispose();
+    // What it printed is carried whole: the reason is at the end of a long one.
+    __gshared char[9000] long_ = 'v';
+    long_[$ - 6 .. $] = "REASON";
+    startSays(r, 3, "", long_[]);
+    assert(r.slice()[$ - 6 .. $] == "REASON");
 }
