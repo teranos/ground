@@ -674,6 +674,62 @@ Push readPush(DB)(DB db, const(char)[] id) {
     return push;
 }
 
+// Whether a session's transcript stands in projects (Claude Code's <config>/projects), in any of
+// its project directories: a session resumed without one is answered under its old id and ends at
+// once, and the walk goes on with nobody in it.
+bool transcriptStands(const(char)[] projects, const(char)[] session) {
+    import core.sys.posix.dirent : opendir, readdir, closedir;
+    import core.sys.posix.unistd : access, F_OK;
+    if (session.length == 0 || session.length > 64) return false;
+    foreach (c; session) {
+        auto ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_';
+        if (!ok) return false;
+    }
+    char[4096] path = 0;
+    if (projects.length + 1 > path.length) return false;
+    foreach (i, c; projects) path[i] = c;
+    path[projects.length] = 0;
+    auto dir = opendir(path.ptr);
+    if (dir is null) return false;
+    scope(exit) closedir(dir);
+    for (auto e = readdir(dir); e !is null; e = readdir(dir)) {
+        size_t len = 0;
+        while (e.d_name[len] != 0) len++;
+        auto name = e.d_name[0 .. len];
+        if (name == "." || name == "..") continue;
+        auto need = projects.length + 1 + len + 1 + session.length + 6;
+        if (need + 1 > path.length) continue;
+        size_t k = projects.length;
+        path[k++] = '/';
+        foreach (c; name) path[k++] = c;
+        path[k++] = '/';
+        foreach (c; session) path[k++] = c;
+        foreach (c; ".jsonl") path[k++] = c;
+        path[k] = 0;
+        if (access(path.ptr, F_OK) == 0) return true;
+    }
+    return false;
+}
+
+// Claude Code's projects directory: $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects, into buf.
+const(char)[] projectsDirInto(char[] buf) {
+    import core.stdc.stdlib : getenv;
+    auto config = getenv("CLAUDE_CONFIG_DIR\0".ptr);
+    const(char)* base = config;
+    const(char)[] tail = "/projects";
+    if (base is null || base[0] == 0) {
+        base = getenv("HOME\0".ptr);
+        tail = "/.claude/projects";
+    }
+    if (base is null) return buf[0 .. 0];
+    size_t n = 0;
+    while (base[n] != 0) n++;
+    if (n + tail.length > buf.length) return buf[0 .. 0];
+    foreach (i; 0 .. n) buf[i] = base[i];
+    foreach (i, c; tail) buf[n + i] = c;
+    return buf[0 .. n + tail.length];
+}
+
 // "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
 // The session that carried this ritual's latest performance in its project.
 const(char)[] lastSessionOf(DB)(DB db, const(char)[] ritual, const(char)[] repo) {
