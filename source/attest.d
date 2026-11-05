@@ -29,47 +29,8 @@ int backoffSeconds(int attempt) {
     }
 }
 
-// The token a node is spoken to with. A node whose project names a token file
-// in its qntx block is read from there, `~/` being the home; one that names
-// none from QNTX_TOKEN, then ~/.qntx/token. One token per node: a second name
-// for the same credential is a second thing to rotate, and the one nobody
-// rotated went stale and was refused for weeks. What tells these attestations
-// apart is actors ["ground"], not the filename.
-const(char)[] qntxToken(const(char)[] path = "") {
-    import errors : getenv, open, read, close, O_RDONLY;
-    import http : trimToken;
-
-    if (path.length == 0) {
-        auto env = getenv("QNTX_TOKEN\0".ptr);
-        if (env !is null) {
-            size_t n = 0;
-            while (env[n] != 0) n++;
-            auto t = trimToken(env[0 .. n]);
-            if (t.length > 0) return t;
-        }
-    }
-
-    __gshared ZBuf pathBuf;
-    pathBuf.reset();
-    if (path.length == 0 || (path.length >= 2 && path[0 .. 2] == "~/")) {
-        auto home = getenv("HOME\0".ptr);
-        if (home is null) return null;
-        size_t hLen = 0;
-        while (home[hLen] != 0) hLen++;
-        pathBuf.put(home[0 .. hLen]);
-        pathBuf.put(path.length == 0 ? "/.qntx/token" : path[1 .. $]);
-    } else {
-        pathBuf.put(path);
-    }
-
-    auto fd = open(pathBuf.ptr(), O_RDONLY, 0);
-    if (fd < 0) return null;
-    __gshared char[512] tokBuf = 0;
-    auto n = read(fd, &tokBuf[0], tokBuf.length);
-    close(fd);
-    if (n <= 0) return null;
-    return trimToken(tokBuf[0 .. cast(size_t) n]);
-}
+// The token lives in token.d, which ground_code imports without attest's own imports.
+public import token : qntxToken, qntxTokenFile;
 
 enum BOOK_COMMAND = q"EOS
 # post the pbt's attestations to their backends (make install does):

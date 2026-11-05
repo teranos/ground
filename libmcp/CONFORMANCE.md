@@ -13,7 +13,7 @@ all adversarial inputs, platforms or optional extensions.
 | Legacy lifecycle | Implemented on stdio | Four supported legacy versions, initialized notification, ping and host feature replies. `test_mcp.py`, `test_features.py`, SDK. |
 | Concurrent requests | Implemented | Poll-driven, out-of-order completion and independent deadlines; no libMCP background thread. `test_runtime.py`; D integration lives in Ground. |
 | Cancellation | Implemented | Stdio cancellation notifications; queued unsent requests removed; HTTP transfer/stream closed; stale responses ignored using monotonic issued IDs. `test_runtime.py`, `test_http.py`. Legacy initialize is not cancelled on wire. |
-| Progress | Implemented | Unique active string/integer tokens; finite numeric and increasing progress; float values and origin correlation. `test_runtime.py`. |
+| Progress | Implemented | Unique active string/integer tokens; finite numeric and increasing progress; float values and origin correlation; a checked tool call asks for it through `mcp_tool_submit_meta`. `test_runtime.py`. |
 | Multi-round input | Implemented | Three permitted originating methods; declared capability checks; exact opaque state, fresh IDs, scoped inputs, original deadline less the host's wait; explicit resume or host callbacks. `test_runtime.py`; D integration lives in Ground. |
 | Roots | Host callback | Opt-in modern compatibility/MRTR and legacy requests; host supplies roots and enforces URI/access policy. Legacy callback test. Deprecated in modern target. |
 | Sampling | Host callback | Capability-gated request dispatch, including tools capability; host runs models and validates results. Legacy callback test. Deprecated in modern target. |

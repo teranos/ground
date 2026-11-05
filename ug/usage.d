@@ -212,11 +212,7 @@ private bool openStore(const(char)[] home, ref char[512] path, ref sqlite3* db) 
     auto probe = fopen(&path[0], "rb");
     if (probe is null) return false;
     fclose(probe);
-    if (sqlite3_open_v2(&path[0], &db, SQLITE_READWRITE, null) != SQLITE_OK) {
-        sqlite3_close(db);
-        return false;
-    }
-    sqlite3_busy_timeout(db, BUSY_MS);
+    if (openGround(&path[0], db) != SQLITE_OK) return false;
     return true;
 }
 

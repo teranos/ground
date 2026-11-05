@@ -124,6 +124,11 @@ void mcp_tool_destroy(mcp_tool *);
 const char *mcp_tool_name(const mcp_tool *);
 mcp_status mcp_tool_submit(mcp_client *, const mcp_tool *, const char *arguments,
                            int timeout_ms, mcp_request **, mcp_error *);
+/* As mcp_tool_submit, with meta_json, an object or NULL for none, as the request's
+ * _meta. A progressToken in it asks for progress, which on_message is given for the
+ * request once checked: the token active, the progress increasing. */
+mcp_status mcp_tool_submit_meta(mcp_client *, const mcp_tool *, const char *arguments,
+                                const char *meta_json, int timeout_ms, mcp_request **, mcp_error *);
 /* A successful submit can return an already-completed validation failure;
  * inspect status. Invalid input sends no bytes. Validation JSON is borrowed,
  * survives take, and is released on resume/destroy/client close. */

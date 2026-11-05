@@ -1,0 +1,14 @@
+# Before initialize: every request other than initialize is refused with -32600, a notification is answered nothing, a refused initialize leaves it so, and an answered one ends it.
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}
+wait 2
+{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"code-no-such-1"}}
+{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"one"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/list","params":{}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"initialize","params":{"protocolVersion":1}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 6
