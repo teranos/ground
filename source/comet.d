@@ -236,14 +236,14 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     return r;
 }
 
-/// What land() reads of the node's answer to the ask for a digest.
+/// 「[Opus 5.5] What land() reads of the node's answer to the ask for a digest.」
 enum ANSWER_BYTES = 2048;
 
 // "thats problematic seeing how sand chamges are normal"
-/// The node keeps no comet of origin for this engine's ABI. With none held here the repository
-/// has none, and nothing is said; with one held here, that one is what every hook refuses, and
-/// the node's answer says which ABIs it keeps. An answer larger than ANSWER_BYTES is said to be;
-/// a 404 whose transfer broke, broke says how, and what came of it is not the node's answer.
+/// 「[Opus 5.5] The node keeps no comet of origin for this engine's ABI. With none held here the repository」
+/// 「[Opus 5.5] has none, and nothing is said; with one held here, that one is what every hook refuses, and」
+/// 「[Opus 5.5] the node's answer says which ABIs it keeps. An answer larger than ANSWER_BYTES is said to be;」
+/// 「[Opus 5.5] a 404 whose transfer broke, broke says how, and what came of it is not the node's answer.」
 void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer, bool overran,
              const(char)[] broke) {
     import sand.view : SAND_ABI;
