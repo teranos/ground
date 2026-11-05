@@ -1726,7 +1726,10 @@ version (Posix) unittest {
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"run_command","description":"Request to create a new terminal and execute a command.",`
         ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
-        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."},`
+        ~ `"env":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","description":"The name of the environment variable."},`
+        ~ `"value":{"type":"string","description":"The value to set for the environment variable."}},"required":["name","value"]},`
+        ~ `"description":"Environment variables for the command."}},"required":["command"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"run_command","name":"run_command","kind":"execute","status":"in_progress",`
         ~ `"rawInput":{"command":"sh","args":["-c","echo hi"]}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], create) >= 0);
@@ -1752,18 +1755,33 @@ version (Posix) unittest {
 
     // The client could not create it: the call failed with the client's own answer, and nothing more is asked.
     enum refused = `{"jsonrpc":"2.0","id":"term-1","error":{"code":-32603,"message":"no shell"}}`;
+    enum refusedEnv = refused;
     turn(runs, "bypassPermissions", args, refused ~ "\n", s);
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refused) >= 0);
     assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
     s.open[0].history.dispose();
 
-    // A call without a command is not asked of the client.
-    turn(runs, "bypassPermissions", `{\"args\":[\"x\"]}`, "", s);
+    // "Environment variables for the command": the model's env is the command's, each name and value as given.
+    turn(runs, "bypassPermissions", `{\"command\":\"cargo\",\"args\":[\"test\"],\"env\":[{\"name\":\"RUST_LOG\",\"value\":\"debug\"},{\"name\":\"A\",\"value\":\"\"}]}`,
+        refusedEnv ~ "\n", s);
     assert(gotBuf[0 .. gotLen] == ended);
-    assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
-    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"run_command takes command, text, and args, a list of text\"}"}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-1","method":"terminal/create","params":{"sessionId":"code-100-7-1","command":"cargo",`
+        ~ `"args":["test"],"env":[{"name":"RUST_LOG","value":"debug"},{"name":"A","value":""}],"cwd":"/tmp","outputByteLimit":65536}}`) >= 0);
     s.open[0].history.dispose();
+
+    // A call without a command, or whose env is not a list of name and value, each text, is not asked of the client.
+    foreach (bad; [`{\"args\":[\"x\"]}`, `{\"command\":\"ls\",\"env\":{\"A\":\"b\"}}`, `{\"command\":\"ls\",\"env\":[{\"name\":\"A\"}]}`,
+            `{\"command\":\"ls\",\"env\":[{\"name\":\"A\",\"value\":1}]}`,
+            // A list that is there is a list: null is none of the lists it takes.
+            `{\"command\":\"ls\",\"env\":null}`, `{\"command\":\"ls\",\"args\":null}`]) {
+        turn(runs, "bypassPermissions", bad, "", s);
+        assert(gotBuf[0 .. gotLen] == ended);
+        assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
+        assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"run_command takes command, text, `
+            ~ `args, a list of text, and env, a list of name and value, each text\"}"}`) >= 0);
+        s.open[0].history.dispose();
+    }
 
     // Plan mode runs only what only reads, and a command does not.
     turn(runs, "plan", args, "", s);
