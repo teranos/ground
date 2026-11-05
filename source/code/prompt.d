@@ -61,7 +61,10 @@ void putRunTool(ref Reply tools) {
     if (tools.len > 0) tools.add(",");
     tools.add(`{"type":"function","function":{"name":"` ~ RUN_TOOL ~ `","description":"Request to create a new terminal and execute a command.",`
         ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
-        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}}`);
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."},`
+        ~ `"env":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","description":"The name of the environment variable."},`
+        ~ `"value":{"type":"string","description":"The value to set for the environment variable."}},"required":["name","value"]},`
+        ~ `"description":"Environment variables for the command."}},"required":["command"]}}}`);
 }
 
 // ground code's tool for the model's plan, ACP's Plan as the model calls it, in the schema's words: "When
@@ -884,12 +887,12 @@ private bool putAudioChunk(ref Reply u, const(char)[] format, const(char)[] data
     return !u.full;
 }
 
-// The history, told again. readOnly, when given, says which of the calls'
-// tools are read-only, so their replayed calls say kind read as they did live.
+// The history, told again. kindOf, when given, says the kind each call is told
+// back with, by its id and its tool, so it says the kind it did live.
 // warn, when given, tells the user a warning as the turn did; without it, the
 // warning is the agent's message.
 bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] update) send,
-        scope bool delegate(const(char)[] tool) readOnly = null,
+        scope const(char)[] delegate(const(char)[] id, const(char)[] tool) kindOf = null,
         scope void delegate(const(char)[] id, const(char)[] tool, ref Reply title) titled = null,
         scope bool delegate(const(char)[] title, const(char)[] description) warn = null) {
     Reply all;
@@ -969,7 +972,7 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
                     if (planned.full) return false;
                     continue;
                 }
-                auto kind = readOnly !is null && readOnly(name) ? "read" : null;
+                auto kind = kindOf !is null ? kindOf(id, name) : null;
                 Reply title;
                 scope(exit) title.dispose();
                 if (titled !is null) titled(id, name, title); else title.add(name);

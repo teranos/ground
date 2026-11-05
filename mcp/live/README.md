@@ -73,7 +73,9 @@ A `wait` or `expect` is met by any line of what it read, and every line of that 
 | `cost.acp` | usage_update's cumulative cost, across a resume | #177 |
 | `diff.acp` | a written file as a diff: `oldText` null for a file the client does not have, what it held for one it has | #203, #207 |
 | `kept-title.acp` | a call told back by session/load with the title it was shown with, with no servers loaded | #205 |
+| `kept-kind.acp` | a call told back by session/load with the kind it was shown with: an MCP read with no servers loaded, and ground code's own read and edit | #215 |
 | `progress.acp` | a tool's progress with a message as the call's content while it runs, nothing for a step with none | #206 |
 | `plan-replay.acp` | session/load tells a reported plan as the plan and a refused one as the warning | #208 |
 | `read-tool.acp` | read_text_file through the client in plan mode, with line and limit, and the client's error | #209 |
-| `locations.acp` | read_text_file's and write_text_file's calls name their file, read's with its line, on the tool_call and on the permission asked in Manual | (this PR) |
+| `locations.acp` | read_text_file's and write_text_file's calls name their file, read's with its line, on the tool_call and on the permission asked in Manual | #212 |
+| `run-env.acp` | run_command's env carried to terminal/create, each name and value as the model gave it | (this PR) |

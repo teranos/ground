@@ -1083,10 +1083,13 @@ version (Posix) unittest {
         `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"code-100-7-1","modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "medium") ~ `}}`));
     // The titles each call was shown with live, by its id: c1's, and none for c2, from before titles were kept.
     enum titles = `"c1":"Read \"it\""`;
-    assert(storeHistory(db, "code-100-7-1", history, titles) == 1);
-    Reply kept, keptTitles;
-    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles) == 1 && kept.slice() == history && keptTitles.slice() == titles);
-    kept.dispose(); keptTitles.dispose();
+    // And the kind each was shown with, by its id: c1's, read, though no server it loads with says so.
+    enum kinds = `"c1":"read"`;
+    assert(storeHistory(db, "code-100-7-1", history, titles, kinds) == 1);
+    Reply kept, keptTitles, keptKinds;
+    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles, keptKinds) == 1 && kept.slice() == history
+        && keptTitles.slice() == titles && keptKinds.slice() == kinds);
+    kept.dispose(); keptTitles.dispose(); keptKinds.dispose();
 
     __gshared char[65536] said;
     size_t saidLen;
@@ -1117,6 +1120,7 @@ version (Posix) unittest {
     assert(saidLen == 0);
     assert(b.open[0].history !is null && b.open[0].history.slice() == history);
     assert(b.open[0].titles.slice() == titles);
+    assert(b.open[0].kinds.slice() == kinds);
 
     // Loaded elsewhere: replayed, in order, then answered.
     Sessions c = Sessions(300, 9); c.initialized = true; c.clock = 1_700_000_000;
@@ -1128,7 +1132,7 @@ version (Posix) unittest {
           up ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi \"you\""}}}}` ~ "\n"
         // c1 has the title it was shown with live, though no server it loads with has its tool; c2,
         // with none kept, is titled as the loaded catalogue titles it, here by its name.
-        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read \"it\"","name":"x__y","rawInput":{"a":1}}}}` ~ "\n"
+        ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read \"it\"","name":"x__y","kind":"read","rawInput":{"a":1}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"x__z","name":"x__z","rawInput":{}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"jsonrpc":"2.0","id":3,"result":{"content":[]}}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","rawOutput":{"status":"not run","why":"the user rejected it"},`
@@ -1227,9 +1231,10 @@ version (Posix) unittest {
           up ~ `{"sessionUpdate":"session_info_update","title":"hi","updatedAt":"2023-11-14T22:13:20Z"}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hi is a greeting"}}}}` ~ "\n"
         ~ up ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}` ~ "\n");
-    Reply kept, keptTitles;
-    scope(exit) keptTitles.dispose();
-    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles) == 1);
+    Reply kept, keptTitles, keptKinds;
+    scope(exit) { keptTitles.dispose(); keptKinds.dispose(); }
+    assert(storeHistoryOf(db, "code-100-7-1", kept, keptTitles, keptKinds) == 1);
+    assert(keptKinds.len == 0);
     assert(kept.slice() == `{"role":"user","content":"hi"},{"role":"assistant","content":"done","reasoning":"hi is a greeting"}`);
     // A turn that called no tool kept no title.
     assert(keptTitles.len == 0);
@@ -1721,7 +1726,10 @@ version (Posix) unittest {
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(asked[0 .. askedLen], `"tools":[{"type":"function","function":{"name":"run_command","description":"Request to create a new terminal and execute a command.",`
         ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
-        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."},`
+        ~ `"env":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","description":"The name of the environment variable."},`
+        ~ `"value":{"type":"string","description":"The value to set for the environment variable."}},"required":["name","value"]},`
+        ~ `"description":"Environment variables for the command."}},"required":["command"]}}},{"type":"function","function":{"name":"plan",`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"run_command","name":"run_command","kind":"execute","status":"in_progress",`
         ~ `"rawInput":{"command":"sh","args":["-c","echo hi"]}}`) >= 0);
     assert(indexOf(said[0 .. saidLen], create) >= 0);
@@ -1747,18 +1755,33 @@ version (Posix) unittest {
 
     // The client could not create it: the call failed with the client's own answer, and nothing more is asked.
     enum refused = `{"jsonrpc":"2.0","id":"term-1","error":{"code":-32603,"message":"no shell"}}`;
+    enum refusedEnv = refused;
     turn(runs, "bypassPermissions", args, refused ~ "\n", s);
     assert(gotBuf[0 .. gotLen] == ended);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"failed","rawOutput":` ~ refused) >= 0);
     assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
     s.open[0].history.dispose();
 
-    // A call without a command is not asked of the client.
-    turn(runs, "bypassPermissions", `{\"args\":[\"x\"]}`, "", s);
+    // "Environment variables for the command": the model's env is the command's, each name and value as given.
+    turn(runs, "bypassPermissions", `{\"command\":\"cargo\",\"args\":[\"test\"],\"env\":[{\"name\":\"RUST_LOG\",\"value\":\"debug\"},{\"name\":\"A\",\"value\":\"\"}]}`,
+        refusedEnv ~ "\n", s);
     assert(gotBuf[0 .. gotLen] == ended);
-    assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
-    assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"run_command takes command, text, and args, a list of text\"}"}`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"jsonrpc":"2.0","id":"term-1","method":"terminal/create","params":{"sessionId":"code-100-7-1","command":"cargo",`
+        ~ `"args":["test"],"env":[{"name":"RUST_LOG","value":"debug"},{"name":"A","value":""}],"cwd":"/tmp","outputByteLimit":65536}}`) >= 0);
     s.open[0].history.dispose();
+
+    // A call without a command, or whose env is not a list of name and value, each text, is not asked of the client.
+    foreach (bad; [`{\"args\":[\"x\"]}`, `{\"command\":\"ls\",\"env\":{\"A\":\"b\"}}`, `{\"command\":\"ls\",\"env\":[{\"name\":\"A\"}]}`,
+            `{\"command\":\"ls\",\"env\":[{\"name\":\"A\",\"value\":1}]}`,
+            // A list that is there is a list: null is none of the lists it takes.
+            `{\"command\":\"ls\",\"env\":null}`, `{\"command\":\"ls\",\"args\":null}`]) {
+        turn(runs, "bypassPermissions", bad, "", s);
+        assert(gotBuf[0 .. gotLen] == ended);
+        assert(indexOf(said[0 .. saidLen], `terminal/create`) < 0);
+        assert(indexOf(s.open[0].history.slice(), `{"role":"tool","tool_call_id":"c1","content":"{\"status\":\"not run\",\"why\":\"run_command takes command, text, `
+            ~ `args, a list of text, and env, a list of name and value, each text\"}"}`) >= 0);
+        s.open[0].history.dispose();
+    }
 
     // Plan mode runs only what only reads, and a command does not.
     turn(runs, "plan", args, "", s);
@@ -2570,6 +2593,9 @@ version (Posix) unittest {
     // Each call's title is kept as it was shown, so a load tells it back as it was, whatever
     // servers the load brings: here none, so no catalogue titles them.
     assert(s.open[0].titles.slice() == `"c1":"Look around","c2":"Touch a file","c3":"test__break"`);
+    // And the kind each was shown with: look only reads; the others said none, kept as none, so a
+    // catalogue that later says their tool only reads does not make them read.
+    assert(s.open[0].kinds.slice() == `"c1":"read","c2":"","c3":""`);
     int[2] l;
     assert(pipe(l) == 0);
     fflush(stdout);
@@ -2586,10 +2612,11 @@ version (Posix) unittest {
     }
     close(l[0]);
     assert(indexOf(r.slice(), `"result"`) >= 0);
-    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look"`) >= 0);
+    assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Look around","name":"test__look","kind":"read"`) >= 0);
     assert(indexOf(said[0 .. saidLen], `{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Touch a file","name":"test__touch"`) >= 0);
     s.open[0].history.dispose();
     s.open[0].titles.dispose();
+    s.open[0].kinds.dispose();
 }
 
 // "After creating a session, the Agent MAY send a list of available commands
@@ -2783,4 +2810,16 @@ version (Posix) unittest {
     assert(indexOf(said2[0 .. len2], `"error":{"code":-32603,"message":"no MCP server of the session reads mem://missing"`) >= 0);
     assert(indexOf(said3[0 .. len3], `"error":{"code":-32603,"message":"mem://logo holds no text to give the model"`) >= 0);
     s.open[0].history.dispose();
+}
+
+// A replayed call's kind is the one it was shown with, none when it was shown with none;
+// the catalogue's read only for a call kept before kinds were.
+unittest {
+    import libjsonc : parseJson, jsonField, json_object_put;
+    auto kept = parseJson(`{"c1":"read","c2":""}`);
+    scope(exit) json_object_put(kept);
+    assert(shownKind(jsonField(kept, "c1"), false) == "read");
+    assert(shownKind(jsonField(kept, "c2"), true) is null);
+    assert(shownKind(jsonField(kept, "c9"), true) == "read");
+    assert(shownKind(jsonField(kept, "c9"), false) is null);
 }
