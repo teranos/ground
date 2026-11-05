@@ -327,3 +327,79 @@ unittest {
     endWithHeld(said, held);
     assert(said.slice() == "/h/c: the sand did not load" ~ held);
 }
+
+// "i still want to see this fixedbtw, anythingyouneed to do for it is apprvoed, i want you toknow i have celared the way"
+// A turn names its own local sand in GROUND_SAND, so an agent's ground holds the sand it was built
+// with, and nobody writes the machine's: a test on this laptop overwrote the one sand under HOME,
+// and every hook held the floor. The sand under HOME is not read while a turn names another.
+unittest {
+    import core.sys.posix.stdlib : mkdtemp, setenv, unsetenv;
+    import core.stdc.stdio : fopen, fread, fwrite, fputs, fclose;
+    import errors : mkdir;
+    import comet : localSandPathInto;
+    scope (exit) { holdSand(null); unsetenv("GROUND_SAND"); }
+
+    char[64] home = "/tmp/ground-named-XXXXXX\0";
+    assert(mkdtemp(home.ptr) !is null);
+    size_t n = 0;
+    while (home[n] != 0) n++;
+
+    // The machine's sand is broken: were it read, the load would be refused.
+    char[512] localBuf = 0;
+    auto local = localSandPathInto(home[0 .. n], localBuf[]);
+    {
+        char[512] d = 0;
+        foreach (i, c; local) {
+            if (i > n && c == '/') cast(void) mkdir(d.ptr, 493);
+            d[i] = c;
+        }
+        auto f = fopen(local.ptr, "wb");
+        assert(f !is null);
+        fputs("not a library", f);
+        fclose(f);
+    }
+
+    // The agent's own, in a place of its own.
+    char[256] mine = 0;
+    size_t m = 0;
+    foreach (c; home[0 .. n]) mine[m++] = c;
+    foreach (c; "/agent-sand.dylib") mine[m++] = c;
+    {
+        auto src = fopen(BUILT.ptr, "rb");
+        auto dst = fopen(mine.ptr, "wb");
+        assert(src !is null && dst !is null);
+        __gshared ubyte[65536] piece;
+        while (true) {
+            auto got = fread(piece.ptr, 1, piece.length, src);
+            if (got == 0) break;
+            fwrite(piece.ptr, 1, got, dst);
+        }
+        fclose(src);
+        fclose(dst);
+    }
+
+    assert(setenv("GROUND_SAND", mine.ptr, 1) == 0);
+    auto r = holdLanded(home[0 .. n], "");
+    assert(r.what == SandHeld.landed, r.why());
+    assert(sand() !is &builtinSand);
+
+    // Set and empty is unset: the machine's sand is read, as before, and here it is refused.
+    assert(setenv("GROUND_SAND", "", 1) == 0);
+    auto bare = holdLanded(home[0 .. n], "");
+    assert(bare.what == SandHeld.refused, "an empty GROUND_SAND names nothing, and HOME's sand is read");
+}
+
+// A sand the turn names and that is not there is said, naming the variable and the path, as a named
+// layer missing is not a machine that never installed one. The floor is held.
+unittest {
+    import core.sys.posix.stdlib : setenv, unsetenv;
+    import matcher : indexOf;
+    scope (exit) { holdSand(null); unsetenv("GROUND_SAND"); }
+    assert(setenv("GROUND_SAND", "/tmp/ground-no-such-sand/libground_sand.dylib", 1) == 0);
+    auto r = holdLanded("/tmp/ground-no-such-home", "");
+    assert(r.what == SandHeld.refused);
+    auto why = r.why();
+    assert(indexOf(why, "GROUND_SAND names /tmp/ground-no-such-sand/libground_sand.dylib, and nothing is there") >= 0, why);
+    assert(indexOf(why, "held: the floor") >= 0, why);
+    assert(sand() is &builtinSand);
+}
