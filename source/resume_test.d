@@ -1,9 +1,9 @@
 module resume_test;
 
 // "ITS THE SAME -BG SESSION THAT IS THE SAME ENTITY"
-// A performance resumes its ritual's last session only while that session's transcript stands:
-// resumed without one, regoto-wait-test-1793848550's agent was answered under its old id and
-// ended one second in, and the walk went on with nobody in it.
+// 「[Opus 5.5] A performance resumes its ritual's last session only while that session's transcript stands:」
+// 「[Opus 5.5] resumed without one, regoto-wait-test-1793848550's agent was answered under its old id and」
+// 「[Opus 5.5] ended one second in, and the walk went on with nobody in it.」
 import ritual.store : transcriptStands;
 
 unittest {
@@ -23,7 +23,7 @@ unittest {
     import core.stdc.stdio : fputs;
     fputs(`{"type":"user","message":{"role":"user","content":"go"}}` ~ "\n", f);
     fclose(f);
-    // An empty transcript, and a directory named as one, hold no conversation to resume.
+    // 「[Opus 5.5] An empty transcript, and a directory named as one, hold no conversation to resume.」
     char[256] empty = 0, named = 0;
     snprintf(empty.ptr, empty.length, "%s/-Users-u-repo/e0e0e0e0-0000-0000-0000-000000000000.jsonl", base.ptr);
     snprintf(named.ptr, named.length, "%s/-Users-u-repo/d1d1d1d1-0000-0000-0000-000000000000.jsonl", base.ptr);
