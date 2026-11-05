@@ -1,0 +1,12 @@
+# "Exiting plan modes": in plan mode the model calls switch_mode, which asks with its plan and the modes it can switch to; Manual chosen, the mode is set and told as current_mode_update and config_option_update.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"plan"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call switch_mode once, with the plan: 1. Fix the build. Then reply with only done."}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"default"}}}
+expect "currentModeId":"default"
+wait 3

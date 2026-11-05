@@ -67,6 +67,19 @@ void putRunTool(ref Reply tools) {
         ~ `"description":"Environment variables for the command."}},"required":["command"]}}}`);
 }
 
+// ground code's tool to leave plan mode, Session Modes' "exit mode" tool: "The language model can call
+// this tool when it determines it's ready to start implementing a solution." Offered in plan mode only.
+enum SWITCH_TOOL = "switch_mode";
+// Its call's title, the spec's example's.
+enum SWITCH_TITLE = "Ready for implementation";
+
+void putSwitchTool(ref Reply tools) {
+    if (tools.len > 0) tools.add(",");
+    tools.add(`{"type":"function","function":{"name":"` ~ SWITCH_TOOL ~ `","description":"Call this when you determine you are ready `
+        ~ `to start implementing a solution: it asks the user to leave plan mode.","parameters":{"type":"object","properties":{`
+        ~ `"plan":{"type":"string","description":"The plan to implement, shown to the user as they are asked."}},"required":["plan"]}}}`);
+}
+
 // ground code's tool for the model's plan, ACP's Plan as the model calls it, in the schema's words: "When
 // the language model creates an execution plan, the Agent SHOULD report it to the Client".
 enum PLAN_TOOL = "plan";
@@ -1010,10 +1023,11 @@ bool replayHistory(const(char)[] history, scope bool delegate(const(char)[] upda
             }
             auto answer = parseJson(content);
             scope(exit) json_object_put(answer);
-            // A command completed as it did live, by exiting 0.
+            // A command completed as it did live, by exiting 0; a switch out of plan mode, by the mode it set.
             auto exitCode = jsonField(answer, "exitCode");
             bool completed = jsonField(answer, "result") !is null
-                || (json_object_get_type(exitCode) == json_type.int_ && json_object_get_int64(exitCode) == 0);
+                || (json_object_get_type(exitCode) == json_type.int_ && json_object_get_int64(exitCode) == 0)
+                || json_object_get_type(jsonField(answer, "currentModeId")) == json_type.string_;
             Reply u;
             scope(exit) u.dispose();
             if (!putToolCall(u, true, id, null, null, null, completed ? "completed" : "failed", null, content) || !told(u)) return false;

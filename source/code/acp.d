@@ -1022,6 +1022,118 @@ private int askPermission(ref Sessions sessions, ref Open o, ref Turn turn, cons
     return -1;
 }
 
+// "Exiting plan modes": the model asks to leave plan mode with its plan, shown as the call's content,
+// and the user is asked as the spec's example asks, each option a mode or staying in plan. "When an
+// option is chosen, the tool runs, setting the mode and sending the current_mode_update notification",
+// and config_option_update with it, as "Agents SHOULD keep both in sync". 1 the mode was set, 0 not,
+// each said in result; 2 the turn was called off; -1 not asked or not told, why the reason.
+private int switchFromPlan(ref Sessions sessions, ref Open o, ref Turn turn, const(char)[] sid,
+        const(char)[] callId, const(char)[] arguments, ref Reply result, ref Reply why) {
+    import libjsonc : parseJson, jsonField, json_object_put, json_object_get_type, json_type, json_object_get_string,
+        json_object_get_string_len;
+    import core.stdc.string : strlen;
+    if (o.mode != SessionMode.plan) {
+        result.add(`{"status":"not run","why":"switch_mode leaves plan mode, and the session is not in it"}`);
+        return 0;
+    }
+    auto root = parseJson(arguments);
+    scope(exit) json_object_put(root);
+    auto v = jsonField(root, "plan");
+    if (json_object_get_type(v) != json_type.string_ || strlen(json_object_get_string(v)) != cast(size_t) json_object_get_string_len(v)) {
+        result.add(`{"status":"not run","why":"switch_mode takes plan, text"}`);
+        return 0;
+    }
+    auto plan = json_object_get_string(v)[0 .. cast(size_t) json_object_get_string_len(v)];
+    // Kept by the call's id, so a load tells it back as it is shown now.
+    if (o.titles.len > 0) o.titles.add(",");
+    o.titles.add(`"`); putEscaped(o.titles, callId); o.titles.add(`":"` ~ SWITCH_TITLE ~ `"`);
+    if (o.kinds.len > 0) o.kinds.add(",");
+    o.kinds.add(`"`); putEscaped(o.kinds, callId); o.kinds.add(`":"switch_mode"`);
+    Reply u;
+    scope(exit) u.dispose();
+    // "kind": "switch_mode", "Switching the current session mode."
+    if (!putToolCall(u, false, callId, SWITCH_TITLE, SWITCH_TOOL, "switch_mode", "pending", arguments, null, null, null, plan)
+        || !notify(sid, u.slice())) { why.add(`"could not write session/update"`); return -1; }
+    if (turn.input is null) { why.add(`"ground code reads no input here, so it cannot ask the client"`); return -1; }
+    sessions.asked++;
+    Reply pid, text;
+    scope(exit) { pid.dispose(); text.dispose(); }
+    pid.add(`"perm-`); putNumber(pid, sessions.asked); pid.add(`"`);
+    size_t at(const(char)[] s) { auto from = text.len; text.add(s); text.add("\0"); return from; }
+    auto idAt = at(pid.slice()), sidAt = at(sid), callAt = at(callId), inputAt = at(arguments), planAt = at(plan);
+    if (text.full) { why.add(`"could not allocate the permission request"`); return -1; }
+    auto t = text.slice().ptr;
+    import libacp : acp_permission_option, acp_permission_request, acp_permission_request_write, acp_buffer,
+        acp_buffer_free, acp_status;
+    acp_permission_option[3] options = [
+        acp_permission_option("bypassPermissions", "Yes, and auto-accept all actions", "allow_always"),
+        acp_permission_option("default", "Yes, and manually accept actions", "allow_once"),
+        acp_permission_option("reject", "No, stay in plan mode", "reject_once"),
+    ];
+    auto asked = acp_permission_request(t + idAt, t + sidAt, t + callAt, SWITCH_TITLE, SWITCH_TOOL, "switch_mode", "pending",
+        t + inputAt, options.ptr, options.length, null, 0, t + planAt);
+    acp_buffer request;
+    scope(exit) acp_buffer_free(&request);
+    if (acp_permission_request_write(&asked, &request) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write session/request_permission"`);
+        return -1;
+    }
+    if (fwrite(request.data, 1, request.length, stdout) != request.length || fputs("\n", stdout) < 0 || fflush(stdout) != 0) {
+        why.add(`"could not write session/request_permission"`);
+        return -1;
+    }
+    Reply answered, option;
+    scope(exit) { answered.dispose(); option.dispose(); }
+    auto waited = awaitAnswer(turn, pid.slice(), answered);
+    if (waited < 0) { why.add(`"the client's input ended while ground code waited on its permission"`); return -1; }
+    if (waited == 2) return 2;
+    auto outcome = permissionOutcome(answered.slice(), option);
+    if (outcome == 0) { turn.cancelled = true; return 2; }
+    auto chosen = option.slice();
+    u.len = 0;
+    if (outcome == 1 && chosen == "reject") {
+        result.add(`{"status":"not run","why":"the user stays in plan mode"}`);
+        if (!putToolCall(u, true, callId, null, null, null, "failed", null, result.slice()) || !notify(sid, u.slice())) {
+            why.add(`"could not write session/update"`);
+            return -1;
+        }
+        return 0;
+    }
+    auto mode = outcome == 1 && (chosen == "bypassPermissions" || chosen == "default") ? parseSessionMode(chosen) : SessionMode.unknown;
+    if (mode == SessionMode.unknown) {
+        why.add(`{"message":"the client's answer to session/request_permission is not one ground code offered","answer":"`);
+        putEscaped(why, answered.slice()); why.add(`"}`);
+        return -1;
+    }
+    if (sessions.db !is null && storeSetMode(sessions.db, sid, mode, now(sessions)) != 1) {
+        why.add(`"the store refused the mode of the session"`);
+        return -1;
+    }
+    o.mode = mode;
+    o.updatedAt = now(sessions);
+    import libacp : acp_current_mode_update_write, acp_config_option_update_write;
+    acp_buffer modeUpdate, configUpdate;
+    scope(exit) { acp_buffer_free(&modeUpdate); acp_buffer_free(&configUpdate); }
+    Reply config;
+    scope(exit) config.dispose();
+    text.len = 0;
+    auto modeAt_ = at(chosen);
+    bool configured = putConfig(config, mode, o.effort);
+    config.add("\0");
+    if (text.full || config.full || acp_current_mode_update_write(text.slice().ptr + modeAt_, &modeUpdate) != acp_status.ACP_OK
+        || !configured || acp_config_option_update_write(config.slice().ptr, &configUpdate) != acp_status.ACP_OK) {
+        why.add(`"libacp could not write the mode's updates"`);
+        return -1;
+    }
+    result.add(`{"currentModeId":"`); result.add(chosen); result.add(`"}`);
+    if (!notify(sid, modeUpdate.data[0 .. modeUpdate.length]) || !notify(sid, configUpdate.data[0 .. configUpdate.length])
+        || !putToolCall(u, true, callId, null, null, null, "completed", null, result.slice()) || !notify(sid, u.slice())) {
+        why.add(`"could not write session/update"`);
+        return -1;
+    }
+    return 1;
+}
+
 // "After creating a session, the Agent MAY send a list of available
 // commands via the available_commands_update session notification": the
 // session's MCP prompts, told once the answer that made the session the
@@ -2645,6 +2757,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             if (sessions.clientWritesFiles) putWriteTool(tools);
             if (sessions.clientRunsCommands) putRunTool(tools);
             putPlanTool(tools);
+            if (o.mode == SessionMode.plan) putSwitchTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
             // One token: what ground code signed in to q with, ~/.qntx/token. The block's file is k's.
             auto token = qntxToken("");
@@ -2806,6 +2919,27 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                             toolMessage(*o.history, call.id, PLAN_REFUSED);
                             tellUser(sessions, sid, "warning", PLAN_UNREPORTED, call.arguments);
                         }
+                        continue;
+                    }
+                    // "Exiting plan modes": the user chooses, and the mode is set or stays.
+                    if (call.name == SWITCH_TOOL) {
+                        Reply asking;
+                        scope(exit) asking.dispose();
+                        auto got = switchFromPlan(sessions, *o, turn, sid, call.id, call.arguments, result, asking);
+                        if (got == 2) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"the client cancelled the turn"}`);
+                            stopCancelled();
+                            return true;
+                        }
+                        if (got < 0) {
+                            foreach (j; i .. c.callCount)
+                                toolMessage(*o.history, c.calls[j].id, `{"status":"not run","why":"ground code could not ask the client"}`);
+                            put(`,"error":{"code":-32603,"message":"ground code could not ask the client to leave plan mode","data":`);
+                            put(asking.slice()); put(`}}`);
+                            return true;
+                        }
+                        toolMessage(*o.history, call.id, result.slice());
                         continue;
                     }
                     // The session's mode decides whether the call runs, and
