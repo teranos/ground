@@ -671,11 +671,11 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
 // and no other: the lines under it begin with `claude`, which is nobody's id.
 // "An Error is the entity any layer emits when something breaks intention"
 // "Only pure distilled signal over anything else"
-// What bind says of a start to the session that fired the ritual: nothing of one that exited 0 and
-// named its agent; of one that exited otherwise, its code and what it printed; of one that named
-// no agent, that, and what it printed.
+// 「[Opus 5.5] What bind says of a start to the session that fired the ritual: nothing of one that exited 0 and」
+// 「[Opus 5.5] named its agent; of one that exited otherwise, its code and what it printed; of one that named」
+// 「[Opus 5.5] no agent, that, and what it printed.」
 void startSays(R)(ref R said, int code, const(char)[] agentId, const(char)[] printed) {
-    // Whole, however long: the reason a start failed is at the end of what it printed.
+    // 「[Opus 5.5] Whole, however long: the reason a start failed is at the end of what it printed.」
     if (code != 0) {
         said.add("the start of the performance's agent exited ");
         char[12] d = 0;
@@ -809,16 +809,16 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
         s.put(" ");
     }
     s.putQuoted(prompt);
-    // stderr with stdout, and how it exited, for bind: a start that failed is said, with what it
-    // printed, to the session that fired the ritual.
+    // 「[Opus 5.5] stderr with stdout, and how it exited, for bind: a start that failed is said, with what it」
+    // 「[Opus 5.5] printed, to the session that fired the ritual.」
     s.put(" 2>&1) && started=0 || started=$?\n");
     // Printed as it always was, so the exec record still holds it, and handed
     // to ground, which binds the agent it names to the performance.
     s.put("printf '%s\\n' \"$said\"\n");
     s.put("printf '%s\\n' \"$said\" | ground bind ");
     s.putQuoted(perfId);
-    // Bind's answer does not end the script before it says how the start went: it exits as the
-    // start did, and as bind did when the start worked and could not be bound.
+    // 「[Opus 5.5] Bind's answer does not end the script before it says how the start went: it exits as the」
+    // 「[Opus 5.5] start did, and as bind did when the start worked and could not be bound.」
     s.put(" \"$started\" && bound=0 || bound=$?\n");
     s.put("if [ \"$started\" != 0 ]; then exit \"$started\"; fi\n");
     s.put("exit \"$bound\"\n");
