@@ -61,7 +61,10 @@ void putRunTool(ref Reply tools) {
     if (tools.len > 0) tools.add(",");
     tools.add(`{"type":"function","function":{"name":"` ~ RUN_TOOL ~ `","description":"Request to create a new terminal and execute a command.",`
         ~ `"parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to execute."},`
-        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."}},"required":["command"]}}}`);
+        ~ `"args":{"type":"array","items":{"type":"string"},"description":"Array of command arguments."},`
+        ~ `"env":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","description":"The name of the environment variable."},`
+        ~ `"value":{"type":"string","description":"The value to set for the environment variable."}},"required":["name","value"]},`
+        ~ `"description":"Environment variables for the command."}},"required":["command"]}}}`);
 }
 
 // ground code's tool for the model's plan, ACP's Plan as the model calls it, in the schema's words: "When
