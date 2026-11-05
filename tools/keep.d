@@ -25,3 +25,11 @@ long projectsOf(string text) {
     }
     return n;
 }
+
+/// Why an install stops on the count beside the installed sand at path, or empty: a count that is
+/// there and holds no count says nothing of what that sand folds, and is not read as none.
+string countRefusal(bool counted, string countText, string path) {
+    if (!counted || projectsOf(countText) >= 0) return "";
+    return "make install refuses: " ~ path ~ ".projects holds no count of projects, so what the sand installed at "
+        ~ path ~ " folds is not known. Remove " ~ path ~ ".projects to install over it.";
+}

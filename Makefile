@@ -210,7 +210,10 @@ tools/keepsand: tools/keepsand.d tools/keep.d
 keep-sand: sand tools/keepsand
 	tools/keepsand .ctfe/sand.projects $(INSTALLED_SAND)
 
-install: build $(BINS) keep-sand install-ug
+# ug is installed by the recipe, after keep-sand has passed: as a prerequisite beside it, make -j
+# could copy ug before the check refused.
+install: build $(BINS) keep-sand
+	$(MAKE) install-ug
 	mkdir -p $(PREFIX)/bin
 	for b in ground $(BINS); do cp $$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
 # "i want FLOOR+LOCALSAND+COMET"

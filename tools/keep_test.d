@@ -1,6 +1,6 @@
 module keep_test;
 
-import keep : refusal, projectsOf;
+import keep : refusal, projectsOf, countRefusal;
 
 // "make ground aget fix it"
 // An install from a tree without controls/local, a worktree's, put the floor where the machine's
@@ -26,3 +26,11 @@ static assert(projectsOf("0\n") == 0);
 static assert(projectsOf("") == -1);
 static assert(projectsOf("x\n") == -1);
 static assert(projectsOf("1 9\n") == -1);
+
+// A count beside the installed sand that is no count is said, and the install stops: read as no
+// count, it let a floor in where the sand it stood beside had projects.
+static assert(countRefusal(true, "x\n", "/h/sand") ==
+    "make install refuses: /h/sand.projects holds no count of projects, so what the sand installed at /h/sand"
+    ~ " folds is not known. Remove /h/sand.projects to install over it.");
+static assert(countRefusal(true, "19\n", "/h/sand") == "");
+static assert(countRefusal(false, "", "/h/sand") == "");

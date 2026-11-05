@@ -2,7 +2,7 @@
 /// Exits 1, saying why, when make install would put the floor where the machine's sand is.
 module keepsand;
 
-import keep : refusal, projectsOf;
+import keep : refusal, projectsOf, countRefusal;
 
 int main(string[] args) {
     import std.file : exists, readText;
@@ -21,8 +21,10 @@ int main(string[] args) {
         return 2;
     }
     auto side = args[2] ~ ".projects";
-    long installed = exists(side) ? projectsOf(readText(side)) : -1;
-    auto why = refusal(exists(args[2]), installed, folded, args[2]);
+    auto counted = exists(side);
+    auto countText = counted ? readText(side) : "";
+    auto why = countRefusal(counted, countText, args[2]);
+    if (why.length == 0) why = refusal(exists(args[2]), counted ? projectsOf(countText) : -1, folded, args[2]);
     if (why.length == 0) return 0;
     stderr.writeln(why);
     return 1;
