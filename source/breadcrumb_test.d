@@ -65,3 +65,56 @@ unittest {
     assert(indexOf(attrs, `yTAIL","after":0}`) >= 0, attrs[n > 80 ? n - 80 : 0 .. n]);
     sqlite3_finalize(st);
 }
+
+// What deliverError hands the store is whole: formatResult held 4095 bytes, so a longer message
+// reached the growing writer already cut.
+unittest {
+    import errors : GroundError, formatResult;
+    __gshared char[6000] long_ = 'z';
+    long_[$ - 4 .. $] = "TAIL";
+    GroundError err;
+    err.origin = "sandload";
+    err.exitCode = 1;
+    err.message = cast(string) long_[];
+    auto r = formatResult(err);
+    assert(r.length == "exit 1: ".length + long_.length);
+    assert(r[$ - 4 .. $] == "TAIL");
+}
+
+// stderr, the last channel, carries what the breadcrumb would have: the message and both streams.
+unittest {
+    import errors : GroundError, stderrRecord;
+    import code.reply : Reply;
+    import matcher : indexOf;
+    GroundError err;
+    err.origin = "exec.script";
+    err.exitCode = 2;
+    err.message = "grandchild exited";
+    err.stdout = "what it printed";
+    err.stderr = "why it failed";
+    Reply rec;
+    scope(exit) rec.dispose();
+    stderrRecord(rec, err);
+    assert(indexOf(rec.slice(), "ground error: exec.script: grandchild exited\n") == 0, rec.slice());
+    assert(indexOf(rec.slice(), "  stdout:\n    what it printed\n") >= 0, rec.slice());
+    assert(indexOf(rec.slice(), "  stderr:\n    why it failed\n") >= 0, rec.slice());
+}
+
+// A detail longer than a delivery carries is said to be, with the row that holds all of it: cut
+// silently, the watcher receipted the prefix, and the tail, where the reason is, never came.
+unittest {
+    import immediate : writeExecResult, readImmediateMessage, MESSAGE_CAP;
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
+    import matcher : indexOf;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope(exit) sqlite3_close(db);
+    __gshared char[MESSAGE_CAP + 4000] long_ = 'w';
+    assert(writeExecResult(db, "sess-cut", "ritual", long_[], "", ""));
+    auto got = readImmediateMessage(db, "/tmp", "sess-cut");
+    assert(got.message !is null);
+    assert(got.message.length <= MESSAGE_CAP);
+    assert(indexOf(got.message, "[ground cut this message at ") >= 0, got.message[$ - 200 .. $]);
+    assert(indexOf(got.message, got.msgId) >= 0, "the cut names the row that holds all of it");
+}

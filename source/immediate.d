@@ -207,7 +207,26 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         size_t mLen = 0;
         auto detText = sqlite3_column_text(stmt, 4);
         if (detText !is null) {
-            while (detText[mLen] != 0 && mLen < msgBuf.length) { msgBuf[mLen] = detText[mLen]; mLen++; }
+            // A detail longer than a delivery carries is cut where it says so, with the row that
+            // holds all of it: cut silently, its tail, where the reason is, never came.
+            enum room = 160;
+            size_t whole = 0;
+            while (detText[whole] != 0) whole++;
+            auto keep = whole <= msgBuf.length ? whole : msgBuf.length - room;
+            foreach (k; 0 .. keep) msgBuf[k] = detText[k];
+            mLen = keep;
+            if (keep < whole) {
+                char[20] d = 0;
+                size_t dn = 0;
+                auto v = keep;
+                do { d[dn++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+                void say(const(char)[] t) { foreach (c; t) if (mLen < msgBuf.length) msgBuf[mLen++] = c; }
+                say("\n[ground cut this message at ");
+                foreach_reverse (k; 0 .. dn) say(d[k .. k + 1]);
+                say(" bytes; the whole of it is the store row ");
+                say(idBuf[0 .. idLen]);
+                say("]");
+            }
         } else {
             foreach (s; ["immediate row ", cast(string) idBuf[0 .. idLen], " carries no detail to deliver"])
                 foreach (c; s) if (mLen < msgBuf.length) msgBuf[mLen++] = c;
