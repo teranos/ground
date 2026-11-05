@@ -277,6 +277,10 @@ const char *mcp_request_validation_json(const mcp_request *r) {
 }
 mcp_status mcp_tool_submit(mcp_client *c, const mcp_tool *tool, const char *args,
                            int ms, mcp_request **out, mcp_error *e) {
+  return mcp_tool_submit_meta(c, tool, args, NULL, ms, out, e);
+}
+mcp_status mcp_tool_submit_meta(mcp_client *c, const mcp_tool *tool, const char *args,
+                                const char *meta_json, int ms, mcp_request **out, mcp_error *e) {
   if (out) *out = NULL;
   if (!c || !c->ready || !tool || !out)
     return mcp_fail(e, MCP_INVALID_ARGUMENT, 0, "tool submit needs a ready client and compiled tool");
@@ -290,8 +294,30 @@ mcp_status mcp_tool_submit(mcp_client *c, const mcp_tool *tool, const char *args
     json_object_put(arguments);
     return mcp_fail(e, MCP_INVALID_ARGUMENT, 0, "tool arguments must be an object");
   }
+  json *meta = NULL;
+  if (meta_json) {
+    if (strnlen(meta_json, c->limit + 1) > c->limit) {
+      json_object_put(arguments);
+      return mcp_fail(e, MCP_MESSAGE_TOO_LARGE, 0, "tool _meta exceeds client byte limit");
+    }
+    s = mcp_parse(meta_json, strlen(meta_json), &meta, e);
+    if (s) {
+      json_object_put(arguments);
+      return s == MCP_PROTOCOL_ERROR ? mcp_fail(e, MCP_INVALID_ARGUMENT, 0, "tool _meta is not valid JSON") : s;
+    }
+    if (!json_object_is_type(meta, json_type_object)) {
+      json_object_put(meta);
+      json_object_put(arguments);
+      return mcp_fail(e, MCP_INVALID_ARGUMENT, 0, "tool _meta must be an object");
+    }
+  }
   json *p = json_object_new_object();
   bool ok = mcp_add(p, "arguments", arguments) && mcp_add(p, "name", json_object_new_string(tool->name));
+  /* _meta as given: a progressToken in it is checked and tracked as any request's. */
+  if (meta) {
+    if (ok) ok = mcp_add(p, "_meta", meta);
+    else json_object_put(meta);
+  }
   const char *wire = ok ? json_object_to_json_string_ext(p, JSON_C_TO_STRING_PLAIN) : NULL;
   s = wire ? submit(c, "tools/call", wire, ms, out, e, tool, args)
     : mcp_fail(e, MCP_NO_MEMORY, 0, "build checked tool request");

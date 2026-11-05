@@ -32,7 +32,8 @@ in
       steps = [
         checkout
         installNix
-        { run = "nix build .#ground"; }
+        # -L: each derivation's build log as it runs, so a build that hangs shows where.
+        { run = "nix build -L .#ground"; }
         # libacp: its build, and its checkPhase's tests, plain and under ASan/UBSan.
         { run = "nix build -L .#libacp"; }
         # ground's side of libmcp, against the input's library and test server.
@@ -67,7 +68,7 @@ in
       steps = [
         checkout
         installNix
-        { run = "nix build .#ground"; }
+        { run = "nix build -L .#ground"; }
         { run = "cp result/bin/ground ground-\${{ matrix.target }}"; }
         {
           uses = "actions/upload-artifact@v7";

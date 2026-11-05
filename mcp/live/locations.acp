@@ -1,0 +1,21 @@
+# A call of ground code's own names the file it works with: read_text_file's path and line, write_text_file's path, on the tool_call and on the permission asked for it.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+# Manual: the read is asked, and the request names the file and the line as the tool_call does.
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use read_text_file once on /tmp/ground locations.txt with line 2, then reply with only what it held."}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"two\n"}}
+wait 2
+# Accept edits: the write runs unasked, its tool_call naming the file.
+{"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"acceptEdits"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once to write the line done to /tmp/ground locations.txt, then reply with only: done"}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"one\ntwo\n"}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 4

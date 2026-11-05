@@ -1,0 +1,15 @@
+# A call is told back by session/load with the title it was shown with, though no server of the load has its tool.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","$LIVE/../mcp/look_server.py"],"env":[]}]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"bypassPermissions"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call test__look once, then test__touch once, then test__break once, then reply with only: done"}]}}
+wait 3
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+# No servers: Look around and Touch a file come from what was kept.
+{"jsonrpc":"2.0","id":4,"method":"session/load","params":{"sessionId":"$SID","cwd":"$CWD","mcpServers":[]}}
+wait 4

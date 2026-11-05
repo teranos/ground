@@ -9,7 +9,7 @@ import core.stdc.stdlib : realloc, free;
 import core.stdc.string : memmove, memcpy;
 import core.stdc.errno : errno, EINTR, EAGAIN;
 import core.sys.posix.unistd : read;
-import exec : pollfd, poll, POLLIN; // the one declaration of poll the binary has
+import polling : pollfd, poll, POLLIN;
 
 struct Input {
     int fd;
@@ -105,5 +105,12 @@ bool take(ref Input input, scope bool delegate(const(char)[]) matches) {
 // nothing more is coming.
 bool more(ref Input input) {
     fill(input, -1);
+    return !input.eof && !input.failed;
+}
+
+// Waits up to ms for more to arrive, taking what does. false at the end of
+// the input, or when it failed.
+bool within(ref Input input, int ms) {
+    fill(input, ms < 0 ? 0 : ms);
     return !input.eof && !input.failed;
 }
