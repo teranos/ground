@@ -91,5 +91,5 @@ static assert(contains(commandSource, "reapNow(found.p,"));
 // the daemon's spare from the daemon, not from this script.
 import ritual.run : spawnScript;
 enum spawned = spawnScript("/r", "p-1", "p-1", "go");
-static assert(contains(spawned.text(), "| ground bind 'p-1'\n"));
+static assert(contains(spawned.text(), "| ground bind 'p-1' \"$started\"\n"));
 static assert(!contains(spawned.text(), "GROUND_PERFORMANCE"));

@@ -669,6 +669,35 @@ package void putQuoted(ref SpawnScript s, const(char)[] v) {
 // Who a start says it started. `claude --bg` answers with `backgrounded`, a
 // separator, and the id every other claude command takes. Read off that line
 // and no other: the lines under it begin with `claude`, which is nobody's id.
+// "An Error is the entity any layer emits when something breaks intention"
+// "Only pure distilled signal over anything else"
+// What bind says of a start to the session that fired the ritual: nothing of one that exited 0 and
+// named its agent; of one that exited otherwise, its code and what it printed; of one that named
+// no agent, that, and what it printed.
+const(char)[] startSays(int code, const(char)[] agentId, const(char)[] printed) {
+    __gshared char[4096] said = 0;
+    size_t n = 0;
+    void put(const(char)[] t) { foreach (c; t) if (n < said.length) said[n++] = c; }
+    if (code != 0) {
+        put("the start of the performance's agent exited ");
+        char[12] d = 0;
+        size_t k = 0;
+        uint v = code < 0 ? cast(uint) -code : cast(uint) code;
+        do { d[k++] = cast(char)('0' + v % 10); v /= 10; } while (v > 0);
+        if (code < 0) put("-");
+        foreach_reverse (i; 0 .. k) put(d[i .. i + 1]);
+        put(": ");
+        put(printed);
+        return said[0 .. n];
+    }
+    if (agentId.length == 0) {
+        put("the start printed no agent id, so this performance has an agent ground cannot stop: ");
+        put(printed);
+        return said[0 .. n];
+    }
+    return said[0 .. 0];
+}
+
 const(char)[] agentIdFrom(const(char)[] printed) {
     enum word = "backgrounded";
     if (printed.length < word.length) return "";
@@ -784,12 +813,15 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
         s.put(" ");
     }
     s.putQuoted(prompt);
-    s.put(")\n");
+    // stderr with stdout, and how it exited, for bind: a start that failed is said, with what it
+    // printed, to the session that fired the ritual.
+    s.put(" 2>&1) && started=0 || started=$?\n");
     // Printed as it always was, so the exec record still holds it, and handed
     // to ground, which binds the agent it names to the performance.
     s.put("printf '%s\\n' \"$said\"\n");
     s.put("printf '%s\\n' \"$said\" | ground bind ");
     s.putQuoted(perfId);
-    s.put("\n");
+    s.put(" \"$started\"\n");
+    s.put("exit \"$started\"\n");
     return s;
 }
