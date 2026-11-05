@@ -1,12 +1,12 @@
 module token;
 
-// A node's token, read as every ground reads it, in a module of its own so what needs only the token
-// compiles none of what attest posts with or errors delivers through.
+// 「[Opus 5.5] A node's token, read as every ground reads it, in a module of its own so what needs only the token」
+// 「[Opus 5.5] compiles none of what attest posts with or errors delivers through.」
 
 import zbuf : ZBuf;
 
-// A token as a file or the environment holds it: surrounding whitespace and a
-// trailing newline are not part of it.
+// 「[Opus 5.5] A token as a file or the environment holds it: surrounding whitespace and a」
+// 「[Opus 5.5] trailing newline are not part of it.」
 const(char)[] trimToken(const(char)[] s) {
     size_t b = 0;
     size_t e = s.length;
@@ -16,9 +16,9 @@ const(char)[] trimToken(const(char)[] s) {
     return s[b .. e];
 }
 
-// The file a node's token is kept in: the one its qntx block names, `~/` being the home, or ~/.qntx/token,
-// which ground code's login writes, so every ground reads the token it was given.
-// Null when it is in a home there is none of. Good until the next call.
+// 「[Opus 5.5] The file a node's token is kept in: the one its qntx block names, `~/` being the home, or ~/.qntx/token,」
+// 「[Opus 5.5] which ground code's login writes, so every ground reads the token it was given.」
+// 「[Opus 5.5] Null when it is in a home there is none of. Good until the next call.」
 const(char)* qntxTokenFile(const(char)[] path = "") {
     import core.stdc.stdlib : getenv;
     __gshared ZBuf pathBuf;
@@ -36,9 +36,9 @@ const(char)* qntxTokenFile(const(char)[] path = "") {
     return pathBuf.ptr();
 }
 
-// The token a node is spoken to with: from the file its qntx block names, or QNTX_TOKEN, then ~/.qntx/token.
-// One token per node: a second name for one credential is a second thing to rotate, and the one nobody
-// rotated went stale and was refused for weeks. Ground's attestations are told apart by actors ["ground"].
+// 「[Opus 5.5] The token a node is spoken to with: from the file its qntx block names, or QNTX_TOKEN, then ~/.qntx/token.」
+// 「[Opus 5.5] One token per node: a second name for one credential is a second thing to rotate, and the one nobody」
+// 「[Opus 5.5] rotated went stale and was refused for weeks. Ground's attestations are told apart by actors ["ground"].」
 const(char)[] qntxToken(const(char)[] path = "") {
     import core.stdc.stdlib : getenv;
     import core.sys.posix.fcntl : open, O_RDONLY;
@@ -63,7 +63,7 @@ const(char)[] qntxToken(const(char)[] path = "") {
     close(fd);
     if (n <= 0) return null;
     auto t = trimToken(tokBuf[0 .. cast(size_t) n]);
-    // Longer than ground reads is no token, never the start of one, and is said.
+    // 「[Opus 5.5] Longer than ground reads is no token, never the start of one, and is said.」
     if (t.length > TOKEN_MAX) {
         import core.stdc.stdio : stderr, fprintf;
         fprintf(stderr, "ground: the token in %s is longer than the %d bytes ground reads, so it is not used\n",
@@ -73,5 +73,5 @@ const(char)[] qntxToken(const(char)[] path = "") {
     return t;
 }
 
-// The longest token ground reads back, and so the longest it keeps (code/login.d keepToken).
+// 「[Opus 5.5] The longest token ground reads back, and so the longest it keeps (code/login.d keepToken).」
 enum TOKEN_MAX = 4096;
