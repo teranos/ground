@@ -35,7 +35,38 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     holdSand(null);
     const(Sand)* local = null;
     const(Sand)* comet = null;
-    if (localSandPathInto(home, localBuf[]).length > 0) local = openSand(localBuf.ptr, r);
+    auto named = namedSand();
+    if (named.length > 0) {
+        // The turn's own: what is under HOME is the machine's, and is not read.
+        if (named.length < localBuf.length) {
+            foreach (i, c; named) localBuf[i] = c;
+            localBuf[named.length] = 0;
+            local = openSand(localBuf.ptr, r);
+            import core.sys.posix.unistd : access, F_OK;
+            import core.stdc.errno : errno, ENOENT;
+            import core.stdc.string : strerror;
+            if (local is null && access(localBuf.ptr, F_OK) != 0) {
+                // Absent is what the system says when nothing is at the path; anything else, a
+                // directory shut on the way included, is a sand that is there and cannot be reached.
+                auto e = errno;
+                if (r.what == SandHeld.refused) r.said.put("; ");
+                r.what = SandHeld.refused;
+                r.said.put(SAND_VAR);
+                r.said.put(" names ");
+                r.said.put(named);
+                if (e == ENOENT) r.said.put(", and nothing is there");
+                else {
+                    auto s = strerror(e);
+                    r.said.put(", and it cannot be reached: ");
+                    r.said.put(s[0 .. lengthOf(s)]);
+                }
+            }
+        } else {
+            r.what = SandHeld.refused;
+            r.said.put(SAND_VAR);
+            r.said.put(" names a path longer than ground holds");
+        }
+    } else if (localSandPathInto(home, localBuf[]).length > 0) local = openSand(localBuf.ptr, r);
     if (cometPathInto(home, origin, cometBuf[]).length > 0) comet = openSand(cometBuf.ptr, r);
     if (r.what == SandHeld.refused) {
         __gshared ZBuf held;
@@ -49,6 +80,20 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     holdSand(layer(&builtinSand, local, comet));
     if (r.what != SandHeld.refused) r.what = SandHeld.landed;
     return r;
+}
+
+// "i still want to see this fixedbtw, anythingyouneed to do for it is apprvoed, i want you toknow i have celared the way"
+// The local sand a turn names for itself. Every turn on a node carries the node's HOME, so the sand
+// under it was one for every agent there, and an agent's build replaced it for all of them; a test on
+// the laptop replaced the owner's, and every hook held the floor. Set, it is the local sand, and the
+// one under HOME is not read; unset or empty, the sand under HOME is, as it always was.
+enum SAND_VAR = "GROUND_SAND";
+
+const(char)[] namedSand() {
+    import core.stdc.stdlib : getenv;
+    auto v = getenv(SAND_VAR);
+    if (v is null) return null;
+    return v[0 .. lengthOf(v)];
 }
 
 // 「[Opus 5.5] The room a refusal has: the hook says it as "sandload: <it>" in a 4096-byte result, and that in」

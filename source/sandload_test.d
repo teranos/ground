@@ -7,6 +7,30 @@ import sand.view : Sand, SAND_ABI;
 import controls : sand, holdSand, allScopes;
 import sand.builtin : builtinSand;
 
+// What the process was started with in GROUND_SAND, put aside so a test reads the sand it means to:
+// a developer whose shell names a sand would otherwise have every HOME test read that one.
+private struct KeptSand { char[1024] value = 0; bool set; }
+
+private KeptSand keepNamedSand() {
+    import core.stdc.stdlib : getenv;
+    import core.sys.posix.stdlib : unsetenv;
+    KeptSand k;
+    auto v = getenv("GROUND_SAND");
+    if (v !is null) {
+        size_t n;
+        while (v[n] != 0 && n + 1 < k.value.length) { k.value[n] = v[n]; n++; }
+        k.set = true;
+    }
+    unsetenv("GROUND_SAND");
+    return k;
+}
+
+private void restoreNamedSand(ref KeptSand k) {
+    import core.sys.posix.stdlib : setenv, unsetenv;
+    if (k.set) setenv("GROUND_SAND", k.value.ptr, 1);
+    else unsetenv("GROUND_SAND");
+}
+
 version (OSX) enum BUILT = "build/libground_sand.dylib\0";
 else enum BUILT = "build/libground_sand.so\0";
 
@@ -59,7 +83,8 @@ unittest {
     import core.stdc.stdio : fopen, fread, fwrite, fclose;
     import errors : mkdir;
     import comet : SAND_FILE;
-    scope (exit) holdSand(null);
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
 
     char[64] home = "/tmp/ground-sand-XXXXXX\0";
     assert(mkdtemp(home.ptr) !is null);
@@ -105,7 +130,8 @@ unittest {
     import core.stdc.stdio : fopen, fread, fwrite, fclose;
     import errors : mkdir;
     import comet : SAND_FILE;
-    scope (exit) holdSand(null);
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
 
     char[64] home = "/tmp/ground-local-XXXXXX\0";
     assert(mkdtemp(home.ptr) !is null);
@@ -161,7 +187,8 @@ unittest {
     import errors : mkdir;
     import comet : SAND_FILE, cometPathInto, localSandPathInto;
     import matcher : indexOf;
-    scope (exit) holdSand(null);
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
 
     char[64] home = "/tmp/ground-refused-XXXXXX\0";
     assert(mkdtemp(home.ptr) !is null);
@@ -204,7 +231,8 @@ unittest {
     import errors : mkdir;
     import comet : cometPathInto, localSandPathInto;
     import matcher : indexOf;
-    scope (exit) holdSand(null);
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
 
     char[64] home = "/tmp/ground-refused-XXXXXX\0";
     assert(mkdtemp(home.ptr) !is null);
@@ -256,7 +284,8 @@ unittest {
     import errors : mkdir;
     import comet : cometPathInto, localSandPathInto;
     import matcher : indexOf;
-    scope (exit) holdSand(null);
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
 
     char[1024] home = 0;
     enum base = "/tmp/ground-long-XXXXXX";
@@ -326,4 +355,118 @@ unittest {
     said.put("/h/c: the sand did not load");
     endWithHeld(said, held);
     assert(said.slice() == "/h/c: the sand did not load" ~ held);
+}
+
+// "i still want to see this fixedbtw, anythingyouneed to do for it is apprvoed, i want you toknow i have celared the way"
+// A turn names its own local sand in GROUND_SAND, so an agent's ground holds the sand it was built
+// with, and nobody writes the machine's: a test on this laptop overwrote the one sand under HOME,
+// and every hook held the floor. The sand under HOME is not read while a turn names another.
+unittest {
+    import core.sys.posix.stdlib : mkdtemp, setenv, unsetenv;
+    import core.stdc.stdio : fopen, fread, fwrite, fputs, fclose;
+    import errors : mkdir;
+    import comet : localSandPathInto;
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
+
+    char[64] home = "/tmp/ground-named-XXXXXX\0";
+    assert(mkdtemp(home.ptr) !is null);
+    size_t n = 0;
+    while (home[n] != 0) n++;
+
+    // The machine's sand is broken: were it read, the load would be refused.
+    char[512] localBuf = 0;
+    auto local = localSandPathInto(home[0 .. n], localBuf[]);
+    {
+        char[512] d = 0;
+        foreach (i, c; local) {
+            if (i > n && c == '/') cast(void) mkdir(d.ptr, 493);
+            d[i] = c;
+        }
+        auto f = fopen(local.ptr, "wb");
+        assert(f !is null);
+        fputs("not a library", f);
+        fclose(f);
+    }
+
+    // The agent's own, in a place of its own.
+    char[256] mine = 0;
+    size_t m = 0;
+    foreach (c; home[0 .. n]) mine[m++] = c;
+    foreach (c; "/agent-sand.dylib") mine[m++] = c;
+    {
+        auto src = fopen(BUILT.ptr, "rb");
+        auto dst = fopen(mine.ptr, "wb");
+        assert(src !is null && dst !is null);
+        __gshared ubyte[65536] piece;
+        while (true) {
+            auto got = fread(piece.ptr, 1, piece.length, src);
+            if (got == 0) break;
+            fwrite(piece.ptr, 1, got, dst);
+        }
+        fclose(src);
+        fclose(dst);
+    }
+
+    assert(setenv("GROUND_SAND", mine.ptr, 1) == 0);
+    auto r = holdLanded(home[0 .. n], "");
+    assert(r.what == SandHeld.landed, r.why());
+    assert(sand() !is &builtinSand);
+
+    // Set and empty is unset: the machine's sand is read, as before, and here it is refused.
+    assert(setenv("GROUND_SAND", "", 1) == 0);
+    auto bare = holdLanded(home[0 .. n], "");
+    assert(bare.what == SandHeld.refused, "an empty GROUND_SAND names nothing, and HOME's sand is read");
+}
+
+// A sand the turn names and that is not there is said, naming the variable and the path, as a named
+// layer missing is not a machine that never installed one. The floor is held.
+unittest {
+    import core.sys.posix.stdlib : setenv, unsetenv;
+    import matcher : indexOf;
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
+    assert(setenv("GROUND_SAND", "/tmp/ground-no-such-sand/libground_sand.dylib", 1) == 0);
+    auto r = holdLanded("/tmp/ground-no-such-home", "");
+    assert(r.what == SandHeld.refused);
+    auto why = r.why();
+    assert(indexOf(why, "GROUND_SAND names /tmp/ground-no-such-sand/libground_sand.dylib, and nothing is there") >= 0, why);
+    assert(indexOf(why, "held: the floor") >= 0, why);
+    assert(sand() is &builtinSand);
+}
+
+// A named sand that is there and cannot be reached is not one that is absent: the refusal says
+// which, with what the system answered.
+unittest {
+    import core.sys.posix.stdlib : mkdtemp, setenv;
+    import exec : chmod;
+    import core.stdc.stdio : fopen, fputs, fclose;
+    import errors : mkdir;
+    import matcher : indexOf;
+    auto kept = keepNamedSand();
+    scope (exit) { holdSand(null); restoreNamedSand(kept); }
+
+    char[64] dir = "/tmp/ground-shut-XXXXXX\0";
+    assert(mkdtemp(dir.ptr) !is null);
+    size_t n = 0;
+    while (dir[n] != 0) n++;
+    char[128] inner = 0, file = 0;
+    size_t i = 0, f = 0;
+    foreach (c; dir[0 .. n]) { inner[i++] = c; file[f++] = c; }
+    foreach (c; "/shut") { inner[i++] = c; file[f++] = c; }
+    foreach (c; "/libground_sand.dylib") file[f++] = c;
+    assert(mkdir(inner.ptr, 493) == 0);
+    auto h = fopen(file.ptr, "wb");
+    assert(h !is null);
+    fputs("x", h);
+    fclose(h);
+    assert(chmod(inner.ptr, 0) == 0);
+    scope (exit) chmod(inner.ptr, 493);
+
+    assert(setenv("GROUND_SAND", file.ptr, 1) == 0);
+    auto r = holdLanded("/tmp/ground-no-such-home", "");
+    assert(r.what == SandHeld.refused);
+    auto why = r.why();
+    assert(indexOf(why, "nothing is there") < 0, why);
+    assert(indexOf(why, "it cannot be reached: Permission denied") >= 0, why);
 }
