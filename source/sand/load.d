@@ -38,26 +38,34 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     if (localSandPathInto(home, localBuf[]).length > 0) local = openSand(localBuf.ptr, r);
     if (cometPathInto(home, origin, cometBuf[]).length > 0) comet = openSand(cometBuf.ptr, r);
     if (r.what == SandHeld.refused) {
-        // What is held ends the message whatever the reasons before it ran to: they are cut
-        // to make room for it, and say they are.
         __gshared ZBuf held;
         held.reset();
         held.put(". held: the floor");
         if (local !is null) { held.put(" and the local sand at "); held.put(localBuf[0 .. lengthOf(localBuf.ptr)]); }
         if (comet !is null) { held.put(" and the comet at "); held.put(cometBuf[0 .. lengthOf(cometBuf.ptr)]); }
-        enum cut = " [cut: the reasons ran past what ground holds]";
-        auto room = r.said.data.length - 1 - held.len;
-        if (r.said.len + held.len > r.said.data.length - 1) {
-            r.said.len = room - cut.length;
-            r.said.data[r.said.len] = 0;
-            r.said.put(cut);
-        }
-        r.said.put(held.slice());
+        endWithHeld(r.said, held.slice());
     }
     if (local is null && comet is null) return r;
     holdSand(layer(&builtinSand, local, comet));
     if (r.what != SandHeld.refused) r.what = SandHeld.landed;
     return r;
+}
+
+// The room a refusal has: the hook says it as "sandload: <it>" in a 4096-byte result, and that in
+// a 4096-byte exec-result row with the row's own words around it (errors.d formatResult,
+// immediate.d writeExecResult).
+enum SAID_ROOM = 3584;
+
+// What is held ends a refusal whatever the reasons before it ran to: they are cut to make room for
+// it within SAID_ROOM, and say they are.
+void endWithHeld(ref ZBuf said, const(char)[] held) {
+    enum cut = " [cut: the reasons ran past what ground holds]";
+    if (said.len + held.length > SAID_ROOM) {
+        said.len = SAID_ROOM - held.length - cut.length;
+        said.data[said.len] = 0;
+        said.put(cut);
+    }
+    said.put(held);
 }
 
 private size_t lengthOf(const(char)* s) {

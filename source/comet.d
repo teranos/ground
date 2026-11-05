@@ -78,7 +78,8 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     auto asked = httpGet(url.slice(), token, answer[]);
     if (asked.status == 404) {
         import core.sys.posix.unistd : access, F_OK;
-        notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len], asked.overran);
+        notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len], asked.overran,
+                asked.code != 0 ? asked.why() : null);
         return r;
     }
     if (asked.status != 200) {
@@ -235,13 +236,16 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     return r;
 }
 
+/// What land() reads of the node's answer to the ask for a digest.
+enum ANSWER_BYTES = 2048;
+
 // "thats problematic seeing how sand chamges are normal"
 /// The node keeps no comet of origin for this engine's ABI. With none held here the repository
 /// has none, and nothing is said; with one held here, that one is what every hook refuses, and
-/// the node's answer says which ABIs it keeps.
-/// An answer larger than ground reads is said to be.
-enum ANSWER_BYTES = 2048;
-void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer, bool overran) {
+/// the node's answer says which ABIs it keeps. An answer larger than ANSWER_BYTES is said to be;
+/// a 404 whose transfer broke, broke says how, and what came of it is not the node's answer.
+void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer, bool overran,
+             const(char)[] broke) {
     import sand.view : SAND_ABI;
     if (!heldHere) return;
     r.what = Landed.failed;
@@ -254,6 +258,11 @@ void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] a
         r.said.put("the node's answer was larger than the ");
         r.said.putUint(ANSWER_BYTES);
         r.said.put(" bytes ground reads of it");
+        return;
+    }
+    if (broke.length > 0) {
+        r.said.put("the node's answer did not arrive whole: ");
+        r.said.put(broke);
         return;
     }
     r.said.put(answer);

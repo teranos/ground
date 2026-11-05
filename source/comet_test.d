@@ -57,7 +57,7 @@ unittest {
     enum node = `{"error":"no comet of abcd-nl/grove is kept: abcd-nl/grove/aarch64-darwin is kept for engine ABI 2, built from ground's main"}`;
 
     Landing held;
-    notKept(held, "abcd-nl/grove", true, node, false);
+    notKept(held, "abcd-nl/grove", true, node, false, "");
     assert(held.what == Landed.failed);
     ZBuf abi;
     abi.putUint(SAND_ABI);
@@ -66,13 +66,20 @@ unittest {
     assert(indexOf(held.why(), node) >= 0, held.why());
 
     Landing none;
-    notKept(none, "abcd-nl/grove", false, node, false);
+    notKept(none, "abcd-nl/grove", false, node, false, "");
     assert(none.what == Landed.none);
     assert(none.why().length == 0);
 
     // An answer larger than ground reads is said to be, not handed over as nothing.
     Landing long_;
-    notKept(long_, "abcd-nl/grove", true, "", true);
+    notKept(long_, "abcd-nl/grove", true, "", true, "");
     assert(long_.what == Landed.failed);
     assert(indexOf(long_.why(), "the node's answer was larger than the ") >= 0, long_.why());
+
+    // A 404 whose answer did not arrive whole is said as the transfer that broke, not as what came.
+    Landing cut;
+    notKept(cut, "abcd-nl/grove", true, `{"error":"no com`, false, "Transferred a partial file");
+    assert(cut.what == Landed.failed);
+    assert(indexOf(cut.why(), "did not arrive whole: Transferred a partial file") >= 0, cut.why());
+    assert(indexOf(cut.why(), `{"error":"no com`) < 0, cut.why());
 }

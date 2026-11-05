@@ -2,7 +2,7 @@ module sandload_test;
 
 // "A comet held for the harness is checked there."
 
-import sand.load : loadSand, acceptSand, holdLanded, SandHeld;
+import sand.load : loadSand, acceptSand, holdLanded, SandHeld, endWithHeld, SAID_ROOM;
 import sand.view : Sand, SAND_ABI;
 import controls : sand, holdSand, allScopes;
 import sand.builtin : builtinSand;
@@ -292,5 +292,38 @@ unittest {
     auto why = r.why();
     enum held = ". held: the floor";
     assert(why.length >= held.length && why[$ - held.length .. $] == held, why[why.length > 200 ? $ - 200 : 0 .. $]);
-    assert(indexOf(why, "[cut: ") >= 0, why[why.length > 200 ? $ - 200 : 0 .. $]);
+    assert(why.length <= SAID_ROOM);
+}
+
+// Reasons past the room a refusal has are cut, say they are, and what is held ends them. The room
+// leaves what the hook puts before it and around it: "sandload: " in a 4096-byte result, and that
+// in a 4096-byte exec-result row (errors.d formatResult, immediate.d writeExecResult).
+unittest {
+    import zbuf : ZBuf;
+    import matcher : indexOf;
+    import errors : GroundError, formatResult;
+    enum held = ". held: the floor and the local sand at /h/.local/share/ground/sand/libground_sand.dylib";
+
+    __gshared ZBuf said;
+    said.reset();
+    foreach (_; 0 .. 4000) said.putChar('x');
+    endWithHeld(said, held);
+    auto why = said.slice();
+    assert(why.length <= SAID_ROOM);
+    assert(why[$ - held.length .. $] == held);
+    assert(indexOf(why, "[cut: ") >= 0);
+
+    // As the hook stores it, the held layers still end it.
+    GroundError err;
+    err.origin = "sandload";
+    err.exitCode = -1;
+    err.message = cast(string) why;
+    auto stored = formatResult(err);
+    assert(stored[$ - held.length .. $] == held, stored[$ - 120 .. $]);
+
+    // What fits is not cut.
+    said.reset();
+    said.put("/h/c: the sand did not load");
+    endWithHeld(said, held);
+    assert(said.slice() == "/h/c: the sand did not load" ~ held);
 }
