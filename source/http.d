@@ -52,8 +52,8 @@ struct Abort {
 }
 enum CURLE_ABORTED_BY_CALLBACK = 42;
 
-// A token read from a file carries the newline the file ends with, and a newline
-// inside a header value is a malformed request, not a bad token.
+// 「[Opus 5.5] A token read from a file carries the newline the file ends with, and a newline」
+// 「[Opus 5.5] inside a header value is a malformed request, not a bad token.」
 public import token : trimToken;
 
 // An absent token is an absent header. Sending `Authorization: Bearer ` with
