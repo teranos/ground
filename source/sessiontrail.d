@@ -329,7 +329,7 @@ void describe(sqlite3* db, ref Editors found) {
     }
 }
 
-// The path an edit's record names, and its index, are the store's schema: db keeps them.
+// 「[Opus 5.5] The path an edit's record names, and its index, are the store's schema: db keeps them.」
 import db : EDIT_PATH;
 
 // Every session that edited `path` after `since`, in unix seconds.
