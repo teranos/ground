@@ -126,8 +126,8 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
     bindPending(stmt, cwd, sessionId, mark);
 
-    // As wide as the id the writer builds (a ZBuf): one cut here named no row, so its receipt
-    // matched nothing and the row was read and delivered again until the batch was full.
+    // 「[Opus 5.5] As wide as the id the writer builds (a ZBuf): one cut here named no row, so its receipt」
+    // 「[Opus 5.5] matched nothing and the row was read and delivered again until the batch was full.」
     __gshared char[4096] idBuf = 0;
     __gshared char[256] nameBuf = 0;
     // An exec result carries the stderr of what failed, and the reason is at
@@ -209,10 +209,10 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         size_t mLen = 0;
         auto detText = sqlite3_column_text(stmt, 4);
         if (detText !is null) {
-            // A detail longer than a delivery carries is cut where it says so, with the row that
-            // holds all of it: cut silently, its tail, where the reason is, never came.
-            // The notice's room is measured, its row id and byte count whole, before the cut is
-            // placed; and the cut is moved back to a character's start, as a split one is no UTF-8.
+            // 「[Opus 5.5] A detail longer than a delivery carries is cut where it says so, with the row that」
+            // 「[Opus 5.5] holds all of it: cut silently, its tail, where the reason is, never came.」
+            // 「[Opus 5.5] The notice's room is measured, its row id and byte count whole, before the cut is」
+            // 「[Opus 5.5] placed; and the cut is moved back to a character's start, as a split one is no UTF-8.」
             enum fixedNotice = "\n[ground cut this message at  bytes; the whole of it is the store row ]".length;
             auto room = fixedNotice + 20 + idLen;
             size_t whole = 0;
@@ -1224,8 +1224,8 @@ bool writeExecResult(sqlite3* db,
     ctxBuf.put(sessionId);
     ctxBuf.put(`"]`);
 
-    // Whole however long: the attributes were 4096 bytes, and a result past them lost its
-    // closing quote and brace, so the row was no JSON and was not written.
+    // 「[Opus 5.5] Whole however long: the attributes were 4096 bytes, and a result past them lost its」
+    // 「[Opus 5.5] closing quote and brace, so the row was no JSON and was not written.」
     import code.reply : Reply, putJsonText = putEscaped;
     Reply attrBuf;
     scope(exit) attrBuf.dispose();
