@@ -36,15 +36,17 @@ enum STRIP_SUBAGENT = "UPDATE attestations SET attributes = json_object("
     ~ "AND created_at < datetime('now', '-7 days') "
     ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
 
-// Every timing row by its age, built by decay as the undecayed index is: the one read of every
-// row that building it costs is decay's, which make install runs, and not a hook's.
-enum TIMING_AGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_timing_created ON timing(created_at)\0";
+// Every shipped timing row by its age, built by decay as the undecayed index is: the one read of
+// every row that building it costs is decay's, which make install runs, and not a hook's. Shipped
+// rows only: old unshipped ones are kept until they are shipped, pile up where delivery is down,
+// and are no row the delete can take.
+enum TIMING_AGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_timing_shipped_age ON timing(created_at) WHERE shipped_at > 0\0";
 
 // 3. Delete timing rows > 30 days, once sentry has them. Unshipped rows
 // are the record still, and the watcher ships them in its own time.
 // By their age: through idx_timing_shipped it read every shipped row, nearly all of them, to find the
 // old ones, and held the write lock for all of it.
-enum DELETE_TIMING = "DELETE FROM timing INDEXED BY idx_timing_created "
+enum DELETE_TIMING = "DELETE FROM timing INDEXED BY idx_timing_shipped_age "
     ~ "WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
 
 // 4. Immediate rows nobody claimed in seven days, and their receipts, once the node has them: a session
@@ -437,9 +439,19 @@ unittest {
         auto detail = sqlite3_column_text(stmt, 3);
         size_t n = 0;
         while (detail[n] != 0) n++;
-        if (indexOf(detail[0 .. n], "idx_timing_created (created_at<?)") >= 0) byAge = true;
+        if (indexOf(detail[0 .. n], "idx_timing_shipped_age (created_at<?)") >= 0) byAge = true;
     }
     sqlite3_finalize(stmt);
     assert(byAge, "the old timing rows are found by their age");
+    // Only shipped rows are in it: old unshipped ones, kept until they are shipped, pile up where
+    // delivery is down, and an index of every row would have the delete read all of them each time.
+    enum def = "SELECT sql FROM sqlite_master WHERE name = 'idx_timing_shipped_age'\0";
+    assert(sqlite3_prepare_v2(db, def.ptr, -1, &stmt, null) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    auto text = sqlite3_column_text(stmt, 0);
+    size_t tn = 0;
+    while (text[tn] != 0) tn++;
+    assert(indexOf(text[0 .. tn], "WHERE shipped_at > 0") >= 0, "the age index holds shipped rows only");
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
 }
