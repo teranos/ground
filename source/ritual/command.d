@@ -136,6 +136,19 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
             sqlite3_close(db);
         }
     }
+    // A session whose transcript is gone is not resumed: resumed, it ends at once and the walk
+    // has nobody in it. A new one is started, and that is said.
+    if (resume.length > 0) {
+        import ritual.store : transcriptStands, projectsDirInto;
+        import exec : emitError;
+        char[4096] projectsBuf = 0;
+        if (!transcriptStands(projectsDirInto(projectsBuf[]), resume)) {
+            emitError("ritual.spawn.resume",
+                      "the ritual's last session has no transcript left, so a new session carries this performance",
+                      0, 1, cast(string) p.parent, cast(string) p.ritual, "", cast(string) p.id, cast(string) resume);
+            resume = null;
+        }
+    }
     auto choice = resolveModel(flat.models, inputs);
     auto model = choice.model;
     if (choice.missing.length > 0)
