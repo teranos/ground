@@ -266,24 +266,47 @@ const(char)[] formatResult(const ref GroundError err) {
 // on failure (would itself be a swallow).
 // <home>/.local/share/ground/errors, NUL-ended; 0 with no HOME.
 size_t breadcrumbDirInto(ref char[512] dirBuf) {
-    size_t p = 0;
     version (unittest) {
         import db : storeDir;
         auto dir = storeDir();
         if (dir is null) return 0;
-        foreach (c; dir) { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
-        foreach (c; "/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+        size_t p = 0;
+        foreach (c; dir) { if (p + 1 >= dirBuf.length) return 0; dirBuf[p++] = c; }
+        foreach (c; "/errors") { if (p + 1 >= dirBuf.length) return 0; dirBuf[p++] = c; }
+        dirBuf[p] = 0;
+        return p;
     } else {
         import core.stdc.stdlib : getenv;
         auto home = getenv("HOME\0".ptr);
         if (home is null) return 0;
         size_t hlen = 0;
         while (home[hlen] != 0) hlen++;
-        foreach (i; 0 .. hlen) { if (p < dirBuf.length - 1) dirBuf[p++] = home[i]; }
-        foreach (c; "/.local/share/ground/errors") { if (p < dirBuf.length - 1) dirBuf[p++] = c; }
+        return errorsDirIn(home[0 .. hlen], dirBuf);
     }
+}
+
+// <home>/.local/share/ground/errors into dirBuf, NUL-ended, or 0 when it does not fit: a path
+// cut short names another directory, and a breadcrumb left there is one nobody reads.
+size_t errorsDirIn(const(char)[] home, ref char[512] dirBuf) {
+    enum tail = "/.local/share/ground/errors";
+    if (home.length + tail.length + 1 > dirBuf.length) return 0;
+    size_t p = 0;
+    foreach (c; home) dirBuf[p++] = c;
+    foreach (c; tail) dirBuf[p++] = c;
     dirBuf[p] = 0;
     return p;
+}
+
+// <dir>/<sessionId>.log into pathBuf, NUL-ended, or 0 when it does not fit.
+size_t crumbPathIn(const(char)[] dir, const(char)[] sessionId, ref char[768] pathBuf) {
+    if (dir.length + 1 + sessionId.length + 4 + 1 > pathBuf.length) return 0;
+    size_t q = 0;
+    foreach (c; dir) pathBuf[q++] = c;
+    pathBuf[q++] = '/';
+    foreach (c; sessionId) pathBuf[q++] = c;
+    foreach (c; ".log") pathBuf[q++] = c;
+    pathBuf[q] = 0;
+    return q;
 }
 
 private bool writeBreadcrumb(const ref GroundError err) {
@@ -294,14 +317,9 @@ private bool writeBreadcrumb(const ref GroundError err) {
     // mkdir (idempotent-ish; may fail because it already exists — fine).
     mkdir(&dirBuf[0], octal!755);
 
-    // Build file path: <dir>/<sessionId>.log
+    // <dir>/<sessionId>.log, whole, or no breadcrumb: the next channel takes it.
     char[768] pathBuf = 0;
-    size_t q = 0;
-    foreach (i; 0 .. p) { if (q < pathBuf.length - 1) pathBuf[q++] = dirBuf[i]; }
-    if (q < pathBuf.length - 1) pathBuf[q++] = '/';
-    foreach (c; err.sessionId) { if (q < pathBuf.length - 1) pathBuf[q++] = c; }
-    foreach (c; ".log") { if (q < pathBuf.length - 1) pathBuf[q++] = c; }
-    pathBuf[q] = 0;
+    if (crumbPathIn(dirBuf[0 .. p], err.sessionId, pathBuf) == 0) return false;
 
     int fd = open(&pathBuf[0], O_WRONLY | O_CREAT | O_APPEND, octal!644);
     if (fd < 0) return false;
