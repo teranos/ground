@@ -121,3 +121,23 @@ unittest {
 
     assert(n == 1, "the willow recorded START twice and JACKFRUIT twice");
 }
+
+// "An abort that leaves the agent running has aborted nothing."
+// A verdict that lost its revision to a write while the rite ran is retaken on the row as it
+// stands only while that row is still the walk it was about: an abort leaves `current` where it
+// was, and the retake wrote the walk on over it. deploy-1793841311 was aborted at 01:24:44 and
+// walked on to done at 01:28:41.
+unittest {
+    import ritual : retakes, abort;
+    auto p = seeded();
+    p.current = 1;
+    auto same = p;
+    same.rev = p.rev + 1;
+    assert(retakes(p, same), "a revision moved by bookkeeping is retaken");
+    auto walked = same;
+    walked.current = 2;
+    assert(!retakes(p, walked), "a walk somebody moved on is theirs");
+    auto aborted = abort(same);
+    assert(aborted.current == p.current);
+    assert(!retakes(p, aborted), "an aborted walk stays aborted");
+}
