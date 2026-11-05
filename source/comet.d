@@ -74,9 +74,14 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     auto bare = url.len;
     url.put("?digest");
 
-    char[512] answer = 0;
+    __gshared char[ANSWER_BYTES] answer = 0;
     auto asked = httpGet(url.slice(), token, answer[]);
-    if (asked.status == 404) return r;
+    if (asked.status == 404) {
+        import core.sys.posix.unistd : access, F_OK;
+        notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len], asked.overran,
+                asked.code != 0 ? asked.why() : null);
+        return r;
+    }
     if (asked.status != 200) {
         r.what = Landed.failed;
         r.said.put("the node did not answer the digest of the comet of ");
@@ -229,6 +234,38 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     r.said.put(" landed: ");
     r.said.put(want);
     return r;
+}
+
+/// What land() reads of the node's answer to the ask for a digest.
+enum ANSWER_BYTES = 2048;
+
+// "thats problematic seeing how sand chamges are normal"
+/// The node keeps no comet of origin for this engine's ABI. With none held here the repository
+/// has none, and nothing is said; with one held here, that one is what every hook refuses, and
+/// the node's answer says which ABIs it keeps. An answer larger than ANSWER_BYTES is said to be;
+/// a 404 whose transfer broke, broke says how, and what came of it is not the node's answer.
+void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer, bool overran,
+             const(char)[] broke) {
+    import sand.view : SAND_ABI;
+    if (!heldHere) return;
+    r.what = Landed.failed;
+    r.said.put("the node keeps no comet of ");
+    r.said.put(origin);
+    r.said.put(" for engine ABI ");
+    r.said.putUint(SAND_ABI);
+    r.said.put(", and one is held here: ");
+    if (overran) {
+        r.said.put("the node's answer was larger than the ");
+        r.said.putUint(ANSWER_BYTES);
+        r.said.put(" bytes ground reads of it");
+        return;
+    }
+    if (broke.length > 0) {
+        r.said.put("the node's answer did not arrive whole: ");
+        r.said.put(broke);
+        return;
+    }
+    r.said.put(answer);
 }
 
 /// The 64 hex characters of the digest key in the node's answer, or empty when it names none.
