@@ -178,7 +178,7 @@ int main(string[] argv) {
             }
         foreach (e; dirEntries("bin", "*.d", SpanMode.shallow)) {
             auto n = stripExtension(baseName(e.name));
-            if (!contains(binaries, n))
+            if (runsAsBinary(n) && !contains(binaries, n))
                 refused ~= Refused(e.name, "builds " ~ n ~ " and no module shows " ~ n);
         }
     }
@@ -414,6 +414,12 @@ string[] binariesOf(string block) {
         out_ ~= line[0 .. e];
     }
     return out_;
+}
+
+// A file under bin/ is a binary of its own when it is named the way a block
+// runs one, ground_<name>. bin/sand.d builds the sand library an engine loads.
+bool runsAsBinary(string stem) {
+    return stem.length > 7 && stem[0 .. 7] == "ground_";
 }
 
 // The binary itself first, then the blocks as main.d lists their verbs,
