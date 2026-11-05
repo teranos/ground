@@ -1,5 +1,5 @@
-// acp_live GROUND_CODE CWD SCRIPT: drives a ground code over ACP from a script,
-// and prints every line both ways. The script's directives are in README.md.
+// 「[Opus 5.5] acp_live GROUND_CODE CWD SCRIPT: drives a ground code over ACP from a script,」
+// 「[Opus 5.5] and prints every line both ways. The script's directives are in README.md.」
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
@@ -13,7 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
-// How long a wait or expect reads before it fails.
+// 「[Opus 5.5] How long a wait or expect reads before it fails.」
 #ifndef WAIT_MS
 #define WAIT_MS 300000
 #endif
@@ -66,7 +66,7 @@ static void start(ground *g) {
     g->out_lines.length = g->err_lines.length = 0;
 }
 
-// The sessionId a session/new answer names, kept as $SID.
+// 「[Opus 5.5] The sessionId a session/new answer names, kept as $SID.」
 static void keep_sid(const char *line) {
     static const char mark[] = "\"result\":{\"sessionId\":\"";
     const char *at = strstr(line, mark);
@@ -78,7 +78,7 @@ static void keep_sid(const char *line) {
     sid[end - at] = '\0';
 }
 
-// The id of a request ground code makes of the client, as it stands in the line, kept as $ASKED.
+// 「[Opus 5.5] The id of a request ground code makes of the client, as it stands in the line, kept as $ASKED.」
 static void keep_asked(const char *line) {
     static const char mark[] = "{\"jsonrpc\":\"2.0\",\"id\":";
     if (strncmp(line, mark, sizeof mark - 1) != 0 || strstr(line, ",\"method\":\"") == NULL) return;
@@ -88,7 +88,7 @@ static void keep_asked(const char *line) {
     asked[end - at] = '\0';
 }
 
-// Prints each whole line read so far after its mark; true when one holds want.
+// 「[Opus 5.5] Prints each whole line read so far after its mark; true when one holds want.」
 static int lines_out(line_buffer *b, const char *mark, const char *want) {
     int seen = 0;
     size_t from = 0;
@@ -107,7 +107,7 @@ static int lines_out(line_buffer *b, const char *mark, const char *want) {
     return seen;
 }
 
-// One read into b: 0 at the end of fd.
+// 「[Opus 5.5] One read into b: 0 at the end of fd.」
 static int fill(int fd, line_buffer *b) {
     if (b->capacity - b->length < 65536) {
         b->capacity = b->capacity * 2 + 65536;
@@ -120,8 +120,8 @@ static int fill(int fd, line_buffer *b) {
     return 1;
 }
 
-// Reads stdout and stderr for ms, or until a stdout line holds want:
-// 1 seen, 0 not, -1 ground code's stdout ended first.
+// 「[Opus 5.5] Reads stdout and stderr for ms, or until a stdout line holds want:」
+// 「[Opus 5.5] 1 seen, 0 not, -1 ground code's stdout ended first.」
 static int read_for(ground *g, long ms, const char *want) {
     long until = now_ms() + ms;
     for (;;) {
@@ -142,11 +142,11 @@ static int read_for(ground *g, long ms, const char *want) {
     }
 }
 
-// Closes ground code's stdin, prints what it still writes, and says how it ended.
+// 「[Opus 5.5] Closes ground code's stdin, prints what it still writes, and says how it ended.」
 static void finish(ground *g) {
     close(g->in);
-    // ground code's stdout ends when it does. One still open WAIT_MS after its input closed is a
-    // hang: said, and ended, so the check reports how it ended rather than waiting forever.
+    // 「[Opus 5.5] ground code's stdout ends when it does. One still open WAIT_MS after its input closed is a」
+    // 「[Opus 5.5] hang: said, and ended, so the check reports how it ended rather than waiting forever.」
     if (read_for(g, WAIT_MS, NULL) == 0) {
         printf("# ground code kept its stdout open %d ms after its input closed, and is killed\n", WAIT_MS);
         kill(g->pid, SIGKILL);
@@ -163,7 +163,7 @@ static void finish(ground *g) {
     fflush(stdout);
 }
 
-// The line with each $CWD and $SID replaced; the caller frees it.
+// 「[Opus 5.5] The line with each $CWD and $SID replaced; the caller frees it.」
 static char *expand(const char *line) {
     size_t n = 0;
     for (const char *p = line; (p = strchr(p, '$')) != NULL; p++) n++;
@@ -180,7 +180,7 @@ static char *expand(const char *line) {
     return out;
 }
 
-// wait ID reads for the answer to request ID; expect TEXT for a line holding TEXT.
+// 「[Opus 5.5] wait ID reads for the answer to request ID; expect TEXT for a line holding TEXT.」
 static int awaited(ground *g, const char *line) {
     char *want;
     if (strncmp(line, "wait ", 5) == 0) {
@@ -208,7 +208,7 @@ static int sent(ground *g, const char *line) {
     return whole;
 }
 
-// cat FILE prints the file, each line marked as one read from a file.
+// 「[Opus 5.5] cat FILE prints the file, each line marked as one read from a file.」
 static int shown(const char *name) {
     char *path = expand(name);
     FILE *f = fopen(path, "r");
