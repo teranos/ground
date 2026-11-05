@@ -162,3 +162,45 @@ Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, 
         || (effort.length > 0 && !(efforts == 1 && effortIs));
     return r;
 }
+
+/// Where a session keeps its notes of the subagents it started: beside its
+/// transcript, under the transcript's name without its .jsonl. Empty for a
+/// path that is no transcript, and for one that does not fit.
+const(char)[] subagentsDir(const(char)[] transcript, char[] dest) {
+    enum ext = ".jsonl";
+    enum tail = "/subagents";
+    if (transcript.length <= ext.length || transcript[$ - ext.length .. $] != ext) return dest[0 .. 0];
+    auto stem = transcript[0 .. $ - ext.length];
+    if (stem.length + tail.length >= dest.length) return dest[0 .. 0];
+    size_t n = 0;
+    foreach (c; stem) dest[n++] = c;
+    foreach (c; tail) dest[n++] = c;
+    return dest[0 .. n];
+}
+
+// The string a note holds under a key, or empty when it holds none there.
+private const(char)[] noted(const(char)[] meta, string key, char[] buf) {
+    import parse : extractJsonString;
+    auto v = extractJsonString(meta, key, &buf[0], buf.length);
+    return v is null ? buf[0 .. 0] : v;
+}
+
+/// A subagent whose call named no model was started on its session's own, and
+/// the note of it holds no model.
+bool namedNoModel(const(char)[] meta) {
+    char[128] buf = 0;
+    return noted(meta, `"model"`, buf[]).length == 0;
+}
+
+/// Whether a note is the one of the agent a message is sent to: by its id,
+/// which the note's file is named after, or by its name.
+bool isAgent(const(char)[] file, const(char)[] meta, const(char)[] to) {
+    enum head = "agent-";
+    enum ext = ".meta.json";
+    if (to.length == 0) return false;
+    if (file.length <= head.length + ext.length) return false;
+    if (file[0 .. head.length] != head || file[$ - ext.length .. $] != ext) return false;
+    if (file[head.length .. $ - ext.length] == to) return true;
+    char[512] buf = 0;
+    return noted(meta, `"description"`, buf[]) == to;
+}

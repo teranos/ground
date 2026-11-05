@@ -40,6 +40,12 @@ asked for, and says so to the session that made it. A fork runs on its
 session's model whatever it is told, so a fork is refused. A call ground
 cannot read is refused, not let through.
 
+A message to a subagent resumes it on the model it was started on. One whose
+call named no model was started on its session's own, and the session's note
+of it beside the transcript (`subagents/agent-<id>.meta.json`) holds no
+`model`. A SendMessage to that one is refused: a new subagent is started
+instead, on what the models block picks.
+
 | | nr |
 |---|---|
 | | s37 |

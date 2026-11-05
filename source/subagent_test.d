@@ -2,7 +2,7 @@ module subagent_test;
 
 // BOOK_GLOSSARY **Subagent**: An agent a session starts with the Agent tool; it runs on the model and the effort the models block picks, as a ritual does.
 
-import subagent : agentInput, Set;
+import subagent : agentInput, Set, subagentsDir, namedNoModel, isAgent;
 import proto : parsePbt;
 import ritual : modelsAt, resolveModel, resolveEffort, ModelInputs, DEFAULT_MODEL;
 
@@ -128,3 +128,25 @@ static assert(() {
         == `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask",`
          ~ `"permissionDecisionReason":"Agent asks"}}`;
 }());
+
+// A message to a subagent resumes it on the model it was started on. What a
+// session notes of the subagents it started is beside its transcript.
+static assert(() {
+    char[256] b = 0;
+    return subagentsDir("/h/.claude/projects/p/abc.jsonl", b[]) == "/h/.claude/projects/p/abc/subagents";
+}());
+static assert(() { char[256] b = 0; return subagentsDir("/h/abc.txt", b[]).length == 0; }());
+static assert(() { char[8] b = 0; return subagentsDir("/h/.claude/projects/p/abc.jsonl", b[]).length == 0; }());
+
+// One whose call named no model was started on its session's own.
+enum defaults = `{"agentType":"general-purpose","description":"OTEL agent: items one by one","launchedWithDefaults":true,"pickedEffortModel":"claude-fable-5-1"}`;
+enum picked = `{"agentType":"general-purpose","description":"Probe","model":"opus","effort":"medium","pickedEffortModel":"claude-fable-5-1"}`;
+static assert(namedNoModel(defaults));
+static assert(!namedNoModel(picked));
+
+// The note is the agent's by its id, which the file is named after, or by its name.
+static assert(isAgent("agent-a1b2c3.meta.json", defaults, "a1b2c3"));
+static assert(isAgent("agent-a1b2c3.meta.json", defaults, "OTEL agent: items one by one"));
+static assert(!isAgent("agent-a1b2c3.meta.json", defaults, "a1b2"));
+static assert(!isAgent("agent-a1b2c3.jsonl", defaults, "a1b2c3"));
+static assert(!isAgent("agent-a1b2c3.meta.json", defaults, "main"));

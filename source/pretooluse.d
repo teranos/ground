@@ -454,6 +454,60 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     pendingWhy = why[0 .. wn];
 }
 
+// A message to a subagent resumes it on the model it was started on. Why a
+// SendMessage is refused, when it is to one started on its session's own;
+// empty for every other message.
+const(char)[] resumesOnItsSessions(const(char)[] input) {
+    import parse : extractTranscriptPath, extractToolInputRegion, extractJsonString;
+    import subagent : subagentsDir, namedNoModel, isAgent;
+    import core.sys.posix.dirent : opendir, readdir, closedir;
+    import core.sys.posix.fcntl : open, O_RDONLY;
+    import core.sys.posix.unistd : read, close;
+
+    auto region = extractToolInputRegion(input);
+    if (region is null) return "";
+    __gshared char[512] toBuf = 0;
+    auto to = extractJsonString(region, `"to"`, &toBuf[0], toBuf.length);
+    if (to is null) return "";
+
+    __gshared char[4096] dirBuf = 0;
+    auto dirPath = subagentsDir(extractTranscriptPath(input), dirBuf[0 .. $ - 1]);
+    if (dirPath.length == 0) return "";
+    dirBuf[dirPath.length] = 0;
+    auto dir = opendir(&dirBuf[0]);
+    if (dir is null) return "";
+    scope (exit) closedir(dir);
+
+    for (auto e = readdir(dir); e !is null; e = readdir(dir)) {
+        size_t len;
+        while (e.d_name[len] != 0) len++;
+        auto name = e.d_name[0 .. len];
+
+        char[4608] path = 0;
+        if (dirPath.length + 1 + len >= path.length) continue;
+        size_t pn = 0;
+        foreach (c; dirPath) path[pn++] = c;
+        path[pn++] = '/';
+        foreach (c; name) path[pn++] = c;
+        int fd = open(&path[0], O_RDONLY, 0);
+        if (fd < 0) continue;
+        __gshared char[16384] meta = 0;
+        auto got = read(fd, &meta[0], meta.length);
+        close(fd);
+        if (got <= 0) continue;
+        auto note = meta[0 .. cast(size_t) got];
+        if (!isAgent(name, note, to) || !namedNoModel(note)) continue;
+
+        __gshared char[1024] why = 0;
+        size_t wn;
+        void say(const(char)[] t) { foreach (c; t) if (wn < why.length) why[wn++] = c; }
+        say(to);
+        say(" was started on its session's model, and a message resumes it there. A subagent runs on what the models block picks: start a new one and hand it what this one reported.");
+        return why[0 .. wn];
+    }
+    return "";
+}
+
 // Computes the rewritten tool_input for a Write or Edit and leaves it in
 // pendingRewrite, with the reason in pendingWhy. True when something changed.
 // Nothing is written here: whichever answer the handler gives carries it.
@@ -1272,6 +1326,19 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             exitLabel = "agent-allow";
             noteFiredNow(sessionId, "PreToolUse", "permission", agentPerm.name, "allow", cwd);
             writeContextResponse("", "allow");
+            return 0;
+        }
+    }
+
+    // "Subagents Alwys Opus, never Fable, Fable is for what is worth human attention span"
+    // A message to a subagent started on its session's model would run it there again.
+    if (toolName == "SendMessage") {
+        auto resumed = resumesOnItsSessions(input);
+        if (resumed.length > 0) {
+            import fired : noteFiredNow;
+            exitLabel = "subagent-resume-deny";
+            noteFiredNow(sessionId, "PreToolUse", "rewrite", "subagent-model", "deny", cwd);
+            writeDenyResponse(resumed);
             return 0;
         }
     }
