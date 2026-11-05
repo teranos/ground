@@ -68,7 +68,14 @@ acp_status acp_client_message_read(const char *message_json, size_t length, acp_
         return ACP_PARSE_ERROR;
     }
     out->method = acp_string(message, "method");
-    out->id = json_text(acp_field(message, "id"));
+    // An id that is there as JSON's null is "null": an agent that could not read a request's id
+    // answers its error with one, and that answer is a response.
+    if (present(message, "id") && acp_field(message, "id") == NULL) {
+        out->id = malloc(sizeof "null");
+        if (out->id != NULL) memcpy(out->id, "null", sizeof "null");
+    } else {
+        out->id = json_text(acp_field(message, "id"));
+    }
     if (out->method != NULL) {
         out->kind = out->id != NULL ? ACP_MESSAGE_REQUEST : ACP_MESSAGE_NOTIFICATION;
         out->params = json_text(acp_field(message, "params"));

@@ -33,6 +33,10 @@ fail compilation; there is no HTTP/file resolver or implicit network access.
    Inspect `mcp_request_status`: schema-invalid arguments complete locally with
    `MCP_VALIDATION_ERROR` and send no request bytes. Malformed argument JSON or
    a non-object argument is rejected before creating a handle.
+   `mcp_tool_submit_meta` does the same with a `_meta` object for the request,
+   `NULL` for none; a `progressToken` in it asks for progress, which is checked
+   and given to `on_message` as any request's. A `_meta` that is not an object,
+   or not valid JSON, is rejected before creating a handle.
 3. Drive `mcp_client_poll` normally. The request retains its own output-schema
    reference, so destroying the tool after submission is safe. Concurrent requests
    retain independent diagnostics. The original deadline includes input validation

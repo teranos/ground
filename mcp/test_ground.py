@@ -164,6 +164,8 @@ with tempfile.TemporaryDirectory() as tmp:
         other = subprocess.Popen([GROUND_CODE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             log4 = tmp / "d.jsonl"
+            # "Agents SHOULD reject any request other than initialize that arrives before initialization completes".
+            assert "result" in request(other, 0, "initialize", {"protocolVersion": 1})
             result = request(other, 1, "session/resume", {"sessionId": sid2, "cwd": str(tmp), "mcpServers": [server("elsewhere", log4)]})
             assert "result" in result, result
             d = records(log4)

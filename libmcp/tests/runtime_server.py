@@ -65,6 +65,23 @@ for line in sys.stdin:
         response(req, {})
     elif method == "test/cancelled":
         response(req, {"cancelled": cancelled})
+    elif method == "tools/call" and p.get("name") == "progress":
+        # A tool that reports its progress on the token its call carries, and what it was asked.
+        token = p.get("_meta", {}).get("progressToken")
+        for value in [1, 2] if token is not None else []:
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/progress",
+                    "params": {
+                        "progressToken": token,
+                        "progress": value,
+                        "total": 2,
+                        "message": "step %d of 2" % value,
+                    },
+                }
+            )
+        response(req, {"content": [{"type": "text", "text": json.dumps(p)}]})
     elif method == "tools/call":
         if "inputResponses" not in p:
             response(

@@ -126,6 +126,12 @@ static void lists(void) {
     CHECK(in.cursor && strcmp(in.cursor, "c1") == 0);
     acp_session_list_free(&in);
     CHECK(in.cwd == NULL && in.cursor == NULL);
+    // params that are no object are refused, not read as asking for every session.
+    CHECK(list("[]", &in, &error) == ACP_INVALID_PARAMS);
+    CHECK(says(&error, "{\"code\":-32602,\"message\":\"session/list params are not a JSON object\"}"));
+    acp_buffer_free(&error);
+    CHECK(list("\"x\"", &in, &error) == ACP_INVALID_PARAMS);
+    acp_buffer_free(&error);
     CHECK(list("{\"cwd\":\"work\"}", &in, &error) == ACP_INVALID_PARAMS);
     CHECK(says(&error, "{\"code\":-32602,\"message\":\"cwd must be an absolute path: work\"}"));
     acp_buffer_free(&error);

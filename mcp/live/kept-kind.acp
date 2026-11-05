@@ -1,0 +1,25 @@
+# A call is told back by session/load with the kind it was shown with: look's read though no server of the load has its tool, and ground code's own read and edit.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[{"name":"test","command":"/usr/bin/env","args":["python3","$LIVE/../mcp/look_server.py"],"env":[]}]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"bypassPermissions"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Call test__look once, then reply with only: done"}]}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use read_text_file once on /tmp/ground kinds.txt, then reply with only what it held."}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"one\n"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once to write the line two to /tmp/ground kinds.txt, then reply with only: done"}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"one\n"}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 5
+restart
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true}}}}
+wait 0
+# No servers: look's read comes from what was kept, as do read_text_file's read and write_text_file's edit.
+{"jsonrpc":"2.0","id":6,"method":"session/load","params":{"sessionId":"$SID","cwd":"$CWD","mcpServers":[]}}
+wait 6

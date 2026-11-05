@@ -30,13 +30,15 @@ static int terminal_arguments(const char *request_id, const char *session_id, co
 }
 
 acp_status acp_terminal_create_request_write(const char *request_id, const char *session_id, const char *command,
-    const char *const *args, size_t arg_count, const char *cwd, unsigned long long output_byte_limit,
-    acp_buffer *message_json) {
+    const char *const *args, size_t arg_count, const acp_env_variable *env, size_t env_count, const char *cwd,
+    unsigned long long output_byte_limit, acp_buffer *message_json) {
     if (request_id == NULL || session_id == NULL || command == NULL || message_json == NULL ||
-        (args == NULL && arg_count > 0) || output_byte_limit > INT64_MAX)
+        (args == NULL && arg_count > 0) || (env == NULL && env_count > 0) || output_byte_limit > INT64_MAX)
         return ACP_INVALID_ARGUMENT;
     for (size_t i = 0; i < arg_count; i++)
         if (args[i] == NULL) return ACP_INVALID_ARGUMENT;
+    for (size_t i = 0; i < env_count; i++)
+        if (env[i].name == NULL || env[i].value == NULL) return ACP_INVALID_ARGUMENT;
     json_object *message = request_head(request_id);
     if (message == NULL) return ACP_INVALID_ARGUMENT;
     json_object *params = json_object_new_object();
@@ -46,6 +48,16 @@ acp_status acp_terminal_create_request_write(const char *request_id, const char 
         json_object *list = json_object_new_array();
         for (size_t i = 0; i < arg_count; i++) json_object_array_add(list, json_object_new_string(args[i]));
         json_object_object_add(params, "args", list);
+    }
+    if (env_count > 0) {
+        json_object *list = json_object_new_array();
+        for (size_t i = 0; i < env_count; i++) {
+            json_object *variable = json_object_new_object();
+            json_object_object_add(variable, "name", json_object_new_string(env[i].name));
+            json_object_object_add(variable, "value", json_object_new_string(env[i].value));
+            json_object_array_add(list, variable);
+        }
+        json_object_object_add(params, "env", list);
     }
     if (cwd != NULL) json_object_object_add(params, "cwd", json_object_new_string(cwd));
     if (output_byte_limit > 0)

@@ -65,6 +65,7 @@ extern (C) nothrow @nogc {
     void mcp_tool_destroy(mcp_tool*);
     const(char)* mcp_tool_name(const(mcp_tool)*);
     mcp_status mcp_tool_submit(mcp_client*, const(mcp_tool)*, const(char)*, int, mcp_request**, mcp_error*);
+    mcp_status mcp_tool_submit_meta(mcp_client*, const(mcp_tool)*, const(char)*, const(char)*, int, mcp_request**, mcp_error*);
     mcp_status mcp_tool_call(mcp_client*, const(mcp_tool)*, const(char)*, mcp_response*, mcp_response*, mcp_error*);
     const(char)* mcp_request_validation_json(const(mcp_request)*);
     const(char)* mcp_request_auth_challenge(const(mcp_request)*);

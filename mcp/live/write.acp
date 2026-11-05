@@ -1,0 +1,25 @@
+# fs/write_text_file: the model's write_text_file call, allowed in Manual, is asked of the client; the client's error is the call's; Accept edits writes unasked.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":true}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once to write the two lines ground and code to /tmp/ground write.txt, then reply with only: done"}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 2
+# The client cannot write it: the call fails with the client's own error, and the model is told.
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once more to write ground to /tmp/ground write.txt, then reply with only what the tool answered."}]}}
+expect "method":"session/request_permission"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"error":{"code":-32002,"message":"read-only file system"}}
+wait 3
+# Accept edits: written through the client without asking.
+{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"acceptEdits"}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once more to write code to /tmp/ground write.txt, then reply with only: done"}]}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 5

@@ -304,7 +304,7 @@ bool onProseLine(const(char)[] s, Span sp, const(char)[] path) {
     if (!sp.ok) return false;
 
     // A string in code that was commented out is the code's, not a quote.
-    import matcher : inCommentedCode;
+    import scan : inCommentedCode;
     if (inCommentedCode(s, sp.start)) return false;
 
     auto marker = lineComment(path);

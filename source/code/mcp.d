@@ -85,6 +85,19 @@ private extern(C) void ground_mcp_log(void* context, const(char)* json, size_t l
 alias Hear = void delegate(const(char)[] server, const(char)[] level, const(char)[] data);
 private __gshared Hear hearing; // the call under way's, while one is
 
+// What a session's server reports of the call under way's progress, its message, heard by whoever
+// runs the call. libmcp gives only progress it checked: on the call's token, and increasing.
+alias Progress = void delegate(const(char)[] message);
+private __gshared Progress progressing; // the call under way's, while one is
+
+// A server's notifications/progress for the call under way: its message, when it says one. Progress
+// without one is a number, with nothing to show.
+private void progressLine(json_object* message) {
+    if (progressing is null) return;
+    auto said = stringAt(jsonField(jsonField(message, "params"), "message"));
+    if (said !is null) progressing(said[0 .. strlen(said)]);
+}
+
 // MCP's levels, from the least: what is heard starts at warning.
 private static immutable string[5] HEARD = ["warning", "error", "critical", "alert", "emergency"];
 private bool heard(const(char)* level) {
@@ -112,12 +125,13 @@ private void heardLine(void* context, json_object* message) {
 // "notifications/elicitation/complete" says a url elicitation it asked for is done.
 private extern(C) void ground_mcp_message(void* context, const(char)* json, size_t length) {
     ground_mcp_log(context, json, length);
-    if (asking is null && hearing is null) return;
+    if (asking is null && hearing is null && progressing is null) return;
     auto message = parseJson(json[0 .. length]);
     scope(exit) json_object_put(message);
     auto method = stringAt(jsonField(message, "method"));
     if (method is null || jsonField(message, "id") !is null) return;
     if (strcmp(method, "notifications/message") == 0) { heardLine(context, message); return; }
+    if (strcmp(method, "notifications/progress") == 0) { progressLine(message); return; }
     if (asking is null || strcmp(method, "notifications/elicitation/complete") != 0) return;
     auto params = jsonField(message, "params");
     if (json_object_get_type(params) != json_type.object) return;
@@ -550,9 +564,12 @@ int readMcpResource(ref McpGroup group, const(char)[] uri, ref Reply text, ref R
 // cancels it at the server: MCP_CANCELLED, and no response. ask, when given,
 // answers what the server asks of ground code while the call runs. hear, when
 // given, hears what the server logs at warning or above while the call runs.
+// progress, when given, hears the call's progress: the call asks for it on
+// token, its _meta.progressToken.
 mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)* toolName,
                        const(char)* arguments, ref mcp_response response, ref mcp_response validation, ref mcp_error error,
-                       scope bool delegate() stop = null, scope Ask ask = null, scope Hear hear = null) {
+                       scope bool delegate() stop = null, scope Ask ask = null, scope Hear hear = null,
+                       scope Progress progress = null, const(char)[] token = null) {
     if (serverName is null || toolName is null) return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool dispatch needs server and tool names");
     foreach (i; 0 .. group.count) {
         auto server = &group.servers[i];
@@ -561,7 +578,7 @@ mcp_status callMcpTool(ref McpGroup group, const(char)* serverName, const(char)*
                 if (strcmp(mcp_tool_name(contract.tool), toolName) == 0)
                     return stop is null
                         ? mcp_tool_call(server.client, contract.tool, arguments, &response, &validation, &error)
-                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop, ask, hear);
+                        : stoppableCall(*server, contract.tool, arguments, response, validation, error, stop, ask, hear, progress, token);
             return localError(error, mcp_status.MCP_INVALID_ARGUMENT, "tool is not in the session server catalog");
         }
     }
@@ -580,7 +597,8 @@ enum POLL_MS = 100;
 // call continued with the answers.
 private mcp_status stoppableCall(ref McpServer server, const(mcp_tool)* tool, const(char)* arguments,
                                  ref mcp_response response, ref mcp_response validation, ref mcp_error error,
-                                 scope bool delegate() stop, scope Ask ask, scope Hear hear) {
+                                 scope bool delegate() stop, scope Ask ask, scope Hear hear,
+                                 scope Progress progress = null, const(char)[] token = null) {
     mcp_request* request;
     auto was = asking;
     asking = ask;
@@ -588,7 +606,18 @@ private mcp_status stoppableCall(ref McpServer server, const(mcp_tool)* tool, co
     auto wasHearing = hearing;
     hearing = hear;
     scope(exit) hearing = wasHearing;
-    auto status = mcp_tool_submit(server.client, tool, arguments, server.timeoutMs, &request, &error);
+    auto wasProgressing = progressing;
+    progressing = progress;
+    scope(exit) progressing = wasProgressing;
+    // "If specified, the caller is requesting out-of-band progress notifications for this request".
+    Reply meta;
+    scope(exit) meta.dispose();
+    if (progress !is null && token.length > 0) {
+        meta.add(`{"progressToken":"`); putEscaped(meta, token); meta.add(`"}`); meta.add("\0");
+        if (meta.full) return localError(error, mcp_status.MCP_NO_MEMORY, "could not write the call's progress token");
+    }
+    auto status = mcp_tool_submit_meta(server.client, tool, arguments, meta.len > 0 ? meta.slice().ptr : null,
+        server.timeoutMs, &request, &error);
     if (status != mcp_status.MCP_OK) return status;
     scope(exit) mcp_request_destroy(request, null);
     while (true) {
