@@ -39,15 +39,15 @@ void cometUrlInto(ref ZBuf url, const(char)[] node, const(char)[] origin) {
     url.putUint(SAND_ABI);
 }
 
-// What the engine was built from, as wind stamped it (tools/wind.d stampVersion): its version, and
-// HEAD's whole id beside it, empty where the tree was no repository.
+// 「[Opus 5.5] What the engine was built from, as wind stamped it (tools/wind.d stampVersion): its version, and」
+// 「[Opus 5.5] HEAD's whole id beside it, empty where the tree was no repository.」
 enum VERSION = import(".version");
 enum REV = import(".rev");
 
 // "1. the 2nd"
-/// The ground revision a version names: git describe's commit after -g, a tag or a commit alone,
-/// or the one after "comet" in a comet's version. Empty for none, and for what a URL would read as
-/// more than a revision.
+/// 「[Opus 5.5] The ground revision a version names: git describe's commit after -g, a tag or a commit alone,」
+/// 「[Opus 5.5] or the one after "comet" in a comet's version. Empty for none, and for what a URL would read as」
+/// 「[Opus 5.5] more than a revision.」
 const(char)[] groundRevOf(const(char)[] version_) {
     size_t end = 0;
     while (end < version_.length && version_[end] != '\n' && version_[end] != ' ') end++;
@@ -63,7 +63,7 @@ const(char)[] groundRevOf(const(char)[] version_) {
             || c == '.' || c == '_' || c == '-';
         if (!ok) return version_[0 .. 0];
     }
-    // v0.19.1-880-g23a58f7: the commit is what follows the last -g, when only hex follows it.
+    // 「[Opus 5.5] v0.19.1-880-g23a58f7: the commit is what follows the last -g, when only hex follows it.」
     foreach_reverse (i; 0 .. word.length) {
         if (word[i] != '-') continue;
         if (i + 2 < word.length && word[i + 1] == 'g') {
@@ -77,7 +77,7 @@ const(char)[] groundRevOf(const(char)[] version_) {
     return word;
 }
 
-// A commit's whole id, 40 hex, as wind stamps it with a newline; empty for anything else.
+// 「[Opus 5.5] A commit's whole id, 40 hex, as wind stamps it with a newline; empty for anything else.」
 private const(char)[] wholeId(const(char)[] stamped) {
     if (stamped.length > 0 && stamped[$ - 1] == '\n') stamped = stamped[0 .. $ - 1];
     if (stamped.length != 40) return stamped[0 .. 0];
@@ -85,8 +85,8 @@ private const(char)[] wholeId(const(char)[] stamped) {
     return stamped;
 }
 
-/// The ask for the digest of origin's comet, into url: the comet's url, and the ground this
-/// engine was built from: the commit wind stamped when it is a whole id, else what the version names.
+/// 「[Opus 5.5] The ask for the digest of origin's comet, into url: the comet's url, and the ground this」
+/// 「[Opus 5.5] engine was built from: the commit wind stamped when it is a whole id, else what the version names.」
 void cometAskInto(ref ZBuf url, const(char)[] node, const(char)[] origin, const(char)[] version_,
                   const(char)[] stamped) {
     cometUrlInto(url, node, origin);
