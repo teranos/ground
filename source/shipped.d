@@ -2,10 +2,10 @@ module shipped;
 
 // "and compare us against real shipped software instyead of comparing against a number that might not be real"
 
-// What shipped ACP agents handle and send, read out of their source at a pinned
-// commit and named through the SDK version each one pins.
+// 「[Opus 5.5] What shipped ACP agents handle and send, read out of their source at a pinned」
+// 「[Opus 5.5] commit and named through the SDK version each one pins.」
 
-// --- plain scanning ---
+// 「[Opus 5.5] --- plain scanning ---」
 
 private bool at(const(char)[] t, size_t i, const(char)[] s) {
     return i + s.length <= t.length && t[i .. i + s.length] == s;
@@ -22,7 +22,7 @@ private bool identChar(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-// The identifier at `from`, empty when none starts there.
+// 「[Opus 5.5] The identifier at `from`, empty when none starts there.」
 private const(char)[] identAt(const(char)[] t, size_t from) {
     size_t e = from;
     while (e < t.length && identChar(t[e])) e++;
@@ -36,7 +36,7 @@ private const(char)[] trimmed(const(char)[] s) {
     return s[a .. b];
 }
 
-// --- the pins, read out of flake.nix, the one place they are written ---
+// 「[Opus 5.5] --- the pins, read out of flake.nix, the one place they are written ---」
 
 struct ShippedPin { string name; string rev; string dir; string sdk; }
 
@@ -44,7 +44,7 @@ enum maxShipped = 8;
 
 struct ShippedSet { ShippedPin[maxShipped] items; size_t count; }
 
-// The value of `key = "…"` inside a pin's block, or null.
+// 「[Opus 5.5] The value of `key = "…"` inside a pin's block, or null.」
 private string field()(string block, string key) {
     size_t from = 0;
     while (true) {
@@ -88,7 +88,7 @@ ShippedSet readShipped()(string flake) {
     return found;
 }
 
-// --- what an SDK calls each method ---
+// 「[Opus 5.5] --- what an SDK calls each method ---」
 
 enum maxMethods = 64;
 enum maxTokens = 512;
@@ -101,9 +101,9 @@ struct Method {
     const(char)[] name() const return { return text[0 .. len]; }
 }
 
-// How a token names a method in an agent's source. A path is the SDK's table,
-// `methods.agent.session.new`; a name an interface method, `newSession`; a weak
-// name a terminal handle's, counted only where the agent made a terminal.
+// 「[Opus 5.5] How a token names a method in an agent's source. A path is the SDK's table,」
+// 「[Opus 5.5] `methods.agent.session.new`; a name an interface method, `newSession`; a weak」
+// 「[Opus 5.5] name a terminal handle's, counted only where the agent made a terminal.」
 enum Kind : ubyte { path, name, weak }
 
 struct Token {
@@ -166,7 +166,7 @@ private void addToken(ref SdkMap map, const(char)[] text, Kind kind, ptrdiff_t m
     t.method = cast(ubyte) method;
 }
 
-// `export const AGENT_METHODS = { session_new: "session/new", … }`, and CLIENT_METHODS.
+// 「[Opus 5.5] `export const AGENT_METHODS = { session_new: "session/new", … }`, and CLIENT_METHODS.」
 void readSchema(const(char)[] text, ref SdkMap map) {
     foreach (agent; [true, false]) {
         auto open = find(text, agent ? "AGENT_METHODS = {" : "CLIENT_METHODS = {");
@@ -197,7 +197,7 @@ void readSchema(const(char)[] text, ref SdkMap map) {
     }
 }
 
-// The method `AGENT_METHODS.key` or `CLIENT_METHODS.key` names, the first after `from`, and where it ends.
+// 「[Opus 5.5] The method `AGENT_METHODS.key` or `CLIENT_METHODS.key` names, the first after `from`, and where it ends.」
 private ptrdiff_t methodAfter(ref const SdkMap map, const(char)[] t, size_t from, size_t until, out size_t end) {
     auto a = find(t[0 .. until], "AGENT_METHODS.", from);
     auto c = find(t[0 .. until], "CLIENT_METHODS.", from);
@@ -216,7 +216,7 @@ private bool keyword(const(char)[] s) {
     return false;
 }
 
-// A line that defines a method: modifiers, maybe async, then the name and its parameters.
+// 「[Opus 5.5] A line that defines a method: modifiers, maybe async, then the name and its parameters.」
 private const(char)[] definedOn(const(char)[] line) {
     auto s = trimmed(line);
     foreach (m; ["public ", "private ", "protected ", "override ", "static ", "readonly ", "async "])
@@ -228,9 +228,9 @@ private const(char)[] definedOn(const(char)[] line) {
     return name;
 }
 
-// One SDK source file: its table of paths, its specs, its dispatch, and the methods that send.
+// 「[Opus 5.5] One SDK source file: its table of paths, its specs, its dispatch, and the methods that send.」
 void readAcp(const(char)[] t, ref SdkMap map) {
-    // `export const methods = { agent: { session: { new: schema.AGENT_METHODS.session_new, …`
+    // 「[Opus 5.5] `export const methods = { agent: { session: { new: schema.AGENT_METHODS.session_new, …`」
     auto tableAt = find(t, "const methods");
     if (tableAt >= 0) {
         auto open = find(t, "{", cast(size_t) tableAt);
@@ -268,7 +268,7 @@ void readAcp(const(char)[] t, ref SdkMap map) {
         }
     }
 
-    // `newSession: requestSpec<…>(schema.AGENT_METHODS.session_new, …)`
+    // 「[Opus 5.5] `newSession: requestSpec<…>(schema.AGENT_METHODS.session_new, …)`」
     foreach (spec; [": requestSpec", ": notificationSpec"]) {
         size_t from = 0;
         while (true) {
@@ -284,7 +284,7 @@ void readAcp(const(char)[] t, ref SdkMap map) {
         }
     }
 
-    // `case schema.AGENT_METHODS.session_new: { … return agent.newSession(…)`
+    // 「[Opus 5.5] `case schema.AGENT_METHODS.session_new: { … return agent.newSession(…)`」
     {
         size_t from = 0;
         while (true) {
@@ -299,7 +299,7 @@ void readAcp(const(char)[] t, ref SdkMap map) {
             size_t until = t.length;
             if (next >= 0) until = cast(size_t) next;
             if (stop >= 0 && cast(size_t) stop < until) until = cast(size_t) stop;
-            // Every `agent.x` in the case: the call follows a guard `if (!agent.x)`.
+            // 「[Opus 5.5] Every `agent.x` in the case: the call follows a guard `if (!agent.x)`.」
             foreach (who; ["agent.", "client."]) {
                 for (auto c = find(t[0 .. until], who, end); c >= 0; c = find(t[0 .. until], who, cast(size_t) c + 1)) {
                     auto name = identAt(t, cast(size_t) c + who.length);
@@ -310,7 +310,7 @@ void readAcp(const(char)[] t, ref SdkMap map) {
         }
     }
 
-    // A method of the SDK's that sends one: `async kill() { … sendRequest(schema.CLIENT_METHODS.terminal_kill`
+    // 「[Opus 5.5] A method of the SDK's that sends one: `async kill() { … sendRequest(schema.CLIENT_METHODS.terminal_kill`」
     {
         size_t from = 0;
         while (true) {
@@ -324,7 +324,7 @@ void readAcp(const(char)[] t, ref SdkMap map) {
             size_t end;
             auto method = methodAfter(map, t, cast(size_t) i, t.length, end);
             if (method < 0) continue;
-            // The definition the send is inside: the last one a line starts before it.
+            // 「[Opus 5.5] The definition the send is inside: the last one a line starts before it.」
             const(char)[] name;
             size_t ls = 0;
             while (ls < cast(size_t) i) {
@@ -340,7 +340,7 @@ void readAcp(const(char)[] t, ref SdkMap map) {
     }
 }
 
-// --- what an agent's source does with them ---
+// 「[Opus 5.5] --- what an agent's source does with them ---」
 
 struct Found {
     bool[maxMethods] handles;
@@ -351,7 +351,7 @@ struct Found {
     size_t classCount;
 }
 
-// `new AgentSideConnection((conn) => new PiAgent(conn), …)` names the agent's class.
+// 「[Opus 5.5] `new AgentSideConnection((conn) => new PiAgent(conn), …)` names the agent's class.」
 void collectAgents(const(char)[] t, ref Found f) {
     size_t from = 0;
     while (true) {
@@ -371,7 +371,7 @@ void collectAgents(const(char)[] t, ref Found f) {
     }
 }
 
-// Whether `token` stands in `t` whole: not the front of a longer name.
+// 「[Opus 5.5] Whether `token` stands in `t` whole: not the front of a longer name.」
 private bool mentions(const(char)[] t, const(char)[] token) {
     size_t from = 0;
     while (true) {
@@ -383,7 +383,7 @@ private bool mentions(const(char)[] t, const(char)[] token) {
     }
 }
 
-// The methods a class's body defines at its top level.
+// 「[Opus 5.5] The methods a class's body defines at its top level.」
 private void classDefines(const(char)[] t, const(char)[] cls, ref const SdkMap map, ref Found f) {
     size_t from = 0;
     while (true) {
@@ -416,7 +416,7 @@ private void classDefines(const(char)[] t, const(char)[] cls, ref const SdkMap m
     }
 }
 
-// One file of the agent's source.
+// 「[Opus 5.5] One file of the agent's source.」
 void scanAgent(const(char)[] t, ref const SdkMap map, ref Found f) {
     collectAgents(t, f);
     foreach (k; 0 .. f.classCount) classDefines(t, f.classes[k][0 .. f.classLen[k]], map, f);
@@ -451,21 +451,21 @@ void scanAgent(const(char)[] t, ref const SdkMap map, ref Found f) {
     }
 }
 
-// A terminal handle's call counts where the agent made a terminal.
+// 「[Opus 5.5] A terminal handle's call counts where the agent made a terminal.」
 void finish(ref Found f, ref const SdkMap map) {
     auto create = map.indexOf("terminal/create");
     if (create < 0 || !f.sends[create]) return;
     foreach (i; 0 .. map.methodCount) if (f.weak[i]) f.sends[i] = true;
 }
 
-// --- reading what make install linked ---
+// 「[Opus 5.5] --- reading what make install linked ---」
 
 import core.sys.posix.sys.mman : mmap, munmap, PROT_READ, MAP_PRIVATE, MAP_FAILED;
 import core.sys.posix.fcntl : open, O_RDONLY;
 import core.sys.posix.unistd : close;
 import core.sys.posix.sys.stat : stat, fstat, stat_t, S_IFMT, S_IFDIR;
 
-// Each file under `dir`, whole, handed to `each` with its path. False when the directory is not there.
+// 「[Opus 5.5] Each file under `dir`, whole, handed to `each` with its path. False when the directory is not there.」
 bool walk(const(char)[] dir, scope void delegate(const(char)[] path, const(char)[] text) each) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     char[1024] buf = 0;
@@ -509,13 +509,13 @@ private bool endsWith(const(char)[] s, const(char)[] tail) {
     return s.length >= tail.length && s[$ - tail.length .. $] == tail;
 }
 
-// A file the agent ships, not one that tests it or only declares types.
+// 「[Opus 5.5] A file the agent ships, not one that tests it or only declares types.」
 private bool agentSource(const(char)[] path) {
     if (!endsWith(path, ".ts") || endsWith(path, ".d.ts")) return false;
     return find(path, "test") < 0 && find(path, "/fixtures/") < 0;
 }
 
-// What an SDK version calls each method: its schema tables first, then its source.
+// 「[Opus 5.5] What an SDK version calls each method: its schema tables first, then its source.」
 bool readSdk(const(char)[] root, ref SdkMap map) {
     bool any = false;
     walk(root, (path, text) {
@@ -528,7 +528,7 @@ bool readSdk(const(char)[] root, ref SdkMap map) {
     return true;
 }
 
-// What one shipped agent handles and sends. False when its source is not there.
+// 「[Opus 5.5] What one shipped agent handles and sends. False when its source is not there.」
 bool measureAgent(const(char)[] root, ref const SdkMap map, ref Found f) {
     bool any = false;
     walk(root, (path, text) { if (agentSource(path)) { collectAgents(text, f); any = true; } });
