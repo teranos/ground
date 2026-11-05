@@ -1,15 +1,15 @@
 module plan_test;
 
-// Agent Plan: "When the language model creates an execution plan, the Agent SHOULD report it to the
-// Client". ground code offers the model a plan tool, ACP's Plan in the schema's words; a call to it is
-// reported as the plan, "sessionUpdate": "plan", in every mode, and told again on session/load.
+// 「[Opus 5.5] Agent Plan: "When the language model creates an execution plan, the Agent SHOULD report it to the」
+// 「[Opus 5.5] Client". ground code offers the model a plan tool, ACP's Plan in the schema's words; a call to it is」
+// 「[Opus 5.5] reported as the plan, "sessionUpdate": "plan", in every mode, and told again on session/load.」
 
 import code;
 import code.prompt : putPlanTool, replayHistory, PLAN_TOOL;
 import code.reply : Reply;
 import matcher : indexOf;
 
-// The tool, as the model is offered it: Plan, its entries, and each PlanEntry's fields.
+// 「[Opus 5.5] The tool, as the model is offered it: Plan, its entries, and each PlanEntry's fields.」
 unittest {
     Reply tools;
     scope(exit) tools.dispose();
@@ -28,8 +28,8 @@ unittest {
     assert(PLAN_TOOL == "plan");
 }
 
-// Told again on session/load as the plan it was, in its place, and neither its call nor its answer as
-// a tool call.
+// 「[Opus 5.5] Told again on session/load as the plan it was, in its place, and neither its call nor its answer as」
+// 「[Opus 5.5] a tool call.」
 unittest {
     Reply told;
     scope(exit) told.dispose();
@@ -45,15 +45,15 @@ unittest {
         ~ `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"on it"}}` ~ "\n");
 }
 
-// A plan call is told back as it came out live, by its answer: a refused plan as the warning the
-// user was given, and one that never ran, cut short by a cancel, as the call it was, not as a plan.
+// 「[Opus 5.5] A plan call is told back as it came out live, by its answer: a refused plan as the warning the」
+// 「[Opus 5.5] user was given, and one that never ran, cut short by a cancel, as the call it was, not as a plan.」
 unittest {
     Reply told;
     scope(exit) told.dispose();
     bool send(const(char)[] u) { told.add(u); told.add("\n"); return true; }
     enum call = `{"role":"assistant","content":null,"tool_calls":[{"id":"p1","type":"function","function":{"name":"plan",`
         ~ `"arguments":"{\"entries\":[{\"content\":\"Read\",\"priority\":\"urgent\",\"status\":\"pending\"}]}"}}]},`;
-    // PLAN_REFUSED, as the history holds it: a JSON string.
+    // 「[Opus 5.5] PLAN_REFUSED, as the history holds it: a JSON string.」
     enum refused = call ~ `{"role":"tool","tool_call_id":"p1","content":"{\"status\":\"not run\",\"why\":\"plan takes entries, `
         ~ `each a content, a priority (high, medium or low) and a status (pending, in_progress or completed)\"}"}`;
     assert(replayHistory(refused, &send));
@@ -68,8 +68,8 @@ unittest {
     assert(indexOf(told.slice(), `{"sessionUpdate":"tool_call_update","toolCallId":"p2","status":"failed"`) >= 0);
 }
 
-// A turn in mode whose model calls plan with args, then answers "done": what ground code said, what
-// the gateway was first asked, and the turn's answer.
+// 「[Opus 5.5] A turn in mode whose model calls plan with args, then answers "done": what ground code said, what」
+// 「[Opus 5.5] the gateway was first asked, and the turn's answer.」
 version (Posix) private struct Ran {
     Reply said, asked, answered, history;
     void dispose() { said.dispose(); asked.dispose(); answered.dispose(); history.dispose(); }
@@ -174,9 +174,9 @@ enum ENTRIES = `{\"entries\":[{\"content\":\"Read the code\",\"priority\":\"high
 enum REPORTED = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"code-100-7-1","update":{"sessionUpdate":"plan","entries":[`
     ~ `{"content":"Read the code","priority":"high","status":"completed"},{"content":"Fix it","priority":"medium","status":"in_progress"}]}}}`;
 
-// The model is offered plan; its plan is reported, and is no tool call. The plan touches nothing, so
-// no permission is asked, in the mode that asks of every other call nor in plan mode, which runs only
-// what reads. The model is answered {}, as the client answers nothing to a plan.
+// 「[Opus 5.5] The model is offered plan; its plan is reported, and is no tool call. The plan touches nothing, so」
+// 「[Opus 5.5] no permission is asked, in the mode that asks of every other call nor in plan mode, which runs only」
+// 「[Opus 5.5] what reads. The model is answered {}, as the client answers nothing to a plan.」
 version (Posix) unittest {
     foreach (mode; ["default", "plan"]) {
         Ran ran;
@@ -191,15 +191,15 @@ version (Posix) unittest {
     }
 }
 
-// A plan that is not one, an entry missing its status here, is not reported: the model is told what
-// a plan takes, and the user is told the model's plan was not reported, with what it gave.
+// 「[Opus 5.5] A plan that is not one, an entry missing its status here, is not reported: the model is told what」
+// 「[Opus 5.5] a plan takes, and the user is told the model's plan was not reported, with what it gave.」
 version (Posix) unittest {
     Ran ran;
     scope(exit) ran.dispose();
     planTurn("default", `{\"entries\":[{\"content\":\"Fix it\",\"priority\":\"high\"}]}`, ran);
     assert(ran.answered.slice() == `{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`);
     assert(indexOf(ran.said.slice(), `"sessionUpdate":"plan"`) < 0);
-    // A client that takes no notices is told in the agent's message.
+    // 「[Opus 5.5] A client that takes no notices is told in the agent's message.」
     assert(indexOf(ran.said.slice(), `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"the model's plan is not one ACP can report: `
         ~ `{\"entries\":[{\"content\":\"Fix it\",\"priority\":\"high\"}]}\n"}}`) >= 0);
     assert(indexOf(ran.history.slice(), `{"role":"tool","tool_call_id":"p1","content":"{\"status\":\"not run\",\"why\":\"plan takes entries, `
