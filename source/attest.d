@@ -29,7 +29,7 @@ int backoffSeconds(int attempt) {
     }
 }
 
-// The token lives in token.d, which ground_code imports without attest's own imports.
+// 「[Opus 5.5] The token lives in token.d, which ground_code imports without attest's own imports.」
 public import token : qntxToken, qntxTokenFile;
 
 enum BOOK_COMMAND = q"EOS
