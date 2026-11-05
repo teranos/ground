@@ -812,8 +812,8 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
             && strlen(json_object_get_string(v)) == cast(size_t) json_object_get_string_len(v);
     }
     auto command = jsonField(root, "command"), list = jsonField(root, "args"), vars = jsonField(root, "env");
-    // json-c reads a member that is null as one that is not there: a list that is there, null
-    // among them, is a list or the call is not run.
+    // 「[Opus 5.5] json-c reads a member that is null as one that is not there: a list that is there, null」
+    // 「[Opus 5.5] among them, is a list or the call is not run.」
     bool there(const(char)* name) {
         import libjsonc : json_object_object_get_ex;
         return json_object_get_type(root) == json_type.object && json_object_object_get_ex(root, name, null) != 0;
@@ -823,7 +823,7 @@ private int runThroughClient(ref Sessions sessions, ref Turn turn, const(char)[]
         && (!there("env") || json_object_get_type(vars) == json_type.array);
     size_t count = usable && list !is null ? json_object_array_length(list) : 0;
     foreach (i; 0 .. count) if (!whole(json_object_array_get_idx(list, i))) usable = false;
-    // "Environment variables for the command", each a name and a value.
+    // 「[Opus 5.5] "Environment variables for the command", each a name and a value.」
     size_t envCount = usable && vars !is null ? json_object_array_length(vars) : 0;
     foreach (i; 0 .. envCount) {
         auto v = json_object_array_get_idx(vars, i);
