@@ -137,8 +137,8 @@ unittest {
     assert(hit.next == unterminated.length);
 }
 
-// Each queued prompt in a transcript's tail was looked up by reading every one
-// this session had stored: 7 lookups over 434 rows took 49ms of every prompt.
+// 「[Opus 5.5] Each queued prompt in a transcript's tail was looked up by reading every one」
+// 「[Opus 5.5] this session had stored: 7 lookups over 434 rows took 49ms of every prompt.」
 unittest {
     import queued : ALREADY_STORED_SQL;
     import db : sqlite3_column_text;
