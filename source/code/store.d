@@ -119,8 +119,8 @@ int storeSetEffort(sqlite3* db, const(char)[] id, const(char)[] effort, long now
 
 // Marks a session active now, as a prompt does. 1 marked, 0 no open session
 // by that id, -1 the store refused.
-// Keeps an open session's conversation, and the titles its calls were shown
-// with. 1 kept, 0 no open session by that id, -1 the store refused.
+// 「[Opus 5.5] Keeps an open session's conversation, and the titles its calls were shown」
+// 「[Opus 5.5] with. 1 kept, 0 no open session by that id, -1 the store refused.」
 int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(char)[] titles) {
     sqlite3_stmt* st;
     enum sql = "UPDATE code_session SET history = ?2, titles = ?3 WHERE id = ?1 AND closed_at = 0\0";
@@ -134,8 +134,8 @@ int storeHistory(sqlite3* db, const(char)[] id, const(char)[] history, const(cha
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
-// An open session's conversation, into history, and its calls' titles, into
-// titles. 1 read, 0 no open session by that id, -1 the store refused.
+// 「[Opus 5.5] An open session's conversation, into history, and its calls' titles, into」
+// 「[Opus 5.5] titles. 1 read, 0 no open session by that id, -1 the store refused.」
 int storeHistoryOf(sqlite3* db, const(char)[] id, ref Reply history, ref Reply titles) {
     sqlite3_stmt* st;
     enum sql = "SELECT history, titles FROM code_session WHERE id = ?1 AND closed_at = 0\0";
@@ -174,8 +174,8 @@ int storeTitle(sqlite3* db, const(char)[] id, const(char)[] title) {
     return sqlite3_changes(db) > 0 ? 1 : 0;
 }
 
-// Clears an open session's title, so the next prompt names it. 1 cleared, 0
-// no open session by that id, -1 the store refused.
+// 「[Opus 5.5] Clears an open session's title, so the next prompt names it. 1 cleared, 0」
+// 「[Opus 5.5] no open session by that id, -1 the store refused.」
 int storeClearTitle(sqlite3* db, const(char)[] id) {
     sqlite3_stmt* st;
     enum sql = "UPDATE code_session SET title = '' WHERE id = ?1 AND closed_at = 0\0";
