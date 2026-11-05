@@ -46,9 +46,9 @@ unittest {
 }
 
 // "thats problematic seeing how sand chamges are normal"
-// A node that keeps no comet for this engine's ABI, while one is held here,
-// says why in its own words: the comet held here is the one every event
-// refuses. With none held, the repository has no comet and nothing is said.
+// 「[Opus 5.5] A node that keeps no comet for this engine's ABI, while one is held here,」
+// 「[Opus 5.5] says why in its own words: the comet held here is the one every event」
+// 「[Opus 5.5] refuses. With none held, the repository has no comet and nothing is said.」
 unittest {
     import comet : notKept, Landing;
     import sand.view : SAND_ABI;
@@ -70,16 +70,66 @@ unittest {
     assert(none.what == Landed.none);
     assert(none.why().length == 0);
 
-    // An answer larger than ground reads is said to be, not handed over as nothing.
+    // 「[Opus 5.5] An answer larger than ground reads is said to be, not handed over as nothing.」
     Landing long_;
     notKept(long_, "abcd-nl/grove", true, "", true, "");
     assert(long_.what == Landed.failed);
     assert(indexOf(long_.why(), "the node's answer was larger than the ") >= 0, long_.why());
 
-    // A 404 whose answer did not arrive whole is said as the transfer that broke, not as what came.
+    // 「[Opus 5.5] A 404 whose answer did not arrive whole is said as the transfer that broke, not as what came.」
     Landing cut;
     notKept(cut, "abcd-nl/grove", true, `{"error":"no com`, false, "Transferred a partial file");
     assert(cut.what == Landed.failed);
     assert(indexOf(cut.why(), "did not arrive whole: Transferred a partial file") >= 0, cut.why());
     assert(indexOf(cut.why(), `{"error":"no com`) < 0, cut.why());
+}
+
+// "1. the 2nd"
+// The engine names the ground it was built from when it asks for its comet, so a node that keeps
+// none of its ABI builds it from that ground. git describe's commit is the revision; a tag or a
+// commit alone is itself; a comet's own engine names the ground it was built from after "comet".
+unittest {
+    import comet : groundRevOf;
+    assert(groundRevOf("v0.19.1-880-g23a58f7\n") == "23a58f7");
+    assert(groundRevOf("v0.19.1\n") == "v0.19.1");
+    assert(groundRevOf("23a58f7\n") == "23a58f7");
+    assert(groundRevOf("comet a1ac2c0 sbvh-nl/grove@0123456 sbvh-nl/l@89abcde\n") == "a1ac2c0");
+    assert(groundRevOf("") == "");
+    assert(groundRevOf("\n") == "");
+    assert(groundRevOf("a b\n") == "");
+    assert(groundRevOf("v1&x=y\n") == "");
+}
+
+// The ask for the digest carries that revision; with none, the ask is the digest alone.
+unittest {
+    import comet : cometAskInto;
+    import zbuf : ZBuf;
+    ZBuf base;
+    cometUrlInto(base, "https://n", "abcd-nl/grove");
+    ZBuf want;
+    want.put(base.slice());
+    want.put("?digest&ground=23a58f7");
+    ZBuf url;
+    cometAskInto(url, "https://n", "abcd-nl/grove", "v0.19.1-880-g23a58f7\n", "");
+    assert(url.slice() == want.slice(), url.slice());
+
+    ZBuf bare;
+    bare.put(base.slice());
+    bare.put("?digest");
+    cometAskInto(url, "https://n", "abcd-nl/grove", "", "");
+    assert(url.slice() == bare.slice(), url.slice());
+
+    // The commit wind stamped beside the version is the one named: a tag that only looks like
+    // describe's suffix, or one with a slash in it, is not read for a commit.
+    enum head = "0123456789abcdef0123456789abcdef01234567";
+    ZBuf named;
+    named.put(base.slice());
+    named.put("?digest&ground=" ~ head);
+    cometAskInto(url, "https://n", "abcd-nl/grove", "v1.0-gdeadbeef\n", head ~ "\n");
+    assert(url.slice() == named.slice(), url.slice());
+    cometAskInto(url, "https://n", "abcd-nl/grove", "release/v1.2\n", head ~ "\n");
+    assert(url.slice() == named.slice(), url.slice());
+    // What is no whole commit is not one: the version is read instead.
+    cometAskInto(url, "https://n", "abcd-nl/grove", "v0.19.1-880-g23a58f7\n", "0123\n");
+    assert(url.slice() == want.slice(), url.slice());
 }

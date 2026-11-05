@@ -51,13 +51,13 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     return r;
 }
 
-// The room a refusal has: the hook says it as "sandload: <it>" in a 4096-byte result, and that in
-// a 4096-byte exec-result row with the row's own words around it (errors.d formatResult,
-// immediate.d writeExecResult).
+// 「[Opus 5.5] The room a refusal has: the hook says it as "sandload: <it>" in a 4096-byte result, and that in」
+// 「[Opus 5.5] a 4096-byte exec-result row with the row's own words around it (errors.d formatResult,」
+// 「[Opus 5.5] immediate.d writeExecResult).」
 enum SAID_ROOM = 3584;
 
-// What is held ends a refusal whatever the reasons before it ran to: they are cut to make room for
-// it within SAID_ROOM, and say they are.
+// 「[Opus 5.5] What is held ends a refusal whatever the reasons before it ran to: they are cut to make room for」
+// 「[Opus 5.5] it within SAID_ROOM, and say they are.」
 void endWithHeld(ref ZBuf said, const(char)[] held) {
     enum cut = " [cut: the reasons ran past what ground holds]";
     if (said.len + held.length > SAID_ROOM) {
@@ -98,7 +98,7 @@ void holdLandedHere() {
 }
 
 // The Sand the library at path hands over when its ABI is the engine's, else null and r says why.
-// Each sand refused is its own reason, after the one before it, and names its file.
+// 「[Opus 5.5] Each sand refused is its own reason, after the one before it, and names its file.」
 private const(Sand)* openSand(const(char)* path, ref SandLoad r) {
     import core.sys.posix.dlfcn : dlopen, dlsym, dlerror, RTLD_NOW, RTLD_LOCAL;
     import core.sys.posix.unistd : access, F_OK;
