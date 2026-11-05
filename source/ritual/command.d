@@ -1,7 +1,7 @@
 module ritual.command;
 
 import ritual.position : Position, RitualState, start, performanceId;
-import ritual.resolve : Flattened, RiteNames, chooseRitual, flatten, repoRoot, riteNames, riteGates, entryOf;
+import ritual.resolve : Flattened, RiteNames, ModelInputs, chooseRitual, flatten, repoRoot, riteNames, riteGates, entryOf;
 import ritual.run : briefing, spawnScript;
 import ritual.store : writePosition;
 
@@ -93,6 +93,25 @@ private WindowReading latestReading(DB)(DB db, const(char)[] window) {
     return WindowReading(true, c.tenths);
 }
 
+// What a pick reads from the store: the plan the last ask found and the
+// latest reading of each window. A ritual's agent and a subagent are picked
+// from the same.
+ModelInputs modelInputs(DB)(DB db) {
+    import checks : lastCheck, Check;
+    ModelInputs inputs;
+    __gshared Check plan;
+    plan = lastCheck(db, "plan");
+    inputs.planKnown = plan.found && plan.value.length > 0;
+    inputs.plan = plan.value;
+    auto five = latestReading(db, "five_hour");
+    inputs.fiveKnown = five.found;
+    inputs.fiveTenths = five.tenths;
+    auto seven = latestReading(db, "seven_day");
+    inputs.sevenKnown = seven.found;
+    inputs.sevenTenths = seven.tenths;
+    return inputs;
+}
+
 // The agent starts knowing what it carries: its SessionStart reads the row
 // that was just written. A background session, so it is a row in
 // `claude agents` rather than a pid only pkill could reach.
@@ -109,21 +128,11 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
     const(char)[] resume;
     {
         import db : openDb, sqlite3_close;
-        import checks : lastCheck, Check;
         import ritual.store : lastSessionOf;
         auto db = openDb();
         if (db !is null) {
             resume = lastSessionOf(db, p.ritual, p.repo);
-            __gshared Check plan;
-            plan = lastCheck(db, "plan");
-            inputs.planKnown = plan.found && plan.value.length > 0;
-            inputs.plan = plan.value;
-            auto five = latestReading(db, "five_hour");
-            inputs.fiveKnown = five.found;
-            inputs.fiveTenths = five.tenths;
-            auto seven = latestReading(db, "seven_day");
-            inputs.sevenKnown = seven.found;
-            inputs.sevenTenths = seven.tenths;
+            inputs = modelInputs(db);
             sqlite3_close(db);
         }
     }

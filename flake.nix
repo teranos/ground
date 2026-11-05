@@ -220,22 +220,22 @@
             };
           };
 
-          agy-1_4_4 = agy "1.4.4" {
+          agy-1_4_12 = agy "1.4.12" {
             mac_arm64 = {
-              tarball = "85482aa8969300183f71c9653d9f581248fba7f506342a8eb087f3d2503203bd";
-              binary = "9abb478686dc08d48699ba1604c14d15819ef6a2542d5d32173acbd5f02d712d";
+              tarball = "4c989b5ccf0e39c99a1ce6df82410abb628d4d83e0d3183527702df744d9c589";
+              binary = "34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3";
             };
             mac_x64 = {
-              tarball = "12c96c065ac50d36e087c1fda1bba8d6fb4fa7af232d1ef2a44499c2481a52bf";
-              binary = "f6b17956d07e7021841a66e63cc9949bdddff36049c1dbba27e05c4d203b4253";
+              tarball = "624d01369df5841f64555741dd09d3ab4a6d174699a4ded896a5180c81f2c2de";
+              binary = "f6c42421a6d40dd12b77afa9353935938ce1040bd0a92c0d7ab61ded8b0d8dee";
             };
             linux_arm64_musl = {
-              tarball = "4900f50954ad6fb3747c2d80fe29b5986ae861d0f8ea04c2a5bd9cb1781507dc";
-              binary = "03ac1122a12a479a5110da1fcdfeb718988a323e0eaa3d2ccf96e98956b2ed9f";
+              tarball = "921016ddbd89b60472eeb836c585d54e88c4e4c473542d143af98515a4cdba88";
+              binary = "06aaa848be6c96f7fe1d554ab90e63a60ac6c2022ee346fa47b4c2684f11e5b9";
             };
             linux_x64_musl = {
-              tarball = "f85f39bf74b6ff5f7f45da768ba52b39318a7e528811df65f394995959cbcc2c";
-              binary = "9caa302d10c42c698fb72ebda71910a2032b01a2ec99c391e8cd6fdc03ed31fd";
+              tarball = "75dcaef83510105ce0152eaf5c7c738bb81ff5151130cb3f7df51a7062a3deea";
+              binary = "764625fff9858c8aa69649c401898d289fe384f4b171a8ad8c64c2bbc8bc8301";
             };
           };
 

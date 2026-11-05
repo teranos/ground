@@ -117,6 +117,8 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
 }
 
 // Returns the raw JSON region for "tool_input": { ... } — no parsing, just the brace-delimited slice.
+// A brace inside a string is text and closes nothing: a prompt that held one
+// ended the region there, and what came after it was not the call's.
 @Reads("tool_input") const(char)[] extractToolInputRegion(const(char)[] json) {
     auto idx = indexOf(json, `"tool_input"`);
     if (idx < 0) return null;
@@ -126,9 +128,15 @@ const(char)[] extractJsonStringAt(const(char)[] json, ptrdiff_t idx, string key,
     // Find matching closing brace
     size_t depth = 0;
     size_t start = pos;
+    bool inString = false;
     while (pos < json.length) {
-        if (json[pos] == '{') depth++;
-        else if (json[pos] == '}') { depth--; if (depth == 0) return json[start .. pos + 1]; }
+        auto c = json[pos];
+        if (inString) {
+            if (c == '\\') { pos += 2; continue; }
+            if (c == '"') inString = false;
+        } else if (c == '"') inString = true;
+        else if (c == '{') depth++;
+        else if (c == '}') { depth--; if (depth == 0) return json[start .. pos + 1]; }
         pos++;
     }
     return null;
