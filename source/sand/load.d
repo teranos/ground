@@ -37,10 +37,41 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     const(Sand)* comet = null;
     if (localSandPathInto(home, localBuf[]).length > 0) local = openSand(localBuf.ptr, r);
     if (cometPathInto(home, origin, cometBuf[]).length > 0) comet = openSand(cometBuf.ptr, r);
+    if (r.what == SandHeld.refused) {
+        __gshared ZBuf held;
+        held.reset();
+        held.put(". held: the floor");
+        if (local !is null) { held.put(" and the local sand at "); held.put(localBuf[0 .. lengthOf(localBuf.ptr)]); }
+        if (comet !is null) { held.put(" and the comet at "); held.put(cometBuf[0 .. lengthOf(cometBuf.ptr)]); }
+        endWithHeld(r.said, held.slice());
+    }
     if (local is null && comet is null) return r;
     holdSand(layer(&builtinSand, local, comet));
     if (r.what != SandHeld.refused) r.what = SandHeld.landed;
     return r;
+}
+
+// The room a refusal has: the hook says it as "sandload: <it>" in a 4096-byte result, and that in
+// a 4096-byte exec-result row with the row's own words around it (errors.d formatResult,
+// immediate.d writeExecResult).
+enum SAID_ROOM = 3584;
+
+// What is held ends a refusal whatever the reasons before it ran to: they are cut to make room for
+// it within SAID_ROOM, and say they are.
+void endWithHeld(ref ZBuf said, const(char)[] held) {
+    enum cut = " [cut: the reasons ran past what ground holds]";
+    if (said.len + held.length > SAID_ROOM) {
+        said.len = SAID_ROOM - held.length - cut.length;
+        said.data[said.len] = 0;
+        said.put(cut);
+    }
+    said.put(held);
+}
+
+private size_t lengthOf(const(char)* s) {
+    size_t n = 0;
+    while (s[n] != 0) n++;
+    return n;
 }
 
 // "ritual needs to work for us always"
@@ -67,18 +98,25 @@ void holdLandedHere() {
 }
 
 // The Sand the library at path hands over when its ABI is the engine's, else null and r says why.
+// Each sand refused is its own reason, after the one before it, and names its file.
 private const(Sand)* openSand(const(char)* path, ref SandLoad r) {
     import core.sys.posix.dlfcn : dlopen, dlsym, dlerror, RTLD_NOW, RTLD_LOCAL;
     import core.sys.posix.unistd : access, F_OK;
     if (access(path, F_OK) != 0) return null;
+    void about() {
+        if (r.what == SandHeld.refused) r.said.put("; ");
+        r.said.put(path[0 .. lengthOf(path)]);
+        r.said.put(": ");
+    }
     auto lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (lib is null) { refuse(r, "the sand did not load: ", dlerror()); return null; }
+    if (lib is null) { about(); refuse(r, "the sand did not load: ", dlerror()); return null; }
     alias SandFn = extern (C) const(Sand)* function();
     auto fn = cast(SandFn) dlsym(lib, "ground_sand");
-    if (fn is null) { refuse(r, "the sand hands over nothing: ", dlerror()); return null; }
+    if (fn is null) { about(); refuse(r, "the sand hands over nothing: ", dlerror()); return null; }
     auto s = fn();
-    if (s is null) { refuse(r, "the sand handed over null", null); return null; }
+    if (s is null) { about(); refuse(r, "the sand handed over null", null); return null; }
     if (s.abi != SAND_ABI) {
+        about();
         r.what = SandHeld.refused;
         r.said.put("the sand was built for engine ABI ");
         r.said.putUint(s.abi);
