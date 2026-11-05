@@ -1,13 +1,13 @@
 module qntxblock;
 
-// The qntx block and its reader, apart from the rest of the pbt parser: ground
-// code reads its node with them and compiles none of what the hooks parse.
+// 「[Opus 5.5] The qntx block and its reader, apart from the rest of the pbt parser: ground」
+// 「[Opus 5.5] code reads its node with them and compiles none of what the hooks parse.」
 
 import lexer : skipWS, skipLine, expect, readWord, readValue;
 
-// The qntx { } block. At the top level it names the nodes: url, where ground writes its
-// namespace, and token, the path of the file holding what url is spoken to with — empty
-// means QNTX_TOKEN, then ~/.qntx/token. gateway is the node signed in to with ~/.qntx/token.
+// 「[Opus 5.5] The qntx { } block. At the top level it names the nodes: url, where ground writes its」
+// 「[Opus 5.5] namespace, and token, the path of the file holding what url is spoken to with — empty」
+// 「[Opus 5.5] means QNTX_TOKEN, then ~/.qntx/token. gateway is the node signed in to with ~/.qntx/token.」
 struct ParsedQntx {
     bool present;
     string url;
@@ -16,7 +16,7 @@ struct ParsedQntx {
     string gateway; // the node signed in to: it answers prompts and gives the sand; url when empty
 }
 
-// url:, token:, model: and gateway:, and nothing else.
+// 「[Opus 5.5] url:, token:, model: and gateway:, and nothing else.」
 ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
     ParsedQntx q;
     q.present = true;
