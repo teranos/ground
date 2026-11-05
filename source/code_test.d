@@ -1757,7 +1757,7 @@ version (Posix) unittest {
     assert(indexOf(said[0 .. saidLen], `terminal/wait_for_exit`) < 0);
     s.open[0].history.dispose();
 
-    // "Environment variables for the command": the model's env is the command's, each name and value as given.
+    // 「[Opus 5.5] "Environment variables for the command": the model's env is the command's, each name and value as given.」
     turn(runs, "bypassPermissions", `{\"command\":\"cargo\",\"args\":[\"test\"],\"env\":[{\"name\":\"RUST_LOG\",\"value\":\"debug\"},{\"name\":\"A\",\"value\":\"\"}]}`,
         refusedEnv ~ "\n", s);
     assert(gotBuf[0 .. gotLen] == ended);
@@ -1765,10 +1765,10 @@ version (Posix) unittest {
         ~ `"args":["test"],"env":[{"name":"RUST_LOG","value":"debug"},{"name":"A","value":""}],"cwd":"/tmp","outputByteLimit":65536}}`) >= 0);
     s.open[0].history.dispose();
 
-    // A call without a command, or whose env is not a list of name and value, each text, is not asked of the client.
+    // 「[Opus 5.5] A call without a command, or whose env is not a list of name and value, each text, is not asked of the client.」
     foreach (bad; [`{\"args\":[\"x\"]}`, `{\"command\":\"ls\",\"env\":{\"A\":\"b\"}}`, `{\"command\":\"ls\",\"env\":[{\"name\":\"A\"}]}`,
             `{\"command\":\"ls\",\"env\":[{\"name\":\"A\",\"value\":1}]}`,
-            // A list that is there is a list: null is none of the lists it takes.
+            // 「[Opus 5.5] A list that is there is a list: null is none of the lists it takes.」
             `{\"command\":\"ls\",\"env\":null}`, `{\"command\":\"ls\",\"args\":null}`]) {
         turn(runs, "bypassPermissions", bad, "", s);
         assert(gotBuf[0 .. gotLen] == ended);
