@@ -246,3 +246,51 @@ unittest {
     assert(indexOf(why, local) > indexOf(why, "held: "), why);
     assert(sand() !is &builtinSand);
 }
+
+// Reasons longer than what ground holds are cut, and say they are: what is held still ends
+// the message. Two sands under a long home, each refused with the loader's text naming its
+// path again and again, ran past the buffer and lost "held".
+unittest {
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.stdc.stdio : fopen, fputs, fclose;
+    import errors : mkdir;
+    import comet : cometPathInto, localSandPathInto;
+    import matcher : indexOf;
+    scope (exit) holdSand(null);
+
+    char[1024] home = 0;
+    enum base = "/tmp/ground-long-XXXXXX";
+    home[0 .. base.length] = base;
+    assert(mkdtemp(home.ptr) !is null);
+    size_t n = base.length;
+    foreach (_; 0 .. 3) {
+        home[n++] = '/';
+        foreach (k; 0 .. 200) home[n++] = 'a';
+        home[n] = 0;
+        assert(mkdir(home.ptr, 493) == 0);
+    }
+    void dirs(const(char)[] path) {
+        char[1024] d = 0;
+        foreach (i, c; path) {
+            if (i > n && c == '/') cast(void) mkdir(d.ptr, 493);
+            d[i] = c;
+        }
+    }
+    void notALibrary(const(char)[] path) {
+        dirs(path);
+        auto f = fopen(path.ptr, "wb");
+        assert(f !is null);
+        fputs("no library", f);
+        fclose(f);
+    }
+    char[1024] localBuf = 0, cometBuf = 0;
+    notALibrary(localSandPathInto(home[0 .. n], localBuf[]));
+    notALibrary(cometPathInto(home[0 .. n], "abcd-nl/long", cometBuf[]));
+
+    auto r = holdLanded(home[0 .. n], "abcd-nl/long");
+    assert(r.what == SandHeld.refused);
+    auto why = r.why();
+    enum held = ". held: the floor";
+    assert(why.length >= held.length && why[$ - held.length .. $] == held, why[why.length > 200 ? $ - 200 : 0 .. $]);
+    assert(indexOf(why, "[cut: ") >= 0, why[why.length > 200 ? $ - 200 : 0 .. $]);
+}

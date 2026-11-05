@@ -74,11 +74,11 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     auto bare = url.len;
     url.put("?digest");
 
-    char[512] answer = 0;
+    __gshared char[ANSWER_BYTES] answer = 0;
     auto asked = httpGet(url.slice(), token, answer[]);
     if (asked.status == 404) {
         import core.sys.posix.unistd : access, F_OK;
-        notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len]);
+        notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len], asked.overran);
         return r;
     }
     if (asked.status != 200) {
@@ -239,7 +239,9 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
 /// The node keeps no comet of origin for this engine's ABI. With none held here the repository
 /// has none, and nothing is said; with one held here, that one is what every hook refuses, and
 /// the node's answer says which ABIs it keeps.
-void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer) {
+/// An answer larger than ground reads is said to be.
+enum ANSWER_BYTES = 2048;
+void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer, bool overran) {
     import sand.view : SAND_ABI;
     if (!heldHere) return;
     r.what = Landed.failed;
@@ -248,6 +250,12 @@ void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] a
     r.said.put(" for engine ABI ");
     r.said.putUint(SAND_ABI);
     r.said.put(", and one is held here: ");
+    if (overran) {
+        r.said.put("the node's answer was larger than the ");
+        r.said.putUint(ANSWER_BYTES);
+        r.said.put(" bytes ground reads of it");
+        return;
+    }
     r.said.put(answer);
 }
 

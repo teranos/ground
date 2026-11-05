@@ -38,9 +38,21 @@ SandLoad holdLanded(const(char)[] home, const(char)[] origin) {
     if (localSandPathInto(home, localBuf[]).length > 0) local = openSand(localBuf.ptr, r);
     if (cometPathInto(home, origin, cometBuf[]).length > 0) comet = openSand(cometBuf.ptr, r);
     if (r.what == SandHeld.refused) {
-        r.said.put(". held: the floor");
-        if (local !is null) { r.said.put(" and the local sand at "); r.said.put(localBuf[0 .. lengthOf(localBuf.ptr)]); }
-        if (comet !is null) { r.said.put(" and the comet at "); r.said.put(cometBuf[0 .. lengthOf(cometBuf.ptr)]); }
+        // What is held ends the message whatever the reasons before it ran to: they are cut
+        // to make room for it, and say they are.
+        __gshared ZBuf held;
+        held.reset();
+        held.put(". held: the floor");
+        if (local !is null) { held.put(" and the local sand at "); held.put(localBuf[0 .. lengthOf(localBuf.ptr)]); }
+        if (comet !is null) { held.put(" and the comet at "); held.put(cometBuf[0 .. lengthOf(cometBuf.ptr)]); }
+        enum cut = " [cut: the reasons ran past what ground holds]";
+        auto room = r.said.data.length - 1 - held.len;
+        if (r.said.len + held.len > r.said.data.length - 1) {
+            r.said.len = room - cut.length;
+            r.said.data[r.said.len] = 0;
+            r.said.put(cut);
+        }
+        r.said.put(held.slice());
     }
     if (local is null && comet is null) return r;
     holdSand(layer(&builtinSand, local, comet));
