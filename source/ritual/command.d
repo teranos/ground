@@ -420,7 +420,7 @@ int handleBind(int argc, const(char)** argv) {
         return 1;
     }
     auto perfId = argv[2][0 .. argLen(argv[2])];
-    // How the start exited, as the spawn script hands it over; a bind run by hand names none.
+    // 「[Opus 5.5] How the start exited, as the spawn script hands it over; a bind run by hand names none.」
     int started = 0;
     if (argc > 3) {
         foreach (c; argv[3][0 .. argLen(argv[3])]) {
@@ -433,8 +433,8 @@ int handleBind(int argc, const(char)** argv) {
     auto agentId = agentIdFrom(printed);
     auto db = openDb();
 
-    // A start that failed, or named no agent, is said to the session that fired the ritual: its
-    // record otherwise went only to the breadcrumb, and reached nobody.
+    // 「[Opus 5.5] A start that failed, or named no agent, is said to the session that fired the ritual: its」
+    // 「[Opus 5.5] record otherwise went only to the breadcrumb, and reached nobody.」
     __gshared char[128] parentBuf = 0;
     const(char)[] parent = "";
     if (db !is null) {
