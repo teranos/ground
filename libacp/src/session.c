@@ -249,6 +249,10 @@ acp_status acp_session_list_read(const char *params_json, size_t length, acp_ses
     error_json->data = NULL;
     error_json->length = 0;
     json_object *params = acp_parse(params_json, length);
+    if (!json_object_is_type(params, json_type_object)) {
+        json_object_put(params);
+        return acp_invalid(error_json, "session/list params are not a JSON object");
+    }
     acp_status status = optional_string(acp_field(params, "cwd"), "cwd", &out->cwd, error_json);
     if (status == ACP_OK && out->cwd != NULL && out->cwd[0] != '/') {
         char message[4200];

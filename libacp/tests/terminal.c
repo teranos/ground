@@ -17,18 +17,30 @@ static int says(const acp_buffer *b, const char *want) {
 static void create(void) {
     acp_buffer out = {0};
     const char *args[] = {"-c", "echo \"hi\" | wc -c"};
-    CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", "sh", args, 2, "/tmp/a b", 65536, &out) == ACP_OK);
+    CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", "sh", args, 2, NULL, 0, "/tmp/a b", 65536, &out) == ACP_OK);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"term-1\",\"method\":\"terminal/create\",\"params\":"
                      "{\"sessionId\":\"code-1-1-1\",\"command\":\"sh\",\"args\":[\"-c\",\"echo \\\"hi\\\" | wc -c\"],"
                      "\"cwd\":\"/tmp/a b\",\"outputByteLimit\":65536}}"));
     acp_buffer_free(&out);
-    CHECK(acp_terminal_create_request_write("7", "code-1-1-1", "ls", NULL, 0, NULL, 0, &out) == ACP_OK);
+    CHECK(acp_terminal_create_request_write("7", "code-1-1-1", "ls", NULL, 0, NULL, 0, NULL, 0, &out) == ACP_OK);
     CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"terminal/create\",\"params\":"
                      "{\"sessionId\":\"code-1-1-1\",\"command\":\"ls\"}}"));
     acp_buffer_free(&out);
-    CHECK(acp_terminal_create_request_write("term-1", "code-1-1-1", "ls", NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
-    CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", NULL, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
-    CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", "ls", NULL, 1, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_terminal_create_request_write("term-1", "code-1-1-1", "ls", NULL, 0, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", NULL, NULL, 0, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_terminal_create_request_write("\"term-1\"", "code-1-1-1", "ls", NULL, 1, NULL, 0, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    // "Environment variables for the command", each its name and its value, in order.
+    acp_env_variable env[] = {{"RUST_LOG", "debug"}, {"A B", "x=\"y\""}};
+    CHECK(acp_terminal_create_request_write("\"term-2\"", "code-1-1-1", "cargo", NULL, 0, env, 2, NULL, 0, &out) == ACP_OK);
+    CHECK(says(&out, "{\"jsonrpc\":\"2.0\",\"id\":\"term-2\",\"method\":\"terminal/create\",\"params\":"
+                     "{\"sessionId\":\"code-1-1-1\",\"command\":\"cargo\",\"env\":[{\"name\":\"RUST_LOG\",\"value\":\"debug\"},"
+                     "{\"name\":\"A B\",\"value\":\"x=\\\"y\\\"\"}]}}"));
+    acp_buffer_free(&out);
+    acp_env_variable nameless[] = {{NULL, "x"}};
+    CHECK(acp_terminal_create_request_write("\"term-2\"", "code-1-1-1", "ls", NULL, 0, nameless, 1, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    acp_env_variable valueless[] = {{"A", NULL}};
+    CHECK(acp_terminal_create_request_write("\"term-2\"", "code-1-1-1", "ls", NULL, 0, valueless, 1, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
+    CHECK(acp_terminal_create_request_write("\"term-2\"", "code-1-1-1", "ls", NULL, 0, NULL, 1, NULL, 0, &out) == ACP_INVALID_ARGUMENT);
 }
 
 static char unset[] = "unset", failed[] = "failed";

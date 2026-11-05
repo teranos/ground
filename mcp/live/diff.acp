@@ -1,0 +1,19 @@
+# A written file shows as a diff: a file the client does not have is new, and one it has shows what it held.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true}}}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"$SID","modeId":"acceptEdits"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once to write the line first to /tmp/ground diff.txt, then reply with only: done"}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"error":{"code":-32002,"message":"no such file"}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"$SID","prompt":[{"type":"text","text":"Use write_text_file once to write the line second to /tmp/ground diff.txt, then reply with only: done"}]}}
+expect "method":"fs/read_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{"content":"first\n"}}
+expect "method":"fs/write_text_file"
+{"jsonrpc":"2.0","id":$ASKED,"result":{}}
+wait 4

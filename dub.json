@@ -8,7 +8,7 @@
     "mainSourceFile": "source/main.d",
     "stringImportPaths": ["."],
     "dflags": ["-betterC", "--lowmem", "-d-version=Floor"],
-    "libs": ["sqlite3", "curl", "git2", "mcp", "json-c", "phonenumber"],
+    "libs": ["sqlite3", "curl", "git2", "mcp", "acp", "json-c", "phonenumber"],
     "libs-posix": ["m", "pthread"],
     "libs-linux": ["dl", "stdc++"],
     "libs-osx": ["iconv", "c++"],
@@ -22,7 +22,7 @@
         },
         {
             "name": "production",
-            "excludedSourceFiles": ["source/*_test.d", "source/parity.d"]
+            "excludedSourceFiles": ["source/*_test.d", "source/parity.d", "source/shipped.d"]
         }
     ]
 }

@@ -1,0 +1,21 @@
+# A session's effort: set by set_config_option, refused when unknown, a boolean, or no value; kept across a resume.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"$CWD","mcpServers":[]}}
+wait 1
+{"jsonrpc":"2.0","id":2,"method":"session/set_config_option","params":{"sessionId":"$SID","configId":"effort","value":"xhigh"}}
+wait 2
+{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"$SID","configId":"effort","value":"ultra"}}
+wait 3
+{"jsonrpc":"2.0","id":4,"method":"session/set_config_option","params":{"sessionId":"$SID","configId":"effort","type":"boolean","value":true}}
+wait 4
+{"jsonrpc":"2.0","id":5,"method":"session/set_config_option","params":{"sessionId":"$SID","configId":"effort","value":true}}
+wait 5
+{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"$SID","configId":"effort"}}
+wait 6
+restart
+# Resumed in another process, at xhigh.
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}
+wait 0
+{"jsonrpc":"2.0","id":7,"method":"session/resume","params":{"sessionId":"$SID","cwd":"$CWD"}}
+wait 7

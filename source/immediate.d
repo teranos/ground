@@ -21,7 +21,7 @@ module immediate;
 //
 // See watch.d for the watcher lifecycle and claim files.
 
-import matcher : indexOf;
+import scan : indexOf;
 import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text,
                 sqlite3_step, sqlite3_finalize, sqlite3_column_text,
                 SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT,

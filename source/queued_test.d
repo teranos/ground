@@ -136,3 +136,25 @@ unittest {
     assert(hit.prompt == "tail");
     assert(hit.next == unterminated.length);
 }
+
+// Each queued prompt in a transcript's tail was looked up by reading every one
+// this session had stored: 7 lookups over 434 rows took 49ms of every prompt.
+unittest {
+    import queued : ALREADY_STORED_SQL;
+    import db : sqlite3_column_text;
+    import matcher : contains;
+    auto db = memDb();
+    enum plan = "EXPLAIN QUERY PLAN " ~ ALREADY_STORED_SQL;
+    sqlite3_stmt* s;
+    assert(sqlite3_prepare_v2(db, plan.ptr, -1, &s, null) == SQLITE_OK);
+    bool byPrompt;
+    while (sqlite3_step(s) == SQLITE_ROW) {
+        auto d = sqlite3_column_text(s, 3);
+        size_t n = 0;
+        while (d[n] != 0) n++;
+        if (contains(d[0 .. n], "idx_attestations_queued_prompt")) byPrompt = true;
+    }
+    sqlite3_finalize(s);
+    sqlite3_close(db);
+    assert(byPrompt, "the lookup finds the prompt in an index, not by reading the session's rows");
+}
