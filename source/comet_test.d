@@ -44,3 +44,29 @@ unittest {
     cometUrlInto(url, "https://n", "abcd-nl/grove");
     assert(url.slice() == want.slice(), url.slice());
 }
+
+// "thats problematic seeing how sand chamges are normal"
+// A node that keeps no comet for this engine's ABI, while one is held here,
+// says why in its own words: the comet held here is the one every event
+// refuses. With none held, the repository has no comet and nothing is said.
+unittest {
+    import comet : notKept, Landing;
+    import sand.view : SAND_ABI;
+    import zbuf : ZBuf;
+    import matcher : indexOf;
+    enum node = `{"error":"no comet of abcd-nl/grove is kept: abcd-nl/grove/aarch64-darwin is kept for engine ABI 2, built from ground's main"}`;
+
+    Landing held;
+    notKept(held, "abcd-nl/grove", true, node);
+    assert(held.what == Landed.failed);
+    ZBuf abi;
+    abi.putUint(SAND_ABI);
+    assert(indexOf(held.why(), "abcd-nl/grove") >= 0, held.why());
+    assert(indexOf(held.why(), abi.slice()) >= 0, held.why());
+    assert(indexOf(held.why(), node) >= 0, held.why());
+
+    Landing none;
+    notKept(none, "abcd-nl/grove", false, node);
+    assert(none.what == Landed.none);
+    assert(none.why().length == 0);
+}

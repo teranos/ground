@@ -76,7 +76,11 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
 
     char[512] answer = 0;
     auto asked = httpGet(url.slice(), token, answer[]);
-    if (asked.status == 404) return r;
+    if (asked.status == 404) {
+        import core.sys.posix.unistd : access, F_OK;
+        notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len]);
+        return r;
+    }
     if (asked.status != 200) {
         r.what = Landed.failed;
         r.said.put("the node did not answer the digest of the comet of ");
@@ -229,6 +233,22 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     r.said.put(" landed: ");
     r.said.put(want);
     return r;
+}
+
+// "thats problematic seeing how sand chamges are normal"
+/// The node keeps no comet of origin for this engine's ABI. With none held here the repository
+/// has none, and nothing is said; with one held here, that one is what every hook refuses, and
+/// the node's answer says which ABIs it keeps.
+void notKept(ref Landing r, const(char)[] origin, bool heldHere, const(char)[] answer) {
+    import sand.view : SAND_ABI;
+    if (!heldHere) return;
+    r.what = Landed.failed;
+    r.said.put("the node keeps no comet of ");
+    r.said.put(origin);
+    r.said.put(" for engine ABI ");
+    r.said.putUint(SAND_ABI);
+    r.said.put(", and one is held here: ");
+    r.said.put(answer);
 }
 
 /// The 64 hex characters of the digest key in the node's answer, or empty when it names none.

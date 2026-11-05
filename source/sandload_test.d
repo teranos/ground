@@ -152,3 +152,97 @@ unittest {
     assert(r.why().length > 0);
     assert(sand() is &builtinSand);
 }
+
+// Two sands refused are two reasons, each naming the file it is about, and
+// what is held in their place: one ran into the other, and neither said which.
+unittest {
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.stdc.stdio : fopen, fputs, fclose;
+    import errors : mkdir;
+    import comet : SAND_FILE, cometPathInto, localSandPathInto;
+    import matcher : indexOf;
+    scope (exit) holdSand(null);
+
+    char[64] home = "/tmp/ground-refused-XXXXXX\0";
+    assert(mkdtemp(home.ptr) !is null);
+    size_t n = 0;
+    while (home[n] != 0) n++;
+    void dirs(const(char)[] path) {
+        char[512] d = 0;
+        foreach (i, c; path) {
+            if (i > n && c == '/') cast(void) mkdir(d.ptr, 493);
+            d[i] = c;
+        }
+    }
+    void notALibrary(const(char)[] path) {
+        dirs(path);
+        auto f = fopen(path.ptr, "wb");
+        assert(f !is null);
+        fputs("no library", f);
+        fclose(f);
+    }
+    char[512] localBuf = 0, cometBuf = 0;
+    auto local = localSandPathInto(home[0 .. n], localBuf[]);
+    auto comet = cometPathInto(home[0 .. n], "abcd-nl/both", cometBuf[]);
+    notALibrary(local);
+    notALibrary(comet);
+
+    auto r = holdLanded(home[0 .. n], "abcd-nl/both");
+    assert(r.what == SandHeld.refused);
+    auto why = r.why();
+    auto atLocal = indexOf(why, local), atComet = indexOf(why, comet);
+    assert(atLocal >= 0 && atComet > atLocal, why);
+    assert(indexOf(why[atLocal .. atComet], "; ") >= 0, why);
+    assert(indexOf(why, "held: the floor") >= 0, why);
+    assert(sand() is &builtinSand);
+}
+
+// A comet refused beside a local sand that stands says the local sand is held.
+unittest {
+    import core.sys.posix.stdlib : mkdtemp;
+    import core.stdc.stdio : fopen, fread, fwrite, fputs, fclose;
+    import errors : mkdir;
+    import comet : cometPathInto, localSandPathInto;
+    import matcher : indexOf;
+    scope (exit) holdSand(null);
+
+    char[64] home = "/tmp/ground-refused-XXXXXX\0";
+    assert(mkdtemp(home.ptr) !is null);
+    size_t n = 0;
+    while (home[n] != 0) n++;
+    void dirs(const(char)[] path) {
+        char[512] d = 0;
+        foreach (i, c; path) {
+            if (i > n && c == '/') cast(void) mkdir(d.ptr, 493);
+            d[i] = c;
+        }
+    }
+    char[512] localBuf = 0, cometBuf = 0;
+    auto local = localSandPathInto(home[0 .. n], localBuf[]);
+    auto comet = cometPathInto(home[0 .. n], "abcd-nl/stale", cometBuf[]);
+    dirs(local);
+    auto src = fopen(BUILT.ptr, "rb");
+    auto dst = fopen(local.ptr, "wb");
+    assert(src !is null && dst !is null);
+    __gshared ubyte[65536] piece;
+    while (true) {
+        auto got = fread(piece.ptr, 1, piece.length, src);
+        if (got == 0) break;
+        fwrite(piece.ptr, 1, got, dst);
+    }
+    fclose(src);
+    fclose(dst);
+    dirs(comet);
+    auto f = fopen(comet.ptr, "wb");
+    assert(f !is null);
+    fputs("no library", f);
+    fclose(f);
+
+    auto r = holdLanded(home[0 .. n], "abcd-nl/stale");
+    assert(r.what == SandHeld.refused);
+    auto why = r.why();
+    assert(indexOf(why, comet) >= 0, why);
+    assert(indexOf(why, "held: the floor and the local sand at ") >= 0, why);
+    assert(indexOf(why, local) > indexOf(why, "held: "), why);
+    assert(sand() !is &builtinSand);
+}
