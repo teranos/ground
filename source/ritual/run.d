@@ -124,8 +124,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                       0, r.name, r.costgate, g.missing);
             auto stopped = step(p, Verdict.Halt);
             attestRite(db, sessionId, p, r.name, a.verdict, 0, g.missing, unixSeconds);
-            cast(void) writePositionIf(db, stopped, p.rev);
-            a.applied = true;
+            a.applied = writePositionIf(db, stopped, p.rev);
             a.after = stopped;
             return a;
         }
@@ -147,8 +146,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             a.output = why.slice();
             auto moved = step(p, Verdict.Advance);
             attestRite(db, sessionId, p, r.name, a.verdict, 0, a.output, unixSeconds);
-            cast(void) writePositionIf(db, moved, p.rev);
-            a.applied = true;
+            a.applied = writePositionIf(db, moved, p.rev);
             a.after = moved;
             return a;
         }
@@ -175,8 +173,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
                   0, r.name, prepared.cmd, "");
         auto stopped = step(p, Verdict.Halt);
         attestRite(db, sessionId, p, r.name, a.verdict, 0, "", unixSeconds);
-        cast(void) writePositionIf(db, stopped, p.rev);
-        a.applied = true;
+        a.applied = writePositionIf(db, stopped, p.rev);
         a.after = stopped;
         return a;
     }
@@ -236,8 +233,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
             import ritual.store : writePositionIf;
             auto stopped = step(p, Verdict.Halt);
             attestRite(db, sessionId, p, r.name, a.verdict, did.code, a.output, unixSeconds);
-            cast(void) writePositionIf(db, stopped, p.rev);
-            a.applied = true;
+            a.applied = writePositionIf(db, stopped, p.rev);
             a.after = stopped;
             return a;
         }
