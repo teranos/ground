@@ -70,9 +70,9 @@ struct Advanced {
 // The sequence nothing performed until now: read where we are, run that rite,
 // read its code as one of three answers, write it down, move.
 // "An abort that leaves the agent running has aborted nothing."
-// Whether a verdict that lost its revision is retaken on the row as it stands now: only while
-// that row is the walk the verdict is about, on the same rite and still live. An abort leaves
-// the rite where it was, so the rite alone let a verdict walk an aborted performance on.
+// 「[Opus 5.5] Whether a verdict that lost its revision is retaken on the row as it stands now: only while」
+// 「[Opus 5.5] that row is the walk the verdict is about, on the same rite and still live. An abort leaves」
+// 「[Opus 5.5] the rite where it was, so the rite alone let a verdict walk an aborted performance on.」
 bool retakes(const Position mine, const Position now) {
     return now.current == mine.current && now.state == RitualState.Live;
 }
@@ -437,7 +437,7 @@ Advanced advance(DB)(DB db, const(char)[] sessionId, Position p,
         foreach (attempt; 0 .. 8) {
             if (a.applied) break;
             auto now = byPerformanceId(db, p.id);
-            // Somebody walked it on, or ended it: their outcome is the one that stands.
+            // 「[Opus 5.5] Somebody walked it on, or ended it: their outcome is the one that stands.」
             if (!now.valid || !retakes(p, now.p)) break;
             moved.rev = now.p.rev;
             a.applied = writePositionIf(db, moved, now.p.rev);
