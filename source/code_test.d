@@ -77,6 +77,7 @@ private string answerWith()(string line, ref Sessions s) {
 enum v1Result(string id) = `{"jsonrpc":"2.0","id":` ~ id ~ `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"close":{},"list":{},"resume":{},"delete":{},"additionalDirectories":{}},"mcpCapabilities":{"http":true},"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true},"auth":{"logout":{}}},"authMethods":[],"agentInfo":{"name":"ground","version":"` ~ versionString() ~ `"}}}`;
 
 unittest {
+    // book: code-answers
     bool answers(string line, const(char)[] want) {
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
         Reply r;
@@ -246,6 +247,7 @@ private bool listAfter()(string list, string want) {
     return says(s, list, want);
 }
 unittest {
+    // book: code-listAfter
     assert(listAfter(`{"jsonrpc":"2.0","id":9,"method":"session/list","params":{}}`,
         `{"jsonrpc":"2.0","id":9,"result":{"sessions":[{"sessionId":"code-100-7-1","cwd":"/tmp","updatedAt":"2023-11-14T22:13:20Z"},{"sessionId":"code-100-7-2","cwd":"/srv","updatedAt":"2023-11-14T22:13:20Z"}]}}`));
     // "Filter sessions by working directory. Must be an absolute path."
@@ -345,6 +347,7 @@ unittest {
 // list would show is what delete takes; deleted, it is gone for every process,
 // and one live here is no longer live.
 unittest {
+    // book: code-sqlite3_open
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
     sqlite3* db;
     assert(sqlite3_open(":memory:", &db) == SQLITE_OK);
@@ -550,8 +553,7 @@ unittest {
         `{"jsonrpc":"2.0","id":3,"result":{"modes":` ~ modesOf!"default" ~ `,"configOptions":` ~ configOf!("default", "xhigh") ~ `}}`));
 }
 // "we use the qntx openrouter plugin"
-// session/prompt is a turn through the node's gateway. It needs a live session
-// and a model, and the model is the qntx block's: none, and ground code says so before it asks.
+// book: code-answerOf
 static assert(answerOf(`{"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{"sessionId":"code-100-7-9","prompt":[{"type":"text","text":"hi"}]}}`)
     == `{"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"no open session code-100-7-9","data":{"sessionId":"code-100-7-9"}}}`);
 static assert(answerOf(`{"jsonrpc":"2.0","id":12,"method":"session/prompt","params":{"prompt":[]}}`)

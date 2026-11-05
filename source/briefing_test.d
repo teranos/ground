@@ -8,6 +8,7 @@ import proto : parsePbt;
 import ritual : briefing, flatten, start, step, jump, RitualState;
 import rite : Verdict;
 
+// book: briefing-src
 enum src = `
 rites walk {
   START {
@@ -67,8 +68,7 @@ static assert(briefing(thrown1, flat).text() ==
 // "let's show a counter"
 // "[NEVERx3]"
 // "if there is back and forward, it would mean the counter increments no?"
-// A frozen count is the stall; a climbing one is the ping-pong. It reads the
-// same here as it does on the status line.
+// book: briefing-threw
 enum thrown3 = threw(threw(thrown1));
 static assert(briefing(thrown3, flat).text() ==
     "Performing ritual probe, rite 2 of 3: PICKx3. "
@@ -98,10 +98,7 @@ static assert(briefing(halted, flat).text() ==
 // "well, it would be the rite holding it no? so that's Ground in this case"
 // "making a PR at the end of each DONE was a mistake"
 // "i want NO pr to be created if i did not set it"
-// Read 186 times on q-deploy-1789717456, 2026-09-18: "rite 12 of 12:
-// VERSIONS. It is met when this exits 0: " and nothing after the colon. A rite
-// with a run and no eval is ground's to run, and the briefing says so instead
-// of naming a condition it does not have.
+// book: briefing-runSrc
 enum runSrc = `
 rites tool {
   SHOW {

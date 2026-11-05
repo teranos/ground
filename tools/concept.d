@@ -109,7 +109,8 @@ immutable Owner[] owners = [
     Owner("permission",  ["permission", "sessionmode", "decide"]),
     // The ladder reads the week's usage and lowers the effort; the usage
     // command is how a person reads the same windows.
-    Owner("models",      ["models", "effort", "effort_ladder", "effort_pass", "usagecmd"]),
+    // A subagent runs on the model the models block picks, as a ritual's agent does.
+    Owner("models",      ["models", "effort", "effort_ladder", "effort_pass", "usagecmd", "subagent"]),
     // What is shipped to sentry and how: the hooks leave it, the watcher posts it.
     Owner("sentry",      ["sentry", "outbox", "fired", "hooktiming", "lifecycle", "minutes", "org", "sky",
                           "sessionmodel"]),
@@ -124,7 +125,7 @@ immutable Owner[] owners = [
                           "ritual/shell", "worktree"]),
     // What a row is, where it goes, and how one comes back to the session.
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream",
-                          "sessiontrail"]),
+                          "sessiontrail", "nodeconfig"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world

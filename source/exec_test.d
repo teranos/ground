@@ -56,6 +56,7 @@ enum ChildEnv floorOnly = prepareChildEnv(
     [], [], [], [],
     "sid-xyz", "feat/x", "{}", " * [new tag]           v0.31.0 -> v0.31.0\n"
 );
+// book: exec-floorOnly
 static assert(floorOnly.count == 4);
 static assert(floorOnly.keys[0] == "GROUND_SESSION_ID");
 static assert(floorOnly.values[0] == "sid-xyz");

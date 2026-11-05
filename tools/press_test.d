@@ -159,3 +159,11 @@ static assert(braces ==
     ~ "\\gterm{Rites block}{rites\\{ .. \\}}\n"
     ~ "\\end{gglossary}\n\n"
     ~ "\\end{gcolumns}\n");
+
+// A file under bin/ is a binary of its own when it is named ground_<name>, the
+// way a block runs it. bin/sand.d builds the sand library an engine loads, not
+// a command anyone runs, so no block shows it and the book does not ask for one.
+import press : runsAsBinary;
+static assert(runsAsBinary("ground_hook"));
+static assert(!runsAsBinary("sand"));
+static assert(!runsAsBinary("ground_"));

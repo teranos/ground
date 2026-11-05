@@ -321,7 +321,7 @@ bool onProseLine(const(char)[] s, Span sp, const(char)[] path) {
 
 unittest {
     // "i dont want code comments to be subject to consecutive run"
-    // A string inside code that was commented out is code's, not a quote.
+    // book: provenance-onProseLine
     enum jev = "  # JEV_CHOICE {\n  #   choice: \"Is this push consequential?\"\n  # }\n";
     assert(!onProseLine(jev, nextQuotedSpan(jev, 0), "controls/deploy.pbt"));
     enum prose = "  # the push \"is consequential\" here\n";

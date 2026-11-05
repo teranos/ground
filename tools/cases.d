@@ -19,10 +19,11 @@ struct Case {
     // The operator's own words above it: every comment line that is nothing
     // but a quote, one per line. That is what earns a case with no pbt its page.
     string said;
-    // The lines the run was read from, end exclusive. The editor writes a case
-    // back where it was read, not where it guesses the comments should be.
-    size_t from;
-    size_t to;
+    // The name of its note in doc/book/<chapter>.md, from its `// book:` line,
+    // and the line press names when it cannot join the two: the `// book:` line,
+    // or the run's first line when it has none. 1-based.
+    string book;
+    size_t line;
 }
 
 // The symbol an assertion is about: the first thing it calls. A negation is
@@ -125,25 +126,21 @@ Entry[] extractMarked(string source, string mark) {
 Case[] extractCases(string source) {
     Case[] found;
     string[] block;
+    size_t[] nums;
     string fixture;
-    size_t from = size_t.max;
-    size_t to;
-
-    void take(size_t at) {
-        if (from == size_t.max) from = at;
-        to = at + 1;
-    }
 
     void flush() {
-        scope (exit) { block = null; fixture = null; from = size_t.max; }
+        scope (exit) { block = null; nums = null; fixture = null; }
 
         // A glossary line defines a word; it is not about the stretch beneath
         // it and not part of any case, so it leaves the run before the run is
         // read as either.
         {
             string[] kept;
-            foreach (line; block) if (!isGlossary(line)) kept ~= line;
+            size_t[] keptAt;
+            foreach (k, line; block) if (!isGlossary(line)) { kept ~= line; keptAt ~= nums[k]; }
             block = kept;
+            nums = keptAt;
         }
 
         string asserted;
@@ -169,13 +166,14 @@ Case[] extractCases(string source) {
             foreach (line; block)
                 if (!startsAt(trimLeft(line), 0, "//")) return;
             if (block.length == 0) return;
-            found ~= Case("", join(undent(block)), true, "", "", "", from, to);
+            found ~= Case("", join(undent(block)), true, "", "", "");
             return;
         }
 
         found ~= Case(fixture.length > 0 ? fixture : about.length > 0 ? about : asserted,
                       join(undent(block)), false,
-                      liftPbt(block), liftProse(block), liftSaid(block), from, to);
+                      liftPbt(block), liftProse(block), liftSaid(block),
+                      liftBook(block), bookLine(block, nums));
     }
 
     auto all = splitLines(source);
@@ -190,7 +188,7 @@ Case[] extractCases(string source) {
         if (startsAt(t, 0, "unittest")) {
             flush();
             string[] body_;
-            size_t bodyFrom = size_t.max, bodyTo;
+            size_t[] bodyAt;
             int depth = 0;
             bool opened = false;
             while (i < all.length) {
@@ -201,9 +199,8 @@ Case[] extractCases(string source) {
                     continue;
                 }
                 if (opened && depth == 0) break;
-                if (bodyFrom == size_t.max) bodyFrom = i;
-                bodyTo = i + 1;
                 body_ ~= all[i];
+                bodyAt ~= i + 1;
                 i++;
             }
             i++;
@@ -218,7 +215,8 @@ Case[] extractCases(string source) {
             foreach (b; body_) if (subject(b).length > 0) { proves = true; break; }
             if (proves && named.length > 0)
                 found ~= Case(named, join(undent(body_)), false, "",
-                              liftProse(body_), liftSaid(body_), bodyFrom, bodyTo);
+                              liftProse(body_), liftSaid(body_),
+                              liftBook(body_), bookLine(body_, bodyAt));
             continue;
         }
 
@@ -231,7 +229,7 @@ Case[] extractCases(string source) {
         // it kept the assertions and threw the example away.
         if (t.length == 0 && fixture.length > 0) {
             block ~= line;
-            take(i);
+            nums ~= i + 1;
             i++;
             continue;
         }
@@ -251,7 +249,7 @@ Case[] extractCases(string source) {
         if (isEnum && fixture.length > 0 && opensFixture(t)) flush();
 
         block ~= line;
-        take(i);
+        nums ~= i + 1;
 
         // A one-line literal names the example too. Requiring a continuation
         // left `enum a = ` ~ "`x`;" ~ ` unnamed.
@@ -264,7 +262,7 @@ Case[] extractCases(string source) {
             i++;
             while (i < all.length) {
                 block ~= all[i];
-                take(i);
+                nums ~= i + 1;
                 if (holdsMark(all[i])) break;
                 i++;
             }
@@ -350,6 +348,7 @@ string liftProse(string[] block) {
         auto s = trimLeft(line);
         if (!startsAt(s, 0, "//")) continue;
         if (isSaid(line)) continue;
+        if (isBook(line)) continue;
         s = s[2 .. $];
         while (s.length > 0 && (s[0] == ' ' || s[0] == '-')) s = s[1 .. $];
         while (s.length > 0 && (s[$ - 1] == ' ' || s[$ - 1] == '-')) s = s[0 .. $ - 1];
@@ -358,6 +357,34 @@ string liftProse(string[] block) {
         out_ ~= s;
     }
     return out_;
+}
+
+// "i expect to edit the book of ground by linking it via obsidia"
+// The line naming a case's note in doc/book/: `// book: <name>`. The name is
+// written once here and once as the note's `## ` heading, and nothing derives
+// it, so renaming a symbol or inserting a case moves no note.
+enum BOOK_MARK = "book:";
+
+bool isBook(string line) {
+    auto s = trimLeft(line);
+    if (!startsAt(s, 0, "//")) return false;
+    return startsAt(trimLeft(s[2 .. $]), 0, BOOK_MARK);
+}
+
+string liftBook(string[] block) {
+    foreach (line; block) {
+        if (!isBook(line)) continue;
+        auto s = trimLeft(trimLeft(trimLeft(line)[2 .. $])[BOOK_MARK.length .. $]);
+        size_t e = s.length;
+        while (e > 0 && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r')) e--;
+        return s[0 .. e];
+    }
+    return "";
+}
+
+private size_t bookLine(string[] block, size_t[] nums) {
+    foreach (k, line; block) if (isBook(line)) return nums[k];
+    return nums.length > 0 ? nums[0] : 0;
 }
 
 // What sits between the first two marks on one line.

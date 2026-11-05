@@ -21,7 +21,7 @@ private bool contains(const(char)[] hay, const(char)[] needle) {
 enum r = reapScript("e5f42580-1a2b-4c3d-9e8f-0123456789ab");
 
 // "nothing should be running in terms of rituals or their agents"
-// Proven: `claude stop 422bddec` answered `stopped 422bddec` and kept the tree.
+// book: reap-contains
 static assert(contains(r.text(), "claude stop"),
     "the documented ending, not a signal");
 

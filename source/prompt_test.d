@@ -118,6 +118,7 @@ static assert(bodyOf("m", `{"role":"user","content":"hi"}`, `{"type":"function",
 // What the model answered: its text, or the calls it wants made, read from
 // the gateway's JSON at runtime.
 unittest {
+    // book: prompt-completionOf
     import code.prompt : Completion, completionOf;
     Completion c;
     assert(completionOf(`{"choices":[{"message":{"role":"assistant","content":"earth"}}]}`, c));

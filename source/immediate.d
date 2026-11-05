@@ -1861,8 +1861,7 @@ unittest {
 
 unittest {
     // "it ebing truncated copy is also not preffered"
-    // An exec result carries stdout and stderr, kilobytes of them, and the
-    // reason sat past the 512th byte of the one buffer it was read into.
+    // book: immediate-sqlite3_open
     import db : sqlite3_open, sqlite3_exec, SQLITE_OK, sqlite3_close;
     sqlite3* testDb;
     assert(sqlite3_open(":memory:", &testDb) == SQLITE_OK);

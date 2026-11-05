@@ -211,6 +211,7 @@ unittest {
 
 unittest {
     // "if not, then the playbill is still enabled but mentions that its turned off and mentions how to turn it on (rituals on or rituals enable)"
+    // book: playbill-sqlite3_open
     import ritual : setRituals;
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);

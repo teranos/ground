@@ -104,6 +104,7 @@ static assert(() {
 // The pbt carries it through the parse, or the field above is unreachable.
 import proto : parsePbt;
 
+// book: stop-timingInput
 enum timingInput = `
 scope {
   event: "Stop"
@@ -118,8 +119,7 @@ scope {
 enum timingParsed = parsePbt(timingInput);
 static assert(timingParsed.ctrlPool[0].timing);
 
-// A scope that says nothing about timing leaves it off, rather than picking a
-// default up from somewhere.
+// book: stop-quietInput
 enum quietInput = `
 scope {
   event: "Stop"

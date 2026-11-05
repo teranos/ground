@@ -367,3 +367,18 @@ enum above = extractCases(
 static assert(above.length == 1);
 static assert(above[0].text == "// A case.\nstatic assert(f(1));");
 static assert(above[0].prose == "A case.");
+
+// "i expect to edit the book of ground by linking it via obsidia"
+// A case names its note in doc/book/ with one `// book:` line. The name is not
+// prose, and the line press refuses at is the case's own: the `// book:` line,
+// or the run's first line when it has none.
+enum named = extractCases("module m;\n\n// \"so\"\n// book: m-f\nenum f = `scope {\n}`;\nstatic assert(f.length);\n");
+static assert(named.length == 1);
+static assert(named[0].book == "m-f");
+static assert(named[0].prose == "");
+static assert(named[0].said == `"so"`);
+static assert(named[0].line == 4);
+enum unnamed = extractCases("module m;\n\nenum f = `scope {\n}`;\nstatic assert(f.length);\n");
+static assert(unnamed[0].book == "" && unnamed[0].line == 3);
+enum inTest = extractCases("module m;\n\nunittest {\n    // book: m-g\n    auto x = g();\n    assert(x);\n}\n");
+static assert(inTest[0].book == "m-g" && inTest[0].line == 4);

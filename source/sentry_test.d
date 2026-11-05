@@ -10,8 +10,7 @@ import proto : parsePbt, validateRituals;
 import ritual : flatten, resolveSentry;
 
 // "and also inside of project or ritual, like models { .. }"
-// What goes: the ritual's name as the monitor, the performance id as the
-// check-in, and a status — in_progress at the start, ok or error at the end.
+// book: sentry-globalOnly
 enum globalOnly = `
 sentry {
   dsn: "https://top@o1.ingest.example/1"
@@ -20,8 +19,7 @@ sentry {
 static assert(parsePbt(globalOnly).sentry.present);
 static assert(parsePbt(globalOnly).sentry.dsn == "https://top@o1.ingest.example/1");
 
-// A pbt that says nothing about sentry reports nowhere. There is no default
-// dsn to fall back to: a key is something only the operator can supply.
+// book: sentry-quiet
 enum quiet = `
 rites walk {
   ONE {
@@ -32,6 +30,7 @@ rites walk {
 static assert(!parsePbt(quiet).sentry.present);
 static assert(parsePbt(quiet).sentry.dsn == "");
 
+// book: sentry-src
 enum src = `
 sentry {
   dsn: "https://top@o1.ingest.example/1"
@@ -88,7 +87,7 @@ enum plain = flatten(parsed, 1);
 static assert(resolveSentry(plain.sentry) == "https://proj@o1.ingest.example/2");
 
 // "but for our purposes we will use it only at top level for now, but you may still do the red TDD for all"
-// One block at the top and nothing nearer: every ritual reports to it.
+// book: sentry-topOnlySrc
 enum topOnlySrc = `
 sentry {
   dsn: "https://top@o1.ingest.example/1"
@@ -110,7 +109,7 @@ project {
 enum topOnly = parsePbt(topOnlySrc);
 static assert(resolveSentry(flatten(topOnly, 0).sentry) == "https://top@o1.ingest.example/1");
 
-// No sentry anywhere: nothing is reported, and no host is invented for it.
+// book: sentry-bareSrc
 enum bareSrc = `
 rites walk {
   ONE {
@@ -129,7 +128,7 @@ enum bare = parsePbt(bareSrc);
 static assert(!bare.sentry.present);
 static assert(resolveSentry(flatten(bare, 0).sentry) == "");
 
-// A bare dsn: on a ritual is refused. sentry { } is where it goes.
+// book: sentry-bareDsnSrc
 enum bareDsnSrc = `
 rites walk {
   ONE {
@@ -147,7 +146,7 @@ project {
 `;
 static assert(validateRituals(parsePbt(bareDsnSrc)).text() == "ritual r: unknown field `dsn`");
 
-// A sentry block with no dsn says nothing and is not a report address.
+// book: sentry-emptySrc
 enum emptySrc = `
 sentry {
 }
@@ -155,8 +154,7 @@ sentry {
 static assert(parsePbt(emptySrc).sentry.present);
 static assert(parsePbt(emptySrc).sentry.dsn == "");
 
-// An unknown field inside the block is refused rather than ignored: a
-// misspelled key would otherwise silently report nowhere.
+// book: sentry-unknownFieldSrc
 enum unknownFieldSrc = `
 sentry {
   dns: "https://k@o1.ingest.example/1"
@@ -164,8 +162,7 @@ sentry {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(unknownFieldSrc); }));
 
-// One sentry block at each level. Every pbt is folded into one parse, so a
-// second block anywhere would replace the first without a word.
+// book: sentry-twoGlobalSrc
 enum twoGlobalSrc = `
 sentry {
   dsn: "https://a@o1.ingest.example/1"
@@ -177,6 +174,7 @@ sentry {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(twoGlobalSrc); }));
 
+// book: sentry-twoInProjectSrc
 enum twoInProjectSrc = `
 project {
   path: "/p"
@@ -192,6 +190,7 @@ project {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(twoInProjectSrc); }));
 
+// book: sentry-twoInRitualSrc
 enum twoInRitualSrc = `
 rites walk {
   ONE {
@@ -218,8 +217,7 @@ static assert(countPbt(topOnlySrc).totalProjects == 1);
 static assert(countPbt(src).totalProjects == 1);
 
 // "i want to know what goes to sentry, thats importantto me"
-// Not the output a rite printed, not the agent's words, and no absolute path:
-// a worktree path names whose machine it is, and sentry is off that machine.
+// book: sentry-commentedSrc
 enum commentedSrc = `
 sentry {
   # the key is the operator's, and this block is where it is named
@@ -417,9 +415,7 @@ static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "halted").
 static assert(contains(performanceEnvelope(sendDsn, 1000, "c-1", "c", "aborted").text(), `"level":"warn"`));
 
 // "what also sucks is missing sentry data about this"
-// An ending says what became of the agent. One left running is the failure a
-// person otherwise meets as a machine out of memory, so it is an error even
-// when the ritual itself is done.
+// book: sentry-performanceEnvelope
 enum endedClean = performanceEnvelope(sendDsn, 1000, "c-1", "c", "done", "stopped");
 static assert(contains(endedClean.text(), `"body":"c done"`));
 static assert(contains(endedClean.text(), `"level":"info"`));
@@ -439,6 +435,7 @@ static assert(!contains(began.text(), `"agent":`));
 
 // "A DRIVER CANT EXIT WITHOUT TELLING"
 // "AND THE WAY A RITUAL RUN FINISHED NEEDS TO BE WRITTEN  AND NEEDS TO BE GOING TO SENTRY"
+// book: sentry-performanceEnvelope-2
 enum treeGone = performanceEnvelope(sendDsn, 1000, "c-1", "c", "halted", "", "the tree is gone");
 static assert(contains(treeGone.text(), `"body":"c halted: the tree is gone"`));
 static assert(contains(treeGone.text(), `"level":"error"`));
@@ -568,9 +565,7 @@ static assert(alone[$ - 3 .. $] == "]}\n");
 static assert(logEnvelope("not a dsn", plainItem).text().length == 0);
 
 // "i want to know on a time series if Fable, or Opus or Sonnet was active"
-// An item is closed where it is built and stamped where it is left: the
-// funnel reopens it for the one attribute the builder could not know, the
-// session's model, and closes it again. Stamping an open item is str.
+// book: sentry-stamped
 enum stamped = () { auto it = openItem(1000, "s", "warn", "x"); it.close(); it.stamp("model", "claude-fable-5-1"); return it; }();
 static assert(stamped.text() ==
     `{"timestamp":1000,"trace_id":"` ~ traceId("s").text()

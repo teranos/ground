@@ -264,6 +264,7 @@ unittest {
 
 unittest {
     // "ok, but i want to know this based on recorded metrics in sentry"
+    // book: hooktiming-sqlite3_open
     import db : sqlite3_open, sqlite3_close, sqlite3_exec, applySchema, SQLITE_OK;
     import sentry : Batch;
     import matcher : contains;

@@ -53,9 +53,7 @@ static assert(ctrl(execParsed, 0, 0).exec == "#!/usr/bin/env fish\necho deployin
 enum execBuilt = buildScopes(execParsed, "PostToolUse");
 static assert(execBuilt.items[0].controls[0].exec == "#!/usr/bin/env fish\necho deploying\n");
 
-// Control-level env { } block — the pbt-declarative way to configure the
-// exec child. Same block shape as `project { env { … } }`, but attached to
-// a control. Reads at exec-fire time; the child sees these as env vars.
+// book: proto_exec-execWithEnvInput
 enum execWithEnvInput = `
 scope {
   path: "/QNTX"

@@ -1,4 +1,4 @@
-.PHONY: build sand keep-sand test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder editor ground_hook ground_code ground_sky ground_drive ground_parity
+.PHONY: build sand keep-sand test test-tools test-ug test-mcp install install-ug prune-dub-cache wind ug book annot press binder ground_hook ground_code ground_sky ground_drive ground_parity
 
 PREFIX ?= $(HOME)/.local
 
@@ -174,14 +174,13 @@ test-tools:
 # -J=doc lets the book's own preamble be read at CTFE, so a face the machine
 # resolves rather than the closure fails the build instead of the tag.
 	ldc2 -c -od=/tmp -I=tools -J=doc tools/typeset.d tools/typeset_test.d
-	ldc2 -c -od=/tmp -I=tools tools/cases.d tools/edit.d tools/edit_test.d
-	ldc2 -c -od=/tmp -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d tools/editor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/openapi.d tools/openapi_test.d
 	ldc2 -c -od=/tmp -I=tools tools/floor.d tools/floor_test.d
 	ldc2 -c -od=/tmp -I=tools tools/machine.d tools/machine_test.d
 	ldc2 -c -od=/tmp -I=tools tools/keep.d tools/keep_test.d
 	ldc2 -c -od=/tmp -I=tools tools/stamp.d tools/stamp_test.d
-	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d tools/press_test.d
+	ldc2 -c -od=/tmp -I=tools -I=source tools/press.d tools/cases.d tools/concept.d tools/notes.d source/fmt.d tools/press_test.d
+	ldc2 -c -od=/tmp -I=tools tools/notes.d tools/cases.d tools/notes_test.d
 
 # Same shape for ug/*_test.d.
 test-ug:
@@ -264,19 +263,13 @@ prune-dub-cache:
 # The book is generated from the source it documents, so it cannot describe a
 # ground that does not exist. Both comment kinds are prose: a // line and a
 # /// line reach the page alike.
-press: tools/press.d tools/cases.d tools/concept.d source/fmt.d
-	ldc2 -of=tools/press -I=tools -I=source tools/press.d tools/cases.d tools/concept.d source/fmt.d
+press: tools/press.d tools/cases.d tools/concept.d tools/notes.d source/fmt.d
+	ldc2 -of=tools/press -I=tools -I=source tools/press.d tools/cases.d tools/concept.d tools/notes.d source/fmt.d
 
 # -J=doc lets bind.d carry doc/book.css, so the stylesheet is a file to read
 # and the pages still stand on their own.
 binder: tools/binder.d tools/bind.d doc/tokens.css doc/book.css
 	ldc2 -of=tools/binder -I=tools -J=doc tools/binder.d tools/bind.d
-
-# The notes, editable in a browser and written back into the comment they came
-# from. A note is found again by what it says, at the moment you save it, so
-# nothing here stores a position that the next edit would make wrong.
-editor: tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d doc/tokens.css doc/author.css
-	ldc2 -of=tools/editor -I=tools -I=source -J=doc tools/editor.d tools/edit.d tools/cases.d tools/concept.d source/fmt.d
 
 # One typesetter, and the web copy is bound from what it set. Page 12 on the
 # screen is the sheet carrying 12 on paper, because it is that sheet and not a

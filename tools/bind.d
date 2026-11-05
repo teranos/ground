@@ -166,6 +166,6 @@ private string numeral(size_t n) {
 // A line is placed against its own page, so the page is what it is placed in.
 // "For some reason it feels like I want to be able to look at the CSS separately"
 // "css should be shared. there ought to be a tokens.css"
-// The palette is doc/tokens.css, shared with the author's tool; the rest is
+// The palette is doc/tokens.css; the rest is
 // doc/book.css. Both are read at build, and each page carries its own copy.
 private enum CSS = import("tokens.css") ~ import("book.css");

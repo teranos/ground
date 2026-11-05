@@ -33,6 +33,7 @@ static assert(allRites.length >= 0);
 static assert(allRituals.length >= 0);
 
 // "a ritual consists our of rites"
+// book: proto_ritual-ritesInput
 enum ritesInput = `
 rites parity {
   parity {
@@ -50,6 +51,7 @@ static assert(ritesParsed.rites[0].rites[0].eval == "make parity");
 // "i want the machinery to be interchangable and composable"
 // "to me its eval"
 // "because its evaluated, and its up to the writer of the rite to change default eval behaviour through to: goto: pass: etc"
+// book: proto_ritual-evalInput
 enum evalInput = `
 rites parity {
   parity {
@@ -60,9 +62,7 @@ rites parity {
 enum evalParsed = parsePbt(evalInput);
 static assert(evalParsed.rites[0].rites[0].eval == "make parity");
 
-// "Imagine i wan't to mix Rite and Control in the same Rites block" — which
-// they cannot while one word points at a pattern to match and at a command to
-// run. `cmd` in a rite is refused, not aliased.
+// book: proto_ritual-oldWordInput
 enum oldWordInput = `
 rites parity {
   parity {
@@ -74,7 +74,7 @@ static assert(validateRituals(parsePbt(oldWordInput)).text()
     == "rite parity: `cmd` is a control's word. A rite evaluates: use `eval`");
 
 // "ground uses those exit codes, becaue not all failures are the same failure"
-// — so a rite that writes its own code is refused where a bad `cmd` is.
+// book: proto_ritual-launderInput
 enum launderInput = `
 rites ship {
   OPEN {
@@ -85,6 +85,7 @@ rites ship {
 static assert(validateRituals(parsePbt(launderInput)).text()
     == "rite OPEN: `run` writes its own exit code. Let the tool answer");
 
+// book: proto_ritual-launderEval
 enum launderEval = `
 rites ship {
   CHECK {
@@ -95,7 +96,7 @@ rites ship {
 static assert(validateRituals(parsePbt(launderEval)).text()
     == "rite CHECK: `eval` writes its own exit code. Let the tool answer");
 
-// A rite that leaves its tool to answer passes.
+// book: proto_ritual-cleanInput
 enum cleanInput = `
 rites ship {
   CHECK {
@@ -109,6 +110,7 @@ static assert(validateRituals(parsePbt(cleanInput)).text() == "");
 // not used" — a value handed to a block that declares no such param.
 import proto : warnRituals;
 
+// book: proto_ritual-unusedValueInput
 enum unusedValueInput = `
 rites toss2 {
   FLIP1 {
@@ -127,7 +129,7 @@ static assert(validateRituals(parsePbt(unusedValueInput)).text() == "");
 static assert(warnRituals(parsePbt(unusedValueInput)).text()
     == "ritual r: toss2 declares no param `rig`, so the value is unused\n");
 
-// A param the block does declare is not a warning.
+// book: proto_ritual-usedValueInput
 enum usedValueInput = `
 rites toss {
   params: [rig]
@@ -146,6 +148,7 @@ project {
 static assert(warnRituals(parsePbt(usedValueInput)).text() == "");
 
 // "obviously i would want rites to be able to accept a parameter"
+// book: proto_ritual-paramsInput
 enum paramsInput = `
 rites parity {
   params: [row]
@@ -163,6 +166,7 @@ static assert(paramsParsed.rites[0].riteCount == 1);
 // "1. make parity YES/NO ? 2. commit, push, 3. keep checking ci"
 // "its decided it will be called catch" / "catch: 22"
 // "i think i want goto, not else, goto seems more honest for what it is"
+// book: proto_ritual-catchInput
 enum catchInput = `
 rites boxdeath {
   exists {
@@ -198,8 +202,7 @@ static assert(catchParsed.rites[0].rites[3].catches[0] == 1);
 static assert(catchParsed.rites[0].rites[3].goto_ == "");
 
 // "i meant, from 0 to 1, the gate is from 0 to 1"
-// Shell negation flattens non-zero to 0, so a broken command reads as a
-// pass. Declared instead of inverted.
+// book: proto_ritual-passInput
 enum passInput = `
 rites gone {
   scratch {
@@ -219,8 +222,7 @@ static assert(passParsed.rites[0].rites[1].pass == 0);
 static assert(passParsed.rites[0].rites[1].catches[0] == 1);
 
 // "in case something else comes is fast which does happen sometimes"
-// Seconds ground holds after the Stop has gone back, not before. Nothing is
-// checked in that window; it is the only span a throw-back can be seen in.
+// book: proto_ritual-graceInput
 enum graceInput = `
 rites shipped {
   built {
@@ -242,8 +244,7 @@ static assert(graceParsed.rites[0].rites[0].grace == 6);
 static assert(graceParsed.rites[0].rites[1].grace == 2);
 
 // "before the rite check takes place"
-// wait is spent before the first look, so it is taken after the turn's work
-// has settled. grace is spent after the verdict, so the two never overlap.
+// book: proto_ritual-waitInput
 enum waitInput = `
 rites paced {
   polled {
@@ -269,6 +270,7 @@ static assert(waitParsed.rites[0].rites[0].grace == 2);
 // "i want the thing to no longer deliver by default to both me and hostllm"
 import receiver : Receiver, PARENT, wants;
 
+// book: proto_ritual-toInput
 enum toInput = `
 rites reported {
   loud {
@@ -292,6 +294,7 @@ static assert(wants(toParsed.rites[0].rites[0].to, Receiver.HostLlm));
 static assert(toParsed.rites[0].rites[1].to == Receiver.None);
 
 // "which is to define a CLAUDE.md inline in a ritual"
+// book: proto_ritual-systemInput
 enum systemInput = `
 rites page {
   WRITE {
@@ -320,7 +323,7 @@ static assert(validateRituals(systemParsed).text() == "");
 // A ritual that says nothing carries nothing, and the spawn is unchanged.
 static assert(ritualParsed.rituals[0].system == "");
 
-// A ritual sets its own model, nearer than its project or the top level.
+// book: proto_ritual-ritualModelsInput
 enum ritualModelsInput = `
 rites page {
   WRITE {
@@ -342,8 +345,7 @@ static assert(ritualModelsParsed.rituals[0].models.model == "fable");
 static assert(validateRituals(ritualModelsParsed).text() == "");
 
 
-// A word with a colon that names no field is refused by name, rather than
-// being read as a rites group that does not exist.
+// book: proto_ritual-badFieldInput
 enum badFieldInput = `
 rites page {
   WRITE {
@@ -362,7 +364,7 @@ project {
 static assert(validateRituals(parsePbt(badFieldInput)).text()
     == "ritual campaign: unknown field `sytsem`");
 
-// A code cannot both advance and hold.
+// book: proto_ritual-overlapInput
 enum overlapInput = `
 rites bad {
   both {
@@ -378,6 +380,7 @@ static assert(validateRituals(parsePbt(overlapInput)).text() == "rite both: 1 is
 // "why cant the ritual block be literally inside project for this purpose?"
 // "a ritual is LIVE its active RIGHT NOW, a rite isnt."
 // "how do i set the row param from the ritual"
+// book: proto_ritual-ritualInput
 enum ritualInput = `
 rites parity {
   params: [row]
@@ -424,9 +427,8 @@ static assert(ritualParsed.rituals[0].refs[0].values[0] == "watchers");
 // The example above is well-formed and must validate clean.
 static assert(validateRituals(ritualParsed).text() == "");
 
-// "ok" — rite names unique across every group, so a goto target and a
-// position report both name one thing.
 // "within a rites block, rite should be unique, yes"
+// book: proto_ritual-dupInput
 enum dupInput = `
 rites a {
   shared {
@@ -443,8 +445,7 @@ static assert(validateRituals(parsePbt(dupInput)).text() == "duplicate rite name
 // "so you could have a rite called SLEEP1 in two rites blocks"
 // "Both blocks name FLIP1, SLEEP1, FLIP2, SLEEP2 / i dont see the problem here."
 // "i expect to be able / using vim / press y12[DOWN_ARROW][UP_ARROW]p / change the name of only the rites block / yyp on line 18, a 2 to toss"
-// — a block copied with yyp, only the block renamed, is the authoring this
-// grammar is for.
+// book: proto_ritual-sameNameTwoBlocks
 enum sameNameTwoBlocks = `
 rites toss {
   FLIP1 {
@@ -465,7 +466,7 @@ rites toss2 {
 `;
 static assert(validateRituals(parsePbt(sameNameTwoBlocks)).text() == "");
 
-// A goto that names nothing is a jump into the dark.
+// book: proto_ritual-badGotoInput
 enum badGotoInput = `
 rites a {
   one {
@@ -478,7 +479,7 @@ static assert(validateRituals(parsePbt(badGotoInput)).text() == "goto names no r
 
 // "DISPATCH AND EVAL ARE DIFFERENT THIGNS"
 // "THEY ARENT EVEN IN THE SAME CATEGORY"
-// An eval is a question, a dispatch is not asked at all.
+// book: proto_ritual-bothInput
 enum bothInput = `
 rites a {
   one {
@@ -489,9 +490,7 @@ rites a {
 `;
 static assert(validateRituals(parsePbt(bothInput)).text() == "rite one: dispatch is not asked, so it cannot carry an eval");
 
-// A declared param nobody supplies expands to empty, and an empty grep
-// pattern matches anything — a false pass, which is the one outcome
-// worth failing the build over.
+// book: proto_ritual-missingParamInput
 enum missingParamInput = `
 rites parity {
   params: [row]
@@ -509,7 +508,7 @@ project {
 `;
 static assert(validateRituals(parsePbt(missingParamInput)).text() == "ritual r: parity needs row");
 
-// A ritual naming a group that does not exist.
+// book: proto_ritual-badRefInput
 enum badRefInput = `
 project {
   path: "/p"
@@ -520,8 +519,7 @@ project {
 `;
 static assert(validateRituals(parsePbt(badRefInput)).text() == "ritual r: no rites named absent");
 
-// A real file put through the sand exposed a parse failure these inputs
-// did not: the group's closing brace sits on its own line before a blank.
+// book: proto_ritual-sandShapeInput
 enum sandShapeInput = `
 rites probe {
   params: [row]
@@ -551,9 +549,7 @@ import ritual : flatten;
 
 // "make commit be done by run:"
 // "the ritual could make itself complete itself by asking the agent to commit while its in ask"
-// `branch:` was a project field that named the base of the pull request ground
-// opened on Done. Ground opens none — "i want NO pr to be created if i did not
-// set it" — so a ritual that wants one says --base in the rite that runs gh.
+// book: proto_ritual-noBranchInput
 enum noBranchInput = `
 rites walk {
   one {
@@ -572,8 +568,7 @@ project {
 enum noBranchParsed = parsePbt(noBranchInput);
 static assert(flatten(noBranchParsed, 0).count == 1);
 
-// A project can say which repo it is. Set, every checkout of that repo is this
-// project — the worktree cut this afternoon and the clone made tomorrow.
+// book: proto_ritual-originInput
 enum originInput = `
 project {
   origin: "teranos/QNTX"
@@ -588,8 +583,7 @@ static assert(originParsed.projectCount == 1);
 static assert(originParsed.projects[0].origin == "teranos/QNTX");
 static assert(originParsed.projects[0].path == "/Users/x/teranos/QNTX");
 
-// Saying nothing about a repo leaves origin empty, so a project keyed on a path
-// keeps answering for that path and nothing else.
+// book: proto_ritual-pathOnlyInput
 enum pathOnlyInput = `
 project {
   path: "/Users/x/teranos/laye"
@@ -598,8 +592,7 @@ project {
 static assert(parsePbt(pathOnlyInput).projects[0].origin == "");
 
 // "THE AGENT CANNOT NOT BE SUBJECT TO THE CONTROLS A RITUALS THAT FIRE FOR A GIVEN PROJECT."
-// A control in a project that names a repo belongs to that repo. Firing is the
-// project's property, so the control carries it and no path decides.
+// book: proto_ritual-projectControlInput
 enum projectControlInput = `
 project {
   origin: "teranos/QNTX"
@@ -624,7 +617,7 @@ enum pcBuilt = buildScopes(pcParsed, "PostToolUse");
 static assert(pcBuilt.len == 1, "q-deploy is collected for PostToolUse");
 static assert(pcBuilt.items[0].controls[0].origin == "teranos/QNTX", "and it arrives carrying its repo");
 
-// The real control performs a ritual, and that is the shape that has to work.
+// book: proto_ritual-ritualControlInput
 enum ritualControlInput = `
 rites deployment {
   BRANCH {
@@ -656,8 +649,7 @@ static assert(rcBuilt.len == 1, "and is still collected for it");
 static assert(rcBuilt.items[0].controls[0].origin == "teranos/QNTX");
 static assert(rcBuilt.items[0].controls[0].ritual.length > 0, "carrying the ritual it performs");
 
-// A control in a project with no repo named is unchanged: it fires wherever it
-// did before, and carries no repo of its own.
+// book: proto_ritual-plainControlInput
 enum plainControlInput = `
 project {
   path: "/Users/x/teranos/laye"
@@ -676,6 +668,7 @@ static assert(plainParsed.scopes[0].paths[0] == "/");
 // "its the same ritual. it's just that it has two ways it can unfold, either commit or push"
 // "the ritual should end after the l part is over, unless a push makes it a longer ritual"
 // "part of what seems to trigger the ritual needs to trigger the rites block instead"
+// book: proto_ritual-twoDoorsInput
 enum twoDoorsInput = `
 rites pairing {
   event: "PostToolUse"
@@ -754,6 +747,7 @@ static assert(doorsFiredBy(twoDoors, "PostToolUse", "git status").count == 0);
 static assert(doorsFiredBy(twoDoors, "PreToolUse", "git commit").count == 0, "a door names its event");
 
 // "Rituals are performed in the grove."
+// book: proto_ritual-groveInput
 enum groveInput = `
 rites green {
   built {

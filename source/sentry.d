@@ -688,8 +688,7 @@ Envelope performanceEnvelope(const(char)[] dsn, long unixSeconds, const(char)[] 
 
 unittest {
     // "yes add host"
-    // k's ground and the Mac's report into one project, and nothing they sent
-    // said which machine it came from. Every log and metric does now.
+    // book: sentry-hostName
     import matcher : contains;
     enum dsn = "https://key123@o1.ingest.example/42";
     auto host = hostName();

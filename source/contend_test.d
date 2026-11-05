@@ -43,6 +43,7 @@ private Position seeded() {
 // two drivers running the same rite. A second advance from a stale read must
 // not land: the position it describes is already gone.
 unittest {
+    // book: contend-memDb
     auto db = memDb();
     auto p = seeded();
     assert(writePosition(db, p));

@@ -7,6 +7,7 @@ import proto : parsePbt;
 import ritual : repoRoot, spawnScript;
 import matcher : indexOf;
 
+// book: spawn-src
 enum src = `
 project {
   path: "/home/u/src/proj"
@@ -99,8 +100,7 @@ static assert(both.text() ==
     ~ bound!("p-1"));
 
 // "the same rules for ritual agents should apply to subagents, they should cohere"
-// No effort is named at the start: how hard the model thinks is its own
-// setting, which the usage windows move.
+// book: spawn-indexOf
 static assert(indexOf(model.text(), "--effort") < 0);
 
 // No model resolved is no flag.
@@ -148,6 +148,7 @@ static assert(snug.text().length > 0);
 // "it a high upper bound"
 // "WHEN A RITUAL RUNS IT PICKS UP FROM THE PREVIOUS -BG SESSION"
 // "ITS THE SAME -BG SESSION THAT IS THE SAME ENTITY"
+// book: spawn-spawnScript
 enum again = spawnScript("/r", "", "p-4", "go", "", "", "2f7c2b1f-0762-47b4-8e87-13b41c67be5e");
 static assert(again.text() ==
     "#!/usr/bin/env bash\nset -euo pipefail\ncd '/r'\n"

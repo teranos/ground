@@ -88,6 +88,7 @@ private const(char)[][2] two() {
 // file's path: the session's own subject names where it was started, which is
 // not where the file is.
 unittest {
+    // book: sessiontrail-sqlite3_open
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, attestEventAt, SQLITE_OK;
     sqlite3* db;
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);

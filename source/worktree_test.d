@@ -17,7 +17,7 @@ static assert(branchOf("") == "");
 // "I TELL CLAUDE"
 // "ground ritual tree"
 // "THE AGENT STARTS AND THE WORKTREE IS THERE AND THE AGENT DOES ITS THING THERE"
-// A sibling of the repo: findable, and `git worktree list` names it.
+// book: worktree-worktreePath
 enum p = worktreePath("/home/u/src/proj", "probe");
 static assert(p.text() == "/home/u/src/proj-probe");
 

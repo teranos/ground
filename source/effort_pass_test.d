@@ -93,9 +93,7 @@ static assert(decide(true, "low", "medium", "medium", "high") == Move.move);
 static assert(decide(true, "", "medium", "medium", "high") == Move.give);
 
 // "setting it manuall should override any setting ground puts"
-// Holding the key, and the key says something ground did not write: a person
-// did, and the pin lets go without touching it — whether the window still
-// asks for something or not.
+// book: effort_pass-decide
 static assert(decide(true, "low", "medium", "high", "high") == Move.letGo);
 static assert(decide(true, "", "medium", "high", "high") == Move.letGo);
 static assert(decide(true, "medium", "medium", "xhigh", "high") == Move.letGo);

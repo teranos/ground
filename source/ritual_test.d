@@ -7,7 +7,7 @@ import ritual : Position, RiteState, RitualState, start, step, jump,
                 encodeStates, restore;
 
 // "see where we are INSIDE of the ritual"
-// A ritual that has not run has no history. Every rite is the darker gray.
+// book: ritual-start
 enum fresh = start("probe", 3);
 static assert(fresh.ritual == "probe");
 static assert(fresh.current == 0);
@@ -16,14 +16,14 @@ static assert(fresh.states[0] == RiteState.Never);
 static assert(fresh.states[2] == RiteState.Never);
 
 // "green is passed"
+// book: ritual-step
 enum passedOne = step(fresh, Verdict.Advance);
 static assert(passedOne.states[0] == RiteState.Passed);
 static assert(passedOne.current == 1);
 static assert(passedOne.state == RitualState.Live);
 
 // "so catch means hold, until true" / "lighter gray is pending ran before"
-// A held rite keeps the position and stops being one that never ran, which
-// is the whole difference between the two grays.
+// book: ritual-step-2
 enum held = step(passedOne, Verdict.Hold);
 static assert(held.current == 1);
 static assert(held.states[1] == RiteState.Ran);
@@ -34,7 +34,7 @@ static assert(step(held, Verdict.Hold).current == 1);
 static assert(step(held, Verdict.Hold).states[1] == RiteState.Ran);
 
 // "it ends when it ends, not because i ran ritual stop"
-// The last rite passing is one of the two endings, and it needs no command.
+// book: ritual-step-3
 enum atLast = step(step(held, Verdict.Advance), Verdict.Advance);
 static assert(atLast.current == 3);
 static assert(atLast.state == RitualState.Done);
@@ -52,8 +52,7 @@ static assert(step(halted, Verdict.Advance).state == RitualState.Halted);
 static assert(step(atLast, Verdict.Advance).state == RitualState.Done);
 
 // "i think i want goto, not else, goto seems more honest for what it is"
-// A jump backwards keeps the history, so the line shows what happened rather
-// than pretending it did not.
+// book: ritual-jump
 enum jumped = jump(atLast, 0);
 static assert(jumped.current == 0);
 static assert(jumped.state == RitualState.Live);
@@ -110,6 +109,7 @@ static assert(!restore("r", 0, "+..", RitualState.Live, 4).valid);
 import ritual : abort;
 
 // "ground should take responsibility"
+// book: ritual-abort
 enum stopped = abort(step(fresh, Verdict.Advance));
 static assert(stopped.state == RitualState.Aborted);
 
@@ -129,8 +129,7 @@ import ritual : performanceId;
 
 // "each ritual perfomance occurs in separate named branches"
 // "the name of the branch is not something to key on"
-// The id names the performance and the moment. Two performances of the same
-// ritual are two rows, not one overwriting the other.
+// book: ritual-performanceId
 enum idA = performanceId("probe", 1754400000);
 enum idB = performanceId("probe", 1754400001);
 static assert(idA.text() == "probe-1754400000");

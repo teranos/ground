@@ -11,9 +11,9 @@ import sessionmode : SessionMode;
 static assert(performanceAnswers(true, RitualState.Live, SessionMode.acceptEdits));
 static assert(performanceAnswers(true, RitualState.Live, SessionMode.auto_));
 
-// Manual is the law. A performance in the same tree never lifts it.
 // "manual should not be overwritten by performance being active it makes no sense"
 // "if i have manual on, i expect permission prompts"
+// book: consent-performanceAnswers
 static assert(!performanceAnswers(true, RitualState.Live, SessionMode.manual));
 static assert(!performanceAnswers(true, RitualState.Live, SessionMode.unknown));
 

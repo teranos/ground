@@ -484,7 +484,7 @@ bool isRustProject(const(char)[] cwd) {
 
 unittest {
     // "make sure the did-not-request-kill control doesnt fire for fable"
-    // The pbt names the word; the session's model as ug wrote it is matched on it.
+    // book: control_handlers-modelExempt
     assert(modelExempt("claude-fable-5-1", "fable"));
     assert(modelExempt("claude-fable-5-1", "Fable"));
     assert(!modelExempt("claude-opus-5", "fable"));

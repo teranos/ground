@@ -213,3 +213,11 @@ static assert(chapterOf("noul") == "ritual");
 // What a second fire does is met beside whether a ritual fires at all.
 static assert(chapterOf("regoto") == "ritual");
 static assert(rank("ritual", "regoto") == rank("ritual", "onoff") + 1);
+
+// A subagent runs on the model the models block picks, so its cases and its
+// term are the models chapter's.
+static assert(chapterOf("subagent") == "models");
+
+// nodes.pbt names the node each ground speaks to, a qntx block per node, so its
+// cases are the attestation chapter's, where a qntx block standing alone is.
+static assert(chapterOf("nodeconfig") == "attestation");

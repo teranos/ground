@@ -71,6 +71,7 @@ static assert(() { Sink s; putPlan(s, false, "", 0); return s.slice() == "Plan  
 // days. Inside one window the number only rises, so the highest reading of the
 // current window is the one that is true, whatever arrived last.
 unittest {
+    // book: usagecmd-sqlite3_open
     import db : sqlite3, sqlite3_open, sqlite3_exec, sqlite3_close, applySchema, SQLITE_OK;
     import usagecmd : currentReading;
 

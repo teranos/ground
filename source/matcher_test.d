@@ -743,6 +743,7 @@ unittest {
 
 unittest {
     // "human user quotes should never count towards the consecutive comment run control"
+    // book: matcher-maxCommentRun
     assert(maxCommentRun("// \"one\"\n// a\n// b\n// c") == 3);
     assert(maxCommentRun("# \"one\"\n# \"two\"\n# \"three\"\n# \"four\"") == 0);
     assert(maxCommentRun("// a\n// \"q\"\n// b") == 2);
@@ -750,8 +751,7 @@ unittest {
 
 unittest {
     // "i dont want code comments to be subject to consecutive run"
-    // A commented line that opens a brace block, all inside it and the line
-    // that closes it are code, not prose: they neither count nor carry a run.
+    // book: matcher-maxCommentRun-2
     enum jev = "  # JEV_CHOICE {\n"
         ~ "  #   choice: \"Is this push consequential?\"\n"
         ~ "  #   criteria {\n"

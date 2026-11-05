@@ -140,6 +140,7 @@ static assert(sessionMatches("d", SessionMode.dontAsk));
 static assert(sessionMatches("b", SessionMode.bypassPermissions));
 
 // "a = acceptEdits and or auto"
+// book: posttooluse-sessionMatches
 static assert(sessionMatches("a", SessionMode.acceptEdits));
 static assert(sessionMatches("a", SessionMode.auto_));
 static assert(!sessionMatches("a", SessionMode.manual));
@@ -153,6 +154,7 @@ static assert(sessionMatches("mb", SessionMode.bypassPermissions));
 static assert(!sessionMatches("mb", SessionMode.plan));
 
 // "but you allow both though, in case you want to seprate behaviour to just auto, you can do so by typing auto"
+// book: posttooluse-sessionMatches-2
 static assert(sessionMatches("auto", SessionMode.auto_));
 static assert(!sessionMatches("auto", SessionMode.acceptEdits));
 static assert(sessionMatches("acceptEdits", SessionMode.acceptEdits));

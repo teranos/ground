@@ -10,8 +10,7 @@ import proto : parsePbt, validateRituals;
 import ritual : flatten, resolveModel, ModelInputs, DEFAULT_MODEL;
 
 // "i do want layering"
-// A rule is a condition and the model it picks. Every rule is asked before the
-// plain model, and the first that holds wins.
+// book: models-globalRules
 enum globalRules = `
 models {
   model: "opus"
@@ -23,7 +22,7 @@ static assert(parsePbt(globalRules).models.ruleCount == 2);
 static assert(parsePbt(globalRules).models.rules[0].model == "haiku");
 
 // "i wamt to set model globally to opus by default so all rituals run under that unless otherwise specified"
-// Every ritual runs under this model unless its project or the ritual sets one.
+// book: models-globalDefault
 enum globalDefault = `
 models {
   model: "opus"
@@ -31,6 +30,7 @@ models {
 `;
 static assert(parsePbt(globalDefault).models.model == "opus");
 
+// book: models-src
 enum src = `
 models {
   model: "opus"
@@ -139,8 +139,7 @@ static assert(() {
 }());
 
 // "make the default for ritual runs Sonnet, not Opus"
-// No models anywhere: sonnet. The session that performed it ran on whatever
-// the operator was on, and a walk of rites is not that conversation.
+// book: models-bareSrc
 enum bareSrc = `
 rites walk {
   ONE {
@@ -191,7 +190,7 @@ static assert(() {
 }());
 static assert(() { auto i = quiet(); i.fiveTenths = 50; return resolveModel(flatten(ops, 0).models, i).model == "c"; }());
 
-// A bare model: on a ritual is refused. models { } is where it goes.
+// book: models-bareModelSrc
 enum bareModelSrc = `
 rites walk {
   ONE {
@@ -209,8 +208,7 @@ project {
 `;
 static assert(validateRituals(parsePbt(bareModelSrc)).text() == "ritual r: unknown field `model`");
 
-// One models block at each level. Every pbt is folded into one parse, so a
-// second block anywhere would replace the first without a word.
+// book: models-twoGlobalSrc
 enum twoGlobalSrc = `
 models {
   model: "opus"
@@ -222,6 +220,7 @@ models {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(twoGlobalSrc); }));
 
+// book: models-twoInProjectSrc
 enum twoInProjectSrc = `
 project {
   path: "/p"
@@ -237,6 +236,7 @@ project {
 `;
 static assert(!__traits(compiles, { enum bad = parsePbt(twoInProjectSrc); }));
 
+// book: models-twoInRitualSrc
 enum twoInRitualSrc = `
 rites walk {
   ONE {

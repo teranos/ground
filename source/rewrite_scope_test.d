@@ -46,6 +46,7 @@ static assert(standingRewrite(g, "/x/teranos/ground", "", 0).msg == "taken out")
 static assert(standingRewrite(g, "/x/teranos/ground", "", 2).done);
 
 // "the geology rewrite rule shouldnto apply to clean/"
+// book: rewrite_scope-standingRewrite
 static assert(standingRewrite(g, "/x/clean", "", 0).done);
 static assert(standingRewrite(g, "/x/clean/tools", "", 0).done);
 
@@ -96,6 +97,7 @@ static assert(standingRewrite(g, "/x/teranos/ground", "", 0).keeps.length == 0);
 // The pbt says it as a list beside rewrite.
 import proto : parsePbt;
 
+// book: rewrite_scope-keepInput
 enum keepInput = `
 scope {
   event: "PreToolUse"
@@ -113,6 +115,7 @@ static assert(keepParsed.ctrlPool[0].keepCount == 2);
 static assert(keepParsed.ctrlPool[0].keeps[0] == "https://api.acme.example");
 static assert(keepParsed.ctrlPool[0].keeps[1] == "https://www.acme.example");
 
+// book: rewrite_scope-keepOneInput
 enum keepOneInput = `
 scope {
   event: "PreToolUse"

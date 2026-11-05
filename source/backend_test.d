@@ -6,9 +6,7 @@ import proto : parsePbt;
 import backend : postings, unbacked;
 
 // "no double or split config, they all need to go to the same call from the same token"
-// Alice's hygrometer server attests its readings; a routing table is written at
-// the top level; coinflip's heads says nothing of a node. All of it goes to the
-// one node, with the one token.
+// book: backend-fanInput
 enum fanInput = `
 qntx {
   url: "https://qntx.alice.example"
@@ -50,18 +48,16 @@ static assert(fan.items[1].token == "~/.qntx/ground-token");
 static assert(unbacked(fanParsed) == "");
 
 // "we use the qntx openrouter plugin"
-// The model ground code prompts through the node's gateway is the node's block's.
+// book: backend-fanParsed
 static assert(fanParsed.qntx.model == "openai/gpt-4o-mini");
 
 // "prompt q for now"
-// The gateway is the node a prompt goes through; named, it is not the node the
-// attestations go to. Unnamed, it is.
+// book: backend-fanParsed-2
 static assert(fanParsed.qntx.gateway == "https://gateway.alice.example");
 static assert(parsePbt(untokenedInput).qntx.gateway == "");
 
 // "i really just have one qntx token"
-// A node named without a token file is spoken to with the one ground attest
-// always read: QNTX_TOKEN, then ~/.qntx/token.
+// book: backend-untokenedInput
 enum untokenedInput = `
 qntx {
   url: "http://localhost:8771"
@@ -76,8 +72,7 @@ enum untokened = postings(parsePbt(untokenedInput));
 static assert(untokened.len == 1);
 static assert(untokened.items[0].url == "http://localhost:8771" && untokened.items[0].token == "");
 
-// A coin thrown with no node named anywhere lands nowhere. The build says
-// which coin, rather than posting it nowhere in silence.
+// book: backend-strandedInput
 enum strandedInput = `
 project {
   origin: "coinflip/heads"

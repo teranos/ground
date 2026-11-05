@@ -8,8 +8,7 @@ import git : visibilityIn;
 // "the rewrite rule should apply to any repo i work in that is public but not in private repo's"
 // "i want this to be a property of ground instead"
 
-// A scope says it stands in public repositories. Not a path: a fact ground
-// establishes about the repository the write goes into.
+// book: public-publicInput
 enum publicInput = `
 scope {
   public: true
@@ -26,7 +25,7 @@ enum publicParsed = parsePbt(publicInput);
 static assert(publicParsed.scopeCount == 1);
 static assert(publicParsed.scopes[0].publicOnly);
 
-// A scope that says nothing about it stands everywhere, as before.
+// book: public-quietInput
 enum quietInput = `
 scope {
   event: "PreToolUse"

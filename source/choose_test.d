@@ -6,7 +6,7 @@ module choose_test;
 import proto : parsePbt;
 import ritual.resolve : chooseRitual;
 
-// Four groups, one rite each, for four projects to name.
+// book: choose-groups
 enum groups = `
 rites one {
   A {
@@ -32,9 +32,7 @@ rites four {
 static assert(parsePbt(groups).ritesCount == 4);
 
 // "i want to specify a ritual"
-// Four project blocks and no more: `ParseResult.projects` is sized from the
-// pbt files wind finds plus four headroom, so four is the floor on a machine
-// that has none. A fifth passed here and failed in CI.
+// book: choose-projects
 enum projects = `
 project {
   path: "/p"
@@ -89,6 +87,7 @@ static assert(chooseRitual(parsed, "zulu", "").ok);
 static assert(parsed.projects[chooseRitual(parsed, "zulu", "").projectIdx].name == "moon");
 
 // "# Just the project name, in case it has only a single ritual."
+// book: choose-chooseRitual
 static assert(chooseRitual(parsed, "tightgrove", "").ok);
 static assert(parsed.rituals[chooseRitual(parsed, "tightgrove", "").ritualIdx].name == "sun");
 
@@ -99,6 +98,7 @@ static assert(!chooseRitual(parsed, "busy", "").ok);
 static assert(!chooseRitual(parsed, "moon", "").ok);
 
 // "# Ritual set explicitly, in case two or more rituals exist in project"
+// book: choose-chooseRitual-2
 static assert(chooseRitual(parsed, "tightgrove", "sun").ok);
 static assert(chooseRitual(parsed, "tightgrove", "sun").projectIdx
               != chooseRitual(parsed, "", "sun").projectIdx);
@@ -107,7 +107,7 @@ static assert(chooseRitual(parsed, "tightgrove", "sun").projectIdx
 static assert(!chooseRitual(parsed, "tightgrove", "moon").ok);
 
 // "the unnamed one actually wins, and the named one is the explicit edge case"
-// Both the unnamed project and tightgrove hold a ritual called sun.
+// book: choose-chooseRitual-3
 static assert(chooseRitual(parsed, "sun", "").ok);
 static assert(parsed.projects[chooseRitual(parsed, "sun", "").projectIdx].name.length == 0);
 

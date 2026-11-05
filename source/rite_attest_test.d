@@ -40,7 +40,7 @@ static assert(c.text() ==
     ~ `"verdict":"advance","code":0,"output":"a\tb\rc"}`);
 
 // "IF YOU WANT TO BE HOENST ABOUT IT IT SHOULD ALWAYS BE ATTESTED"
-// A Jev rite carries the size of the diff, asked about or not.
+// book: rite_attest-riteAttributes
 enum j = riteAttributes("q-deploy-1", "q-deploy", "JEV_CHOICE", Verdict.Advance, 0, "", 342);
 static assert(j.text() ==
     `{"performance":"q-deploy-1","ritual":"q-deploy","rite":"JEV_CHOICE",`

@@ -204,6 +204,7 @@ unittest {
 
 import ritual : MAX_GOTOS, MAX_EVALS, RitualState;
 
+// book: advance-loopSrc
 enum loopSrc = `
 rites spin {
   HERE {
@@ -228,6 +229,7 @@ static assert(loopFlat.maxGoto == MAX_GOTOS, "a project that says nothing gets t
 
 // "let bound it to max 16 and make it say clearly that the goto can only be invoked at most 16 times in a single ritual"
 // "let's make it settable on a project { }"
+// book: advance-boundSrc
 enum boundSrc = `
 rites spin2 {
   THERE {
@@ -295,6 +297,7 @@ enum stuckFlat = flatten(parsePbt(stuckSrc), 0);
 unittest {
     // "i say bound eval to 16 as well if its the same eval"
     // "if we do eval 16 times there is something wrong with how the ritual or rite is designed probably"
+    // book: advance-memDb
     auto db = memDb();
     auto p = start("asking", stuckFlat.count);
     p.id = "stuck-1";

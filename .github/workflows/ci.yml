@@ -94,6 +94,9 @@
         },
         {
           "run": "nix develop .#default --command sh -c 'make test-tools'"
+        },
+        {
+          "run": "nix develop .#default --command sh -c 'make press && ./tools/press'"
         }
       ],
       "strategy": {

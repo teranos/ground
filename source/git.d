@@ -311,8 +311,7 @@ unittest {
 
 unittest {
     // "gitignored files should be excempt from the golem rewrite rule"
-    // check-ignore prints the path it was asked about when git ignores it, and
-    // nothing at all when it does not.
+    // book: git-ignoredFromCheck
     assert(ignoredFromCheck("controls/dispatch.pbt\n"));
     assert(ignoredFromCheck("/home/u/proj/controls/dispatch.pbt\n"));
     assert(!ignoredFromCheck(""));

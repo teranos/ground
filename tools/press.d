@@ -14,6 +14,9 @@ import cases : extractCases, Case, splitLines, unmark, flow,
                extractGlossary, extractCommandBlocks, Entry;
 import concept : conceptOf, chapters, rank, opener, chapterOf, moduleName, owners, Section, sections;
 import fmt : isCanonical;
+import notes : readNote, Note, CaseRef, joinNotes, flowText, refuseEntry, chapterOfFile;
+import std.file : isDir;
+static import concept;
 
 // Room for the canonical form of one fixture. A page holds 54 lines.
 __gshared char[16384] fmtScratch;
@@ -80,10 +83,25 @@ int main(string[] argv) {
     string[] commands;
     string[] commandFiles;
 
-    // A module's own first heading, kept by subject. A chapter opens on the
-    // one belonging to the module its order names first, so the reader is told
-    // what the concept is before being shown an example of it.
-    string[string] leads;
+    // "i expect to edit the book of ground by linking it via obsidia"
+    // The book's prose is doc/book/<chapter>.md: a chapter's opening, then each
+    // case's note under its name. Only notes directly in the folder are read, as
+    // the vault binds the folder alone.
+    string[][string] openings;
+    Note[] notes;
+    CaseRef[] named;
+    if (!exists("doc/book") || !isDir("doc/book")) {
+        stderr.writeln("press: doc/book/ is not here, and the book's prose is written there. Nothing written.");
+        return 1;
+    }
+    foreach (e; dirEntries("doc/book", SpanMode.shallow).array.sort!((a, b) => a.name < b.name)) {
+        auto why = refuseEntry(e.name, e.isDir, concept.chapters);
+        if (why.length > 0) { refused ~= Refused("", why); continue; }
+        auto nf = readNote(e.name, chapterOfFile(e.name), readText(e.name));
+        foreach (r; nf.refused) refused ~= Refused("", r);
+        openings[chapterOfFile(e.name)] = nf.opening;
+        notes ~= nf.notes;
+    }
 
     Overflow[] overflowing;
 
@@ -112,12 +130,6 @@ int main(string[] argv) {
         auto found = extractCases(text);
         if (found.length == 0) continue;
 
-        foreach (c; found) {
-            if (!c.heading) continue;
-            if (stem(f.name) !in leads) leads[stem(f.name)] = c.text;
-            break;
-        }
-
         // A chapter is a block you can write at the top of a .pbt. A case
         // lands in the chapter its own example is an example of, so a module
         // with no pbt form contributes to no chapter rather than becoming one.
@@ -141,6 +153,7 @@ int main(string[] argv) {
             if (c.pbt.length > 0 && !isCanonical(c.pbt ~ "\n", fmtScratch))
                 refused ~= Refused(f.name, "carries a fixture ground fmt would change: " ~ c.subject);
 
+            named ~= CaseRef(f.name, c.line, ch, c.book);
             if (ch !in chapters) present ~= ch;
             chapters[ch] ~= Placed(rank(ch, stem(f.name)), baseName(f.name), c);
         }
@@ -178,7 +191,7 @@ int main(string[] argv) {
             }
         foreach (e; dirEntries("bin", "*.d", SpanMode.shallow)) {
             auto n = stripExtension(baseName(e.name));
-            if (!contains(binaries, n))
+            if (runsAsBinary(n) && !contains(binaries, n))
                 refused ~= Refused(e.name, "builds " ~ n ~ " and no module shows " ~ n);
         }
     }
@@ -194,10 +207,17 @@ int main(string[] argv) {
         return 1;
     }
 
+    // Every case to its note and every note to its case, or the book says
+    // which and stops: a note joined to nothing is a note nobody reads.
+    foreach (r; joinNotes(named, notes)) refused ~= Refused("", r);
+
     // A term the book cannot place is not filed somewhere plausible. The line
     // was written on purpose, so the book says which one and stops.
     if (refused.length > 0) {
-        foreach (r; refused) stderr.writefln("press: %s %s", r.file, r.why);
+        foreach (r; refused) {
+            if (r.file.length > 0) stderr.writefln("press: %s %s", r.file, r.why);
+            else stderr.writefln("press: %s", r.why);
+        }
         stderr.writeln("press: a line the book cannot place. Nothing written.");
         return 1;
     }
@@ -246,11 +266,14 @@ int main(string[] argv) {
         // they were found in instead of trading places on every build.
         auto placed = chapters[o];
         placed.sort!((a, b) => a.rank < b.rank, SwapStrategy.stable);
+        // A case's note is the section under its name, joined above.
+        foreach (ref p; placed)
+            foreach (n; notes) if (n.name == p.c.book) { p.c.prose = flowText(n.lines); break; }
 
-        auto op = opener(o);
         string lead;
-        if (op.length > 0 && op in leads) lead = "\n" ~ escape(flow(leads[op])) ~ "\n";
-        else if (op.length > 0) stderr.writefln("press: %s opens %s and says nothing", op, o);
+        auto opening = o in openings ? flowText(*(o in openings)) : "";
+        if (opening.length > 0) lead = "\n" ~ escape(opening) ~ "\n";
+        else if (opener(o).length > 0) stderr.writefln("press: doc/book/%s.md opens %s on nothing", o, o);
 
         write("doc/tex/" ~ o ~ ".tex", chapterHead(o, lead) ~ chapterBody(o, placed));
         list ~= "\\input{tex/" ~ o ~ "}\n";
@@ -414,6 +437,12 @@ string[] binariesOf(string block) {
         out_ ~= line[0 .. e];
     }
     return out_;
+}
+
+// A file under bin/ is a binary of its own when it is named the way a block
+// runs one, ground_<name>. bin/sand.d builds the sand library an engine loads.
+bool runsAsBinary(string stem) {
+    return stem.length > 7 && stem[0 .. 7] == "ground_";
 }
 
 // The binary itself first, then the blocks as main.d lists their verbs,

@@ -36,9 +36,6 @@ ground events
 ground fmt controls/controls.pbt
 ground fmt source/proto_test.d
 
-# the author's tool, in the ground checkout: every case editable in a browser
-ground author
-
 # how much of each rate limit is used, and how the week got there:
 ground usage
 
@@ -63,16 +60,18 @@ ground_hook agy PreToolUse
 
 # an ACP client runs it and speaks JSON-RPC on its stdin and stdout:
 ground_code
+# sign in to the qntx block's node: approve the link it prints with your passkey:
+ground_code login
 
 # run by Claude Code and codex on every hook event, the event's JSON on stdin:
 ground_hook < event.json
 
 # what ground covers of each pinned agent's hook contract, per event and version,
-# and what ground code covers of the pinned ACP schema, per method:
+# and what ground code and libacp's client side cover of the pinned ACP schema, per method:
 ground_parity
 # one event's keys per version, covered and missing:
 ground_parity PostToolUse
-# one ACP method's, read and written by ground code:
+# one ACP method's, read and written by ground code, and by libacp's client side:
 ground_parity session/prompt
 
 # the driver a ritual forks, one per performance, by the performance id:
