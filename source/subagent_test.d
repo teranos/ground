@@ -2,7 +2,8 @@ module subagent_test;
 
 // BOOK_GLOSSARY **Subagent**: An agent a session starts with the Agent tool; it runs on the model the models block picks, at that model's own effort setting, as a ritual's agent does.
 
-import subagent : agentInput, Set, subagentsDir, namedNoModel, isAgent;
+import subagent : agentInput, Set, subagentsDir, namedNoModel, isAgent, sentTo;
+import parse : extractToolInputRegion;
 import proto : parsePbt;
 import ritual : modelsAt, resolveModel, ModelInputs, DEFAULT_MODEL;
 
@@ -146,3 +147,19 @@ static assert(isAgent("agent-a1b2c3.meta.json", defaults, "OTEL agent: items one
 static assert(!isAgent("agent-a1b2c3.meta.json", defaults, "a1b2"));
 static assert(!isAgent("agent-a1b2c3.jsonl", defaults, "a1b2c3"));
 static assert(!isAgent("agent-a1b2c3.meta.json", defaults, "main"));
+
+// A key and a value are what their JSON says, however it is spelled.
+static assert(told(`{"prompt":"p","subagent_type":"\u0066ork"}`, "opus").fork);
+static assert(set(`{"prompt":"p","\u0065ffort":"max","m\u006fdel":"fable"}`, "opus")
+    == `{"prompt":"p","model":"opus"}`);
+
+// A brace inside a string is text: the input of a call is the whole object.
+static assert(extractToolInputRegion(`{"tool_name":"Agent","tool_input":{"prompt":"close with } here","description":"d"},"tool_use_id":"t"}`)
+    == `{"prompt":"close with } here","description":"d"}`);
+static assert(extractToolInputRegion(`{"tool_input":{"message":"a \" } \\","to":"x"},"tool_use_id":"t"}`)
+    == `{"message":"a \" } \\","to":"x"}`);
+
+// Who a message is sent to is the call's own key, and no text inside the message.
+static assert(() { char[64] b = 0; return sentTo(`{"message":"say \"to\":\"main\" }","to":"OTEL agent"}`, b[]) == "OTEL agent"; }());
+static assert(() { char[64] b = 0; return sentTo(`{"message":"m","t\u006f":"a1b2"}`, b[]) == "a1b2"; }());
+static assert(() { char[64] b = 0; return sentTo(`{"message":"m"}`, b[]).length == 0; }());

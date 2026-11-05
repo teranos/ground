@@ -66,10 +66,57 @@ private size_t afterValue(const(char)[] s, size_t i) {
     return i > start ? i : NONE;
 }
 
+private int hexOf(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// The text a JSON string holds, its escapes read, into buf. Empty for what is
+// no string and for one that does not fit: a key spelled with an escape is the
+// key it spells.
+private const(char)[] textOf(const(char)[] raw, char[] buf) {
+    if (raw.length < 2 || raw[0] != '"' || raw[$ - 1] != '"') return buf[0 .. 0];
+    auto s = raw[1 .. $ - 1];
+    size_t n = 0;
+    bool over = false;
+    void put(char c) { if (n < buf.length) buf[n++] = c; else over = true; }
+    size_t i = 0;
+    while (i < s.length) {
+        if (s[i] != '\\') { put(s[i++]); continue; }
+        if (i + 1 >= s.length) return buf[0 .. 0];
+        auto e = s[i + 1];
+        i += 2;
+        switch (e) {
+            case 'n': put('\n'); break;
+            case 't': put('\t'); break;
+            case 'r': put('\r'); break;
+            case 'b': put('\b'); break;
+            case 'f': put('\f'); break;
+            case 'u':
+                if (i + 4 > s.length) return buf[0 .. 0];
+                uint cp = 0;
+                foreach (k; 0 .. 4) {
+                    auto h = hexOf(s[i + k]);
+                    if (h < 0) return buf[0 .. 0];
+                    cp = cp * 16 + cast(uint) h;
+                }
+                i += 4;
+                if (cp < 0x80) put(cast(char) cp);
+                else if (cp < 0x800) { put(cast(char)(0xC0 | (cp >> 6))); put(cast(char)(0x80 | (cp & 0x3F))); }
+                else { put(cast(char)(0xE0 | (cp >> 12))); put(cast(char)(0x80 | ((cp >> 6) & 0x3F))); put(cast(char)(0x80 | (cp & 0x3F))); }
+                break;
+            default: put(e); break;
+        }
+    }
+    return over ? buf[0 .. 0] : buf[0 .. n];
+}
+
 // Whether a value is the string wanted, and nothing else.
 private bool isString(const(char)[] val, const(char)[] want) {
-    return val.length == want.length + 2 && val[0] == '"' && val[$ - 1] == '"'
-        && val[1 .. $ - 1] == want;
+    char[64] buf = 0;
+    return want.length > 0 && textOf(val, buf[]) == want;
 }
 
 /// The input of an Agent call with its model set to the one picked and no
@@ -103,7 +150,8 @@ Set agentInput(const(char)[] region, const(char)[] model, char[] dest) {
         auto keyStart = i;
         auto keyEnd = afterString(region, i);
         if (keyEnd == NONE) return none;
-        auto key = region[keyStart + 1 .. keyEnd - 1];
+        char[64] keyBuf = 0;
+        auto key = textOf(region[keyStart .. keyEnd], keyBuf[]);
 
         i = skipWs(region, keyEnd);
         if (i >= region.length || region[i] != ':') return none;
@@ -147,6 +195,32 @@ Set agentInput(const(char)[] region, const(char)[] model, char[] dest) {
     // picked is the call already being what was picked.
     r.changed = !(models == 1 && modelIs) || efforts > 0;
     return r;
+}
+
+/// Who a SendMessage is sent to: the call's own `to`, and no text inside its
+/// message. Empty when the call names none, and for what is no object.
+const(char)[] sentTo(const(char)[] region, char[] buf) {
+    auto i = skipWs(region, 0);
+    if (i >= region.length || region[i] != '{') return buf[0 .. 0];
+    i++;
+    while (true) {
+        i = skipWs(region, i);
+        if (i >= region.length || region[i] == '}') return buf[0 .. 0];
+        if (region[i] == ',') { i++; continue; }
+        if (region[i] != '"') return buf[0 .. 0];
+        auto keyStart = i;
+        auto keyEnd = afterString(region, i);
+        if (keyEnd == NONE) return buf[0 .. 0];
+        char[64] keyBuf = 0;
+        auto key = textOf(region[keyStart .. keyEnd], keyBuf[]);
+        i = skipWs(region, keyEnd);
+        if (i >= region.length || region[i] != ':') return buf[0 .. 0];
+        auto valStart = skipWs(region, i + 1);
+        auto valEnd = afterValue(region, valStart);
+        if (valEnd == NONE) return buf[0 .. 0];
+        if (key == "to") return textOf(region[valStart .. valEnd], buf);
+        i = valEnd;
+    }
 }
 
 /// Where a session keeps its notes of the subagents it started: beside its

@@ -454,8 +454,8 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 // SendMessage is refused, when it is to one started on its session's own;
 // empty for every other message.
 const(char)[] resumesOnItsSessions(const(char)[] input) {
-    import parse : extractTranscriptPath, extractToolInputRegion, extractJsonString;
-    import subagent : subagentsDir, namedNoModel, isAgent;
+    import parse : extractTranscriptPath, extractToolInputRegion;
+    import subagent : subagentsDir, namedNoModel, isAgent, sentTo;
     import core.sys.posix.dirent : opendir, readdir, closedir;
     import core.sys.posix.fcntl : open, O_RDONLY;
     import core.sys.posix.unistd : read, close;
@@ -463,8 +463,8 @@ const(char)[] resumesOnItsSessions(const(char)[] input) {
     auto region = extractToolInputRegion(input);
     if (region is null) return "";
     __gshared char[512] toBuf = 0;
-    auto to = extractJsonString(region, `"to"`, &toBuf[0], toBuf.length);
-    if (to is null) return "";
+    auto to = sentTo(region, toBuf[]);
+    if (to.length == 0) return "";
 
     __gshared char[4096] dirBuf = 0;
     auto dirPath = subagentsDir(extractTranscriptPath(input), dirBuf[0 .. $ - 1]);
