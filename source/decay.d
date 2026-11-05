@@ -36,9 +36,16 @@ enum STRIP_SUBAGENT = "UPDATE attestations SET attributes = json_object("
     ~ "AND created_at < datetime('now', '-7 days') "
     ~ "AND json_extract(attributes, '$.decayed') IS NULL\0";
 
+// Every timing row by its age, built by decay as the undecayed index is: the one read of every
+// row that building it costs is decay's, which make install runs, and not a hook's.
+enum TIMING_AGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_timing_created ON timing(created_at)\0";
+
 // 3. Delete timing rows > 30 days, once sentry has them. Unshipped rows
 // are the record still, and the watcher ships them in its own time.
-enum DELETE_TIMING = "DELETE FROM timing WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
+// By their age: through idx_timing_shipped it read every shipped row, nearly all of them, to find the
+// old ones, and held the write lock for all of it.
+enum DELETE_TIMING = "DELETE FROM timing INDEXED BY idx_timing_created "
+    ~ "WHERE created_at < datetime('now', '-30 days') AND shipped_at > 0\0";
 
 // 4. Immediate rows nobody claimed in seven days, and their receipts, once the node has them: a session
 // that ended marks nothing, so its rows stayed pending, 11,297 of them on 2026-09-22, 695ms a sky pass.
@@ -65,6 +72,7 @@ private bool step(sqlite3* db, string sql, string what) {
 
 int decayDb(sqlite3* db) {
     if (!step(db, UNDECAYED_INDEX, "the index of rows not yet decayed")) return 1;
+    if (!step(db, TIMING_AGE_INDEX, "the index of timing rows by their age")) return 1;
     long beforeSize = dbPageSize(db);
 
     if (!step(db, STRIP_TOOL_USE, "stripping PostToolUse/PreToolUse")) return 1;
@@ -408,5 +416,30 @@ unittest {
     assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
     // No schema: the first step, the index on attestations, has no table to stand on.
     assert(decayDb(db) == 1);
+    sqlite3_close(db);
+}
+
+// Deleting old timing rows reads the old rows only: through idx_timing_shipped it read every shipped
+// row, 179,951 of 179,952 on 2026-11-05, to delete none, holding the write lock for it. Under a build's
+// memory pressure that hold reached 6.1 s, past the 5 s a hook waits.
+unittest {
+    import db : sqlite3_open, applySchema;
+    import scan : indexOf;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    assert(sqlite3_exec(db, TIMING_AGE_INDEX.ptr, null, null, null) == SQLITE_OK);
+    enum plan = "EXPLAIN QUERY PLAN " ~ DELETE_TIMING;
+    sqlite3_stmt* stmt;
+    assert(sqlite3_prepare_v2(db, plan.ptr, -1, &stmt, null) == SQLITE_OK);
+    bool byAge = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto detail = sqlite3_column_text(stmt, 3);
+        size_t n = 0;
+        while (detail[n] != 0) n++;
+        if (indexOf(detail[0 .. n], "idx_timing_created (created_at<?)") >= 0) byAge = true;
+    }
+    sqlite3_finalize(stmt);
+    assert(byAge, "the old timing rows are found by their age");
     sqlite3_close(db);
 }
