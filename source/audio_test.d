@@ -1,9 +1,9 @@
 module audio_test;
 
-// "Agent supports ContentBlock::Audio": the audio a client puts in a prompt is
-// read, given to the model as the gateway takes audio, an input_audio part
-// holding its base64 data and its format, and told back with the rest of the
-// conversation.
+// 「[Opus 5.5] "Agent supports ContentBlock::Audio": the audio a client puts in a prompt is」
+// 「[Opus 5.5] read, given to the model as the gateway takes audio, an input_audio part」
+// 「[Opus 5.5] holding its base64 data and its format, and told back with the rest of the」
+// 「[Opus 5.5] conversation.」
 
 import code;
 import code.prompt : promptText, Blocks, userMessage, replayHistory, audioFormat;
@@ -12,7 +12,7 @@ import matcher : indexOf;
 
 enum WAV = "UklGRiQAAABXQVZF";
 
-// The prompt's audio, each a mimeType and its data, ended by a NUL, in order.
+// 「[Opus 5.5] The prompt's audio, each a mimeType and its data, ended by a NUL, in order.」
 unittest {
     Reply text, other, links, embedded, images, audio, said;
     scope(exit) { text.dispose(); other.dispose(); links.dispose(); embedded.dispose(); images.dispose(); audio.dispose(); said.dispose(); }
@@ -24,9 +24,9 @@ unittest {
     assert(audio.slice() == "audio/wav\0" ~ WAV ~ "\0");
 }
 
-// The gateway names audio by format, "wav, mp3, flac, m4a, ogg, aiff, aac",
-// where ACP names it by mimeType: each type the formats are known by, and
-// none for a type ground code knows no format of.
+// 「[Opus 5.5] The gateway names audio by format, "wav, mp3, flac, m4a, ogg, aiff, aac",」
+// 「[Opus 5.5] where ACP names it by mimeType: each type the formats are known by, and」
+// 「[Opus 5.5] none for a type ground code knows no format of.」
 unittest {
     assert(audioFormat("audio/wav") == "wav");
     assert(audioFormat("audio/x-wav") == "wav");
@@ -41,8 +41,8 @@ unittest {
     assert(audioFormat("image/png") is null);
 }
 
-// The user's words, then their images, then their audio, as the gateway takes
-// them: "type":"input_audio", its data "Base64 encoded audio data" and its format.
+// 「[Opus 5.5] The user's words, then their images, then their audio, as the gateway takes」
+// 「[Opus 5.5] them: "type":"input_audio", its data "Base64 encoded audio data" and its format.」
 unittest {
     Reply h;
     scope(exit) h.dispose();
@@ -55,7 +55,7 @@ unittest {
         ~ `{"type":"input_audio","input_audio":{"data":"SUQz","format":"mp3"}}]}`);
 }
 
-// Told back on session/load as audio, by the type its format is named for.
+// 「[Opus 5.5] Told back on session/load as audio, by the type its format is named for.」
 unittest {
     Reply told;
     scope(exit) told.dispose();
@@ -67,7 +67,7 @@ unittest {
         ~ `{"sessionUpdate":"user_message_chunk","content":{"type":"audio","mimeType":"audio/wav","data":"` ~ WAV ~ `"}}` ~ "\n");
 }
 
-// "Other variants must be explicitly opted in to": ground code opts in to audio.
+// 「[Opus 5.5] "Other variants must be explicitly opted in to": ground code opts in to audio.」
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true;
     Reply r;
@@ -76,8 +76,8 @@ unittest {
     assert(indexOf(r.slice(), `"promptCapabilities":{"embeddedContext":true,"image":true,"audio":true}`) >= 0);
 }
 
-// Audio whose mimeType names no format the gateway takes, or whose data is not
-// base64, is refused by what is wrong with it, before the model is asked.
+// 「[Opus 5.5] Audio whose mimeType names no format the gateway takes, or whose data is not」
+// 「[Opus 5.5] base64, is refused by what is wrong with it, before the model is asked.」
 unittest {
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.contextSize = 200_000;
@@ -95,8 +95,8 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
 }
 
-// A turn with audio: the gateway is asked with the audio in the user's
-// message, and the history keeps it.
+// 「[Opus 5.5] A turn with audio: the gateway is asked with the audio in the user's」
+// 「[Opus 5.5] message, and the history keeps it.」
 version (Posix) unittest {
     import core.sys.posix.unistd : pipe, write, close, fork, _exit, read, dup, dup2;
     import core.sys.posix.sys.socket : socket, bind, listen, accept, getsockname, sockaddr, socklen_t, AF_INET, SOCK_STREAM;
