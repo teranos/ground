@@ -39,6 +39,65 @@ void cometUrlInto(ref ZBuf url, const(char)[] node, const(char)[] origin) {
     url.putUint(SAND_ABI);
 }
 
+// What the engine was built from, as wind stamped it (tools/wind.d stampVersion): its version, and
+// HEAD's whole id beside it, empty where the tree was no repository.
+enum VERSION = import(".version");
+enum REV = import(".rev");
+
+// "1. the 2nd"
+/// The ground revision a version names: git describe's commit after -g, a tag or a commit alone,
+/// or the one after "comet" in a comet's version. Empty for none, and for what a URL would read as
+/// more than a revision.
+const(char)[] groundRevOf(const(char)[] version_) {
+    size_t end = 0;
+    while (end < version_.length && version_[end] != '\n' && version_[end] != ' ') end++;
+    auto word = version_[0 .. end];
+    if (word == "comet" && end < version_.length && version_[end] == ' ') {
+        auto rest = version_[end + 1 .. $];
+        size_t e = 0;
+        while (e < rest.length && rest[e] != '\n' && rest[e] != ' ') e++;
+        word = rest[0 .. e];
+    } else if (end < version_.length && version_[end] == ' ') return version_[0 .. 0];
+    foreach (c; word) {
+        auto ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+            || c == '.' || c == '_' || c == '-';
+        if (!ok) return version_[0 .. 0];
+    }
+    // v0.19.1-880-g23a58f7: the commit is what follows the last -g, when only hex follows it.
+    foreach_reverse (i; 0 .. word.length) {
+        if (word[i] != '-') continue;
+        if (i + 2 < word.length && word[i + 1] == 'g') {
+            auto hex = word[i + 2 .. $];
+            bool all = true;
+            foreach (c; hex) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) all = false;
+            if (all) return hex;
+        }
+        break;
+    }
+    return word;
+}
+
+// A commit's whole id, 40 hex, as wind stamps it with a newline; empty for anything else.
+private const(char)[] wholeId(const(char)[] stamped) {
+    if (stamped.length > 0 && stamped[$ - 1] == '\n') stamped = stamped[0 .. $ - 1];
+    if (stamped.length != 40) return stamped[0 .. 0];
+    foreach (c; stamped) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return stamped[0 .. 0];
+    return stamped;
+}
+
+/// The ask for the digest of origin's comet, into url: the comet's url, and the ground this
+/// engine was built from: the commit wind stamped when it is a whole id, else what the version names.
+void cometAskInto(ref ZBuf url, const(char)[] node, const(char)[] origin, const(char)[] version_,
+                  const(char)[] stamped) {
+    cometUrlInto(url, node, origin);
+    url.put("?digest");
+    auto rev = wholeId(stamped);
+    if (rev.length == 0) rev = groundRevOf(version_);
+    if (rev.length == 0) return;
+    url.put("&ground=");
+    url.put(rev);
+}
+
 /// What a pass asking the node for this repository's comet came to.
 enum Landed {
     none,    // the node keeps no comet for this repository on this platform
@@ -72,7 +131,7 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     __gshared ZBuf url;
     cometUrlInto(url, node, origin);
     auto bare = url.len;
-    url.put("?digest");
+    cometAskInto(url, node, origin, VERSION, REV);
 
     __gshared char[ANSWER_BYTES] answer = 0;
     auto asked = httpGet(url.slice(), token, answer[]);

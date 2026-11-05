@@ -30,6 +30,7 @@ ug/ug
 
 # Generated
 .version
+.rev
 .builddate
 ground.db
 .ctfe/*

@@ -14,22 +14,27 @@ import std.string : indexOf, splitLines, strip;
 import filelist : renderFileList;
 import openapi : renderRoutes;
 import libgit2 : Repo;
+import stamp : revStamp;
 
-// What `git describe --tags --always` printed into .version, read by libgit2.
-// Nothing to describe leaves it empty, as the redirect that wrote it did.
+// What `git describe --tags --always` printed into .version, read by libgit2, and HEAD's whole id
+// into .rev: the engine names that commit when it asks for its comet (source/comet.d), where a
+// describe string can be a tag that only looks like a commit. Nothing to describe leaves each empty.
 void stampVersion() {
     Repo g;
     char[256] buf;
     // A tree that is no repository keeps the .version its builder wrote: a comet's, by the node.
     if (!g.open(".")) {
         if (!exists(".version")) write(".version", "");
+        write(".rev", revStamp(false, null));
         return;
     }
     string stamp = "";
     auto d = g.describeHead(buf[]);
     if (d !is null) stamp = d.idup ~ "\n";
+    auto rev = revStamp(true, g.headId());
     g.close();
     write(".version", stamp);
+    write(".rev", rev);
 }
 
 // A directory as the filesystem names it, through every symlink: one reached
