@@ -123,7 +123,7 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
     // have would place the agent somewhere the rites are not.
     auto treeName = p.worktree == root ? "" : p.id;
 
-    import ritual.resolve : resolveModel, resolveEffort, ModelInputs;
+    import ritual.resolve : resolveModel, ModelInputs;
     ModelInputs inputs;
     const(char)[] resume;
     {
@@ -144,8 +144,7 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
                   0, 1, cast(string) p.parent, cast(string) p.ritual, "", "",
                   cast(string) choice.missing);
 
-    auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system, model, resume,
-                              resolveEffort(flat.models));
+    auto script = spawnScript(root, treeName, p.id, brief.text(), flat.system, model, resume);
     // No agent is better than a truncated one: the command that starts it
     // carries the briefing, and half a briefing is a different instruction.
     if (script.text().length == 0 || brief.over) {

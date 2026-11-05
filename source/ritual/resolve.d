@@ -478,13 +478,6 @@ ModelChoice resolveModel(const ParsedModels[3] layers, const ModelInputs i) {
     return c;
 }
 
-// The nearest effort is the one used. A layer that names none does not blank
-// the layer outside it, and none named anywhere is no flag.
-const(char)[] resolveEffort(const ParsedModels[3] layers) {
-    foreach (ref layer; layers) if (layer.effort.length > 0) return layer.effort;
-    return "";
-}
-
 // "the same rules for ritual agents should apply to subagents, they should cohere"
 // The layers a subagent is picked from. It has no ritual, so the nearest is the
 // project its session stands in, the deepest one when several do, and then the

@@ -1,4 +1,5 @@
-/// A subagent runs on the model and the effort the models block picks.
+/// A subagent runs on the model the models block picks, at that model's own
+/// effort setting.
 ///
 /// "the same rules for ritual agents should apply to subagents, they should cohere"
 ///
@@ -71,23 +72,16 @@ private bool isString(const(char)[] val, const(char)[] want) {
         && val[1 .. $ - 1] == want;
 }
 
-/// The input of an Agent call with its model and its effort set to the ones
-/// picked, written into dest. An empty one is left as the call had it. Only the
-/// call's own keys are read: a prompt that quotes one is text.
-Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, char[] dest) {
+/// The input of an Agent call with its model set to the one picked and no
+/// effort of its own, written into dest: how hard the model thinks is that
+/// model's setting, as it is for a ritual's agent. Only the call's own keys
+/// are read: a prompt that quotes one is text.
+Set agentInput(const(char)[] region, const(char)[] model, char[] dest) {
     Set none;
     size_t n = 0;
     bool full = false;
     void putc(char c) { if (n < dest.length) dest[n++] = c; else full = true; }
     void put(const(char)[] t) { foreach (c; t) putc(c); }
-    void putQuoted(const(char)[] t) {
-        putc('"');
-        foreach (c; t) {
-            if (c == '"' || c == '\\') putc('\\');
-            putc(c);
-        }
-        putc('"');
-    }
 
     auto i = skipWs(region, 0);
     if (i >= region.length || region[i] != '{') return none;
@@ -96,7 +90,7 @@ Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, 
 
     bool first = true;
     size_t models = 0, efforts = 0;
-    bool modelIs = false, effortIs = false;
+    bool modelIs = false;
     bool fork = false;
 
     while (true) {
@@ -119,14 +113,13 @@ Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, 
         auto val = region[valStart .. valEnd];
         i = valEnd;
 
-        if (key == "model" && model.length > 0) {
+        if (key == "model") {
             models++;
             modelIs = isString(val, model);
             continue;
         }
-        if (key == "effort" && effort.length > 0) {
+        if (key == "effort") {
             efforts++;
-            effortIs = isString(val, effort);
             continue;
         }
         if (key == "subagent_type" && isString(val, "fork")) fork = true;
@@ -137,19 +130,13 @@ Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, 
     }
     if (skipWs(region, i) != region.length) return none;
 
-    if (model.length > 0) {
-        if (!first) putc(',');
-        first = false;
-        put(`"model":`);
-        putQuoted(model);
+    if (!first) putc(',');
+    put(`"model":"`);
+    foreach (c; model) {
+        if (c == '"' || c == '\\') putc('\\');
+        putc(c);
     }
-    if (effort.length > 0) {
-        if (!first) putc(',');
-        first = false;
-        put(`"effort":`);
-        putQuoted(effort);
-    }
-    putc('}');
+    put(`"}`);
     if (full) return none;
 
     Set r;
@@ -157,9 +144,8 @@ Set agentInput(const(char)[] region, const(char)[] model, const(char)[] effort, 
     r.fit = true;
     r.fork = fork;
     // A key named twice is read by its last, so only one that is the one
-    // wanted is the call already being what was picked.
-    r.changed = (model.length > 0 && !(models == 1 && modelIs))
-        || (effort.length > 0 && !(efforts == 1 && effortIs));
+    // picked is the call already being what was picked.
+    r.changed = !(models == 1 && modelIs) || efforts > 0;
     return r;
 }
 

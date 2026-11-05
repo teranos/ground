@@ -256,9 +256,6 @@ struct ParsedModels {
     string model;
     ModelRule[8] rules;
     size_t ruleCount;
-    // "and agents always on medium effort please"
-    // How hard what runs on the model thinks. Empty is the next layer out.
-    string effort;
 }
 
 // The one place a dsn is set, at the top level, in a project or in a ritual.
@@ -1404,11 +1401,6 @@ ParsedModels parseModels(ref string input, ref size_t pos) {
             }
             pendingInput = key;
             pendingValue = val;
-        } else if (key == "effort") {
-            assert(pendingInput.length == 0, "a models rule needs a model: after it");
-            assert(val == "low" || val == "medium" || val == "high" || val == "xhigh" || val == "max",
-                   "an effort is low, medium, high, xhigh or max");
-            m.effort = val;
         } else {
             assert(0, "Unknown models field");
         }

@@ -1,10 +1,10 @@
 module subagent_test;
 
-// BOOK_GLOSSARY **Subagent**: An agent a session starts with the Agent tool; it runs on the model and the effort the models block picks, as a ritual does.
+// BOOK_GLOSSARY **Subagent**: An agent a session starts with the Agent tool; it runs on the model the models block picks, at that model's own effort setting, as a ritual's agent does.
 
 import subagent : agentInput, Set, subagentsDir, namedNoModel, isAgent;
 import proto : parsePbt;
-import ritual : modelsAt, resolveModel, resolveEffort, ModelInputs, DEFAULT_MODEL;
+import ritual : modelsAt, resolveModel, ModelInputs, DEFAULT_MODEL;
 
 // "the same rules for ritual agents should apply to subagents, they should cohere"
 //
@@ -13,7 +13,6 @@ import ritual : modelsAt, resolveModel, resolveEffort, ModelInputs, DEFAULT_MODE
 enum named = `
 models {
   model: "opus"
-  effort: "medium"
   five_hour: ">90"  model: "haiku"
 }
 
@@ -57,59 +56,56 @@ static assert(() { auto i = quiet(); i.fiveTenths = 950; return resolveModel(inG
 static assert(resolveModel(modelsAt(parsePbt(`project { path: "/p" }`), "/p"), quiet()).model == DEFAULT_MODEL);
 
 // "and agents always on medium effort please"
-// The nearest effort is the one used, and a layer that names none takes the next one out.
-static assert(parsed.models.effort == "medium");
-static assert(resolveEffort(outside) == "medium");
-static assert(resolveEffort(inGrove) == "medium");
-static assert(resolveEffort(modelsAt(parsePbt(`models { model: "opus" }`), "/p")) == "");
-static assert(!__traits(compiles, { enum bad = parsePbt(`models { effort: "loud" }`); }));
+// How hard a model thinks is not the block's to say: it is the model's own
+// setting, which the usage windows move, for a subagent as for a ritual.
+static assert(!__traits(compiles, { enum bad = parsePbt(`models { effort: "medium" }`); }));
 
-private string set(string region, string model, string effort) {
+private string set(string region, string model) {
     char[512] b = 0;
-    auto r = agentInput(region, model, effort, b[]);
+    auto r = agentInput(region, model, b[]);
     assert(r.fit);
     return b[0 .. r.len].idup;
 }
 
-private Set told(string region, string model, string effort, size_t room = 512) {
+private Set told(string region, string model, size_t room = 512) {
     char[512] b = 0;
-    return agentInput(region, model, effort, b[0 .. room]);
+    return agentInput(region, model, b[0 .. room]);
 }
 
-// A call that names neither is given both.
-static assert(set(`{"description":"d","prompt":"p"}`, "opus", "medium")
-    == `{"description":"d","prompt":"p","model":"opus","effort":"medium"}`);
-static assert(told(`{"description":"d","prompt":"p"}`, "opus", "medium").changed);
+// A call that names no model is given the one picked.
+static assert(set(`{"description":"d","prompt":"p"}`, "opus")
+    == `{"description":"d","prompt":"p","model":"opus"}`);
+static assert(told(`{"description":"d","prompt":"p"}`, "opus").changed);
 
-// What the call asked for is not what it gets.
-static assert(set(`{"description":"d","model":"fable","prompt":"p","effort":"xhigh"}`, "opus", "medium")
-    == `{"description":"d","prompt":"p","model":"opus","effort":"medium"}`);
+// "i want a main session to be at very high effort, maybe even xhigh,"
+// "but i cat ave each of its agents be xhigh as well"
+// What the call asked for is not what it gets: the model is the one picked,
+// and an effort the call names is dropped, so the model's own setting holds.
+static assert(set(`{"description":"d","model":"fable","prompt":"p","effort":"xhigh"}`, "opus")
+    == `{"description":"d","prompt":"p","model":"opus"}`);
+static assert(told(`{"prompt":"p","model":"opus","effort":"medium"}`, "opus").changed);
 
 // The call's own keys are read, and no text inside its prompt.
-static assert(set(`{"prompt":"say \"model\":\"fable\" and {","description":"d"}`, "opus", "")
+static assert(set(`{"prompt":"say \"model\":\"fable\" and {","description":"d"}`, "opus")
     == `{"prompt":"say \"model\":\"fable\" and {","description":"d","model":"opus"}`);
 
 // What else the call carries is carried as it was.
-static assert(set(`{ "prompt" : "p", "isolation":"worktree", "extra":{"model":"fable","a":[1,"}"]}, "n":3 }`, "opus", "medium")
-    == `{"prompt" : "p","isolation":"worktree","extra":{"model":"fable","a":[1,"}"]},"n":3,"model":"opus","effort":"medium"}`);
+static assert(set(`{ "prompt" : "p", "isolation":"worktree", "extra":{"effort":"max","a":[1,"}"]}, "n":3 }`, "opus")
+    == `{"prompt" : "p","isolation":"worktree","extra":{"effort":"max","a":[1,"}"]},"n":3,"model":"opus"}`);
 
-// An effort alone leaves the model the call named.
-static assert(set(`{"prompt":"p","model":"sonnet"}`, "", "medium")
-    == `{"prompt":"p","model":"sonnet","effort":"medium"}`);
-
-// A call that already is what the block names is not changed.
-static assert(!told(`{"prompt":"p","model":"opus","effort":"medium"}`, "opus", "medium").changed);
-static assert(told(`{"prompt":"p","model":"opus","effort":"medium"}`, "opus", "medium").fit);
+// A call that already is what was picked is not changed.
+static assert(!told(`{"prompt":"p","model":"opus"}`, "opus").changed);
+static assert(told(`{"prompt":"p","model":"opus"}`, "opus").fit);
 
 // A fork runs on its session's model whatever it is told.
-static assert(told(`{"prompt":"p","subagent_type":"fork"}`, "opus", "medium").fork);
-static assert(!told(`{"prompt":"fork","subagent_type":"general-purpose"}`, "opus", "medium").fork);
+static assert(told(`{"prompt":"p","subagent_type":"fork"}`, "opus").fork);
+static assert(!told(`{"prompt":"fork","subagent_type":"general-purpose"}`, "opus").fork);
 
 // What does not fit, and what is no object, is not a rewrite.
-static assert(!told(`{"description":"d","prompt":"p"}`, "opus", "medium", 40).fit);
-static assert(!told(`{"prompt":"p"`, "opus", "medium").fit);
-static assert(!told(`["prompt"]`, "opus", "medium").fit);
-static assert(!told(``, "opus", "medium").fit);
+static assert(!told(`{"description":"d","prompt":"p"}`, "opus", 40).fit);
+static assert(!told(`{"prompt":"p"`, "opus").fit);
+static assert(!told(`["prompt"]`, "opus").fit);
+static assert(!told(``, "opus").fit);
 
 // A session that asks first is asked about the call as it will run: the
 // question carries what the input became.

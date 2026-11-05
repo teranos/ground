@@ -734,7 +734,7 @@ SpawnScript reapScript(const(char)[] agentSession) {
 SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
                         const(char)[] perfId, const(char)[] prompt,
                         const(char)[] system = "", const(char)[] model = "",
-                        const(char)[] resume = "", const(char)[] effort = "") {
+                        const(char)[] resume = "") {
     SpawnScript s;
     s.put("#!/usr/bin/env bash\nset -euo pipefail\ncd ");
     s.putQuoted(root);
@@ -766,12 +766,6 @@ SpawnScript spawnScript(const(char)[] root, const(char)[] treeName,
     if (model.length > 0) {
         s.put("--model ");
         s.putQuoted(model);
-        s.put(" ");
-    }
-    // The effort the same models block names, beside the model it picked.
-    if (effort.length > 0) {
-        s.put("--effort ");
-        s.putQuoted(effort);
         s.put(" ");
     }
     // Appended rather than replacing: what a ritual declares is what this

@@ -392,14 +392,14 @@ StandingPair standingRewrite(P)(const ref P parsed, const(char)[] cwd,
 // "the same rules for ritual agents should apply to subagents, they should cohere"
 // "Subagents Alwys Opus, never Fable, Fable is for what is worth human attention span"
 //
-// An Agent call is made into one that names the model and the effort the models
-// block picks, from the same layers, rules and readings a ritual's agent is
-// started on. What it became is left in pendingRewrite with the reason in
+// An Agent call is made into one that names the model the models block picks,
+// from the same layers, rules and readings a ritual's agent is started on, and
+// no effort: that is the model's own setting, as it is for a ritual's agent. What it became is left in pendingRewrite with the reason in
 // pendingWhy; a call that cannot be made into that is refused in pendingDeny.
 void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
     import controls : parsedOnce;
     import parse : extractToolInputRegion;
-    import ritual.resolve : modelsAt, resolveModel, resolveEffort, ModelInputs;
+    import ritual.resolve : modelsAt, resolveModel, ModelInputs;
     import ritual.command : modelInputs;
     import subagent : agentInput, Set;
     import db : openDb, sqlite3_close;
@@ -413,7 +413,6 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     }
     auto layers = modelsAt(parsedOnce, cwd);
     auto choice = resolveModel(layers, inputs);
-    auto effort = resolveEffort(layers);
     if (choice.missing.length > 0)
         emitError("subagent.model",
                   "a models rule could not be asked: nothing current is recorded for its input",
@@ -423,15 +422,12 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     __gshared char[512] why = 0;
     size_t wn;
     void say(const(char)[] t) { foreach (c; t) if (wn < why.length) why[wn++] = c; }
-    void sayPick() {
-        say(choice.model);
-        if (effort.length > 0) { say(" at "); say(effort); say(" effort"); }
-    }
+    void sayPick() { say(choice.model); }
 
     auto region = extractToolInputRegion(input);
     __gshared char[196608] became = 0;
     Set set;
-    if (region !is null) set = agentInput(region, choice.model, effort, became[]);
+    if (region !is null) set = agentInput(region, choice.model, became[]);
     if (!set.fit) {
         say("ground could not make this Agent call into one that runs on ");
         sayPick();
@@ -449,7 +445,7 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     if (!set.changed) return;
     say("ground started this subagent on ");
     sayPick();
-    say(": the models block picks what a subagent runs on, as it does for a ritual.");
+    say(", at that model's own effort setting: the models block picks what a subagent runs on, as it does for a ritual.");
     pendingRewrite = became[0 .. set.len];
     pendingWhy = why[0 .. wn];
 }
