@@ -13,3 +13,21 @@ session/prompt is a turn through the node's gateway. It needs a live session and
 
 ## prompt-completionOf
 No choices is no completion; the gateway's body is kept for the error.
+
+[[2026]]:
+
+Today: we have integrated quite well:
+
+- [[Pi Coding Agent]]
+- [[Claude Code]]
+- [[openrouter]]
+- [[Jev]]
+- [[ground]]
+- 
+
+
+---
+
+[[2025]]:
+
+Use [[Prompt Engineering]] and [[ai models]] on [[LLM Gateway]] in order to generate [[git]] patches that can be applied automatically on the code in a given [[repository]], submits fixes as a [[PR]] which triggers [[CICD]]
