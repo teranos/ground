@@ -261,17 +261,17 @@
 
           # "Pin the latest stable deepseek harness In parity". dsh has no stable
           # release: every tag is an alpha or a release candidate, and this is the
-          # one npm's latest dist-tag names.
-          dsh-claude-0_2_1-rc_5 = dshClaude "0.2.1-rc.5" {
-            tarball = "d076dcb29985ddd3cb28160e84c8e16921116cba7bcc830c083db61db6685b56";
-            bridge = "c4f3f5d92c82e790593d977d95eef0afa4ffad07bb9b9d1609ae613fe6a76283";
-            protocolTarball = "8407d62ec16ea68e1c856816cc807c8e5e2b3ae346ee2d4908e229ca19481c39";
+          # one npm's next dist-tag names (latest still names 0.0.1-rc.5, the first).
+          dsh-claude-0_2_2-rc_1 = dshClaude "0.2.2-rc.1" {
+            tarball = "47c627c98583cae3de408367297e1a98d4bf2bc77ee144be70d9f51d6b70dcfd";
+            bridge = "7b0f550f03268b16c46a9a7ef9115de6bdcfa990d491a29135c7566745866096";
+            protocolTarball = "c00fd3b47259cc22343f1e2a9d53116004e446b98ddff2cc6f90e4f7c9484388";
             protocol = "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132";
           };
-          dsh-codex-0_2_1-rc_5 = dshCodex "0.2.1-rc.5" {
-            tarball = "8b89ab72d9b8fc3c017b1fddf3ec387057886d55a2190488e1684569e6b6b4ef";
-            bridge = "4f245084fa3a90f6740446e124962a2037c8a8be5f1daf3085ee1c1004a6fa86";
-            protocolTarball = "8407d62ec16ea68e1c856816cc807c8e5e2b3ae346ee2d4908e229ca19481c39";
+          dsh-codex-0_2_2-rc_1 = dshCodex "0.2.2-rc.1" {
+            tarball = "4cab1e5e58f330ff119e85612ae042c2631a95c4b227a767e6bd1979bd8989ea";
+            bridge = "6a13e0017149cb25588cfdf25bc1d45f1cfb4cc4b95800c2af8ec807478f96bb";
+            protocolTarball = "c00fd3b47259cc22343f1e2a9d53116004e446b98ddff2cc6f90e4f7c9484388";
             protocol = "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132";
           };
           shipped-claude-agent-acp = shipped "claude-agent-acp" {
