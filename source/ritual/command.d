@@ -407,12 +407,12 @@ ground bind ground-coinflip-1786812152 < started.txt
 EOS";
 
 // "ritual is hands-off, walk away"
-// A start that failed made no agent, and no tree for the walk to run in: the performance is halted
-// here, where that is known, rather than left live for the ten minutes the driver waits on a tree
-// (drive.d TREE_WAIT_SEC). True when it was live and is halted now.
-// Only a walk nobody has touched: still on its first rite, that rite not claimed, and no push
-// waiting to land. A rite the driver claimed is its to finish, and a waiting push would revive the
-// halt; such a walk is left to the driver, which halts it when no tree comes.
+// 「[Opus 5.5] A start that failed made no agent, and no tree for the walk to run in: the performance is halted」
+// 「[Opus 5.5] here, where that is known, rather than left live for the ten minutes the driver waits on a tree」
+// 「[Opus 5.5] (drive.d TREE_WAIT_SEC). True when it was live and is halted now.」
+// 「[Opus 5.5] Only a walk nobody has touched: still on its first rite, that rite not claimed, and no push」
+// 「[Opus 5.5] waiting to land. A rite the driver claimed is its to finish, and a waiting push would revive the」
+// 「[Opus 5.5] halt; such a walk is left to the driver, which halts it when no tree comes.」
 bool haltFailedStart(DB)(DB db, const(char)[] perfId) {
     import ritual.store : byPerformanceId, writePositionIf, landingOf;
     import ritual.position : step, RitualState, RiteState;
@@ -472,7 +472,7 @@ int handleBind(int argc, const(char)** argv) {
     scope(exit) says.dispose();
     startSays(says, started, agentId, printed);
     if (says.len > 0) {
-        // The start failed: its walk is halted now, and that is said with why.
+        // 「[Opus 5.5] The start failed: its walk is halted now, and that is said with why.」
         if (started != 0 && db !is null && haltFailedStart(db, perfId))
             says.add(" The performance is halted: with no agent there is no tree, and no rite can run.");
         if (db !is null) sqlite3_close(db);

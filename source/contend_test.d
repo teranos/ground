@@ -144,9 +144,9 @@ unittest {
 }
 
 // "ritual is hands-off, walk away"
-// A start that failed made no agent and no tree, so no rite of the walk can run: the performance
-// is halted where the failure is known, at bind, and not left live for the ten minutes the
-// driver waits on a tree nobody makes. A performance that is not live is not touched.
+// 「[Opus 5.5] A start that failed made no agent and no tree, so no rite of the walk can run: the performance」
+// 「[Opus 5.5] is halted where the failure is known, at bind, and not left live for the ten minutes the」
+// 「[Opus 5.5] driver waits on a tree nobody makes. A performance that is not live is not touched.」
 unittest {
     import ritual : haltFailedStart, byPerformanceId;
     auto db = memDb();
@@ -166,9 +166,9 @@ unittest {
     sqlite3_close(db);
 }
 
-// A failed start halts only a walk nobody has touched: once the driver has claimed a rite, or a push
-// waits to land on it, the halt would discard that rite's outcome or be revived by the landing. That
-// walk is left to the driver, which halts it when no tree comes.
+// 「[Opus 5.5] A failed start halts only a walk nobody has touched: once the driver has claimed a rite, or a push」
+// 「[Opus 5.5] waits to land on it, the halt would discard that rite's outcome or be revived by the landing. That」
+// 「[Opus 5.5] walk is left to the driver, which halts it when no tree comes.」
 unittest {
     import ritual : haltFailedStart, byPerformanceId, RiteState;
     import ritual.store : setLanding;
