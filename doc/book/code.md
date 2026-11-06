@@ -31,8 +31,3 @@ Today: we have integrated quite well:
 [[2025]]:
 
 Use [[Prompt Engineering]] and [[ai models]] on [[LLM Gateway]] in order to generate [[git]] patches that can be applied automatically on the code in a given [[repository]], submits fixes as a [[PR]] which triggers [[CICD]]
-
-One of the first real [[Agentic AI]] loops currently active in *QNTX*
-
-
-see [[QNTX/ATS/ix|ix]],
