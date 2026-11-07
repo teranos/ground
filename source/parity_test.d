@@ -160,14 +160,14 @@ static assert(sideOf("codex", "PostToolUse").writes.slice() == sideOf("claude", 
 
 // "Pin the latest stable deepseek harness In parity"
 // book: parity-pins
-static assert(pins[10].agent == "dsh-claude" && pins[10].release == "0.2.1-rc.5");
-static assert(pins[10].sha256 == "c4f3f5d92c82e790593d977d95eef0afa4ffad07bb9b9d1609ae613fe6a76283");
+static assert(pins[10].agent == "dsh-claude" && pins[10].release == "0.2.2-rc.1");
+static assert(pins[10].sha256 == "7b0f550f03268b16c46a9a7ef9115de6bdcfa990d491a29135c7566745866096");
 static assert(pins[10].protocol == "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132");
-static assert(pins[11].agent == "dsh-codex" && pins[11].release == "0.2.1-rc.5");
-static assert(pins[11].sha256 == "4f245084fa3a90f6740446e124962a2037c8a8be5f1daf3085ee1c1004a6fa86");
+static assert(pins[11].agent == "dsh-codex" && pins[11].release == "0.2.2-rc.1");
+static assert(pins[11].sha256 == "6a13e0017149cb25588cfdf25bc1d45f1cfb4cc4b95800c2af8ec807478f96bb");
 static assert(pins[11].protocol == "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132");
 
-// A bridge's bundle, as dsh-hooks-claude-code 0.2.1-rc.5 and dsh-hooks-codex
+// A bridge's bundle, as dsh-hooks-claude-code 0.2.2-rc.1 and dsh-hooks-codex
 // carry it: every hook runs through runPoint, whose payload the run widens.
 private enum dshSample = `
 			const { output, durationMs } = await runHook(ctx.shell, hook, {
