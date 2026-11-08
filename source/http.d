@@ -137,7 +137,8 @@ private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
     void* headers = null;
     scope (exit) if (headers !is null) curl_slist_free_all(headers);
 
-    bearerLine(authZ, token);
+    import signed : authLine;
+    authLine(authZ, url, token);
     if (authZ.len > 0) headers = curl_slist_append(headers, authZ.ptr());
     if (isPost && contentType.length > 0) {
         typeZ.reset();
@@ -252,7 +253,8 @@ Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, in
     scope (exit) curl_easy_cleanup(h);
     void* headers = null;
     scope (exit) if (headers !is null) curl_slist_free_all(headers);
-    bearerLine(authZ, token);
+    import signed : authLine;
+    authLine(authZ, url, token);
     if (authZ.len > 0) headers = curl_slist_append(headers, authZ.ptr());
 
     char[CURL_ERROR_SIZE] errBuf = 0;

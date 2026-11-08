@@ -1,11 +1,12 @@
 module code.login;
 
-// 「[Opus 5.5] ground code signs in to its QNTX node as QNTX's agents do, by its device」
-// 「[Opus 5.5] flow (RFC 8628, QNTX's server/auth/device.go): "An agent asks for a sign-in,」
-// 「[Opus 5.5] prints a link, and the person approves it with the passkey at home; the」
-// 「[Opus 5.5] agent's token is then the person, as a client's is." The token the node」
-// 「[Opus 5.5] gives is kept in the file every ground reads its token from, so what signed」
-// 「[Opus 5.5] in is what speaks to the node. What the token reaches is the node's to say.」
+// ground code signs in to its QNTX node by its device flow (RFC 8628, QNTX's
+// server/auth/device.go), naming the key it holds: the person approves it with
+// the passkey at home, and that key is then the person at the node. Nothing is
+// handed back. Ground signs each request with the key (signed.d), and the key
+// never leaves the machine.
+//
+// "A signature proves the key, and nothing reusable leaves the node."
 
 import code.reply : Reply, putEscaped, putNumber;
 import libjsonc : json_object, json_type, json_object_get_type, json_object_get_string, json_object_get_string_len,
@@ -28,8 +29,10 @@ private enum ASK_SECONDS = 30;
 // 「[Opus 5.5] the person compares, the link they follow, and how long to wait between asks.」
 struct SignIn {
     Reply deviceCode, userCode, link;
+    // The did:key of the key the sign-in is for, which the node answers with once the person said yes.
+    Reply did;
     uint interval;
-    void dispose() { deviceCode.dispose(); userCode.dispose(); link.dispose(); }
+    void dispose() { deviceCode.dispose(); userCode.dispose(); link.dispose(); did.dispose(); }
 }
 
 // 「[Opus 5.5] application/x-www-form-urlencoded: unreserved bytes as they are, a space as」
@@ -77,13 +80,26 @@ private int ask(const(char)[] url, const(char)[] form, char[] dest, ref size_t l
     return h.status;
 }
 
-// 「[Opus 5.5] "POST /auth/device, a form naming the agent in label": 1 the sign-in is」
-// 「[Opus 5.5] started, -1 it is not, the node's answer in why.」
-int startSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
+// "POST /auth/device, a form naming the agent in label", and the did:key of the
+// key kept at keyAt, made there first when there is none: 1 the sign-in is
+// started, -1 it is not, the node's answer in why.
+int startSignIn(const(char)[] node, const(char)* keyAt, ref SignIn s, ref Reply why) {
+    import signed : keepKey, putDID;
+    import zbuf : ZBuf;
+    auto key = keepKey(keyAt);
+    if (!key.held) {
+        why.add(`{"message":"no key is kept for ground to sign with"}`);
+        return -1;
+    }
+    __gshared ZBuf did;
+    did.reset();
+    putDID(did, key.public_[]);
+    s.did.add(did.slice());
     Reply url, form;
     scope(exit) { url.dispose(); form.dispose(); }
     url.add(node); url.add(DEVICE_PATH);
     form.add("label="); putForm(form, LABEL);
+    form.add("&did="); putForm(form, did.slice());
     __gshared char[ANSWER_BYTES] dest;
     size_t len;
     auto status = ask(url.slice(), form.slice(), dest[], len, why);
@@ -109,10 +125,10 @@ int startSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     return s.deviceCode.full || s.userCode.full || s.link.full ? -1 : 1;
 }
 
-// 「[Opus 5.5] Whether the person said yes: 1 and the token, 0 still waiting」
-// 「[Opus 5.5] (authorization_pending, or slow_down, which waits longer from then on), -1」
-// 「[Opus 5.5] over, the node's answer in why.」
-int pollSignIn(const(char)[] node, ref SignIn s, ref Reply token, ref Reply why) {
+// Whether the person said yes: 1 when the node answers with the key's DID, 0
+// still waiting (authorization_pending, or slow_down, which waits longer from
+// then on), -1 over, the node's answer in why.
+int pollSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     Reply url, form;
     scope(exit) { url.dispose(); form.dispose(); }
     url.add(node); url.add(TOKEN_PATH);
@@ -125,10 +141,11 @@ int pollSignIn(const(char)[] node, ref SignIn s, ref Reply token, ref Reply why)
     auto answered = dest[0 .. len];
     auto o = parseJson(answered);
     scope(exit) json_object_put(o);
-    auto access = stringOf(jsonField(o, "access_token"));
-    if (status == 200 && access !is null && access.length > 0) {
-        token.add(access);
-        return token.full ? -1 : 1;
+    auto said = stringOf(jsonField(o, "did"));
+    if (status == 200 && said !is null && said == s.did.slice()) return 1;
+    if (status == 200) {
+        putAsked(why, url.slice(), status, 0, "the node said yes to another key than the one ground holds", answered);
+        return -1;
     }
     auto error = stringOf(jsonField(o, "error"));
     if (status == 400 && error == "authorization_pending") return 0;
@@ -212,17 +229,19 @@ int dropToken(const(char)* file, ref Reply why) {
     return -1;
 }
 
-// 「[Opus 5.5] `ground code login`, as a client's terminal auth method runs it: the link」
-// 「[Opus 5.5] and the code said, the node asked until the person said yes, the token」
-// 「[Opus 5.5] kept. 0 signed in, 1 not, what the node or the file said given to say.」
-int login(const(char)[] node, const(char)* file, scope void delegate(const(char)[]) say) {
+// `ground code login`, as a client's terminal auth method runs it: the link and
+// the code said, the node asked until the person said yes to the key kept at
+// keyAt, and the token once kept at file dropped, so the key is what speaks.
+// 0 signed in, 1 not, what the node or the file said given to say.
+int login(const(char)[] node, const(char)* file, const(char)* keyAt, scope void delegate(const(char)[]) say) {
     import core.sys.posix.unistd : sleep;
+    import core.stdc.string : strlen;
     SignIn s;
-    Reply why, token;
-    scope(exit) { s.dispose(); why.dispose(); token.dispose(); }
+    Reply why;
+    scope(exit) { s.dispose(); why.dispose(); }
     if (node.length == 0) { say("ground code login: the qntx block names no url, so there is no node to sign in to\n"); return 1; }
-    if (file is null) { say("ground code login: the token is kept in a home, and HOME names none\n"); return 1; }
-    if (startSignIn(node, s, why) != 1) {
+    if (keyAt is null) { say("ground code login: the key is kept in a home, and HOME names none\n"); return 1; }
+    if (startSignIn(node, keyAt, s, why) != 1) {
         say("ground code login: the node did not start a sign-in: "); say(why.slice()); say("\n");
         return 1;
     }
@@ -231,13 +250,12 @@ int login(const(char)[] node, const(char)* file, scope void delegate(const(char)
     while (true) {
         sleep(s.interval);
         why.len = 0;
-        auto got = pollSignIn(node, s, token, why);
+        auto got = pollSignIn(node, s, why);
         if (got == 0) continue;
         if (got < 0) { say("ground code login: not signed in: "); say(why.slice()); say("\n"); return 1; }
         break;
     }
-    if (!keepToken(file, token.slice(), why)) { say("ground code login: signed in, but "); say(why.slice()); say("\n"); return 1; }
-    import core.stdc.string : strlen;
-    say("Signed in. The token is kept in "); say(file[0 .. strlen(file)]); say(".\n");
+    if (file !is null && dropToken(file, why) < 0) { say("ground code login: signed in, but "); say(why.slice()); say("\n"); return 1; }
+    say("Signed in as "); say(s.did.slice()); say(". The key is kept in "); say(keyAt[0 .. strlen(keyAt)]); say(".\n");
     return 0;
 }

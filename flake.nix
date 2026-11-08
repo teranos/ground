@@ -38,7 +38,7 @@
             src = ./.;
 
             nativeBuildInputs = [ pkgs.ldc pkgs.dub pkgs.git pkgs.pkg-config ];
-            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
+            buildInputs = [ pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.libsodium (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
 
             buildPhase = ''
               export HOME=$(mktemp -d)
@@ -362,7 +362,7 @@
           default = pkgs.mkShell {
             # dub asks pkg-config for each lib. Without the pinned one in the
             # shell it asked Homebrew's, which named an x86_64 libgit2.
-            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.dub pkgs.pkg-config pkgs.python3 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
+            buildInputs = [ pkgs.ldc pkgs.sqlite pkgs.curl pkgs.libgit2 pkgs.libsodium pkgs.dub pkgs.pkg-config pkgs.python3 (acpLib system) ] ++ mcpLibs system ++ phoneLibs pkgs;
           };
         }
       );

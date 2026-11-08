@@ -1069,8 +1069,9 @@ private const(char)* authMethods(ref const Sessions sessions) {
 // asked until they said yes, and the token it gives is kept where every
 // ground reads its token. The client can call it off while it waits.
 private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
-    import code.login : SignIn, startSignIn, pollSignIn, keepToken, LABEL;
+    import code.login : SignIn, startSignIn, pollSignIn, dropToken, LABEL;
     import token : qntxTokenFile;
+    import signed : keyFile;
     import libacp : acp_elicitation_url_write, acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
     import core.sys.posix.sys.time : gettimeofday, timeval;
@@ -1086,12 +1087,14 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     auto q = sessions.node.gateway.length > 0 ? sessions.node.gateway : sessions.node.url;
     if (q.length == 0) return error(-32603, "the qntx block names no node, so there is none to sign in to");
     auto named = qntxTokenFile("");
-    if (named is null) return error(-32603, "the token is kept in a home, and HOME names none");
-    Reply file, why, token, pid, text, answered;
+    if (named is null) return error(-32603, "the key is kept in a home, and HOME names none");
+    Reply file, keyAt, why, pid, text, answered;
     SignIn s;
-    scope(exit) { file.dispose(); why.dispose(); token.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
+    scope(exit) { file.dispose(); keyAt.dispose(); why.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
     file.add(named[0 .. strlen(named)]); file.add("\0");
-    if (startSignIn(q, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
+    auto keyNamed = keyFile();
+    keyAt.add(keyNamed[0 .. strlen(keyNamed)]); keyAt.add("\0");
+    if (startSignIn(q, keyAt.slice().ptr, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
 
     sessions.asked++;
     pid.add(`"login-`); putNumber(pid, sessions.asked); pid.add(`"`);
@@ -1137,7 +1140,7 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     while (true) {
         if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
         why.len = 0;
-        auto got = pollSignIn(q, s, token, why);
+        auto got = pollSignIn(q, s, why);
         if (got == 1) break;
         if (got < 0) return error(-32000, "the node did not sign ground code in", why.slice());
         // "the minimum amount of time in seconds that the client SHOULD wait between polling requests"
@@ -1153,7 +1156,8 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     // A cancel the client sent while the node was asked is a sign-in called off: nothing is kept.
     if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
     why.len = 0;
-    if (!keepToken(file.slice().ptr, token.slice(), why)) return error(-32603, "signed in, but the token could not be kept", why.slice());
+    // The key is what speaks from now on: a token once kept would be sent before it.
+    if (dropToken(file.slice().ptr, why) < 0) return error(-32603, "signed in, but the token once kept could not be dropped", why.slice());
     // "Notification sent by the agent when a URL-based elicitation is complete."
     acp_buffer done;
     scope(exit) acp_buffer_free(&done);
@@ -1781,8 +1785,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
-    // "Terminates the current authenticated session": the token ground code
-    // was given is dropped. The node keeps it until the person revokes it there.
+    // "Terminates the current authenticated session": the key ground code
+    // signed in as, and any token once kept, are dropped.
     if (method == AGENT_METHODS.logout) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (__ctfe) assert(0, "a token file is dropped at runtime");
@@ -1801,6 +1805,12 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             scope(exit) why.dispose();
             if (dropToken(file, why) < 0) {
                 put(`,"error":{"code":-32603,"message":"logout could not drop the token","data":`); put(why.slice()); put(`}}`);
+                return true;
+            }
+            import signed : keyFile;
+            auto key = keyFile();
+            if (key !is null && dropToken(key, why) < 0) {
+                put(`,"error":{"code":-32603,"message":"logout could not drop the key","data":`); put(why.slice()); put(`}}`);
                 return true;
             }
         }

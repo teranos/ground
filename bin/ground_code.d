@@ -17,17 +17,20 @@ int main(string[] args) {
     return handleCode();
 }
 
-// 「[Opus 5.5] Signs in to q, the node a prompt goes through and the one that owns auth, and keeps its token in」
-// 「[Opus 5.5] ~/.qntx/token. The block's url and token file are the hooks' node for attestations, k, and stay its.」
+// Signs in to q, the node a prompt goes through and the one that owns auth, as
+// the key kept in ~/.qntx/key; the token once kept in ~/.qntx/token is dropped.
+//
+// "A signature proves the key, and nothing reusable leaves the node."
 int signIn() {
     import code.login : login;
     import code.node : qntxNode;
     import token : qntxTokenFile;
+    import signed : keyFile;
     import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fwrite, fflush, stdout;
     void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); fflush(stdout); }
-    auto status = login(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url, qntxTokenFile(""), &say);
+    auto status = login(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url, qntxTokenFile(""), keyFile(), &say);
     if (status == 0 && getenv("QNTX_TOKEN\0".ptr) !is null)
-        say("QNTX_TOKEN is set in this environment, and is read before that file.\n");
+        say("QNTX_TOKEN is set in this environment, and is sent before the key signs.\n");
     return status;
 }

@@ -505,8 +505,11 @@ int handleSky(int argc, const(char)** argv) {
     // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
     // "so give it a config per ground per node"
     // The node and its token, read once: a token that changes is a sky that
-    // is respawned at the next hook anyway. No node named is no stream, and
-    // a node named with no token to read is said once and is no stream.
+    // is respawned at the next hook anyway. No node named is no stream. A node
+    // named with no token is spoken to by ground's key, or, at an agent's door
+    // the node opened for it, with nothing (QNTX server/agent_door.go).
+    //
+    // "A signature proves the key, and nothing reusable leaves the node."
     import attest : qntxToken;
     import nodeconfig : nodeHere;
     __gshared typeof(nodeHere()) node;
@@ -517,10 +520,6 @@ int handleSky(int argc, const(char)** argv) {
     streamTok.reset();
     if (node.url.length > 0) streamTok.put(qntxToken(node.token));
     const(char)[] streamToken = streamTok.slice();
-    if (node.url.length > 0 && streamToken.length == 0) {
-        toSentry("sky.stream", "the node named has no token in its token file; the stream waits",
-                 -1, sessionId, node.token);
-    }
     // "and q gies the sand"
     // The sand is pulled from the node signed in to, with the token it was signed in with.
     __gshared ZBuf sandTok;
@@ -679,7 +678,7 @@ int handleSky(int argc, const(char)** argv) {
             }
             // The hook rows, to the node, as one list at the pace. A pass the
             // node did not take waits, longer each time, up to 5m.
-            if (streamToken.length > 0 && now >= streamBackoffUntil) {
+            if (node.url.length > 0 && now >= streamBackoffUntil) {
                 import stream : streamPass, paceLanded, paceFailed;
                 auto pass = streamPass(db, node.url, streamToken, myPid, now, pace.take, streamed);
                 if (pass.ok) {
