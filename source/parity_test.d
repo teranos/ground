@@ -167,7 +167,7 @@ static assert(pins[11].agent == "dsh-codex" && pins[11].release == "0.2.2-rc.1")
 static assert(pins[11].sha256 == "6a13e0017149cb25588cfdf25bc1d45f1cfb4cc4b95800c2af8ec807478f96bb");
 static assert(pins[11].protocol == "1edd96fed80f2fb02840da4ae1af3c81a78988f018e057cc8f8eb70dfc23c132");
 
-// A bridge's bundle, as dsh-hooks-claude-code 0.2.2-rc.1 and dsh-hooks-codex
+// 「[Sonnet 5.5] A bridge's bundle, as dsh-hooks-claude-code 0.2.2-rc.1 and dsh-hooks-codex」
 // carry it: every hook runs through runPoint, whose payload the run widens.
 private enum dshSample = `
 			const { output, durationMs } = await runHook(ctx.shell, hook, {
