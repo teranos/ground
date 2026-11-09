@@ -239,6 +239,25 @@
             };
           };
 
+          agy-1_5_3 = agy "1.5.3" {
+            mac_arm64 = {
+              tarball = "b47034e1367fc3c9f2856f1e1ae30bf12819a7213821ba3cce2123b090f2df8a";
+              binary = "5e4b545bff4a83a93354fc50c54631cf3e8cd02e1a469087af00929f3fdc4d51";
+            };
+            mac_x64 = {
+              tarball = "";
+              binary = "";
+            };
+            linux_arm64_musl = {
+              tarball = "";
+              binary = "";
+            };
+            linux_x64_musl = {
+              tarball = "";
+              binary = "";
+            };
+          };
+
           acp-1_26_0 = acp "1.26.0" {
             schema = "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6";
           };

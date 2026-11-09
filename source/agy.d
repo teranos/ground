@@ -76,6 +76,42 @@ int handleAgyHook(int argc, const(char)** argv) {
         }
     }
 
+    // Common metadata across all AGY events
+    __gshared char[512] transBuf = 0, artBuf = 0, modelBuf = 0, userBuf = 0;
+    __gshared char[128] execBuf = 0, agentBuf = 0, parentBuf = 0, rootBuf = 0;
+    auto transcript = extractJsonString(input, `"transcriptPath"`, &transBuf[0], transBuf.length);
+    auto artifactDir = extractJsonString(input, `"artifactDirectoryPath"`, &artBuf[0], artBuf.length);
+    auto model = extractJsonString(input, `"modelName"`, &modelBuf[0], modelBuf.length);
+    auto lastUser = extractJsonString(input, `"lastUserInput"`, &userBuf[0], userBuf.length);
+    auto executionId = extractJsonString(input, `"executionId"`, &execBuf[0], execBuf.length);
+    auto agent = extractJsonString(input, `"agentName"`, &agentBuf[0], agentBuf.length);
+    auto parentConv = extractJsonString(input, `"parentConversationId"`, &parentBuf[0], parentBuf.length);
+    auto rootConv = extractJsonString(input, `"rootConversationId"`, &rootBuf[0], rootBuf.length);
+    auto isBattle = indexOf(input, `"isBattleMode"`) >= 0;
+    auto hasCaller = indexOf(input, `"callerContext"`) >= 0;
+
+    // Event-specific wire fields
+    __gshared char[512] termBuf = 0, errBuf = 0;
+    auto toolCallIdx = indexOf(input, `"toolCall"`);
+    auto stepIdx = indexOf(input, `"stepIdx"`);
+    auto errorStr = extractJsonString(input, `"error"`, &errBuf[0], errBuf.length);
+    auto resultIdx = indexOf(input, `"result"`);
+    auto invocNumIdx = indexOf(input, `"invocationNum"`);
+    auto initStepsIdx = indexOf(input, `"initialNumSteps"`);
+    auto modelOutIdx = indexOf(input, `"modelOutput"`);
+    auto modelThinkIdx = indexOf(input, `"modelThinking"`);
+    auto execNumIdx = indexOf(input, `"executionNum"`);
+    auto termReason = extractJsonString(input, `"terminationReason"`, &termBuf[0], termBuf.length);
+    auto fullyIdleIdx = indexOf(input, `"fullyIdle"`);
+    auto finalOutIdx = indexOf(input, `"finalModelOutput"`);
+
+    cast(void) transcript; cast(void) artifactDir; cast(void) model; cast(void) lastUser;
+    cast(void) executionId; cast(void) agent; cast(void) parentConv; cast(void) rootConv;
+    cast(void) isBattle; cast(void) hasCaller;
+    cast(void) toolCallIdx; cast(void) stepIdx; cast(void) errorStr; cast(void) resultIdx;
+    cast(void) invocNumIdx; cast(void) initStepsIdx; cast(void) modelOutIdx; cast(void) modelThinkIdx;
+    cast(void) execNumIdx; cast(void) termReason; cast(void) fullyIdleIdx; cast(void) finalOutIdx;
+
     char[64] pb;
     auto predicate = predicateOf(event, pb[]);
     auto db = openDb();
