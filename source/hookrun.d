@@ -296,6 +296,10 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         outer.store.openUs = tWrite - tOpen;
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);
+            if (!dbUnusable() && (eventName == "PreModelRequest" || eventName == "PostModelRequest")) {
+                import codexeffort : codexEffortPass;
+                codexEffortPass(db, input);
+            }
             // codex runs no statusline for ug to read its model from.
             {
                 import parse : codexModel;

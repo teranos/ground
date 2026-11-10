@@ -24,6 +24,26 @@ enum PINNED = "low";
 // How often a sky asks. The reading itself moves every quarter hour.
 enum EFFORT_EVERY = 60;
 
+// Codex quota is remaining percent, not Claude's used tenths. Its boundary
+// is strictly below, and it may only lower an explicitly known effort.
+const(char)[] codexWanted(double remaining, int mediumBelow, int lowBelow) {
+    if (!(remaining >= 0 && remaining <= 100)) return "";
+    if (lowBelow < 0 || lowBelow > mediumBelow || mediumBelow > 100) return "";
+    if (remaining < lowBelow) return "low";
+    if (remaining < mediumBelow) return "medium";
+    return "";
+}
+
+bool codexLowers(const(char)[] current, const(char)[] wanted) {
+    int rank(const(char)[] level) {
+        static immutable levels = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+        foreach (i, name; levels)
+            if (level == name) return cast(int) i;
+        return -1;
+    }
+    return rank(wanted) >= 0 && rank(current) > rank(wanted);
+}
+
 enum SETTINGS = "/.claude/settings.json";
 enum KEY = `"effortLevel"`;
 

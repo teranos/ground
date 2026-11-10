@@ -38,6 +38,8 @@ in
         { run = "nix build -L .#libacp"; }
         # ground's side of libmcp, against the input's library and test server.
         { run = "nix develop .#default --command make test-mcp"; }
+        # The compiled Codex hook against a local daemon fixture and loaded PBT policy.
+        { run = "nix develop .#default --command make test-codex"; }
         # The Makefile's wind rule is the one list of wind's files. A copy of
         # it here fell behind and CI linked wind without openapi.d. sandload's
         # test loads the library make sand builds, as an engine loads a comet.

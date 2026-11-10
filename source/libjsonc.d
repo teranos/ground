@@ -15,6 +15,11 @@ extern(C) nothrow @nogc {
     double json_object_get_double(const(json_object)*);
     long json_object_get_int64(const(json_object)*);
     int json_object_put(json_object*);
+    json_object* json_object_new_object();
+    json_object* json_object_new_string_len(const(char)*, int);
+    json_object* json_object_new_int64(long);
+    json_object* json_object_new_boolean(int);
+    int json_object_object_add(json_object*, const(char)*, json_object*);
     json_tokener* json_tokener_new_ex(int);
     void json_tokener_set_flags(json_tokener*, int);
     json_object* json_tokener_parse_ex(json_tokener*, const(char)*, int);

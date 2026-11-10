@@ -9,6 +9,16 @@ import hooks : Scope, Control;
 import permission : PermissionScope;
 import strop : Strop;
 
+// The original parses remain available for policies whose nearest matching
+// declaration wins. The binary interface of a sand does not change.
+private __gshared const(Sand)* lastLayered;
+private __gshared const(Sand)*[3] lastSources;
+
+const(Sand)*[3] sourceLayers(const(Sand)* held) {
+    if (held !is null && held is lastLayered) return lastSources;
+    return [held, null, null];
+}
+
 // floor, local and comet layered into one Sand. A null layer is not held. The result lives until exit.
 const(Sand)* layer(const(Sand)* floor, const(Sand)* local, const(Sand)* comet) {
     import core.stdc.stdlib : malloc;
@@ -50,6 +60,8 @@ const(Sand)* layer(const(Sand)* floor, const(Sand)* local, const(Sand)* comet) {
     const(string)[][3] files;
     foreach (i, s; held) if (s !is null) files[i] = s.projectFiles;
     out_.projectFiles = stringsOf(files);
+    lastLayered = out_;
+    lastSources = held;
     return out_;
 }
 

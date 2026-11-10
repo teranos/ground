@@ -129,6 +129,14 @@ test: wind build/libgroundc.a sand
 	mkdir -p build; \
 	ldc2 --lowmem -d-version=Floor -J=. -I=source -i -unittest -main -of=build/touched-test $$tests $(BIN_LIBS) && build/touched-test
 
+.PHONY: test-codex
+test-codex: ground_hook
+	mkdir -p build
+	ldc2 -betterC --lowmem -shared -fvisibility=hidden \
+		$(if $(filter Darwin,$(shell uname -s)),-L-dead_strip,-relocation-model=pic) \
+		-J=. -I=source -i=sand.view -of=build/codex-policy-sand.$(if $(filter Darwin,$(shell uname -s)),dylib,so) tools/tests/codex_policy_sand.d
+	PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning -m unittest discover -s tools/tests -p 'test_codex_native.py'
+
 # ground's side of libmcp: the D binding's layout against the C, ground mcp
 # against the library's test server, the harness dispatch, and ground code
 # owning a session's servers. libmcp is this repository's libmcp/.
