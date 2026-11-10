@@ -12,7 +12,16 @@ scope {
   control {
     name: "codex-effort"
     interval: "90"
-    handler_params { medium_below: "70" low_below: "30" }
+    handler_params { medium_below: "70" low_below: "30" skip_before_5h_reset_minutes: "30" }
+  }
+}
+scope {
+  path: "/grace-off"
+  event: ["PreModelRequest", "PostModelRequest"]
+  control {
+    name: "codex-effort"
+    interval: "60"
+    handler_params { medium_below: "50" low_below: "20" skip_before_5h_reset_minutes: "0" }
   }
 }
 scope {

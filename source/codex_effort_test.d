@@ -22,13 +22,14 @@ import proto : parsePbt;
 private enum customPolicy = parsePbt(`scope {
     event: ["PreModelRequest", "PostModelRequest"]
     control { name: "codex-effort" interval: "90"
-        handler_params { enabled: "true" medium_below: "70" low_below: "30" }
+        handler_params { enabled: "true" medium_below: "70" low_below: "30" skip_before_5h_reset_minutes: "45" }
     }
 }`);
 static assert(codexPolicyFor(customPolicy, "/tmp", "PostModelRequest").mediumBelow == 70);
 static assert(codexPolicyFor(customPolicy, "/tmp", "PreModelRequest").lowBelow == 30);
 static assert(codexPolicyFor(customPolicy, "/tmp", "PreModelRequest").interval == 90);
 static assert(!codexPolicyFor(customPolicy, "/tmp", "Stop").present);
+static assert(codexPolicyFor(customPolicy, "/tmp", "PostModelRequest").skipBefore5hResetMinutes == 45);
 static assert(codexWanted(60, 70, 30) == "medium");
 static assert(codexWanted(25, 70, 30) == "low");
 static assert(codexWanted(25, 20, 30) == "");
@@ -103,4 +104,37 @@ unittest {
     assert(reading(`{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":true,"resetsAt":200}}}}`) == -1);
     assert(reading(`{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":101,"resetsAt":200}}}}`) == -1);
     assert(reading(`{}`) == -1);
+}
+
+static assert(codexPolicyFor(scopedPolicy, "/project", "PostModelRequest").skipBefore5hResetMinutes == 0);
+static assert(!__traits(compiles, { enum bad = parsePbt(`control {
+    name: "codex-effort" interval: "60" handler_params {
+        medium_below: "50" low_below: "20" skip_before_5h_reset_minutes: "301"
+    }
+}`); }));
+static assert(!__traits(compiles, { enum bad = parsePbt(`control {
+    name: "codex-effort" interval: "60" handler_params {
+        medium_below: "50" low_below: "20" skip_before_5h_reset_minutes: "1.5"
+    }
+}`); }));
+
+unittest {
+    import codexeffort : codexResetGrace;
+    bool grace(const(char)[] json, int minutes = 60) {
+        auto obj = parseJson(json);
+        scope(exit) json_object_put(obj);
+        return codexResetGrace(obj, 100, minutes);
+    }
+    enum atHour = `{"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":3700}}}`;
+    assert(grace(atHour), "exactly one hour is inside the grace period");
+    assert(!grace(atHour, 59));
+    assert(!grace(atHour, 0));
+    assert(!grace(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":3701}}}`));
+    assert(grace(`{"rateLimitsByLimitId":{"codex":{"secondary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":101}}}}`));
+    assert(!grace(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":100}}}`));
+    assert(!grace(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"windowDurationMins":10080,"resetsAt":101}}}`));
+    assert(!grace(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"resetsAt":101}}}`));
+    assert(!grace(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":null}}}`));
+    assert(!grace(`{"rateLimits":{"limitId":"other","primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":101}}}`));
+    assert(!grace(`{"rateLimitsByLimitId":{},"rateLimits":{"limitId":"codex","primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":101}}}`));
 }

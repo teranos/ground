@@ -7,18 +7,19 @@ struct CodexPolicy {
     bool enabled = true;
     int mediumBelow = -1;
     int lowBelow = -1;
+    int skipBefore5hResetMinutes;
     int interval;
     const(char)[] error;
 }
 
-private int percent(const(char)[] text) {
+private int boundedNumber(const(char)[] text, int maximum) {
     if (text.length == 0 || text.length > 3) return -1;
     int number;
     foreach (c; text) {
         if (c < '0' || c > '9') return -1;
         number = number * 10 + c - '0';
     }
-    return number <= 100 ? number : -1;
+    return number <= maximum ? number : -1;
 }
 
 CodexPolicy codexPolicyControl(C)(ref const C control) {
@@ -37,10 +38,14 @@ CodexPolicy codexPolicyControl(C)(ref const C control) {
             }
             p.enabled = value == "true";
         } else if (key == "medium_below" || key == "low_below") {
-            auto number = percent(value);
+            auto number = boundedNumber(value, 100);
             if (number < 0) { p.error = "codex-effort thresholds must be whole percentages from 0 to 100"; return p; }
             if (key == "medium_below") p.mediumBelow = number;
             else p.lowBelow = number;
+        } else if (key == "skip_before_5h_reset_minutes") {
+            auto number = boundedNumber(value, 300);
+            if (number < 0) { p.error = "codex-effort skip_before_5h_reset_minutes must be whole minutes from 0 to 300"; return p; }
+            p.skipBefore5hResetMinutes = number;
         } else { p.error = "unknown codex-effort parameter"; return p; }
     }
     if (!p.enabled) return p;

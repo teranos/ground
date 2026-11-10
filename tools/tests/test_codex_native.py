@@ -11,6 +11,7 @@ import sqlite3
 import struct
 import subprocess
 import tempfile
+import time
 import threading
 import unittest
 
@@ -23,7 +24,7 @@ SAND = ROOT / "build" / ("codex-policy-sand.dylib" if platform.system() == "Darw
 class NativeHook(unittest.TestCase):
     def run_hook(self, remaining=33, current="high", *, loaded=True, mismatch=False,
                  event="PostModelRequest", turn="turn", migrated=True, mode="normal",
-                 expired=False, other_bucket=False, fail_update=False, repeat=False, policy=None):
+                 expired=False, other_bucket=False, fail_update=False, repeat=False, policy=None, reset_in=None, duration=300, secondary=None):
         with tempfile.TemporaryDirectory(prefix="gce-", dir="/tmp") as directory:
             home = Path(directory)
             database = home / ".local/share/ground/ground.db"
@@ -105,7 +106,9 @@ class NativeHook(unittest.TestCase):
                                 result = {"thread": {"reasoningEffort": effort[0]}}
                             elif method == "account/rateLimits/read":
                                 result = {"rateLimitsByLimitId": {"other" if other_bucket else "codex": {
-                                    "primary": {"usedPercent": 100 - remaining, "resetsAt": 1 if expired else 9999999999},
+                                    "primary": {"usedPercent": 100 - remaining, "windowDurationMins": duration,
+                                                "resetsAt": 1 if expired else (int(time.time()) + reset_in if reset_in is not None else 9999999999)},
+                                    "secondary": secondary,
                                 }}}
                             elif method == "thread/settings/update":
                                 self.assertEqual(request["params"]["threadId"], "session")
@@ -227,6 +230,35 @@ class NativeHook(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(calls, [])
         self.assertEqual(actual, "high")
+
+    def test_reset_grace_leaves_high_effort_even_with_low_weekly_quota(self):
+        rows, calls, actual = self.run_hook(remaining=3, reset_in=1800,
+            secondary={"usedPercent": 99, "windowDurationMins": 10080, "resetsAt": 9999999999})
+        self.assertEqual(actual, "high")
+        self.assertEqual(rows[0]["status"], "reset_grace")
+        self.assertNotIn("thread/settings/update", calls)
+
+    def test_reset_grace_requires_five_hour_window(self):
+        for options in ({"reset_in": 7200}, {"reset_in": 1800, "duration": 10080},
+                        {"reset_in": 1800, "duration": None}):
+            with self.subTest(options=options):
+                rows, calls, actual = self.run_hook(remaining=3, **options)
+                self.assertEqual(actual, "low")
+                self.assertEqual(rows[0]["status"], "lowered")
+
+    def test_loaded_pbt_changes_reset_grace(self):
+        # The custom policy grants 30 minutes, not the shipped 60.
+        rows, _, actual = self.run_hook(remaining=3, reset_in=2700, policy="custom")
+        self.assertEqual(actual, "low")
+        rows, calls, actual = self.run_hook(remaining=3, reset_in=900, policy="custom")
+        self.assertEqual(actual, "high")
+        self.assertEqual(rows[0]["status"], "reset_grace")
+        self.assertNotIn("thread/settings/update", calls)
+
+    def test_loaded_pbt_can_disable_reset_grace(self):
+        rows, _, actual = self.run_hook(remaining=3, reset_in=900, policy="grace-off")
+        self.assertEqual(actual, "low")
+        self.assertEqual(rows[0]["status"], "lowered")
 
 
 if __name__ == "__main__":

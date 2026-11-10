@@ -14,6 +14,11 @@ asks for no change; exactly 20% asks for medium. An effort already below the cap
 is preserved. Missing or invalid readings and unknown efforts cause no change.
 Claude's effort policy is independent.
 
+The shipped policy suspends all new downgrades when the five-hour Codex window
+has 60 minutes or less until reset, including downgrades otherwise triggered
+by the weekly window. It leaves the current effort unchanged and records
+`reset_grace`; it does not restore an earlier higher effort.
+
 ## PBT configuration
 
 The shipped policy is `controls/codex-effort.pbt`:
@@ -28,6 +33,7 @@ scope {
       enabled: "true"
       medium_below: "50"
       low_below: "20"
+      skip_before_5h_reset_minutes: "60"
     }
   }
 }
@@ -38,6 +44,13 @@ enabled, with `0 <= low_below <= medium_below <= 100`. `interval` is seconds,
 from 1 to 86400. Invalid values, unknown parameters, and duplicate parameters
 fail PBT compilation. Thresholds and interval come from this control, not
 constants in the engine.
+
+`skip_before_5h_reset_minutes` accepts whole minutes from 0 to 300. Zero or
+omission disables this exception; the shipped control sets it to 60. Ground
+identifies the five-hour window by `windowDurationMins: 300` in either window
+slot. The boundary is inclusive. Missing or invalid duration/reset information,
+expired windows, other quota buckets, and a weekly reset alone do not activate
+the exception.
 
 A matching `codex-effort` declaration in local or project sand overrides the
 floor. Within a layer the last matching declaration wins; between layers the
@@ -151,6 +164,11 @@ read 19% remaining and changed another ephemeral thread from high to low.
 Readback confirmed low and the real Ground database recorded row 3. The thread
 was restored and disconnected afterward. `make test` passed 43 D modules;
 `make test-codex` passed nine integration tests.
+
+The reset-grace addition passed all 43 D modules and 13 native integration
+tests. Coverage includes the inclusive one-hour boundary, low weekly quota,
+invalid window metadata, a loaded PBT override to 30 minutes, and disabling
+the exception with zero.
 
 The two model-event registrations now invoke only asynchronous `ground_hook`.
 The daemon reports both enabled but untrusted, with no configuration errors or

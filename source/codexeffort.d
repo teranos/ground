@@ -22,15 +22,20 @@ bool codexEffortEvent(json_object* payload) {
         && jsonText(jsonField(payload, "turn_id")).length > 0;
 }
 
-// Unknown, invalid and expired readings never ask for a settings change.
-double codexRemaining(json_object* result, long now) {
+private json_object* codexBucket(json_object* result) {
     auto buckets = jsonField(result, "rateLimitsByLimitId");
     json_object* bucket;
     if (json_object_get_type(buckets) == json_type.object) bucket = jsonField(buckets, "codex");
     else {
         bucket = jsonField(result, "rateLimits");
-        if (jsonText(jsonField(bucket, "limitId")) != "codex") return -1;
+        if (jsonText(jsonField(bucket, "limitId")) != "codex") return null;
     }
+    return bucket;
+}
+
+// Unknown, invalid and expired readings never ask for a settings change.
+double codexRemaining(json_object* result, long now) {
+    auto bucket = codexBucket(result);
     double remaining = -1;
     static foreach (name; ["primary", "secondary"]) {{
         auto window = jsonField(bucket, name);
@@ -50,6 +55,29 @@ double codexRemaining(json_object* result, long now) {
         }
     }}
     return remaining;
+}
+
+// Identify the five-hour window by its duration, not its slot. A weekly
+// reset or stale/unknown metadata must not waive the quota policy.
+bool codexResetGrace(json_object* result, long now, int minutes) {
+    if (minutes <= 0 || minutes > 300) return false;
+    auto bucket = codexBucket(result);
+    static foreach (name; ["primary", "secondary"]) {{
+        auto window = jsonField(bucket, name);
+        auto duration = jsonField(window, "windowDurationMins");
+        auto reset = jsonField(window, "resetsAt");
+        auto used = jsonField(window, "usedPercent");
+        if (json_object_get_type(duration) == json_type.int_
+            && json_object_get_int64(duration) == 300
+            && json_object_get_type(reset) == json_type.int_
+            && (json_object_get_type(used) == json_type.int_ || json_object_get_type(used) == json_type.double_)) {
+            auto percent = json_object_get_double(used);
+            auto resets = json_object_get_int64(reset);
+            if (percent >= 0 && percent <= 100 && resets > now
+                && cast(double) resets - now <= minutes * 60) return true;
+        }
+    }}
+    return false;
 }
 
 private const(char)[] knownEffort(const(char)[] value) {
@@ -107,9 +135,15 @@ CodexEffortResult codexControl(ref CodexRpc rpc, const(char)[] session, long now
     auto limits = rpc.call("account/rateLimits/read");
     if (limits is null) return r;
     r.remaining = codexRemaining(jsonField(limits, "result"), now);
+    auto resetGrace = codexResetGrace(jsonField(limits, "result"), now, policy.skipBefore5hResetMinutes);
     json_object_put(limits);
     if (r.remaining < 0) { r.detail = "No valid unexpired Codex quota window"; return r; }
     r.wanted = codexWanted(r.remaining, policy.mediumBelow, policy.lowBelow);
+    if (resetGrace) {
+        r.status = "reset_grace";
+        r.detail = "Five-hour Codex window resets within the PBT grace period; effort unchanged";
+        return r;
+    }
     if (!codexLowers(r.before, r.wanted)) { r.status = "unchanged"; return r; }
     auto update = json_object_new_object();
     scope(exit) json_object_put(update);

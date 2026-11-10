@@ -9,6 +9,7 @@ scope {
       enabled: "true"
       medium_below: "50"
       low_below: "20"
+      skip_before_5h_reset_minutes: "60"
     }
   }
 }
