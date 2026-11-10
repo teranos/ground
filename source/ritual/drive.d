@@ -506,8 +506,8 @@ int handleDrive(int argc, const(char)** argv) {
                 jevSaid = jevMetricsEnvelope(dsn, cast(long) time(null), said);
             }
 
-            // A held rite waits on the world, so asking twice a second is noise. A verdict that
-            // did not land is read again at once: the row moved, and may have ended.
+            // 「[Opus 5.5] A held rite waits on the world, so asking twice a second is noise. A verdict that」
+            // 「[Opus 5.5] did not land is read again at once: the row moved, and may have ended.」
             nextSleep = opensRite(res) ? 15 : 2;
 
             // A rite the agent has not met, said to the agent. Its watcher

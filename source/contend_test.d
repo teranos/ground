@@ -190,9 +190,9 @@ unittest {
     sqlite3_close(db);
 }
 
-// A verdict that did not land speaks of nothing: held, it does not brief the agent on a rite,
-// and moved, it does not tell of a walk, as the row it was about is not the row there now. An
-// aborted walk's agent was briefed on its rite after the abort.
+// 「[Opus 5.5] A verdict that did not land speaks of nothing: held, it does not brief the agent on a rite,」
+// 「[Opus 5.5] and moved, it does not tell of a walk, as the row it was about is not the row there now. An」
+// 「[Opus 5.5] aborted walk's agent was briefed on its rite after the abort.」
 unittest {
     import ritual : Advanced, opensRite, movesWalk;
     auto p = seeded();
@@ -233,9 +233,9 @@ enum runFlat = flatten(parsePbt(runSrc), 0);
 
 extern (C) char* mkdtemp(char* template_);
 
-// A run that failed while the walk was aborted under it: its halt is written on a revision the abort
-// already took, so it does not land, and the verdict says so. It said it had landed, and the driver
-// told the aborted walk's agent that its walk had moved.
+// 「[Opus 5.5] A run that failed while the walk was aborted under it: its halt is written on a revision the abort」
+// 「[Opus 5.5] already took, so it does not land, and the verdict says so. It said it had landed, and the driver」
+// 「[Opus 5.5] told the aborted walk's agent that its walk had moved.」
 unittest {
     import core.stdc.stdio : fopen, fputs, fclose;
     import core.stdc.stdlib : getenv;
@@ -258,7 +258,7 @@ unittest {
     assert(sqlite3_open(path.ptr, &db) == SQLITE_OK);
     assert(applySchema(db));
 
-    // What `ground ritual abort` writes, from outside the driver, while the rite runs.
+    // 「[Opus 5.5] What `ground ritual abort` writes, from outside the driver, while the rite runs.」
     foreach (i, c; "/abort.py") path[n + i] = c;
     path[n + "/abort.py".length] = 0;
     auto f = fopen(path.ptr, "w");
