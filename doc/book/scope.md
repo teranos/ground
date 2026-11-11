@@ -11,7 +11,7 @@ TODO: MOVE, not Scope
 How much of the widening is given up, in permille of the way from the taper's start to its end. The week is read in tenths of a percent. The start walks from the top back to where the read was aimed, and the reach past its end shrinks to nothing. At the end of the taper the segment is what was typed, so nothing is amended and nothing is said.
 
 ## matcher-f
-****
+TODO: MOVE, not Scope, this seems about Book pressing itself.
 The module line, its prose and the blank between them are the head; the first import is where it stops. A file that opens with code has no head to prefer. Measured on source/proto.d, which opens module, blank, import: a run carrying no comment is a declaration and not a section worth a range. Prose past the cap is cut at it. Nothing to read, and nothing allowed, are both no head. A hash-commented file reads the same way.
 
 ## matcher-maxCommentRun
