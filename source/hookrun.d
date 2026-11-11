@@ -380,7 +380,10 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     if (event == HookEvent.SessionStart) {
         auto source = extractSource(input);
         import sessionstart : handleSessionStart;
-        return handleSessionStart(source, cwd, sessionId);
+        import parse : extractPermissionMode;
+        // Claude's SessionStart carries permission_mode; Codex's does not.
+        // turn_id identifies Codex tool events, but is absent at session start.
+        return handleSessionStart(source, cwd, sessionId, extractPermissionMode(input) !is null);
     }
 
     // The only event that reaches the person and costs nothing: exit 2 shows

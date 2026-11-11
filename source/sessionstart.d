@@ -111,7 +111,8 @@ void attestTypes() {
 //   available here — one extra JSON emit on startup/resume.
 // TODO (CC .152): reloadSkills: true on SessionStart when a control has just
 //   installed skills into the skills dir — makes them usable in the same session.
-int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId) {
+int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId,
+                       bool claudePlan) {
     import hookrun : usecNow;
     auto t0 = usecNow();
 
@@ -251,8 +252,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
 
     auto tControls = usecNow();
 
-    // The uptime on every start. The plan and the latest release are checked
-    // when their last check is a day old, and the start waits for those.
+    // Uptime belongs to every harness; the subscription belongs to Claude.
+    // Only Claude reads or refreshes its plan. Release checks remain shared.
     __gshared ZBuf startLine;
     {
         import checks : bootTime, shouldCheck, lastCheck, askPlan, fetchRelease, sendDetached,
@@ -269,9 +270,12 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         if (sdb !is null) {
             __gshared Check plan;
             __gshared Check release;
-            plan = lastCheck(sdb, "plan");
-            bool asked = shouldCheck(plan.found ? plan.at : 0, now, EVERY);
-            if (asked) plan = askPlan(sdb, now);
+            bool asked = false;
+            if (claudePlan) {
+                plan = lastCheck(sdb, "plan");
+                asked = shouldCheck(plan.found ? plan.at : 0, now, EVERY);
+                if (asked) plan = askPlan(sdb, now);
+            }
             release = lastCheck(sdb, "release");
             bool fetched = shouldCheck(release.found ? release.at : 0, now, EVERY);
             if (fetched) release = fetchRelease(sdb, now);
@@ -280,12 +284,13 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             if (asked || fetched)
                 sendDetached(asked ? "plan" : "", fetched ? "release" : "", now);
 
-            putStart(startLine, up, plan.value, plan.exit, plan.found);
+            if (claudePlan) putStart(startLine, up, plan.value, plan.exit, plan.found);
+            else putUptime(startLine, up);
             if (isStartup && release.value.length > 0 && isNewerVersion(release.value, localTag()))
                 newerTag = release.value;
         } else {
             putUptime(startLine, up);
-            startLine.put(" | plan unknown: ground could not open its database");
+            if (claudePlan) startLine.put(" | plan unknown: ground could not open its database");
         }
     }
 
