@@ -4,11 +4,11 @@ module signed;
 //
 // "Tokens are to be removed from QNTX except for third-party OAuth clients"
 //
-// Ground speaks to its node as a key of its own: an ed25519 seed kept in
-// ~/.qntx/key, named by its did:key, which the node knows from the sign-in the
-// person said yes to (QNTX server/auth/device.go). Each request carries a JWT
-// signed for that one request and that one node (QNTX server/auth/signed.go):
-// what crosses the wire is spent once, and the key never does.
+// 「[Opus 5.5] Ground speaks to its node as a key of its own: an ed25519 seed kept in」
+// 「[Opus 5.5] ~/.qntx/key, named by its did:key, which the node knows from the sign-in the」
+// 「[Opus 5.5] person said yes to (QNTX server/auth/device.go). Each request carries a JWT」
+// 「[Opus 5.5] signed for that one request and that one node (QNTX server/auth/signed.go):」
+// 「[Opus 5.5] what crosses the wire is spent once, and the key never does.」
 
 import zbuf : ZBuf;
 
@@ -18,12 +18,12 @@ extern (C) nothrow @nogc {
     int crypto_sign_detached(ubyte* sig, ulong* siglen, const(ubyte)* m, ulong mlen, const(ubyte)* sk);
     int crypto_sign_verify_detached(const(ubyte)* sig, const(ubyte)* m, ulong mlen, const(ubyte)* pk);
     void randombytes_buf(void* buf, size_t size);
-    // mkdirat, which nothing else in ground or ug declares: mkdir is declared twice over, with
-    // Darwin's 16-bit mode_t by druntime and as uint by db, and a binary links one of them.
+    // 「[Opus 5.5] mkdirat, which nothing else in ground or ug declares: mkdir is declared twice over, with」
+    // 「[Opus 5.5] Darwin's 16-bit mode_t by druntime and as uint by db, and a binary links one of them.」
     int mkdirat(int fd, const(char)* path, uint mode);
 }
 
-// The directory a relative path is made in: the working one (fcntl.h's AT_FDCWD).
+// 「[Opus 5.5] The directory a relative path is made in: the working one (fcntl.h's AT_FDCWD).」
 version (OSX) private enum AT_FDCWD = -2;
 else private enum AT_FDCWD = -100;
 
@@ -31,22 +31,22 @@ enum SEED_BYTES = 32;
 enum PUBLIC_BYTES = 32;
 enum SECRET_BYTES = 64;
 enum SIGNATURE_BYTES = 64;
-// QNTX's assertionIDBytes: a jti is sixteen random bytes, in hex.
+// 「[Opus 5.5] QNTX's assertionIDBytes: a jti is sixteen random bytes, in hex.」
 enum JTI_BYTES = 16;
-// How long a signature lasts: long enough to reach the node, well inside the
-// five minutes the node allows one (assertionMaxLife).
+// 「[Opus 5.5] How long a signature lasts: long enough to reach the node, well inside the」
+// 「[Opus 5.5] five minutes the node allows one (assertionMaxLife).」
 enum SIGNED_LIFE_SECONDS = 60;
-// The scheme the node reads a signature under (QNTX signedScheme).
+// 「[Opus 5.5] The scheme the node reads a signature under (QNTX signedScheme).」
 enum SCHEME = "Signed ";
 
-// A key: its seed, the secret libsodium signs with, its public half.
+// 「[Opus 5.5] A key: its seed, the secret libsodium signs with, its public half.」
 struct Key {
     ubyte[SECRET_BYTES] secret;
     ubyte[PUBLIC_BYTES] public_;
     bool held;
 }
 
-// The key a seed is: what libsodium derives, as QNTX's ed25519.NewKeyFromSeed does.
+// 「[Opus 5.5] The key a seed is: what libsodium derives, as QNTX's ed25519.NewKeyFromSeed does.」
 Key keyOf(const(ubyte)[] seed) {
     Key k;
     if (seed.length != SEED_BYTES) return k;
@@ -58,14 +58,14 @@ Key keyOf(const(ubyte)[] seed) {
 
 private enum B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-// The did:key a public key is: did:key:z, then base58btc of the ed25519
-// multicodec (0xed 0x01) and the key, as QNTX's access.EncodeDIDKey writes it.
+// 「[Opus 5.5] The did:key a public key is: did:key:z, then base58btc of the ed25519」
+// 「[Opus 5.5] multicodec (0xed 0x01) and the key, as QNTX's access.EncodeDIDKey writes it.」
 void putDID(ref ZBuf out_, const(ubyte)[] public_) {
     ubyte[2 + PUBLIC_BYTES] raw;
     raw[0] = 0xed;
     raw[1] = 0x01;
     foreach (i, b; public_[0 .. PUBLIC_BYTES]) raw[2 + i] = b;
-    // Base58 by long division of the bytes as one big-endian number.
+    // 「[Opus 5.5] Base58 by long division of the bytes as one big-endian number.」
     ubyte[64] digits;
     size_t n = 0;
     foreach (b; raw) {
@@ -90,7 +90,7 @@ void putDID(ref ZBuf out_, const(ubyte)[] public_) {
 
 private enum B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-// base64url without padding, as a JWT writes each of its parts (RFC 7515 §2).
+// 「[Opus 5.5] base64url without padding, as a JWT writes each of its parts (RFC 7515 §2).」
 void putBase64URL(ref ZBuf out_, const(ubyte)[] bytes) {
     size_t i = 0;
     while (i + 3 <= bytes.length) {
@@ -114,8 +114,8 @@ void putBase64URL(ref ZBuf out_, const(ubyte)[] bytes) {
     }
 }
 
-// The origin a URL is reached at: its scheme and host, the port if it names
-// one, nothing after. A node signs for its public origin (QNTX publicOrigin).
+// 「[Opus 5.5] The origin a URL is reached at: its scheme and host, the port if it names」
+// 「[Opus 5.5] one, nothing after. A node signs for its public origin (QNTX publicOrigin).」
 const(char)[] originOf(const(char)[] url) {
     size_t at = 0;
     while (at + 2 < url.length && !(url[at] == ':' && url[at + 1] == '/' && url[at + 2] == '/')) at++;
@@ -125,9 +125,9 @@ const(char)[] originOf(const(char)[] url) {
     return url[0 .. end];
 }
 
-// The Authorization line a request to url goes with, signed by key at now
-// (seconds since the epoch), with jti as its id: the scheme, a header, the
-// claims, and the signature over both.
+// 「[Opus 5.5] The Authorization line a request to url goes with, signed by key at now」
+// 「[Opus 5.5] (seconds since the epoch), with jti as its id: the scheme, a header, the」
+// 「[Opus 5.5] claims, and the signature over both.」
 void putSigned(ref ZBuf out_, const(char)[] url, ref const Key key, long now, const(ubyte)[] jti) {
     __gshared ZBuf did, claims, signing;
     did.reset();
@@ -167,8 +167,8 @@ void putSigned(ref ZBuf out_, const(char)[] url, ref const Key key, long now, co
     putBase64URL(out_, sig[0 .. cast(size_t) sigLen]);
 }
 
-// The file ground's key is kept in: ~/.qntx/key, beside the token every
-// ground used to read. Null when there is no home.
+// 「[Opus 5.5] The file ground's key is kept in: ~/.qntx/key, beside the token every」
+// 「[Opus 5.5] ground used to read. Null when there is no home.」
 const(char)* keyFile() {
     import core.stdc.stdlib : getenv;
     __gshared ZBuf path;
@@ -189,9 +189,9 @@ private int nibble(char c) {
     return -1;
 }
 
-// The key kept in file: a seed, sixty-four hex characters. Not held when there
-// is no file, what is in it is no seed, or it is not its owner's alone: a
-// link, not a regular file, someone else's, or readable by anyone else.
+// 「[Opus 5.5] The key kept in file: a seed, sixty-four hex characters. Not held when there」
+// 「[Opus 5.5] is no file, what is in it is no seed, or it is not its owner's alone: a」
+// 「[Opus 5.5] link, not a regular file, someone else's, or readable by anyone else.」
 Key keptKey(const(char)* file) {
     import core.sys.posix.fcntl : open, O_RDONLY, O_NOFOLLOW;
     import core.sys.posix.unistd : read, close, geteuid;
@@ -219,8 +219,8 @@ Key keptKey(const(char)* file) {
     return keyOf(seed[]);
 }
 
-// The key in file, made and kept there first when there is none: a seed of
-// random bytes, written readable by its owner alone.
+// 「[Opus 5.5] The key in file, made and kept there first when there is none: a seed of」
+// 「[Opus 5.5] random bytes, written readable by its owner alone.」
 Key keepKey(const(char)* file) {
     auto held = keptKey(file);
     if (held.held || file is null) return held;
@@ -229,7 +229,7 @@ Key keepKey(const(char)* file) {
     if (sodium_init() < 0) return held;
     ubyte[SEED_BYTES] seed;
     randombytes_buf(seed.ptr, seed.length);
-    // Every directory on the way, as mkdir -p makes them, each its owner's alone.
+    // 「[Opus 5.5] Every directory on the way, as mkdir -p makes them, each its owner's alone.」
     __gshared ZBuf dir;
     dir.reset();
     size_t n = 0;
@@ -261,8 +261,8 @@ Key keepKey(const(char)* file) {
     auto wrote = write(fd, text.ptr, text.length);
     auto closed = close(fd);
     if (wrote != text.length || closed != 0) {
-        // A seed half written is no key, and O_EXCL would keep the next sign-in
-        // from making one: what this attempt made goes.
+        // 「[Opus 5.5] A seed half written is no key, and O_EXCL would keep the next sign-in」
+        // 「[Opus 5.5] from making one: what this attempt made goes.」
         import core.sys.posix.unistd : unlink;
         unlink(file);
         return held;
@@ -270,10 +270,10 @@ Key keepKey(const(char)* file) {
     return keyOf(seed[]);
 }
 
-// The Authorization line for a request to url: a token when one is said,
-// which goes as it always went; with none, and the request going to a node
-// (signs), a signature by the key kept in ~/.qntx/key; otherwise no line. An
-// absent line is an absent header.
+// 「[Opus 5.5] The Authorization line for a request to url: a token when one is said,」
+// 「[Opus 5.5] which goes as it always went; with none, and the request going to a node」
+// 「[Opus 5.5] (signs), a signature by the key kept in ~/.qntx/key; otherwise no line. An」
+// 「[Opus 5.5] absent line is an absent header.」
 void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs) {
     import token : trimToken;
     line.reset();
