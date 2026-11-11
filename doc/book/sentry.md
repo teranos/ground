@@ -2,7 +2,7 @@ What a ground says to sentry.
 
 A log and not a cron check-in. Asked of the ground project on 
 
-TODO: Warstories should not be in Book of Ground
+TODO: War-stories should not be in Book of Ground. Move it somewhere else. Gr
 2026-09-17: a monitor upsert without a schedule is refused (422, missing field `schedule`), a check-in to a monitor that does not exist is accepted and creates none, and a monitor with a schedule reads every interval nobody performed in as missed. A ritual is performed when somebody performs it.
 
 ## sentry-hostName
