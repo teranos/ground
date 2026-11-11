@@ -1,3 +1,4 @@
+TODO: Why should this be the 
 "Agents SHOULD reject any request other than initialize that arrives before initialization completes with -32600." A connection starts uninitialized: each request is refused, a notification is let be, and an initialize that is refused leaves it so; one answered ends it.
 
 ## code-answers
