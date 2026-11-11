@@ -18,7 +18,7 @@ The module line, its prose and the blank between them are the head; the first im
 
 ## matcher-maxCommentRun-2
 A commented line that opens a brace block, all inside it and the line that closes it are code, not prose: they neither count nor carry a run.
-TODO: MOVE, all o this doesnt seem like { } or 
+
 ## proto-nestedInput
 
 ## proto-nestedEventInput
