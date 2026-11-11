@@ -14,8 +14,8 @@ static assert(trimToken("\n\n") == "");
 static assert(trimToken("") == "");
 
 // "A signature proves the key, and nothing reusable leaves the node."
-// No token and a key kept: the request is made, and http.d signs it. No key
-// either: there is nothing to ask with, and the row says token.
+// 「[Opus 5.5] No token and a key kept: the request is made, and http.d signs it. No key」
+// 「[Opus 5.5] either: there is nothing to ask with, and the row says token.」
 static assert(noTokenBut(true).ok && noTokenBut(true).value == "");
 static assert(!noTokenBut(false).ok && noTokenBut(false).fault == State.noToken);
 
