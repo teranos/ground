@@ -47,13 +47,13 @@ struct Token {
 }
 
 // "A signature proves the key, and nothing reusable leaves the node."
-// No token, and a key kept in ~/.qntx/key: nothing is presented as a token,
-// and http.d signs the request with the key (source/signed.d).
+// 「[Opus 5.5] No token, and a key kept in ~/.qntx/key: nothing is presented as a token,」
+// 「[Opus 5.5] and http.d signs the request with the key (source/signed.d).」
 Token noTokenBut(bool keyKept) {
     return keyKept ? Token("", State.ok, true) : Token(null, State.noToken, false);
 }
 
-// Whether a key is kept under home, which http.d signs with.
+// 「[Opus 5.5] Whether a key is kept under home, which http.d signs with.」
 bool keyKept(const(char)[] home) {
     import core.stdc.stdio : fopen, fclose;
     enum KEY_FILE = "/.qntx/key";
