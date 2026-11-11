@@ -102,9 +102,9 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
     return n;
 }
 
-// A request to a QNTX node: its token, and with none, ground's key signs it.
-// Every other far end (GitHub, Sentry, Jev) is handed a plain token or nothing,
-// never ground's DID.
+// 「[Opus 5.5] A request to a QNTX node: its token, and with none, ground's key signs it.」
+// 「[Opus 5.5] Every other far end (GitHub, Sentry, Jev) is handed a plain token or nothing,」
+// 「[Opus 5.5] never ground's DID.」
 struct ToNode {
     const(char)[] token;
 }
@@ -218,7 +218,7 @@ Http httpGet(const(char)[] url, const(char)[] token, char[] dest, int timeoutSec
     return perform(url, null, false, token, false, null, dest, timeoutSec, WEB);
 }
 
-// The same, to a node.
+// 「[Opus 5.5] The same, to a node.」
 Http httpGet(const(char)[] url, ToNode node, char[] dest, int timeoutSec = 10) {
     return perform(url, null, false, node.token, true, null, dest, timeoutSec, WEB);
 }
@@ -243,7 +243,7 @@ Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, in
     return getToFile(url, token, false, path, timeoutSec, protocols);
 }
 
-// The same, to a node.
+// 「[Opus 5.5] The same, to a node.」
 Http httpGetToFile(const(char)[] url, ToNode node, const(char)* path, int timeoutSec,
                    const(char)[] protocols = WEB) {
     return getToFile(url, node.token, true, path, timeoutSec, protocols);
@@ -309,7 +309,7 @@ Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
     return perform(url, body_, true, token, false, contentType, null, timeoutSec, WEB);
 }
 
-// The same, to a node.
+// 「[Opus 5.5] The same, to a node.」
 Http httpPost(const(char)[] url, const(char)[] body_, ToNode node,
               int timeoutSec = 10, const(char)[] contentType = "application/json") {
     return perform(url, body_, true, node.token, true, contentType, null, timeoutSec, WEB);
@@ -324,7 +324,7 @@ Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, c
     return perform(url, body_, true, token, false, contentType, dest, timeoutSec, WEB, abort);
 }
 
-// The same, to a node.
+// 「[Opus 5.5] The same, to a node.」
 Http httpPostInto(const(char)[] url, const(char)[] body_, ToNode node, char[] dest,
                   int timeoutSec = 10, const(char)[] contentType = "application/json", Abort abort = Abort.init) {
     return perform(url, body_, true, node.token, true, contentType, dest, timeoutSec, WEB, abort);
@@ -337,7 +337,7 @@ int curlPost(const(char)[] url, const(char)[] body_, const(char)[] token,
     return httpPost(url, body_, token, timeoutSec, contentType).status;
 }
 
-// The same, to a node.
+// 「[Opus 5.5] The same, to a node.」
 int curlPost(const(char)[] url, const(char)[] body_, ToNode node,
              int timeoutSec = 10, const(char)[] contentType = "application/json") {
     return httpPost(url, body_, node, timeoutSec, contentType).status;
