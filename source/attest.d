@@ -76,12 +76,12 @@ int handleAttest() {
             url.put(p.url);
             url.put("/api/attestations");
 
-            import http : curlPost;
+            import http : curlPost, ToNode;
 
             int code;
             int tries = 0;
             while (true) {
-                code = curlPost(url.slice(), body_.slice(), token);
+                code = curlPost(url.slice(), body_.slice(), ToNode(token));
                 if (!shouldRetry(code) || tries >= RETRY_ATTEMPTS - 1) break;
 
                 auto wait = backoffSeconds(tries);

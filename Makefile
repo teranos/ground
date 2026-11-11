@@ -36,7 +36,7 @@ BIN_FLAGS = -betterC --lowmem -O -release -d-version=Floor -J=. -I=source -i
 ground_code: BIN_FLAGS = --lowmem -release -d-version=Floor -J=. -I=source -i
 # The C++ shim is an archive, so a binary takes it only where it calls it.
 BIN_LIBS = -L-Lbuild -L-lgroundc -L-lphonenumber \
-	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lm -L-lpthread -L-ldl \
+	-L-lsqlite3 -L-lcurl -L-lgit2 -L-lmcp -L-lacp -L-ljson-c -L-lsodium -L-lm -L-lpthread -L-ldl \
 	$(if $(filter Darwin,$(shell uname -s)),-L-lc++,-L-lstdc++)
 
 # What make install puts beside ground; ground_parity is for whoever develops ground.
@@ -109,13 +109,13 @@ UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
              ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
-             source/http.d source/zbuf.d source/token.d
+             source/http.d source/zbuf.d source/token.d source/signed.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
 # reading from its input, which no hook is handed, every four hours and once
 # per new session. libgit2 reads the tree's status in its own process.
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2 -L-lcurl
+	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2 -L-lcurl -L-lsodium
 
 # "make test should be the fast version"
 # "and ci does slower shit"

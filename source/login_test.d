@@ -118,7 +118,44 @@ enum DEVICE = http!("200 OK", `{"device_code":"dc 1+","user_code":"BCDF-GHJK","v
     ~ `"verification_uri_complete":"http://q/auth/device/approve?user_code=BCDF-GHJK","expires_in":600,"interval":0}`);
 enum PENDING = http!("400 Bad Request", `{"error":"authorization_pending","error_description":"waiting for the passkey at http://q/auth/device/approve"}`);
 enum SLOW = http!("400 Bad Request", `{"error":"slow_down","error_description":"ask less often"}`);
-enum TOKEN = http!("200 OK", `{"access_token":"qntx_abc123","token_type":"Bearer","expires_in":2592000}`);
+// The node's yes to the key of the zero seed: its DID, and nothing to keep.
+enum ZERO_DID = "did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp";
+enum SAID_YES = http!("200 OK", `{"did":"did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp","token_type":"Signed","expires_in":2592000}`);
+
+// "A signature proves the key, and nothing reusable leaves the node."
+// A key kept at path: the zero seed, whose DID is ZERO_DID.
+private void zeroKeyAt(const(char)* path) {
+    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
+    import core.sys.posix.unistd : write, close;
+    // mkdir as db declares it, the one declaration ground links: Darwin's 16-bit mode_t in a second is a different function.
+    import db : mkdir;
+    // memcpy, not a slice copy: that is druntime's _d_array_slice_copy, which
+    // the Linux test binary does not link.
+    import core.stdc.string : strlen, memcpy;
+    char[512] dir = 0;
+    auto n = strlen(path);
+    memcpy(dir.ptr, path, n);
+    foreach (i; 1 .. n) {
+        if (dir[i] != '/') continue;
+        dir[i] = 0;
+        mkdir(dir.ptr, 448); // 0700
+        dir[i] = '/';
+    }
+    auto fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 384); // 0600
+    assert(fd >= 0, "the key could not be written");
+    enum seed = "0000000000000000000000000000000000000000000000000000000000000000\n";
+    assert(write(fd, seed.ptr, seed.length) == seed.length);
+    close(fd);
+}
+
+// The key of a test: a path of its own, the zero seed kept there.
+private const(char)* testKey(ref char[160] buf, string name) {
+    import core.stdc.stdio : snprintf;
+    import core.sys.posix.unistd : getpid;
+    snprintf(buf.ptr, buf.length, "/tmp/ground-key-%s-%d/key", name.ptr, getpid());
+    zeroKeyAt(buf.ptr);
+    return buf.ptr;
+}
 enum EXPIRED = http!("400 Bad Request", `{"error":"expired_token","error_description":"nobody said yes within 10m0s"}`);
 
 // "label names the agent asking, which the person reads before saying yes":
@@ -129,12 +166,15 @@ unittest {
     SignIn s;
     Reply why;
     scope(exit) { s.dispose(); why.dispose(); }
-    assert(startSignIn(n.url, s, why) == 1);
+    char[160] key;
+    assert(startSignIn(n.url, testKey(key, "start"), s, why) == 1);
     auto heard = heardAll(n);
     assert(indexOf(heard, "POST /auth/device HTTP/1.1") == 0);
     assert(indexOf(heard, "Content-Type: application/x-www-form-urlencoded") >= 0);
     assert(indexOf(heard, "Authorization:") < 0);
-    assert(indexOf(heard, "\r\n\r\nlabel=ground+code") >= 0);
+    // The sign-in names the did:key of the key ground holds.
+    assert(indexOf(heard, "\r\n\r\nlabel=ground+code&did=did%3Akey%3Az6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp") >= 0, heard);
+    assert(s.did.slice() == ZERO_DID);
     assert(s.deviceCode.slice() == "dc 1+");
     assert(s.userCode.slice() == "BCDF-GHJK");
     assert(s.link.slice() == "http://q/auth/device/approve?user_code=BCDF-GHJK");
@@ -147,7 +187,8 @@ unittest {
     SignIn s;
     Reply why;
     scope(exit) { s.dispose(); why.dispose(); }
-    assert(startSignIn(n.url, s, why) == -1);
+    char[160] key;
+    assert(startSignIn(n.url, testKey(key, "refused"), s, why) == -1);
     heardAll(n);
     assert(indexOf(why.slice(), `"status":400`) >= 0);
     assert(indexOf(why.slice(), `label names the agent asking`) >= 0);
@@ -159,27 +200,35 @@ unittest {
 // 「[Opus 5.5] between asks on slow_down, then the token; and over on expired_token, the」
 // 「[Opus 5.5] node's words kept.」
 unittest {
-    auto n = node(PENDING, SLOW, TOKEN);
+    auto n = node(PENDING, SLOW, SAID_YES);
     SignIn s;
     s.deviceCode.add("dc 1+");
-    Reply token, why;
-    scope(exit) { s.dispose(); token.dispose(); why.dispose(); }
-    assert(pollSignIn(n.url, s, token, why) == 0);
-    assert(pollSignIn(n.url, s, token, why) == 0);
+    s.did.add(ZERO_DID);
+    Reply why;
+    scope(exit) { s.dispose(); why.dispose(); }
+    assert(pollSignIn(n.url, s, why) == 0);
+    assert(pollSignIn(n.url, s, why) == 0);
     assert(s.interval == 5);
-    assert(pollSignIn(n.url, s, token, why) == 1);
-    assert(token.slice() == "qntx_abc123");
+    // The node's yes names the key's DID, and nothing is handed back.
+    assert(pollSignIn(n.url, s, why) == 1);
     auto heard = heardAll(n);
     assert(indexOf(heard, "POST /auth/token HTTP/1.1") == 0);
     assert(indexOf(heard, "\r\n\r\ngrant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=dc+1%2B") >= 0);
 
     auto m = node(EXPIRED);
-    Reply none, over;
-    scope(exit) { none.dispose(); over.dispose(); }
-    assert(pollSignIn(m.url, s, none, over) == -1);
+    Reply over;
+    scope(exit) over.dispose();
+    assert(pollSignIn(m.url, s, over) == -1);
     heardAll(m);
-    assert(none.len == 0);
     assert(indexOf(over.slice(), `expired_token`) >= 0 && indexOf(over.slice(), `nobody said yes within 10m0s`) >= 0);
+
+    // A yes to another key is no sign-in for this one.
+    auto o = node(http!("200 OK", `{"did":"did:key:z6Mkother","token_type":"Signed"}`));
+    Reply other;
+    scope(exit) other.dispose();
+    assert(pollSignIn(o.url, s, other) == -1);
+    heardAll(o);
+    assert(indexOf(other.slice(), `another key`) >= 0);
 }
 
 // 「[Opus 5.5] The token is kept where every ground reads it: its directory made, the file」
@@ -225,24 +274,31 @@ unittest {
     char[160] file;
     snprintf(file.ptr, file.length, "/tmp/ground-login-run-%d", getpid());
     size_t fl = 0; while (file[fl] != 0) fl++;
-    Reply said;
-    scope(exit) said.dispose();
+    char[160] key;
+    auto keyAt = testKey(key, "login");
+    Reply said, why;
+    scope(exit) { said.dispose(); why.dispose(); }
     void say(const(char)[] s) { said.add(s); }
 
-    auto n = node(DEVICE, PENDING, TOKEN);
-    assert(login(n.url, file.ptr, &say) == 0);
+    // Signed in as the key: the token once kept is dropped, so the key is what speaks.
+    assert(keepToken(file.ptr, "qntx_once", why));
+    auto n = node(DEVICE, PENDING, SAID_YES);
+    assert(login(n.url, file.ptr, keyAt, &say) == 0);
     heardAll(n);
     assert(indexOf(said.slice(), "http://q/auth/device/approve?user_code=BCDF-GHJK") >= 0);
     assert(indexOf(said.slice(), "BCDF-GHJK") >= 0);
-    assert(qntxToken(file[0 .. fl]) == "qntx_abc123");
-    unlink(file.ptr);
+    assert(indexOf(said.slice(), "Signed in as " ~ ZERO_DID) >= 0, said.slice());
+    assert(qntxToken(file[0 .. fl]) is null, "the token once kept still stands before the key");
 
+    // Nobody said yes: what was kept stays as it was.
     said.len = 0;
+    assert(keepToken(file.ptr, "qntx_once", why));
     auto m = node(DEVICE, EXPIRED);
-    assert(login(m.url, file.ptr, &say) == 1);
+    assert(login(m.url, file.ptr, keyAt, &say) == 1);
     heardAll(m);
     assert(indexOf(said.slice(), "nobody said yes within 10m0s") >= 0);
-    assert(qntxToken(file[0 .. fl]) is null);
+    assert(qntxToken(file[0 .. fl]) == "qntx_once");
+    unlink(file.ptr);
 }
 
 // 「[Opus 5.5] ---- What ground code says of signing in, over ACP. ----」
@@ -362,7 +418,7 @@ enum K_TOKEN = "/tmp/ground-k-token-left-alone";
 unittest {
     import attest : qntxToken;
     import core.sys.posix.unistd : unlink, access, F_OK;
-    auto n = node(DEVICE, PENDING, TOKEN);
+    auto n = node(DEVICE, PENDING, SAID_YES);
     Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.gateway = cast(string) n.url;
@@ -372,6 +428,10 @@ unittest {
     unlink(K_TOKEN.ptr);
     borrowHome("auth");
     scope(exit) giveBackHome();
+    {
+        import signed : keyFile;
+        zeroKeyAt(keyFile());
+    }
     __gshared Spoken spoken;
     speak(s, `{"jsonrpc":"2.0","id":3,"method":"authenticate","params":{"methodId":"qntx"}}`,
         `{"jsonrpc":"2.0","id":"login-1","result":{"action":"accept"}}` ~ "\n", spoken);
@@ -383,12 +443,11 @@ unittest {
         ~ `"message":"Sign in to QNTX as ground code. The code there is BCDF-GHJK.","elicitationId":"qntx-BCDF-GHJK",`
         ~ `"url":"http://q/auth/device/approve?user_code=BCDF-GHJK"}}` ~ "\n"
         ~ `{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"qntx-BCDF-GHJK"}}` ~ "\n");
-    assert(qntxToken("") == "qntx_abc123");
+    // Signed in as the key: no token is kept, and none for k either.
+    assert(qntxToken("") is null);
     assert(access(K_TOKEN.ptr, F_OK) != 0);
-    char[200] kept;
-    import core.stdc.stdio : snprintf;
-    snprintf(kept.ptr, kept.length, "%s/.qntx/token", borrowed.ptr);
-    unlink(kept.ptr);
+    import signed : keyFile;
+    unlink(keyFile());
 }
 
 // 「[Opus 5.5] The person declines, the client calls authenticate off, or nobody says yes:」
@@ -408,7 +467,7 @@ unittest {
     speak(s, `{"jsonrpc":"2.0","id":4,"method":"authenticate","params":{"methodId":"qntx"}}`,
         `{"jsonrpc":"2.0","id":"login-1","result":{"action":"decline"}}` ~ "\n", declined);
     heardAll(n);
-    assert(declined.reply.slice() == `{"jsonrpc":"2.0","id":4,"error":{"code":-32000,"message":"the person did not sign in to QNTX","data":{"action":"decline"}}}`);
+    assert(declined.reply.slice() == `{"jsonrpc":"2.0","id":4,"error":{"code":-32000,"message":"the person did not sign in to QNTX","data":{"action":"decline"}}}`, declined.reply.slice());
     declined.reply.dispose();
 
     auto m = node(DEVICE, PENDING);
@@ -575,8 +634,12 @@ unittest {
     meanwhileFd = p[1];
     meanwhile = `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":8}}` ~ "\n";
     scope(exit) meanwhileFd = -1;
-    auto n = node(DEVICE, TOKEN);
+    auto n = node(DEVICE, SAID_YES);
     s.node.gateway = cast(string) n.url;
+    {
+        import signed : keyFile;
+        zeroKeyAt(keyFile());
+    }
     enum accepted = `{"jsonrpc":"2.0","id":"login-1","result":{"action":"accept"}}` ~ "\n";
     write(p[1], accepted.ptr, accepted.length);
     close(p[1]);

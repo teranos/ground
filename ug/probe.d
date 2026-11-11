@@ -46,6 +46,29 @@ struct Token {
     bool ok;
 }
 
+// "A signature proves the key, and nothing reusable leaves the node."
+// No token, and a key kept in ~/.qntx/key: nothing is presented as a token,
+// and http.d signs the request with the key (source/signed.d).
+Token noTokenBut(bool keyKept) {
+    return keyKept ? Token("", State.ok, true) : Token(null, State.noToken, false);
+}
+
+// Whether a key is kept under home, which http.d signs with.
+bool keyKept(const(char)[] home) {
+    import core.stdc.stdio : fopen, fclose;
+    enum KEY_FILE = "/.qntx/key";
+    __gshared char[1024] path = void;
+    if (home.length == 0 || home.length + KEY_FILE.length + 1 > path.length) return false;
+    size_t p = 0;
+    foreach (c; home) path[p++] = c;
+    foreach (c; KEY_FILE) path[p++] = c;
+    path[p] = 0;
+    auto f = fopen(&path[0], "rb");
+    if (f is null) return false;
+    fclose(f);
+    return true;
+}
+
 Token readToken(const(char)[] home) {
     import core.stdc.stdio : fopen, fread, fclose;
     import core.stdc.stdlib : getenv;
@@ -62,7 +85,7 @@ Token readToken(const(char)[] home) {
 
     __gshared char[1024] path = void;
     if (home.length + TOKEN_FILE.length + 1 > path.length)
-        return Token(null, State.noToken, false);
+        return noTokenBut(keyKept(home));
 
     size_t p = 0;
     foreach (c; home) path[p++] = c;
@@ -70,7 +93,7 @@ Token readToken(const(char)[] home) {
     path[p] = 0;
 
     auto f = fopen(&path[0], "rb");
-    if (f is null) return Token(null, State.noToken, false);
+    if (f is null) return noTokenBut(keyKept(home));
 
     __gshared char[4096] buf = void;
     auto n = fread(&buf[0], 1, buf.length, f);
@@ -81,7 +104,7 @@ Token readToken(const(char)[] home) {
     if (n == 0) return Token(null, State.tokenUnreadable, false);
 
     auto t = trimToken(buf[0 .. n]);
-    if (t.length == 0) return Token(null, State.noToken, false);
+    if (t.length == 0) return noTokenBut(keyKept(home));
     return Token(t, State.ok, true);
 }
 
@@ -99,7 +122,7 @@ size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
 // which meant a path to pin, a config file under /tmp to hold the token, and a
 // command line for a shell to read.
 Answer fetch(const(char)[] home, const(char)[] path) {
-    import http : httpGet;
+    import http : httpGet, ToNode;
 
     auto tok = readToken(home);
     if (!tok.ok) return Answer(tok.fault, 0, "");
@@ -109,7 +132,7 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     if (u == 0) return Answer(State.probeError, 0, "");
 
     __gshared char[262144] out_ = void;
-    auto r = httpGet(url[0 .. u], tok.value, out_[], MAX_TIME);
+    auto r = httpGet(url[0 .. u], ToNode(tok.value), out_[], MAX_TIME);
 
     // A body larger than the buffer is neither the far end failing nor a
     // failure to reach it, so it is read as neither.
@@ -131,7 +154,7 @@ struct Posted {
 // written to files under /tmp to keep them off a command line; now there is no
 // command line, so there is nothing to keep them off and nothing left behind.
 Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
-    import http : httpPost;
+    import http : httpPost, ToNode;
 
     auto tok = readToken(home);
     if (!tok.ok) return Posted(0, -1);
@@ -140,7 +163,7 @@ Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
     auto u = urlInto(host(), path, url[]);
     if (u == 0) return Posted(0, 0);
 
-    auto r = httpPost(url[0 .. u], body_, tok.value, MAX_TIME);
+    auto r = httpPost(url[0 .. u], body_, ToNode(tok.value), MAX_TIME);
     return Posted(r.status, r.code);
 }
 
