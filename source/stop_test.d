@@ -130,3 +130,18 @@ scope {
 }
 `;
 static assert(!parsePbt(quietInput).ctrlPool[0].timing);
+
+// PBT chooses the route; the default continues to block Stop.
+unittest {
+    import proto : parsePbt, buildScopes;
+    import stop : nextUserPrompt;
+    enum parsed = parsePbt(`scope { event: "Stop" control {
+        name: "background" stop: "teranos"
+        handler_params { delivery: "next_user_prompt" }
+        msg: "Account context"
+    } }`);
+    auto scopes = buildScopes(parsed, "Stop");
+    assert(nextUserPrompt(scopes.items[0].controls[0]));
+    Control ordinary;
+    assert(!nextUserPrompt(ordinary));
+}

@@ -83,6 +83,29 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     ctx.reset();
     bool any = false;
 
+    // Messages addressed to this route are invisible to sky. A receipt here
+    // consumes one only when its complete escaped text fits this response.
+    if (db !is null) {
+        import immediate : readImmediateMessage, markImmediateDelivered;
+        while (true) {
+            auto pending = readImmediateMessage(db, cwd, sessionId, "delivered:", "next_user_prompt");
+            if (pending.message is null) break;
+            size_t escaped;
+            foreach (ch; pending.message)
+                escaped += ch == '"' || ch == '\\' || ch == '\n' || ch == '\r' || ch == '\t' ? 2 :
+                           cast(ubyte) ch < 0x20 ? 6 : 1;
+            if (ctx.len + escaped + (any ? 3 : 0) >= ctx.data.length) {
+                import core.stdc.stdio : stderr;
+                fputs("ground: pending prompt context exceeds response capacity; retained in queue\n", stderr);
+                break;
+            }
+            if (!markImmediateDelivered(db, pending.msgId, pending.projectContext, sessionId)) break;
+            if (any) ctx.put(" | ");
+            putJsonText(ctx, pending.message);
+            any = true;
+        }
+    }
+
     // "it should be easy for me to switch, simply by saying the words"
     __gshared char[512] sw = 0;
     size_t swLen = 0;
@@ -96,6 +119,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         if (said != Said.Nothing) {
             swLen = switched(db, parsed, said, cwd, repoRoot(cwd), originOf(cwd),
                              sessionId, cast(long) time(null), sw[]);
+            if (any) ctx.put(" | ");
             putJsonText(ctx, sw[0 .. swLen]);
             any = true;
             if (db !is null) {
