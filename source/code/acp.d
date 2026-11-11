@@ -1156,7 +1156,7 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     // A cancel the client sent while the node was asked is a sign-in called off: nothing is kept.
     if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
     why.len = 0;
-    // The key is what speaks from now on: a token once kept would be sent before it.
+    // 「[Opus 5.5] The key is what speaks from now on: a token once kept would be sent before it.」
     if (dropToken(file.slice().ptr, why) < 0) return error(-32603, "signed in, but the token once kept could not be dropped", why.slice());
     // "Notification sent by the agent when a URL-based elicitation is complete."
     acp_buffer done;
@@ -1785,8 +1785,8 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         return true;
     }
 
-    // "Terminates the current authenticated session": the key ground code
-    // signed in as, and any token once kept, are dropped.
+    // 「[Opus 5.5] "Terminates the current authenticated session": the key ground code」
+    // 「[Opus 5.5] signed in as, and any token once kept, are dropped.」
     if (method == AGENT_METHODS.logout) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (__ctfe) assert(0, "a token file is dropped at runtime");
