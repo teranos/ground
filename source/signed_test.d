@@ -5,7 +5,7 @@ module signed_test;
 import signed;
 import zbuf : ZBuf;
 
-// The DID a seed is, as QNTX's access.EncodeDIDKey writes it for the same key.
+// 「[Opus 5.5] The DID a seed is, as QNTX's access.EncodeDIDKey writes it for the same key.」
 unittest {
     ubyte[SEED_BYTES] zero;
     auto key = keyOf(zero[]);
@@ -15,7 +15,7 @@ unittest {
     assert(did.slice() == "did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp", did.slice());
 }
 
-// base64url as RFC 4648 §5 writes it, with no padding.
+// 「[Opus 5.5] base64url as RFC 4648 §5 writes it, with no padding.」
 unittest {
     ZBuf b;
     putBase64URL(b, cast(const(ubyte)[]) "f");
@@ -31,15 +31,15 @@ unittest {
     assert(b.slice() == "-_8");
 }
 
-// A node signs for its origin, and a path is not part of it.
+// 「[Opus 5.5] A node signs for its origin, and a path is not part of it.」
 unittest {
     assert(originOf("https://api.q.sbvh.nl/api/attestations") == "https://api.q.sbvh.nl");
     assert(originOf("http://127.0.0.1:8770") == "http://127.0.0.1:8770");
     assert(originOf("http://127.0.0.1:41234/mcp?x=1") == "http://127.0.0.1:41234");
 }
 
-// What is sent is the scheme and three parts, and the third is the key's
-// signature over the first two.
+// 「[Opus 5.5] What is sent is the scheme and three parts, and the third is the key's」
+// 「[Opus 5.5] signature over the first two.」
 unittest {
     ubyte[SEED_BYTES] zero;
     auto key = keyOf(zero[]);
@@ -55,14 +55,14 @@ unittest {
     foreach (i, c; jwt) if (c == '.') { if (dots++ == 0) first = i; else second = i; }
     assert(dots == 2, jwt);
 
-    // The claims, read back: who, for which node, until when, and its id.
+    // 「[Opus 5.5] The claims, read back: who, for which node, until when, and its id.」
     ZBuf claims;
     claims.put(`{"iss":"did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp","sub":"did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp","aud":"https://api.q.sbvh.nl","exp":1800000060,"jti":"000102030405060708090a0b0c0d0e0f"}`);
     ZBuf want;
     putBase64URL(want, cast(const(ubyte)[]) claims.slice());
     assert(jwt[first + 1 .. second] == want.slice(), jwt[first + 1 .. second]);
 
-    // The signature verifies against the key's public half.
+    // 「[Opus 5.5] The signature verifies against the key's public half.」
     ubyte[SIGNATURE_BYTES] sig;
     size_t got = 0;
     auto encoded = jwt[second + 1 .. $];
@@ -83,8 +83,8 @@ unittest {
         "the signature does not verify against the key");
 }
 
-// A token said goes as a bearer, as it always went; nothing said and no key
-// kept is no line at all.
+// 「[Opus 5.5] A token said goes as a bearer, as it always went; nothing said and no key」
+// 「[Opus 5.5] kept is no line at all.」
 unittest {
     import core.sys.posix.stdlib : setenv;
     ZBuf line;
@@ -95,8 +95,8 @@ unittest {
     assert(line.slice().length == 0, line.slice());
 }
 
-// A key kept signs for a node and for nothing else: GitHub, Sentry and Jev are
-// never handed ground's DID.
+// 「[Opus 5.5] A key kept signs for a node and for nothing else: GitHub, Sentry and Jev are」
+// 「[Opus 5.5] never handed ground's DID.」
 unittest {
     import core.stdc.stdio : snprintf;
     import core.stdc.string : strlen;
@@ -120,7 +120,7 @@ unittest {
     rmdir(home.ptr);
 }
 
-// A key file that is not its owner's alone is no key: readable by others, or a link.
+// 「[Opus 5.5] A key file that is not its owner's alone is no key: readable by others, or a link.」
 unittest {
     import core.stdc.stdio : snprintf;
     import core.sys.posix.unistd : getpid, unlink, rmdir, symlink, write, close;
@@ -148,7 +148,7 @@ unittest {
     rmdir(dir.ptr);
 }
 
-// A key is made once, kept owner-only, and read back as the same key.
+// 「[Opus 5.5] A key is made once, kept owner-only, and read back as the same key.」
 unittest {
     import core.stdc.stdio : snprintf;
     import core.sys.posix.unistd : getpid, unlink, rmdir;
