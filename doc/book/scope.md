@@ -17,7 +17,7 @@ The module line, its prose and the blank between them are the head; the first im
 ## matcher-maxCommentRun
 
 ## matcher-maxCommentRun-2
-TODO: MOVE, all o this doesnt seem like { } or scope { }, this seems to be amo
+TODO: MOVE, all o this doesnt seem like { } or scope { }, this seems to be about one specific control about consecutive comment runs.
 A commented line that opens a brace block, all inside it and the line that closes it are code, not prose: they neither count nor carry a run.
 
 ## proto-nestedInput
