@@ -1,6 +1,9 @@
-What a ground says to sentry, and the one way it is said. Names, verdicts and codes: what a rite printed, what the agent said and where the tree is on disk have no parameter here, so they have no way in.
+What a ground says to sentry.
 
-A log and not a cron check-in. Asked of the ground project on 2026-09-17: a monitor upsert without a schedule is refused (422, missing field `schedule`), a check-in to a monitor that does not exist is accepted and creates none, and a monitor with a schedule reads every interval nobody performed in as missed. A ritual is performed when somebody performs it.
+A log and not a cron check-in. Asked of the ground project on 
+
+
+2026-09-17: a monitor upsert without a schedule is refused (422, missing field `schedule`), a check-in to a monitor that does not exist is accepted and creates none, and a monitor with a schedule reads every interval nobody performed in as missed. A ritual is performed when somebody performs it.
 
 ## sentry-hostName
 k's ground and the Mac's report into one project, and nothing they sent said which machine it came from. Every log and metric does now.
