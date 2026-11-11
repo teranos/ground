@@ -1,10 +1,10 @@
 module code.login;
 
-// ground code signs in to its QNTX node by its device flow (RFC 8628, QNTX's
-// server/auth/device.go), naming the key it holds: the person approves it with
-// the passkey at home, and that key is then the person at the node. Nothing is
-// handed back. Ground signs each request with the key (signed.d), and the key
-// never leaves the machine.
+// 「[Opus 5.5] ground code signs in to its QNTX node by its device flow (RFC 8628, QNTX's」
+// 「[Opus 5.5] server/auth/device.go), naming the key it holds: the person approves it with」
+// 「[Opus 5.5] the passkey at home, and that key is then the person at the node. Nothing is」
+// 「[Opus 5.5] handed back. Ground signs each request with the key (signed.d), and the key」
+// 「[Opus 5.5] never leaves the machine.」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 
@@ -29,7 +29,7 @@ private enum ASK_SECONDS = 30;
 // 「[Opus 5.5] the person compares, the link they follow, and how long to wait between asks.」
 struct SignIn {
     Reply deviceCode, userCode, link;
-    // The did:key of the key the sign-in is for, which the node answers with once the person said yes.
+    // 「[Opus 5.5] The did:key of the key the sign-in is for, which the node answers with once the person said yes.」
     Reply did;
     uint interval;
     void dispose() { deviceCode.dispose(); userCode.dispose(); link.dispose(); did.dispose(); }
@@ -80,9 +80,9 @@ private int ask(const(char)[] url, const(char)[] form, char[] dest, ref size_t l
     return h.status;
 }
 
-// "POST /auth/device, a form naming the agent in label", and the did:key of the
-// key kept at keyAt, made there first when there is none: 1 the sign-in is
-// started, -1 it is not, the node's answer in why.
+// 「[Opus 5.5] "POST /auth/device, a form naming the agent in label", and the did:key of the」
+// 「[Opus 5.5] key kept at keyAt, made there first when there is none: 1 the sign-in is」
+// 「[Opus 5.5] started, -1 it is not, the node's answer in why.」
 int startSignIn(const(char)[] node, const(char)* keyAt, ref SignIn s, ref Reply why) {
     import signed : keepKey, putDID;
     import zbuf : ZBuf;
@@ -125,9 +125,9 @@ int startSignIn(const(char)[] node, const(char)* keyAt, ref SignIn s, ref Reply 
     return s.deviceCode.full || s.userCode.full || s.link.full ? -1 : 1;
 }
 
-// Whether the person said yes: 1 when the node answers with the key's DID, 0
-// still waiting (authorization_pending, or slow_down, which waits longer from
-// then on), -1 over, the node's answer in why.
+// 「[Opus 5.5] Whether the person said yes: 1 when the node answers with the key's DID, 0」
+// 「[Opus 5.5] still waiting (authorization_pending, or slow_down, which waits longer from」
+// 「[Opus 5.5] then on), -1 over, the node's answer in why.」
 int pollSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     Reply url, form;
     scope(exit) { url.dispose(); form.dispose(); }
@@ -229,10 +229,10 @@ int dropToken(const(char)* file, ref Reply why) {
     return -1;
 }
 
-// `ground code login`, as a client's terminal auth method runs it: the link and
-// the code said, the node asked until the person said yes to the key kept at
-// keyAt, and the token once kept at file dropped, so the key is what speaks.
-// 0 signed in, 1 not, what the node or the file said given to say.
+// 「[Opus 5.5] `ground code login`, as a client's terminal auth method runs it: the link and」
+// 「[Opus 5.5] the code said, the node asked until the person said yes to the key kept at」
+// 「[Opus 5.5] keyAt, and the token once kept at file dropped, so the key is what speaks.」
+// 「[Opus 5.5] 0 signed in, 1 not, what the node or the file said given to say.」
 int login(const(char)[] node, const(char)* file, const(char)* keyAt, scope void delegate(const(char)[]) say) {
     import core.sys.posix.unistd : sleep;
     import core.stdc.string : strlen;
