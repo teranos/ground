@@ -190,14 +190,22 @@ private int nibble(char c) {
 }
 
 // The key kept in file: a seed, sixty-four hex characters. Not held when there
-// is no file, or what is in it is no seed.
+// is no file, what is in it is no seed, or it is not its owner's alone: a
+// link, not a regular file, someone else's, or readable by anyone else.
 Key keptKey(const(char)* file) {
-    import core.sys.posix.fcntl : open, O_RDONLY;
-    import core.sys.posix.unistd : read, close;
+    import core.sys.posix.fcntl : open, O_RDONLY, O_NOFOLLOW;
+    import core.sys.posix.unistd : read, close, geteuid;
+    import core.sys.posix.sys.stat : stat_t, fstat, S_IFMT, S_IFREG;
     Key none;
     if (file is null) return none;
-    auto fd = open(file, O_RDONLY);
+    auto fd = open(file, O_RDONLY | O_NOFOLLOW);
     if (fd < 0) return none;
+    stat_t st;
+    if (fstat(fd, &st) != 0 || (st.st_mode & S_IFMT) != S_IFREG
+        || st.st_uid != geteuid() || (st.st_mode & 0x3f) != 0) { // 077: group and others
+        close(fd);
+        return none;
+    }
     char[2 * SEED_BYTES + 2] text = 0;
     auto n = read(fd, text.ptr, text.length);
     close(fd);
@@ -251,15 +259,22 @@ Key keepKey(const(char)* file) {
     }
     text[2 * SEED_BYTES] = '\n';
     auto wrote = write(fd, text.ptr, text.length);
-    close(fd);
-    if (wrote != text.length) return held;
+    auto closed = close(fd);
+    if (wrote != text.length || closed != 0) {
+        // A seed half written is no key, and O_EXCL would keep the next sign-in
+        // from making one: what this attempt made goes.
+        import core.sys.posix.unistd : unlink;
+        unlink(file);
+        return held;
+    }
     return keyOf(seed[]);
 }
 
 // The Authorization line for a request to url: a token when one is said,
-// which goes as it always went; with none, a signature by the key kept in
-// ~/.qntx/key; with neither, no line. An absent line is an absent header.
-void authLine(ref ZBuf line, const(char)[] url, const(char)[] token) {
+// which goes as it always went; with none, and the request going to a node
+// (signs), a signature by the key kept in ~/.qntx/key; otherwise no line. An
+// absent line is an absent header.
+void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs) {
     import token : trimToken;
     line.reset();
     auto tok = trimToken(token);
@@ -268,6 +283,7 @@ void authLine(ref ZBuf line, const(char)[] url, const(char)[] token) {
         line.put(tok);
         return;
     }
+    if (!signs) return;
     auto key = keptKey(keyFile());
     if (!key.held) return;
     import core.stdc.time : time;

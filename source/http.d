@@ -102,10 +102,17 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
     return n;
 }
 
+// A request to a QNTX node: its token, and with none, ground's key signs it.
+// Every other far end (GitHub, Sentry, Jev) is handed a plain token or nothing,
+// never ground's DID.
+struct ToNode {
+    const(char)[] token;
+}
+
 // One request. `body_` null is a GET. `protocols` is what the url may speak:
 // a caller that did not ask for files cannot be handed one by a url.
 private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
-                     const(char)[] token, const(char)[] contentType,
+                     const(char)[] token, bool signs, const(char)[] contentType,
                      char[] dest, int timeoutSec, const(char)[] protocols, Abort abort = Abort.init) {
     Http r;
 
@@ -138,7 +145,7 @@ private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
     scope (exit) if (headers !is null) curl_slist_free_all(headers);
 
     import signed : authLine;
-    authLine(authZ, url, token);
+    authLine(authZ, url, token, signs);
     if (authZ.len > 0) headers = curl_slist_append(headers, authZ.ptr());
     if (isPost && contentType.length > 0) {
         typeZ.reset();
@@ -208,13 +215,18 @@ private enum WEB = "https,http";
 
 // GET a url, the body into dest.
 Http httpGet(const(char)[] url, const(char)[] token, char[] dest, int timeoutSec = 10) {
-    return perform(url, null, false, token, null, dest, timeoutSec, WEB);
+    return perform(url, null, false, token, false, null, dest, timeoutSec, WEB);
+}
+
+// The same, to a node.
+Http httpGet(const(char)[] url, ToNode node, char[] dest, int timeoutSec = 10) {
+    return perform(url, null, false, node.token, true, null, dest, timeoutSec, WEB);
 }
 
 // The same, for a caller that names what the url may speak.
 Http httpFetch(const(char)[] url, const(char)[] token, char[] dest, int timeoutSec,
                const(char)[] protocols) {
-    return perform(url, null, false, token, null, dest, timeoutSec, protocols);
+    return perform(url, null, false, token, false, null, dest, timeoutSec, protocols);
 }
 
 // libcurl's pieces, written to a file as they come: a comet is tens of megabytes,
@@ -228,6 +240,17 @@ private extern (C) size_t intoFile(char* ptr, size_t size, size_t nmemb, void* u
 // leaves whatever the far end said in the file; the caller reads the status first.
 Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, int timeoutSec,
                    const(char)[] protocols = WEB) {
+    return getToFile(url, token, false, path, timeoutSec, protocols);
+}
+
+// The same, to a node.
+Http httpGetToFile(const(char)[] url, ToNode node, const(char)* path, int timeoutSec,
+                   const(char)[] protocols = WEB) {
+    return getToFile(url, node.token, true, path, timeoutSec, protocols);
+}
+
+private Http getToFile(const(char)[] url, const(char)[] token, bool signs, const(char)* path, int timeoutSec,
+                       const(char)[] protocols) {
     import core.stdc.stdio : fopen, fclose;
     Http r;
     auto f = fopen(path, "wb");
@@ -254,7 +277,7 @@ Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, in
     void* headers = null;
     scope (exit) if (headers !is null) curl_slist_free_all(headers);
     import signed : authLine;
-    authLine(authZ, url, token);
+    authLine(authZ, url, token, signs);
     if (authZ.len > 0) headers = curl_slist_append(headers, authZ.ptr());
 
     char[CURL_ERROR_SIZE] errBuf = 0;
@@ -283,7 +306,13 @@ Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, in
 // POST a body to a url. The reply's body is not kept.
 Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
               int timeoutSec = 10, const(char)[] contentType = "application/json") {
-    return perform(url, body_, true, token, contentType, null, timeoutSec, WEB);
+    return perform(url, body_, true, token, false, contentType, null, timeoutSec, WEB);
+}
+
+// The same, to a node.
+Http httpPost(const(char)[] url, const(char)[] body_, ToNode node,
+              int timeoutSec = 10, const(char)[] contentType = "application/json") {
+    return perform(url, body_, true, node.token, true, contentType, null, timeoutSec, WEB);
 }
 
 // The same, keeping the reply in dest. For a caller that owes somebody the
@@ -292,7 +321,13 @@ Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
 // abort, when given, can stop it before it ends.
 Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, char[] dest,
                   int timeoutSec = 10, const(char)[] contentType = "application/json", Abort abort = Abort.init) {
-    return perform(url, body_, true, token, contentType, dest, timeoutSec, WEB, abort);
+    return perform(url, body_, true, token, false, contentType, dest, timeoutSec, WEB, abort);
+}
+
+// The same, to a node.
+Http httpPostInto(const(char)[] url, const(char)[] body_, ToNode node, char[] dest,
+                  int timeoutSec = 10, const(char)[] contentType = "application/json", Abort abort = Abort.init) {
+    return perform(url, body_, true, node.token, true, contentType, dest, timeoutSec, WEB, abort);
 }
 
 // The HTTP status, or 0 when there was none. For a caller that reads only the
@@ -300,6 +335,12 @@ Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, c
 int curlPost(const(char)[] url, const(char)[] body_, const(char)[] token,
              int timeoutSec = 10, const(char)[] contentType = "application/json") {
     return httpPost(url, body_, token, timeoutSec, contentType).status;
+}
+
+// The same, to a node.
+int curlPost(const(char)[] url, const(char)[] body_, ToNode node,
+             int timeoutSec = 10, const(char)[] contentType = "application/json") {
+    return httpPost(url, body_, node, timeoutSec, contentType).status;
 }
 
 // The length written, or 0 when nothing arrived or it did not fit: a body cut

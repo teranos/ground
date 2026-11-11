@@ -122,7 +122,7 @@ size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
 // which meant a path to pin, a config file under /tmp to hold the token, and a
 // command line for a shell to read.
 Answer fetch(const(char)[] home, const(char)[] path) {
-    import http : httpGet;
+    import http : httpGet, ToNode;
 
     auto tok = readToken(home);
     if (!tok.ok) return Answer(tok.fault, 0, "");
@@ -132,7 +132,7 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     if (u == 0) return Answer(State.probeError, 0, "");
 
     __gshared char[262144] out_ = void;
-    auto r = httpGet(url[0 .. u], tok.value, out_[], MAX_TIME);
+    auto r = httpGet(url[0 .. u], ToNode(tok.value), out_[], MAX_TIME);
 
     // A body larger than the buffer is neither the far end failing nor a
     // failure to reach it, so it is read as neither.
@@ -154,7 +154,7 @@ struct Posted {
 // written to files under /tmp to keep them off a command line; now there is no
 // command line, so there is nothing to keep them off and nothing left behind.
 Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
-    import http : httpPost;
+    import http : httpPost, ToNode;
 
     auto tok = readToken(home);
     if (!tok.ok) return Posted(0, -1);
@@ -163,7 +163,7 @@ Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
     auto u = urlInto(host(), path, url[]);
     if (u == 0) return Posted(0, 0);
 
-    auto r = httpPost(url[0 .. u], body_, tok.value, MAX_TIME);
+    auto r = httpPost(url[0 .. u], body_, ToNode(tok.value), MAX_TIME);
     return Posted(r.status, r.code);
 }
 

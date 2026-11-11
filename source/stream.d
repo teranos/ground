@@ -483,7 +483,7 @@ struct Pass {
 // Rows a pass did not resolve go back. Not ok is what the caller waits on.
 Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, long now,
                 long take, ref long posted) {
-    import http : httpPostInto;
+    import http : httpPostInto, ToNode;
     Pass p;
     p.ok = true;
 
@@ -506,7 +506,7 @@ Pass streamPass(sqlite3* db, const(char)[] url, const(char)[] token, long pid, l
     // Each answer is a few words about one row, so the reply is smaller than
     // the list; a reply that is not is said, not read cut.
     __gshared char[NODE_BODY_CAP] reply = "";
-    auto r = httpPostInto(endpoint.slice(), batch[0 .. built.len], token, reply[], 10);
+    auto r = httpPostInto(endpoint.slice(), batch[0 .. built.len], ToNode(token), reply[], 10);
     p.status = r.status > 0 ? r.status : -r.code;
 
     if (r.overran) {

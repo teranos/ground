@@ -129,10 +129,12 @@ private void zeroKeyAt(const(char)* path) {
     import core.sys.posix.unistd : write, close;
     // mkdir as db declares it, the one declaration ground links: Darwin's 16-bit mode_t in a second is a different function.
     import db : mkdir;
-    import core.stdc.string : strlen;
+    // memcpy, not a slice copy: that is druntime's _d_array_slice_copy, which
+    // the Linux test binary does not link.
+    import core.stdc.string : strlen, memcpy;
     char[512] dir = 0;
     auto n = strlen(path);
-    dir[0 .. n] = path[0 .. n];
+    memcpy(dir.ptr, path, n);
     foreach (i; 1 .. n) {
         if (dir[i] != '/') continue;
         dir[i] = 0;

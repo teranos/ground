@@ -262,7 +262,7 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
 
     import controls : allParsed;
     import attest : qntxToken;
-    import http : curlPost;
+    import http : curlPost, ToNode;
     import db : openDb, sqlite3_close, ZBuf;
 
     static immutable backends = qntxBackends(allParsed);
@@ -287,7 +287,7 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
             url.reset();
             url.put(backends.items[i].url);
             url.put("/api/attestations");
-            long code = curlPost(url.slice(), body_.slice(), qntxToken(backends.items[i].token), 10);
+            long code = curlPost(url.slice(), body_.slice(), ToNode(qntxToken(backends.items[i].token)), 10);
             if (code == 0) code = -3;
             bool ok = code >= 200 && code < 300;
             if (failed) continue;

@@ -88,11 +88,64 @@ unittest {
 unittest {
     import core.sys.posix.stdlib : setenv;
     ZBuf line;
-    authLine(line, "https://api.q.sbvh.nl", "qntx_abc\n");
+    authLine(line, "https://api.q.sbvh.nl", "qntx_abc\n", true);
     assert(line.slice() == "Authorization: Bearer qntx_abc", line.slice());
     setenv("HOME", "/nonexistent-ground-home\0".ptr, 1);
-    authLine(line, "https://api.q.sbvh.nl", "");
+    authLine(line, "https://api.q.sbvh.nl", "", true);
     assert(line.slice().length == 0, line.slice());
+}
+
+// A key kept signs for a node and for nothing else: GitHub, Sentry and Jev are
+// never handed ground's DID.
+unittest {
+    import core.stdc.stdio : snprintf;
+    import core.stdc.string : strlen;
+    import core.sys.posix.stdlib : setenv;
+    import core.sys.posix.unistd : getpid, unlink, rmdir;
+    char[256] home = 0;
+    snprintf(home.ptr, home.length, "/tmp/ground-signs-%d\0", getpid());
+    char[256] file = 0;
+    snprintf(file.ptr, file.length, "/tmp/ground-signs-%d/.qntx/key\0", getpid());
+    assert(keepKey(file.ptr).held, "no key was made");
+    setenv("HOME", home.ptr, 1);
+    ZBuf line;
+    authLine(line, "https://api.github.com/repos/teranos/ground/releases/latest", "", false);
+    assert(line.slice().length == 0, line.slice());
+    authLine(line, "https://api.q.sbvh.nl/api/attestations", "", true);
+    enum signedLine = "Authorization: Signed ";
+    assert(line.slice().length > signedLine.length && line.slice()[0 .. signedLine.length] == signedLine, line.slice());
+    unlink(file.ptr);
+    file[strlen(file.ptr) - 4] = 0; // .../.qntx
+    rmdir(file.ptr);
+    rmdir(home.ptr);
+}
+
+// A key file that is not its owner's alone is no key: readable by others, or a link.
+unittest {
+    import core.stdc.stdio : snprintf;
+    import core.sys.posix.unistd : getpid, unlink, rmdir, symlink, write, close;
+    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT;
+    char[256] dir = 0;
+    snprintf(dir.ptr, dir.length, "/tmp/ground-loose-%d\0", getpid());
+    char[256] file = 0;
+    snprintf(file.ptr, file.length, "/tmp/ground-loose-%d/key\0", getpid());
+    char[256] link = 0;
+    snprintf(link.ptr, link.length, "/tmp/ground-loose-%d/link\0", getpid());
+    assert(keepKey(file.ptr).held, "no key was made");
+    assert(symlink(file.ptr, link.ptr) == 0);
+    assert(!keptKey(link.ptr).held, "a key was read through a link");
+    char[256] loose = 0;
+    snprintf(loose.ptr, loose.length, "/tmp/ground-loose-%d/loose\0", getpid());
+    auto fd = open(loose.ptr, O_WRONLY | O_CREAT, 420); // 0644, as umask 022 leaves it
+    assert(fd >= 0);
+    enum seed = "0000000000000000000000000000000000000000000000000000000000000000\n";
+    assert(write(fd, seed.ptr, seed.length) == seed.length);
+    close(fd);
+    assert(!keptKey(loose.ptr).held, "a key readable by others was read");
+    unlink(loose.ptr);
+    unlink(link.ptr);
+    unlink(file.ptr);
+    rmdir(dir.ptr);
 }
 
 // A key is made once, kept owner-only, and read back as the same key.

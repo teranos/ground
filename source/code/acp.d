@@ -2486,7 +2486,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         if (__ctfe) assert(0, "the gateway is spoken to at runtime");
         else {
             import token : qntxToken;
-            import http : httpPostInto;
+            import http : httpPostInto, ToNode;
             import core.stdc.stdlib : malloc;
             auto o = &sessions.open[cast(size_t) at];
             // A prompt is the session's activity, as it starts.
@@ -2666,11 +2666,11 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             // once a process. A model it does not size is said before the
             // model is asked.
             if (sessions.contextSize == 0) {
-                import http : httpGet;
+                import http : httpGet, ToNode;
                 Reply models;
                 scope(exit) models.dispose();
                 models.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); models.add(MODELS_PATH);
-                auto listed = httpGet(models.slice(), token, dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
+                auto listed = httpGet(models.slice(), ToNode(token), dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
                 if (listed.code != 0 || listed.overran || listed.status != 200) {
                     // "Authentication required": the node did not take the token, and a sign-in gives it one it does.
                     put(listed.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
@@ -2698,7 +2698,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 requestBody(body_, qntxNode.model, o.history.slice(), tools.slice(), efforts[o.effort]);
                 if (o.history.full || body_.full) { put(`,"error":{"code":-32603,"message":"the session's history outgrew memory"}}`); return true; }
                 import http : Abort;
-                auto http = httpPostInto(url.slice(), body_.slice(), token, dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS,
+                auto http = httpPostInto(url.slice(), body_.slice(), ToNode(token), dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS,
                     "application/json", Abort(&stopIfCancelled, &turn));
                 if (turn.cancelled) { stopCancelled(); return true; }
                 if (http.code != 0 || http.overran || http.status != 200) {
