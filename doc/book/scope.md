@@ -1,6 +1,9 @@
 A scope is where a rule stands. It carries the path it stands in, the event it answers to, and the command it waits for, and everything written inside it is bound by all three. A scope inside a scope inherits what the outer one said and may say otherwise, so the narrower answer is the one that holds.
 
+TODO: make this chapter only about scope.
+
 ## matcher-applyRange
+TODO: MOVE, not Scope
 The head is what the widening is for, and the head is the comment run the file opens with: 38 lines of it are 38 lines spent, not 100. A header longer than the cap is cut at the cap. Nothing beyond it is worth the rest of the session. Nothing but code up top is nothing to prefer, so only the aim is widened. An aim inside the head is one range, as it was before a cap existed. The head gives way with the week, the way the reach does, and at the end of the taper the segment is what was typed. No cap named is the widening as it was authored: all the way to the top.
 
 ## matcher-taperOf
