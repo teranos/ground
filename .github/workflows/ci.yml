@@ -66,6 +66,10 @@
       }
     },
     "test": {
+      "permissions": {
+        "contents": "read",
+        "id-token": "write"
+      },
       "runs-on": "${{ matrix.os }}",
       "steps": [
         {
@@ -97,6 +101,19 @@
         },
         {
           "run": "nix develop .#default --command sh -c 'make press && ./tools/press'"
+        },
+        {
+          "continue-on-error": true,
+          "env": {
+            "HEAD_SHA": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "PR_NUMBER": "${{ github.event.pull_request.number }}",
+            "REPORTS": "coverage.xml",
+            "RUN_URL": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          },
+          "if": "always()",
+          "name": "Upload coverage to Repowise",
+          "run": "shopt -s globstar nullglob\nfiles=()\nfor pattern in $REPORTS; do for f in $pattern; do [ -f \"$f\" ] && files+=(-F \"report=@$f\"); done; done\nif [ ${#files[@]} -eq 0 ]; then echo \"::warning::Repowise: no coverage report found at: $REPORTS\"; exit 0; fi\nauth=()\nif [ -n \"${ACTIONS_ID_TOKEN_REQUEST_URL:-}\" ]; then\n  token=$(curl -sS -H \"Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN\" \"$ACTIONS_ID_TOKEN_REQUEST_URL&audience=repowise\" | jq -r '.value // empty' || true)\n  [ -n \"$token\" ] && auth=(-H \"Authorization: Bearer $token\")\nfi\ncurl -sS --fail-with-body --max-time 60 \"${auth[@]}\" \"${files[@]}\" \\\n  -F \"repository=$GITHUB_REPOSITORY\" -F \"head_sha=$HEAD_SHA\" -F \"pr_number=$PR_NUMBER\" \\\n  -F \"event=$GITHUB_EVENT_NAME\" -F \"run_url=$RUN_URL\" -F \"workspace=$GITHUB_WORKSPACE\" \\\n  https://api.repowise.dev/ci/coverage \\\n  || echo \"::warning::Repowise: coverage upload failed; see the message above.\"\n",
+          "shell": "bash"
         }
       ],
       "strategy": {

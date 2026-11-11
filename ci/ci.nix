@@ -29,6 +29,10 @@ in
     test = {
       strategy.matrix.os = [ "ubuntu-latest" "macos-latest" ];
       runs-on = "\${{ matrix.os }}";
+      permissions = {
+        contents = "read";
+        id-token = "write";
+      };
       steps = [
         checkout
         installNix
@@ -53,6 +57,34 @@ in
         # pull request. press joins every note to its case or stops naming the
         # file and line, so a pull request whose notes cannot be set is red.
         { run = "nix develop .#default --command sh -c 'make press && ./tools/press'"; }
+        {
+          name = "Upload coverage to Repowise";
+          "if" = "always()";
+          continue-on-error = true;
+          shell = "bash";
+          env = {
+            REPORTS = "coverage.xml";
+            HEAD_SHA = "\${{ github.event.pull_request.head.sha || github.sha }}";
+            PR_NUMBER = "\${{ github.event.pull_request.number }}";
+            RUN_URL = "\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}";
+          };
+          run = ''
+            shopt -s globstar nullglob
+            files=()
+            for pattern in $REPORTS; do for f in $pattern; do [ -f "$f" ] && files+=(-F "report=@$f"); done; done
+            if [ ''${#files[@]} -eq 0 ]; then echo "::warning::Repowise: no coverage report found at: $REPORTS"; exit 0; fi
+            auth=()
+            if [ -n "''${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+              token=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=repowise" | jq -r '.value // empty' || true)
+              [ -n "$token" ] && auth=(-H "Authorization: Bearer $token")
+            fi
+            curl -sS --fail-with-body --max-time 60 "''${auth[@]}" "''${files[@]}" \
+              -F "repository=$GITHUB_REPOSITORY" -F "head_sha=$HEAD_SHA" -F "pr_number=$PR_NUMBER" \
+              -F "event=$GITHUB_EVENT_NAME" -F "run_url=$RUN_URL" -F "workspace=$GITHUB_WORKSPACE" \
+              https://api.repowise.dev/ci/coverage \
+              || echo "::warning::Repowise: coverage upload failed; see the message above."
+          '';
+        }
       ];
     };
 
