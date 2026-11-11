@@ -22,7 +22,7 @@ A commented line that opens a brace block, all inside it and the line that close
 
 ## proto-nestedInput
 
-TODO: these seem more like it but why am i not seeing it in the ob
+TODO: these seem more like it but why am i not seeing it in the Obsidian Vault binding? makes authoring very difficult.
 
 ## proto-nestedEventInput
 Child inherits event from parent
