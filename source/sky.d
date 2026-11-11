@@ -505,9 +505,9 @@ int handleSky(int argc, const(char)** argv) {
     // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
     // "so give it a config per ground per node"
     // The node and its token, read once: a token that changes is a sky that
-    // is respawned at the next hook anyway. No node named is no stream. A node
-    // named with no token is spoken to by ground's key, or, at an agent's door
-    // the node opened for it, with nothing (QNTX server/agent_door.go).
+    // 「[Opus 5.5] is respawned at the next hook anyway. No node named is no stream. A node」
+    // 「[Opus 5.5] named with no token is spoken to by ground's key, or, at an agent's door」
+    // 「[Opus 5.5] the node opened for it, with nothing (QNTX server/agent_door.go).」
     //
     // "A signature proves the key, and nothing reusable leaves the node."
     import attest : qntxToken;
