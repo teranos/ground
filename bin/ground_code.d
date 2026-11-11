@@ -17,8 +17,8 @@ int main(string[] args) {
     return handleCode();
 }
 
-// Signs in to q, the node a prompt goes through and the one that owns auth, as
-// the key kept in ~/.qntx/key; the token once kept in ~/.qntx/token is dropped.
+// 「[Opus 5.5] Signs in to q, the node a prompt goes through and the one that owns auth, as」
+// 「[Opus 5.5] the key kept in ~/.qntx/key; the token once kept in ~/.qntx/token is dropped.」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 int signIn() {
