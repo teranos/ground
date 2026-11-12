@@ -99,3 +99,42 @@ unittest {
     foreach (c; all) if (c == 0) count++;
     assert(count == 6, "the home's two, the repo's two, and the two of the directory between");
 }
+
+// "no other software should be allowed to be of higher authority than ground"
+// The events the JSON sends to ground are the ones it registers ground_hook
+// for; one that was registered and is gone is found, and put back where it was.
+unittest {
+    import matcher : indexOf;
+    import zbuf : ZBuf;
+    enum before = `{
+  "hooks": {
+    "PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "ground_hook"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "ground_hook"}, {"type": "command", "command": "ground_sky $PWD"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "say done"}]}]
+  },
+  "model": "fable"
+}
+`;
+    enum after = `{
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "ground_hook"}]}]
+  },
+  "model": "fable"
+}
+`;
+    ZBuf was, now, gone;
+    registered(before, was);
+    assert(was.slice() == "PreToolUse\nStop\n", was.slice());
+    registered(after, now);
+    assert(goneFrom(was.slice(), now.slice(), gone) == 1);
+    assert(gone.slice() == "PreToolUse\n", gone.slice());
+
+    char[1024] dest;
+    auto n = registeredAgain(after, gone.slice(), dest[]);
+    assert(n > 0);
+    ZBuf again;
+    registered(dest[0 .. n], again);
+    assert(holdsLine(again.slice(), "PreToolUse") && holdsLine(again.slice(), "Stop"), dest[0 .. n]);
+    assert(indexOf(dest[0 .. n], `"model": "fable"`) >= 0, dest[0 .. n]);
+    assert(goneFrom(was.slice(), again.slice(), gone) == 0, "put back, it is still gone");
+}
