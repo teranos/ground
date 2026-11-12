@@ -36,3 +36,6 @@ A PostToolUse row with its output whole, and a Stop row. The body is ground's ro
 
 ## stream-sqlite3_open-2
 The node's limit: a row that would take the list past it waits for the next pass, still pending. Each row by its own answer, in the order sent. Fewer answers than rows: the rows without one stay pending.
+
+## naming-1
+A session has a key of its own, admitted by the key the person said yes to, and takes its name at the node by it. The name is kept beside the key with the node that gave it and who gave it, and is the one asked for again; a name another agent holds is said to the session, which asks for another.
