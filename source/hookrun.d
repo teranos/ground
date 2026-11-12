@@ -270,7 +270,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
             __gshared typeof(holdLanded("", "")) held;
             held = holdLanded(home[0 .. hl], originOf(cwd));
             if (held.what == SandHeld.refused) {
-                import errors : GroundError, deliverError;
+                import errors : GroundError, deliverError, formatResult;
                 import core.stdc.time : time;
                 GroundError err;
                 err.origin    = "sandload";
@@ -278,7 +278,19 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
                 err.exitCode  = -1;
                 err.sessionId = cast(string) sessionId;
                 err.timestamp = cast(long) time(null);
-                cast(void) deliverError(err);
+                // "ALSO, IT SPAMS, ONCE IS FINE"
+                // The same refusal on every hook of the session is said to it once.
+                bool said = false;
+                {
+                    import db : openDb, sqlite3_close;
+                    import immediate : saidToSession;
+                    auto sdb = openDb();
+                    if (sdb !is null) {
+                        said = saidToSession(sdb, sessionId, err.controlName, formatResult(err));
+                        sqlite3_close(sdb);
+                    }
+                }
+                if (!said) cast(void) deliverError(err);
             }
         }
     }
