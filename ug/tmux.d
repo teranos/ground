@@ -472,6 +472,19 @@ const(char)[] newsPass(const(char)[] home) {
         auto repo = jsonString(whole.body_, "repo");
         if (repo is null) repo = "";
 
+        // "AGENTS CAN TALK TO EACH OTHER BY THEIR NAME"
+        // What is said to a name is the session's that keeps the name. No
+        // session here keeps it: it is another machine's, and is left on the
+        // row for that machine's ug.
+        auto to = jsonString(whole.body_, "to");
+        __gshared char[128] keeper = void;
+        if ((session is null || session.length == 0) && to !is null && to.length > 0) {
+            import named : sessionKeeping;
+            auto kept = sessionKeeping(home, to, keeper[]);
+            if (kept == 0) continue;
+            session = keeper[0 .. kept];
+        }
+
         // What sky speaks: the conclusion, where, and the run to open.
         // Decoded once here, because leaveNews encodes it again for the row.
         import json : jsonUnescapeInto;

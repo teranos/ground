@@ -106,7 +106,8 @@ immutable Owner[] owners = [
     Owner("code",        ["code", "prompt"]),
     Owner("linked",      ["libgit2", "http", "libmcp", "libjsonc"]),
     Owner("project",     ["project", "routes", "place"]),
-    Owner("permission",  ["permission", "sessionmode", "decide"]),
+    // What ground allows, and where a rule of Claude Code's own JSON says other.
+    Owner("permission",  ["permission", "sessionmode", "decide", "disagree"]),
     // The ladder reads the week's usage and lowers the effort; the usage
     // command is how a person reads the same windows.
     // A subagent runs on the model the models block picks, as a ritual's agent does.
@@ -125,7 +126,9 @@ immutable Owner[] owners = [
                           "ritual/shell", "worktree"]),
     // What a row is, where it goes, and how one comes back to the session.
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream",
-                          "sessiontrail", "nodeconfig"]),
+                          "sessiontrail", "nodeconfig",
+                          // A session's name at its node, and what is said to a name.
+                          "naming", "say"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world

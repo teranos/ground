@@ -32,6 +32,37 @@ struct Named {
     ZBuf why;
 }
 
+// "and it needs to be more clear if a session named itself, or if the User gave it that name]"
+// Who gave a session its name: the person, when the name stands in their own
+// words to the session; the session itself, when it asked for a name nobody
+// said to it; or its harness, when it is what Claude Code calls the session.
+enum Giver : string { user = "user", itself = "itself", harness = "harness" }
+
+// The words a session is told its name's giver in.
+const(char)[] givenAs(const(char)[] giver) {
+    if (giver == Giver.user) return "the name the User gave you";
+    if (giver == Giver.harness) return "Claude Code's name for this session";
+    if (giver == Giver.itself) return "a name you took yourself";
+    return "";
+}
+
+// Whether the person said this name to the session: it stands in a prompt of
+// theirs, as ground wrote each one down.
+bool userSaid(const(char)[] sessionId, const(char)[] name) {
+    import db : openDb, sqlite3, sqlite3_close, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
+        sqlite3_bind_text, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
+    auto db = openDb();
+    if (db is null) return false;
+    scope (exit) sqlite3_close(db);
+    enum sql = "SELECT 1 FROM attestations WHERE predicates = '[\"UserPromptSubmit\"]' AND json_extract(attributes, '$.session_id') = ?1 AND instr(lower(json_extract(attributes, '$.prompt')), lower(?2)) > 0 LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    scope (exit) sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt, 1, sessionId.ptr, cast(int) sessionId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, name.ptr, cast(int) name.length, SQLITE_TRANSIENT);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+}
+
 // Where a session's key is kept: ~/.qntx/sessions/<session id>/key. Null when
 // there is no home, no id, or the id is no file name.
 const(char)* sessionKeyFile(const(char)[] sessionId) {
@@ -69,6 +100,26 @@ private const(char)* nameFile(const(char)* keyAt) {
     return path.ptr();
 }
 
+// Who gave the name kept beside the key at keyAt, as its third line says.
+// Empty when none is kept or none is said.
+const(char)[] keptGiver(const(char)* keyAt, char[] buf) {
+    import core.stdc.stdio : fopen, fread, fclose;
+    auto at = nameFile(keyAt);
+    if (at is null) return "";
+    auto f = fopen(at, "r");
+    if (f is null) return "";
+    auto got = fread(buf.ptr, 1, buf.length, f);
+    fclose(f);
+    size_t line = 0, start = 0;
+    foreach (i; 0 .. got) {
+        if (buf[i] != '\n') continue;
+        if (line == 2) return buf[start .. i];
+        line++;
+        start = i + 1;
+    }
+    return "";
+}
+
 // The name kept beside the key at keyAt, given at node. Null when none is
 // kept, or the one kept was another node's: a name is one node's to give.
 const(char)[] keptName(const(char)* keyAt, const(char)[] node, char[] buf) {
@@ -93,7 +144,7 @@ const(char)[] keptName(const(char)* keyAt, const(char)[] node, char[] buf) {
 // name, as node gave it, kept beside the key at keyAt: written apart and put
 // in place whole, so what was kept before stands until this is. What went
 // wrong is put in why.
-private void keepName(const(char)* keyAt, const(char)[] name, const(char)[] node, ref ZBuf why) {
+private void keepName(const(char)* keyAt, const(char)[] name, const(char)[] node, const(char)[] giver, ref ZBuf why) {
     import core.stdc.stdio : fopen, fwrite, fclose, rename, remove;
     import core.stdc.errno : errno;
     import core.stdc.string : strerror;
@@ -111,6 +162,8 @@ private void keepName(const(char)* keyAt, const(char)[] name, const(char)[] node
             kept = fwrite(name.ptr, 1, name.length, f) == name.length
                 && fwrite("\n".ptr, 1, 1, f) == 1
                 && fwrite(node.ptr, 1, node.length, f) == node.length
+                && fwrite("\n".ptr, 1, 1, f) == 1
+                && fwrite(giver.ptr, 1, giver.length, f) == giver.length
                 && fwrite("\n".ptr, 1, 1, f) == 1;
             if (fclose(f) != 0) kept = false;
             if (kept) kept = rename(fresh.ptr(), at) == 0;
@@ -161,7 +214,7 @@ private void putStatus(ref ZBuf why, const(char)[] url, int status, int code, co
 
 // The session's key, admitted by ground's at node; then the session named at
 // node as wanted. 1 named; -1 not, and why says.
-int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, ref Named out_) {
+int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, const(char)[] giver, ref Named out_) {
     import signed : keepKey, putDID;
     import http : httpPostInto, ToNode;
     import parse : extractJsonString;
@@ -213,6 +266,10 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
     scope (exit) body_.dispose();
     body_.add(`{"name":"`);
     putEscaped(body_, wanted);
+    if (giver.length > 0) {
+        body_.add(`","given":"`);
+        putEscaped(body_, giver);
+    }
     body_.add(`"}`);
     auto r = httpPostInto(url.slice(), body_.slice(), ToNode(keyAt), reply[], 2);
     auto answer = reply[0 .. r.len];
@@ -242,7 +299,7 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
         return -1;
     }
     out_.name.put(name);
-    keepName(keyAt, name, node, out_.why);
+    keepName(keyAt, name, node, giver, out_.why);
     return 1;
 }
 
@@ -297,7 +354,8 @@ int handleName(int argc, const(char)** argv) {
         return 1;
     }
     __gshared Named named;
-    if (nameSession(here.sandUrl, sessionKeyFile(sid[0 .. n]), wanted, named) != 1) {
+    auto giver = userSaid(sid[0 .. n], wanted) ? cast(const(char)[]) Giver.user : cast(const(char)[]) Giver.itself;
+    if (nameSession(here.sandUrl, sessionKeyFile(sid[0 .. n]), wanted, giver, named) != 1) {
         fputs("ground name: ", stderr);
         fputs(named.why.ptr(), stderr);
         fputs("\n", stderr);
@@ -312,6 +370,8 @@ int handleName(int argc, const(char)** argv) {
     __gshared ZBuf line;
     line.put("You are ");
     line.put(named.name.slice());
+    line.put(", ");
+    line.put(givenAs(giver));
     line.put(" (");
     line.put(named.did.slice());
     line.put(") at ");
