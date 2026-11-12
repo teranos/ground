@@ -102,8 +102,8 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
     return n;
 }
 
-// A request to a QNTX node: ground's key signs it. Every other far end (GitHub,
-// Sentry, Jev) is handed its own token or nothing, never ground's DID.
+// 「[Opus 5.5] A request to a QNTX node: ground's key signs it. Every other far end (GitHub,」
+// 「[Opus 5.5] Sentry, Jev) is handed its own token or nothing, never ground's DID.」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 struct ToNode {
