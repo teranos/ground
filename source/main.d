@@ -26,6 +26,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import say : handleSay;
             return handleSay(argc, argv);
         }
+        if (cmd == "received") {
+            import say : handleReceived;
+            return handleReceived(argc, argv);
+        }
         if (cmd == "heard") {
             import say : handleHeard;
             return handleHeard(argc, argv);

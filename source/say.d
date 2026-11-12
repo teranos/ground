@@ -19,6 +19,10 @@ ground say Slate "the build on k is red"
 
 # whether what was said was received, by the Task the saying answered with:
 ground heard Slate 01a1d0c3-0922-759f-a495-a1e92e3a6851
+
+# say by hand that this session received what a Task said to its name; sky
+# says so itself as it hands the words over:
+ground received 01a1d0c3-0922-759f-a495-a1e92e3a6851
 EOS";
 
 // The node's A2A address of a name: its tenant. A space in a name of two
@@ -126,14 +130,55 @@ const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
     url.put("/am/statusline/");
     url.put(item);
     __gshared char[4096] reply;
-    auto r = httpGet(url.slice(), ToNode(keyAt), reply[], 5);
-    if (r.status > 0) return "";
+    auto r = httpGet(url.slice(), ToNode(keyAt), reply[], 15);
+    // The item is there and the node answered with it, or it is news the row
+    // let go of already: neither is a failure to say it.
+    if (r.status == 200 || r.status == 404) return "";
     __gshared ZBuf why;
     why.reset();
     why.put(url.slice());
-    why.put(" was not reached: ");
-    why.put(r.why());
+    if (r.status > 0) {
+        why.put(" answered ");
+        why.putUint(r.status);
+        why.put(": ");
+        why.put(reply[0 .. r.len]);
+    } else {
+        why.put(" was not reached: ");
+        why.put(r.why());
+    }
     return why.slice();
+}
+
+// ground received <task>: this session says to its node, by its own key, that
+// it received what a Task said to its name. sky says so as it hands news over;
+// this is the same said by hand.
+int handleReceived(int argc, const(char)** argv) {
+    import core.stdc.stdio : stdout, stderr, fputs;
+    import core.stdc.stdlib : getenv;
+    import hookrun : argLen;
+    if (argc < 3) {
+        fputs("ground received <task>: say to the node that this session received what was said to its name\n", stderr);
+        return 2;
+    }
+    auto sid = getenv("CLAUDE_CODE_SESSION_ID\0".ptr);
+    if (sid is null) {
+        fputs("ground received: CLAUDE_CODE_SESSION_ID is not set, so this is no session's to say\n", stderr);
+        return 1;
+    }
+    size_t n = 0;
+    while (sid[n] != 0) n++;
+    auto why = toldTheNode(sid[0 .. n], argv[2][0 .. argLen(argv[2])]);
+    if (why.length > 0) {
+        fputs("ground received: ", stderr);
+        __gshared ZBuf line;
+        line.reset();
+        line.put(why);
+        line.put("\n");
+        fputs(line.ptr(), stderr);
+        return 1;
+    }
+    fputs("Said to the node as received.\n", stdout);
+    return 0;
 }
 
 // ground say <Name> <words>: said to the agent that holds the name, as a Task.
