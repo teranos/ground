@@ -102,11 +102,11 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
     return n;
 }
 
-// A request to a QNTX node: its token, and with none, ground's key signs it.
-// Every other far end (GitHub, Sentry, Jev) is handed a plain token or nothing,
-// never ground's DID.
+// A request to a QNTX node: ground's key signs it. Every other far end (GitHub,
+// Sentry, Jev) is handed its own token or nothing, never ground's DID.
+//
+// "A signature proves the key, and nothing reusable leaves the node."
 struct ToNode {
-    const(char)[] token;
 }
 
 // One request. `body_` null is a GET. `protocols` is what the url may speak:
@@ -220,7 +220,7 @@ Http httpGet(const(char)[] url, const(char)[] token, char[] dest, int timeoutSec
 
 // The same, to a node.
 Http httpGet(const(char)[] url, ToNode node, char[] dest, int timeoutSec = 10) {
-    return perform(url, null, false, node.token, true, null, dest, timeoutSec, WEB);
+    return perform(url, null, false, null, true, null, dest, timeoutSec, WEB);
 }
 
 // The same, for a caller that names what the url may speak.
@@ -246,7 +246,7 @@ Http httpGetToFile(const(char)[] url, const(char)[] token, const(char)* path, in
 // The same, to a node.
 Http httpGetToFile(const(char)[] url, ToNode node, const(char)* path, int timeoutSec,
                    const(char)[] protocols = WEB) {
-    return getToFile(url, node.token, true, path, timeoutSec, protocols);
+    return getToFile(url, null, true, path, timeoutSec, protocols);
 }
 
 private Http getToFile(const(char)[] url, const(char)[] token, bool signs, const(char)* path, int timeoutSec,
@@ -312,7 +312,7 @@ Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
 // The same, to a node.
 Http httpPost(const(char)[] url, const(char)[] body_, ToNode node,
               int timeoutSec = 10, const(char)[] contentType = "application/json") {
-    return perform(url, body_, true, node.token, true, contentType, null, timeoutSec, WEB);
+    return perform(url, body_, true, null, true, contentType, null, timeoutSec, WEB);
 }
 
 // The same, keeping the reply in dest. For a caller that owes somebody the
@@ -327,7 +327,7 @@ Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, c
 // The same, to a node.
 Http httpPostInto(const(char)[] url, const(char)[] body_, ToNode node, char[] dest,
                   int timeoutSec = 10, const(char)[] contentType = "application/json", Abort abort = Abort.init) {
-    return perform(url, body_, true, node.token, true, contentType, dest, timeoutSec, WEB, abort);
+    return perform(url, body_, true, null, true, contentType, dest, timeoutSec, WEB, abort);
 }
 
 // The HTTP status, or 0 when there was none. For a caller that reads only the

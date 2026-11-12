@@ -116,7 +116,7 @@ struct Landing {
 
 // Asks the node for the digest of origin's comet on this platform. When it is not the one
 // landed here, the comet is downloaded beside it, checked against that digest, and renamed over it.
-Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(char)[] origin) {
+Landing land(const(char)[] node, const(char)[] home, const(char)[] origin) {
     import core.stdc.stdio : fopen, fread, fwrite, fclose, rename;
     import http : httpGet, httpGetToFile, ToNode;
     import errors : mkdir, unlink;
@@ -134,7 +134,7 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     cometAskInto(url, node, origin, VERSION, REV);
 
     __gshared char[ANSWER_BYTES] answer = 0;
-    auto asked = httpGet(url.slice(), ToNode(token), answer[]);
+    auto asked = httpGet(url.slice(), ToNode(), answer[]);
     if (asked.status == 404) {
         import core.sys.posix.unistd : access, F_OK;
         notKept(r, origin, access(pathBuf.ptr, F_OK) == 0, answer[0 .. asked.len], asked.overran,
@@ -191,7 +191,7 @@ Landing land(const(char)[] node, const(char)[] token, const(char)[] home, const(
     staged.reset();
     staged.put(path);
     staged.put(".new");
-    auto got = httpGetToFile(url.data[0 .. bare], ToNode(token), staged.ptr(), 600);
+    auto got = httpGetToFile(url.data[0 .. bare], ToNode(), staged.ptr(), 600);
     if (got.code != 0 || got.status != 200) {
         cast(void) unlink(staged.ptr());
         r.what = Landed.failed;

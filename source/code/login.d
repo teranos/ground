@@ -16,7 +16,7 @@ import libjsonc : json_object, json_type, json_object_get_type, json_object_get_
 // 「[Opus 5.5] whether its yes came.」
 enum DEVICE_PATH = "/auth/device";
 enum TOKEN_PATH = "/auth/token";
-// 「[Opus 5.5] The name the person reads at home before they say yes, and the token is labelled with.」
+// The name the person reads at home before they say yes, and the grant is labelled with.
 enum LABEL = "ground code";
 // 「[Opus 5.5] RFC 8628 §3.4's grant_type.」
 enum DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
@@ -25,8 +25,8 @@ enum SLOW_DOWN_SECONDS = 5;
 private enum ANSWER_BYTES = 16384;
 private enum ASK_SECONDS = 30;
 
-// 「[Opus 5.5] A sign-in the node started: the code the token is asked for with, the code」
-// 「[Opus 5.5] the person compares, the link they follow, and how long to wait between asks.」
+// A sign-in the node started: the code the grant is asked for with, the code
+// the person compares, the link they follow, and how long to wait between asks.
 struct SignIn {
     Reply deviceCode, userCode, link;
     // The did:key of the key the sign-in is for, which the node answers with once the person said yes.
@@ -154,86 +154,25 @@ int pollSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     return -1;
 }
 
-// 「[Opus 5.5] Keeps token in file: its directory made, only its owner's, if it is not」
-// 「[Opus 5.5] there; the file only its owner's, written beside it and moved over it, so a」
-// 「[Opus 5.5] reader finds the old token or the new one, never half of one.」
-bool keepToken(const(char)* file, const(char)[] token, ref Reply why) {
-    // 「[Opus 5.5] mkdir as db declares it, the one declaration ground code links: Darwin's 16-bit mode_t in a second」
-    // 「[Opus 5.5] is a different function to the linker. The rest are druntime's, of the same types.」
-    import db : mkdir;
-    import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_EXCL, O_NOFOLLOW;
-    import core.sys.posix.unistd : write, close, unlink, fsync;
-    import core.stdc.stdio : rename;
-    import core.stdc.errno : errno, EEXIST;
-    import core.stdc.string : strlen, strerror;
-    void failed(const(char)[] doing, const(char)[] path) {
-        auto e = strerror(errno);
-        why.add(`{"message":"`); why.add(doing); why.add(`","path":"`); putEscaped(why, path);
-        why.add(`","errno":`); putNumber(why, cast(uint) errno); why.add(`,"why":"`); putEscaped(why, e[0 .. strlen(e)]); why.add(`"}`);
-    }
-    auto path = file[0 .. strlen(file)];
-    {
-        import token : TOKEN_MAX;
-        if (token.length > TOKEN_MAX) {
-            why.add(`{"message":"the node issued a token longer than ground reads back, so it is not kept","bytes":`);
-            putNumber(why, cast(uint) token.length);
-            why.add(`,"reads":`); putNumber(why, cast(uint) TOKEN_MAX); why.add(`}`);
-            return false;
-        }
-    }
-    size_t slash = path.length;
-    while (slash > 0 && path[slash - 1] != '/') slash--;
-    Reply dir, temp;
-    scope(exit) { dir.dispose(); temp.dispose(); }
-    if (slash > 1) {
-        dir.add(path[0 .. slash - 1]); dir.add("\0");
-        // 「[Opus 5.5] Every directory on the way, as mkdir -p makes them.」
-        auto d = cast(char*) dir.slice().ptr;
-        foreach (i; 1 .. dir.len) {
-            if (d[i] != '/' && d[i] != 0) continue;
-            auto was = d[i];
-            d[i] = 0;
-            if (mkdir(d, 0x1c0) != 0 && errno != EEXIST) { failed("could not make the directory the token is kept in", dir.slice()[0 .. i]); return false; }
-            d[i] = was;
-            if (was == 0) break;
-        }
-    }
-    temp.add(path); temp.add(".login\0");
-    // 「[Opus 5.5] A file only this sign-in made: whatever stood at the name, a link planted to read what comes」
-    // 「[Opus 5.5] among them, is taken away first, and the open makes it new or fails.」
-    {
-        import core.stdc.errno : ENOENT;
-        if (unlink(temp.slice().ptr) != 0 && errno != ENOENT) { failed("could not clear the way for the token", temp.slice()[0 .. $ - 1]); return false; }
-    }
-    auto fd = open(temp.slice().ptr, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0x180);
-    if (fd < 0) { failed("could not write the token", temp.slice()[0 .. $ - 1]); return false; }
-    bool ok = write(fd, token.ptr, token.length) == cast(long) token.length && write(fd, "\n".ptr, 1) == 1 && fsync(fd) == 0;
-    if (!ok) failed("could not write the token", temp.slice()[0 .. $ - 1]);
-    if (close(fd) != 0 && ok) { failed("could not write the token", temp.slice()[0 .. $ - 1]); ok = false; }
-    if (ok && rename(temp.slice().ptr, file) != 0) { failed("could not put the token in place", path); ok = false; }
-    if (!ok) unlink(temp.slice().ptr);
-    return ok;
-}
-
-// 「[Opus 5.5] Drops the token file: 1 dropped, 0 none was there, -1 it could not be, why」
-// 「[Opus 5.5] in why. The node still holds the token until the person revokes it there.」
-int dropToken(const(char)* file, ref Reply why) {
+// Drops the file kept at file: 1 dropped, 0 none was there, -1 it could not be,
+// why in why.
+int dropKept(const(char)* file, ref Reply why) {
     import core.sys.posix.unistd : unlink;
     import core.stdc.errno : errno, ENOENT;
     import core.stdc.string : strlen, strerror;
     if (unlink(file) == 0) return 1;
     if (errno == ENOENT) return 0;
     auto e = strerror(errno);
-    why.add(`{"message":"could not remove the token","path":"`); putEscaped(why, file[0 .. strlen(file)]);
+    why.add(`{"message":"could not remove the file","path":"`); putEscaped(why, file[0 .. strlen(file)]);
     why.add(`","errno":`); putNumber(why, cast(uint) errno); why.add(`,"why":"`); putEscaped(why, e[0 .. strlen(e)]); why.add(`"}`);
     return -1;
 }
 
 // `ground code login`, as a client's terminal auth method runs it: the link and
 // the code said, the node asked until the person said yes to the key kept at
-// keyAt, and the token once kept at file dropped, so the key is what speaks.
-// 0 signed in, 1 not, what the node or the file said given to say.
-int login(const(char)[] node, const(char)* file, const(char)* keyAt, scope void delegate(const(char)[]) say) {
+// keyAt, which is what speaks from then on.
+// 0 signed in, 1 not, what the node said given to say.
+int login(const(char)[] node, const(char)* keyAt, scope void delegate(const(char)[]) say) {
     import core.sys.posix.unistd : sleep;
     import core.stdc.string : strlen;
     SignIn s;
@@ -255,7 +194,6 @@ int login(const(char)[] node, const(char)* file, const(char)* keyAt, scope void 
         if (got < 0) { say("ground code login: not signed in: "); say(why.slice()); say("\n"); return 1; }
         break;
     }
-    if (file !is null && dropToken(file, why) < 0) { say("ground code login: signed in, but "); say(why.slice()); say("\n"); return 1; }
     say("Signed in as "); say(s.did.slice()); say(". The key is kept in "); say(keyAt[0 .. strlen(keyAt)]); say(".\n");
     return 0;
 }

@@ -12,7 +12,6 @@ enum MAX_NODES = 8;
 // The qntx block's fields, as qntxblock.d names them.
 struct Node {
     const(char)[] url;
-    const(char)[] token;   // the file its token is in; empty is QNTX_TOKEN, then ~/.qntx/token (token.d)
     const(char)[] model;   // what ground code prompts through the gateway
     const(char)[] gateway; // the node a prompt goes through; url when empty
 }
@@ -79,14 +78,13 @@ void readNodes(ref NodeConfig c, const(char)[] text) {
         }
         val = val[1 .. $ - 1];
         if (key == "url") n.url = val;
-        else if (key == "token") n.token = val;
         else if (key == "model") n.model = val;
         else if (key == "gateway") n.gateway = val;
         else {
             c.count = 0;
             c.said.put("nodes.pbt line ");
             c.said.putUint(line);
-            c.said.put(": a qntx block holds url:, token:, model: and gateway:, and ");
+            c.said.put(": a qntx block holds url:, model: and gateway:, and ");
             c.said.put(key);
             c.said.put(" is none of them");
             return;
@@ -132,25 +130,16 @@ void loadNodes(ref NodeConfig c) {
 // "and q gies the sand"
 struct NodeHere {
     const(char)[] url;       // where ground writes its namespace: the stream. Empty is no node.
-    const(char)[] token;     // the file url's token is in, as token.d reads it
     const(char)[] sandUrl;   // the node signed in to, the block's gateway: it gives the sand
-    const(char)[] sandToken; // empty is the signed-in token, QNTX_TOKEN then ~/.qntx/token
     ZBuf said;
     const(char)[] why() return { return said.slice(); }
 }
 
-// A block's gateway is the node you sign in to, spoken to with the signed-in token, as ground code
-// prompts it (code/acp.d). A block naming one node gets the sand from it, with its own token.
-private void roles(ref NodeHere h, const(char)[] url, const(char)[] token, const(char)[] gateway) {
+// A block's gateway is the node you sign in to, as ground code prompts it (code/acp.d). A block
+// naming one node gets the sand from it. Both are spoken to signed with ~/.qntx/key.
+private void roles(ref NodeHere h, const(char)[] url, const(char)[] gateway) {
     h.url = url;
-    h.token = token;
-    if (gateway.length > 0) {
-        h.sandUrl = gateway;
-        h.sandToken = gateway[0 .. 0];
-    } else {
-        h.sandUrl = url;
-        h.sandToken = token;
-    }
+    h.sandUrl = gateway.length > 0 ? gateway : url;
 }
 
 // The nodes sky streams to and lands its sand from: the held sand's qntx block, else nodes.pbt's.
@@ -160,7 +149,7 @@ NodeHere nodeHere()() {
     import controls : qntxNode;
     NodeHere h;
     if (qntxNode.url.length > 0) {
-        roles(h, qntxNode.url, qntxNode.token, qntxNode.gateway);
+        roles(h, qntxNode.url, qntxNode.gateway);
         return h;
     }
     __gshared NodeConfig c;
@@ -170,7 +159,7 @@ NodeHere nodeHere()() {
         return h;
     }
     if (c.count == 1) {
-        roles(h, c.nodes[0].url, c.nodes[0].token, c.nodes[0].gateway);
+        roles(h, c.nodes[0].url, c.nodes[0].gateway);
     } else if (c.count > 1) {
         h.said.put(nodesPath());
         h.said.put(" names ");

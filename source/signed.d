@@ -270,20 +270,20 @@ Key keepKey(const(char)* file) {
     return keyOf(seed[]);
 }
 
-// The Authorization line for a request to url: a token when one is said,
-// which goes as it always went; with none, and the request going to a node
-// (signs), a signature by the key kept in ~/.qntx/key; otherwise no line. An
-// absent line is an absent header.
+// The Authorization line for a request to url. To a node (signs), a signature
+// by the key kept in ~/.qntx/key, and nothing when no key is kept. Anywhere
+// else, the far end's own token as a bearer, or nothing. An absent line is an
+// absent header.
 void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs) {
     import token : trimToken;
     line.reset();
-    auto tok = trimToken(token);
-    if (tok.length > 0) {
+    if (!signs) {
+        auto tok = trimToken(token);
+        if (tok.length == 0) return;
         line.put("Authorization: Bearer ");
         line.put(tok);
         return;
     }
-    if (!signs) return;
     auto key = keptKey(keyFile());
     if (!key.held) return;
     import core.stdc.time : time;

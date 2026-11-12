@@ -7,9 +7,6 @@ The model ground code prompts through the node's gateway is the node's block's.
 ## backend-fanParsed-2
 The gateway is the node a prompt goes through; named, it is not the node the attestations go to. Unnamed, it is.
 
-## backend-untokenedInput
-A node named without a token file is spoken to with the one ground attest always read: QNTX_TOKEN, then ~/.qntx/token.
-
 ## backend-strandedInput
 A coin thrown with no node named anywhere lands nowhere. The build says which coin, rather than posting it nowhere in silence.
 
@@ -20,7 +17,7 @@ The rows a hook writes from now on are the stream's: qntx_at 0 until the sky pos
 An exec result carries stdout and stderr, kilobytes of them, and the reason sat past the 512th byte of the one buffer it was read into.
 
 ## nodeconfig-write
-A sand that names no node: the floor's, or a sand built without a qntx block. The stream writes to url with the block's token; the sand comes from the gateway, the node signed in to with ~/.qntx/token. A block that names one node gets both from it. A sand that names its node keeps it, whatever nodes.pbt says.
+A sand that names no node: the floor's, or a sand built without a qntx block. The stream writes to url; the sand comes from the gateway, the node signed in to. Both are spoken to signed with ~/.qntx/key. A block that names one node gets both from it. A sand that names its node keeps it, whatever nodes.pbt says.
 
 ## proto-qntxInput
 

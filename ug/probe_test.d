@@ -2,22 +2,8 @@ module probe_test;
 
 // CTFE tests — failure shows as a compile error.
 
-import probe : trimToken, split, Answer, noTokenBut;
+import probe : split, Answer;
 import qntx : State, CURL_OK, CURL_DNS, CURL_TIMEOUT;
-
-// A file written by echo ends in a newline, and a newline inside a header
-// value is a malformed request rather than a bad token.
-static assert(trimToken("abc") == "abc");
-static assert(trimToken("abc\n") == "abc");
-static assert(trimToken("  abc\r\n") == "abc");
-static assert(trimToken("\n\n") == "");
-static assert(trimToken("") == "");
-
-// "A signature proves the key, and nothing reusable leaves the node."
-// No token and a key kept: the request is made, and http.d signs it. No key
-// either: there is nothing to ask with, and the row says token.
-static assert(noTokenBut(true).ok && noTokenBut(true).value == "");
-static assert(!noTokenBut(false).ok && noTokenBut(false).fault == State.noToken);
 
 // The status curl appends is taken off the end, and the body is what is left.
 enum ok = `{"plugins":[]}` ~ "\nHTTP 200";

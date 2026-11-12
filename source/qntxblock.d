@@ -5,18 +5,18 @@ module qntxblock;
 
 import lexer : skipWS, skipLine, expect, readWord, readValue;
 
-// 「[Opus 5.5] The qntx { } block. At the top level it names the nodes: url, where ground writes its」
-// 「[Opus 5.5] namespace, and token, the path of the file holding what url is spoken to with — empty」
-// 「[Opus 5.5] means QNTX_TOKEN, then ~/.qntx/token. gateway is the node signed in to with ~/.qntx/token.」
+// The qntx { } block. At the top level it names the node: url, where ground
+// writes its namespace, signed with ~/.qntx/key; gateway, the node signed in to.
+//
+// "A signature proves the key, and nothing reusable leaves the node."
 struct ParsedQntx {
     bool present;
     string url;
-    string token;
     string model;   // what ground code prompts through the gateway
     string gateway; // the node signed in to: it answers prompts and gives the sand; url when empty
 }
 
-// 「[Opus 5.5] url:, token:, model: and gateway:, and nothing else.」
+// url:, model: and gateway:, and nothing else.
 ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
     ParsedQntx q;
     q.present = true;
@@ -33,7 +33,7 @@ ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
         skipWS(input, pos);
         auto val = readValue(input, pos);
 
-        if (key == "token") q.token = val;
+        if (key == "token") assert(0, "a qntx block names no token: ground signs with ~/.qntx/key");
         else if (key == "url") q.url = val;
         else if (key == "model") q.model = val;
         else if (key == "gateway") q.gateway = val;

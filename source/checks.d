@@ -166,11 +166,9 @@ void noteQntx(sqlite3* db, const(char)[] kind, long at, long status) {
     sqlite3_finalize(stmt);
 }
 
-// A node and the token file it is spoken to with; empty for ground attest's
-// own, QNTX_TOKEN then ~/.qntx/token.
+// A node, spoken to signed with ~/.qntx/key.
 struct Node {
     string url;
-    string token;
 }
 
 struct Backends {
@@ -182,7 +180,7 @@ struct Backends {
 Backends qntxBackends(PR)(const PR parsed) {
     Backends b;
     if (parsed.qntx.url.length == 0) return b;
-    b.items[0] = Node(parsed.qntx.url, parsed.qntx.token);
+    b.items[0] = Node(parsed.qntx.url);
     b.len = 1;
     return b;
 }
@@ -261,7 +259,6 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
     freopen("/dev/null\0".ptr, "w\0".ptr, stderr);
 
     import controls : allParsed;
-    import attest : qntxToken;
     import http : curlPost, ToNode;
     import db : openDb, sqlite3_close, ZBuf;
 
@@ -287,7 +284,7 @@ void sendDetached(const(char)[] first, const(char)[] second, long at) {
             url.reset();
             url.put(backends.items[i].url);
             url.put("/api/attestations");
-            long code = curlPost(url.slice(), body_.slice(), ToNode(qntxToken(backends.items[i].token)), 10);
+            long code = curlPost(url.slice(), body_.slice(), ToNode(), 10);
             if (code == 0) code = -3;
             bool ok = code >= 200 && code < 300;
             if (failed) continue;

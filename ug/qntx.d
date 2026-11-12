@@ -14,8 +14,7 @@ enum RESET  = "\033[0m";
 
 enum State {
     ok,
-    noToken,
-    tokenUnreadable,
+    noKey,
     unauthed,
     clientError,
     oddStatus,
@@ -66,8 +65,7 @@ State classify(int curlExit, int httpStatus) {
 const(char)[] word(State s) {
     switch (s) {
         case State.ok:              return "";
-        case State.noToken:         return "token";
-        case State.tokenUnreadable: return "unreadable";
+        case State.noKey:           return "key";
         case State.unauthed:        return "auth";
         case State.malformedBody:   return "parse";
         case State.dnsFailure:      return "dns";
@@ -82,13 +80,13 @@ const(char)[] word(State s) {
 // the bar keeps the node's last row through a short silence rather than wiping
 // it. A key nobody set will not set itself, and that stands at once.
 bool standing(State s) {
-    return s == State.noToken || s == State.tokenUnreadable;
+    return s == State.noKey;
 }
 
 // Yellow is ours to fix, red is not.
 const(char)[] colourOf(State s) {
     switch (s) {
-        case State.noToken:     return YELLOW;
+        case State.noKey:       return YELLOW;
         case State.unauthed:    return YELLOW;
         case State.clientError: return YELLOW;
         case State.oddStatus:   return YELLOW;

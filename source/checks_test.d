@@ -119,12 +119,10 @@ unittest {
     sqlite3_close(db);
 }
 
-// "no double or split config, they all need to go to the same call from the same token"
 // book: checks-backendsSrc
 enum backendsSrc = `
 qntx {
   url: "https://q.one.example"
-  token: "~/.qntx/ground-token"
 }
 
 project {
@@ -134,7 +132,6 @@ project {
 enum backends = qntxBackends(parsePbt(backendsSrc));
 static assert(backends.len == 1);
 static assert(backends.items[0].url == "https://q.one.example");
-static assert(backends.items[0].token == "~/.qntx/ground-token");
 
 // No node named is no backend, not an empty url posted to.
 static assert(qntxBackends(parsePbt(`project { path: "/a" }`)).len == 0);

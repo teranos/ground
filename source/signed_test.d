@@ -83,16 +83,16 @@ unittest {
         "the signature does not verify against the key");
 }
 
-// A token said goes as a bearer, as it always went; nothing said and no key
-// kept is no line at all.
+// A node is never handed a token: what goes to it is signed, and with no key
+// kept, nothing. Anywhere else, the far end's own token goes as a bearer.
 unittest {
     import core.sys.posix.stdlib : setenv;
     ZBuf line;
-    authLine(line, "https://api.q.sbvh.nl", "qntx_abc\n", true);
-    assert(line.slice() == "Authorization: Bearer qntx_abc", line.slice());
     setenv("HOME", "/nonexistent-ground-home\0".ptr, 1);
-    authLine(line, "https://api.q.sbvh.nl", "", true);
+    authLine(line, "https://api.q.sbvh.nl", "qntx_abc\n", true);
     assert(line.slice().length == 0, line.slice());
+    authLine(line, "https://api.github.com/repos/teranos/ground", "gh_abc\n", false);
+    assert(line.slice() == "Authorization: Bearer gh_abc", line.slice());
 }
 
 // A key kept signs for a node and for nothing else: GitHub, Sentry and Jev are

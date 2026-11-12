@@ -110,7 +110,7 @@ private void prompt(ref Sessions s, string text, ref Reply r) {
 private void opened(ref Sessions s, string url) {
     import db : sqlite3, sqlite3_open, applySchema, SQLITE_OK;
     s.clock = 1_700_000_000;
-    s.node.url = url; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = url; s.node.model = "m"; s.contextSize = 200_000;
     Reply r;
     scope(exit) r.dispose();
     code.answer(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, r, s);

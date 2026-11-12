@@ -760,7 +760,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = url(port); s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         auto began = time(null);
@@ -779,7 +779,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); }
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = "http://127.0.0.1:9"; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
@@ -797,7 +797,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = url(port); s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}`));
@@ -815,7 +815,7 @@ version (Posix) unittest {
         Input input = Input(p[0]);
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = url(port); s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = url(port); s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         run(s, newSession);
         assert(says(s, prompt, `{"jsonrpc":"2.0","id":2,"result":{"stopReason":"max_tokens"}}`));
@@ -899,7 +899,7 @@ version (Posix) unittest {
         assert(pipe(p) == 0);
         input = Input(p[0]);
         s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
 
@@ -1201,7 +1201,7 @@ version (Posix) unittest {
     Input input = Input(p[0]);
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
     s.db = db;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
     int[2] o;
@@ -1304,7 +1304,7 @@ version (Posix) unittest {
         assert(pipe(p) == 0);
         input = Input(p[0]);
         s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         assert(write(p[1], queued.ptr, queued.length) == queued.length);
         int[2] o;
@@ -1437,7 +1437,7 @@ version (Posix) unittest {
         while (k) urlBuf[len++] = d[--k];
         Input input = Input(p[0]);
         s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         int[2] o;
@@ -1666,7 +1666,7 @@ version (Posix) unittest {
         while (k) urlBuf[len++] = d[--k];
         Input input = Input(p[0]);
         s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); kill(child, SIGKILL); waitpid(child, null, 0); }
         int[2] o;
@@ -1905,7 +1905,7 @@ version (Posix) unittest {
 
     Input input = Input(p[0]);
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
 
@@ -2050,7 +2050,7 @@ version (Posix) unittest {
     string[2] listAndTurn = [models, answer_];
     auto both = gateway(listAndTurn[], port);
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = urlOf(port); s.node.model = "m"; s.node.token = "/nonexistent";
+    s.node.url = urlOf(port); s.node.model = "m";
     Reply r;
     prompt(s, r);
     auto lines = askedOf(both & 0xFFFF);
@@ -2070,7 +2070,7 @@ version (Posix) unittest {
     string[1] listOnly = [ok ~ `{"data":[{"id":"other","context_length":8192}]}`];
     auto none = gateway(listOnly[], port);
     Sessions t = Sessions(100, 7); t.initialized = true; t.clock = 1_700_000_000;
-    t.node.url = urlOf(port); t.node.model = "m"; t.node.token = "/nonexistent";
+    t.node.url = urlOf(port); t.node.model = "m";
     prompt(t, r);
     lines = askedOf(none & 0xFFFF);
     waitpid(none >> 16, null, 0);
@@ -2176,7 +2176,7 @@ version (Posix) unittest {
         write(p[1], answers.ptr, answers.length);
         Input input = Input(p[0]);
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Reply init, req;
@@ -2363,7 +2363,7 @@ version (Posix) unittest {
         assert(pipe(p) == 0);
         Input input = Input(p[0]);
         Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+        s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
         s.input = &input;
         scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
         Reply init, req;
@@ -2465,7 +2465,7 @@ version (Posix) unittest {
     do { d[k++] = cast(char)('0' + port % 10); port /= 10; } while (port);
     while (k) urlBuf[len++] = d[--k];
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     int[2] o;
     assert(pipe(o) == 0);
@@ -2546,7 +2546,7 @@ version (Posix) unittest {
     assert(pipe(p) == 0);
     Input input = Input(p[0]);
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
@@ -2669,7 +2669,7 @@ version (Posix) unittest {
     while (k) urlBuf[len++] = d[--k];
 
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }
@@ -2772,7 +2772,7 @@ version (Posix) unittest {
     while (k) urlBuf[len++] = d[--k];
 
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     scope(exit) { kill(child, SIGKILL); waitpid(child, null, 0); }
     Reply req, r;
     scope(exit) { req.dispose(); r.dispose(); }

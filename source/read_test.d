@@ -89,7 +89,7 @@ version (Posix) private void readTurn(const(char)[] caps, const(char)[] mode, co
     while (k) urlBuf[len++] = d[--k];
     Input input = Input(p[0]);
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) urlBuf[0 .. len]; s.node.model = "m"; s.contextSize = 200_000;
     s.input = &input;
     scope(exit) { input.dispose(); close(p[0]); close(p[1]); kill(child, SIGKILL); waitpid(child, null, 0); }
     int[2] o;
