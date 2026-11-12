@@ -415,7 +415,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
             // keeps is said, and the node is not asked, so a node that is slow
             // or away holds up no session that is already named.
             bool goesOn = source !is null && (contains(source, "compact") || contains(source, "clear"));
-            // Who gave the name it keeps, read before the name is asked for again.
+            // 「[Fable 5.2] Who gave the name it keeps, read before the name is asked for again.」
             char[512] giverBuf;
             __gshared char[16] giverKept;
             size_t giverLen = 0;
@@ -464,8 +464,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     }
 
     // "show the disagreement"
-    // A rule in Claude Code's JSON that says other than ground is said where
-    // the session starts, with the two words that show it and take it out.
+    // 「[Fable 5.2] A rule in Claude Code's JSON that says other than ground is said where」
+    // 「[Fable 5.2] the session starts, with the two words that show it and take it out.」
     if (cwd !is null) {
         import disagree : countDisagreements, startingMode;
         char[32] modeBuf = 0;
