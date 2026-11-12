@@ -452,6 +452,22 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         }
     }
 
+    // "show the disagreement"
+    // A rule in Claude Code's JSON that says other than ground is said where
+    // the session starts, with the two words that show it and take it out.
+    if (cwd !is null) {
+        import disagree : countDisagreements, startingMode;
+        char[32] modeBuf = 0;
+        auto count = countDisagreements(cwd, startingMode(modeBuf[]));
+        if (count > 0) {
+            if (any) ctx.put(" | ");
+            ctx.putUint(count);
+            ctx.put(count == 1 ? " rule in Claude Code's settings JSON says" : " rules in Claude Code's settings JSON say");
+            ctx.put(" other than ground. `ground disagreements` shows which; `ground agree` takes them out of the JSON.");
+            any = true;
+        }
+    }
+
     if (any) {
         import parse : writeJsonString;
         fputs(`{"systemMessage":"`, stdout);

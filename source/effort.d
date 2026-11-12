@@ -224,14 +224,14 @@ size_t settingsWith(const(char)[] text, const(char)[] value, char[] dest) {
 // safe while there was one; with a key per model under modelSettings there are
 // several, and the one that comes first is not the one that was asked for.
 
-private size_t skipSpace(const(char)[] text, size_t at) {
+size_t skipSpace(const(char)[] text, size_t at) {
     while (at < text.length && (text[at] == ' ' || text[at] == '\n'
                                 || text[at] == '\r' || text[at] == '\t')) at++;
     return at;
 }
 
 // One past the closing quote of the string opening at text[at].
-private size_t skipString(const(char)[] text, size_t at) {
+size_t skipString(const(char)[] text, size_t at) {
     size_t j = at + 1;
     while (j < text.length) {
         if (text[j] == '\\') { j += 2; continue; }
@@ -243,7 +243,7 @@ private size_t skipString(const(char)[] text, size_t at) {
 
 // One past a value of any kind: a string at its closing quote, an object or
 // array at its matching bracket, anything else at what ends it.
-private size_t skipValue(const(char)[] text, size_t at) {
+size_t skipValue(const(char)[] text, size_t at) {
     if (at >= text.length) return at;
     auto c = text[at];
     if (c == '"') return skipString(text, at);
@@ -265,7 +265,7 @@ private size_t skipValue(const(char)[] text, size_t at) {
     return j;
 }
 
-private struct Member {
+struct Member {
     bool ok;
     size_t keyAt;
     size_t valAt;
@@ -275,7 +275,7 @@ private struct Member {
 // An immediate member of the object opening at text[at]. Immediate is the
 // whole point: a key nested deeper, or one spelled inside a string value, is
 // not this object's and must not answer for it.
-private Member memberOf(const(char)[] text, size_t at, const(char)[] key) {
+Member memberOf(const(char)[] text, size_t at, const(char)[] key) {
     Member m;
     if (at >= text.length || text[at] != '{') return m;
     size_t i = skipSpace(text, at + 1);
@@ -305,7 +305,7 @@ private Member memberOf(const(char)[] text, size_t at, const(char)[] key) {
 }
 
 // Where the settings object opens, or text.length when this is not one.
-private size_t rootAt(const(char)[] text) {
+size_t rootAt(const(char)[] text) {
     auto i = skipSpace(text, 0);
     return (i < text.length && text[i] == '{') ? i : text.length;
 }
