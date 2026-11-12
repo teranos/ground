@@ -156,10 +156,10 @@ private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
         typeZ.put(contentType);
         headers = curl_slist_append(headers, typeZ.ptr());
     }
-    // A node's A2A is asked in the version ground speaks: one that names none
-    // is taken for 0.3 and refused.
+    // 「[Fable 5.2] A node's A2A is asked in the version ground speaks: one that names none」
+    // 「[Fable 5.2] is taken for 0.3 and refused.」
     {
-        // Searched here: ug is built with this module and with no matcher.
+        // 「[Fable 5.2] Searched here: ug is built with this module and with no matcher.」
         enum a2a = "/a2a/";
         bool asksA2A = false;
         foreach (i; 0 .. url.length) {
