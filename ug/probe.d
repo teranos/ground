@@ -60,7 +60,7 @@ size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
     return o;
 }
 
-// One request, made in this process, signed with the key kept under home.
+// 「[Opus 5.5] One request, made in this process, signed with the key kept under home.」
 Answer fetch(const(char)[] home, const(char)[] path) {
     import http : httpGet, ToNode;
 
@@ -82,15 +82,15 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     return Answer(classify(r.code, r.status), r.status, out_[0 .. r.len]);
 }
 
-// What a POST came back with. curlExit is -1 when no key was there to sign
-// with, which is a request never made rather than one that failed.
+// 「[Opus 5.5] What a POST came back with. curlExit is -1 when no key was there to sign」
+// 「[Opus 5.5] with, which is a request never made rather than one that failed.」
 struct Posted {
     int status;
     int curlExit;
 }
 
-// One POST of a JSON body, made in this process, signed with the key kept
-// under home.
+// 「[Opus 5.5] One POST of a JSON body, made in this process, signed with the key kept」
+// 「[Opus 5.5] under home.」
 Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
     import http : httpPost, ToNode;
 

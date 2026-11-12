@@ -270,10 +270,10 @@ Key keepKey(const(char)* file) {
     return keyOf(seed[]);
 }
 
-// The Authorization line for a request to url. To a node (signs), a signature
-// by the key kept in ~/.qntx/key, and nothing when no key is kept. Anywhere
-// else, the far end's own token as a bearer, or nothing. An absent line is an
-// absent header.
+// 「[Opus 5.5] The Authorization line for a request to url. To a node (signs), a signature」
+// 「[Opus 5.5] by the key kept in ~/.qntx/key, and nothing when no key is kept. Anywhere」
+// 「[Opus 5.5] else, the far end's own token as a bearer, or nothing. An absent line is an」
+// 「[Opus 5.5] absent header.」
 void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs) {
     import token : trimToken;
     line.reset();

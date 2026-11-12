@@ -83,8 +83,8 @@ unittest {
         "the signature does not verify against the key");
 }
 
-// A node is never handed a token: what goes to it is signed, and with no key
-// kept, nothing. Anywhere else, the far end's own token goes as a bearer.
+// 「[Opus 5.5] A node is never handed a token: what goes to it is signed, and with no key」
+// 「[Opus 5.5] kept, nothing. Anywhere else, the far end's own token goes as a bearer.」
 unittest {
     import core.sys.posix.stdlib : setenv;
     ZBuf line;

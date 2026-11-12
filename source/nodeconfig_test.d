@@ -4,7 +4,7 @@ module nodeconfig_test;
 
 import nodeconfig : NodeConfig, readNodes, nodesPath;
 
-// One qntx block per node, as a pbt names one: its url.
+// 「[Opus 5.5] One qntx block per node, as a pbt names one: its url.」
 unittest {
     NodeConfig c;
     readNodes(c, "qntx {\n  url: \"https://api.q.sbvh.nl\"\n}\n" ~
@@ -15,7 +15,7 @@ unittest {
     assert(c.nodes[1].url == "http://kapteyn:8770");
 }
 
-// A qntx block names no token: a node is spoken to signed with ~/.qntx/key.
+// 「[Opus 5.5] A qntx block names no token: a node is spoken to signed with ~/.qntx/key.」
 unittest {
     NodeConfig c;
     readNodes(c, "qntx {\n  url: \"https://a\"\n  token: \"x\"\n}\n");
@@ -115,8 +115,8 @@ unittest {
 
     // "there is q, you auth to it, there is k ground writes into its ground namespace"
     // "and q gies the sand"
-    // The stream writes to url; the sand comes from the gateway, the node signed in to. A block
-    // that names one node gets both from it. Both are spoken to signed with ~/.qntx/key.
+    // 「[Opus 5.5] The stream writes to url; the sand comes from the gateway, the node signed in to. A block」
+    // 「[Opus 5.5] that names one node gets both from it. Both are spoken to signed with ~/.qntx/key.」
     write("qntx {\n  url: \"http://kapteyn:8770\"\n  gateway: \"https://api.q.sbvh.nl\"\n}\n");
     auto split = nodeHere();
     assert(split.url == "http://kapteyn:8770");

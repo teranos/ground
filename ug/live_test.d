@@ -94,7 +94,7 @@ extern (C) int main(int argc, char** argv) {
     mkdir(&home[0], 0x1ed);
     snprintf(&path[0], path.length, "%s/.qntx", &home[0]);
     mkdir(&path[0], 0x1c0);
-    // A key kept, so the probe asks (and the ask never answers).
+    // 「[Opus 5.5] A key kept, so the probe asks (and the ask never answers).」
     snprintf(&path[0], path.length, "%s/.qntx/key", &home[0]);
     {
         auto f = fopen(&path[0], "wb");

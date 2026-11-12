@@ -135,8 +135,8 @@ struct NodeHere {
     const(char)[] why() return { return said.slice(); }
 }
 
-// A block's gateway is the node you sign in to, as ground code prompts it (code/acp.d). A block
-// naming one node gets the sand from it. Both are spoken to signed with ~/.qntx/key.
+// 「[Opus 5.5] A block's gateway is the node you sign in to, as ground code prompts it (code/acp.d). A block」
+// 「[Opus 5.5] naming one node gets the sand from it. Both are spoken to signed with ~/.qntx/key.」
 private void roles(ref NodeHere h, const(char)[] url, const(char)[] gateway) {
     h.url = url;
     h.sandUrl = gateway.length > 0 ? gateway : url;

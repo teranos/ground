@@ -17,7 +17,7 @@ The rows a hook writes from now on are the stream's: qntx_at 0 until the sky pos
 An exec result carries stdout and stderr, kilobytes of them, and the reason sat past the 512th byte of the one buffer it was read into.
 
 ## nodeconfig-write
-A sand that names no node: the floor's, or a sand built without a qntx block. The stream writes to url; the sand comes from the gateway, the node signed in to. Both are spoken to signed with ~/.qntx/key. A block that names one node gets both from it. A sand that names its node keeps it, whatever nodes.pbt says.
+「[Opus 5.5] A sand that names no node: the floor's, or a sand built without a qntx block. The stream writes to url; the sand comes from the gateway, the node signed in to. Both are spoken to signed with ~/.qntx/key. A block that names one node gets both from it. A sand that names its node keeps it, whatever nodes.pbt says.」
 
 ## proto-qntxInput
 

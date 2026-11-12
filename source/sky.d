@@ -504,9 +504,9 @@ int handleSky(int argc, const(char)** argv) {
 
     // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
     // "so give it a config per ground per node"
-    // The node, read once. No node named is no stream. A node is spoken to
-    // signed with ground's key, and at an agent's door the node opened for it
-    // the signature is not asked for (QNTX server/agent_door.go).
+    // 「[Opus 5.5] The node, read once. No node named is no stream. A node is spoken to」
+    // 「[Opus 5.5] signed with ground's key, and at an agent's door the node opened for it」
+    // 「[Opus 5.5] the signature is not asked for (QNTX server/agent_door.go).」
     //
     // "A signature proves the key, and nothing reusable leaves the node."
     import nodeconfig : nodeHere;
@@ -514,7 +514,7 @@ int handleSky(int argc, const(char)** argv) {
     node = nodeHere();
     if (node.why().length > 0) toSentry("sky.node", cast(string) node.why(), -1, sessionId, "");
     // "and q gies the sand"
-    // The sand is pulled from the node signed in to.
+    // 「[Opus 5.5] The sand is pulled from the node signed in to.」
     long streamBackoffUntil = 0;
     long streamed = 0;
     long cometBackoffUntil = 0;

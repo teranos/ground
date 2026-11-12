@@ -166,7 +166,7 @@ void noteQntx(sqlite3* db, const(char)[] kind, long at, long status) {
     sqlite3_finalize(stmt);
 }
 
-// A node, spoken to signed with ~/.qntx/key.
+// 「[Opus 5.5] A node, spoken to signed with ~/.qntx/key.」
 struct Node {
     string url;
 }
