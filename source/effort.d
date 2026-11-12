@@ -49,8 +49,48 @@ enum MEDIUM_AT = 800;
 enum ACCOUNT_LOW_AT = 950;
 enum FABLE_LOW_AT = 850;
 
-enum FABLE_MODEL = "claude-fable-5-1";
-immutable string[2] ACCOUNT_MODELS = ["claude-opus-5", "claude-sonnet-5"];
+// "the hardcoded list is BS"
+// The models each window governs are the models sessions ran, as ug wrote them
+// down (session_model), each by its settings key. Fable's week reaches every
+// Fable; the account's week reaches the rest. No model is named here: a new
+// one is governed the day a session runs it.
+enum FABLE_PREFIX = "claude-fable-";
+enum MODELS_SEEN_SQL = "SELECT DISTINCT model FROM session_model WHERE model LIKE 'claude-%' ORDER BY model\0";
+enum MODELS_CAP = 16;
+
+struct ModelsSeen {
+    char[MODELS_CAP][64] buf;
+    size_t[MODELS_CAP] len;
+    size_t count;
+    const(char)[] opIndex(size_t i) const return { return buf[i][0 .. len[i]]; }
+    void add(const(char)[] key) {
+        foreach (i; 0 .. count) if (this[i] == key) return;
+        if (count == MODELS_CAP || key.length > 64) return;
+        buf[count][0 .. key.length] = key;
+        len[count] = key.length;
+        count++;
+    }
+}
+
+bool isFable(const(char)[] model) {
+    return model.length >= FABLE_PREFIX.length && model[0 .. FABLE_PREFIX.length] == FABLE_PREFIX;
+}
+
+// Every model a session ran, by its settings key, once each.
+ModelsSeen modelsSeen(sqlite3* db) {
+    import db : sqlite3_stmt, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_text, sqlite3_finalize, SQLITE_OK, SQLITE_ROW;
+    import core.stdc.string : strlen;
+    ModelsSeen seen;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, MODELS_SEEN_SQL.ptr, -1, &stmt, null) != SQLITE_OK) return seen;
+    scope (exit) sqlite3_finalize(stmt);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto t = cast(const(char)*) sqlite3_column_text(stmt, 0);
+        if (t is null) continue;
+        seen.add(modelKey(t[0 .. strlen(t)]));
+    }
+    return seen;
+}
 
 // What a reading asks of the models its window governs: "low", "medium", or
 // "" for a reading that asks nothing. A window with no reading, and one that
@@ -683,9 +723,12 @@ private void legacyHandBack(sqlite3* db, long now, ref Pinned said) {
 Pinned effortPass(sqlite3* db, long accountTenths, long fableTenths, long now) {
     Pinned said;
     legacyHandBack(db, now, said);
-    onePass(db, FABLE_MODEL, "Fable week", fableTenths, FABLE_LOW_AT, now, said);
-    foreach (model; ACCOUNT_MODELS)
-        onePass(db, model, "week", accountTenths, ACCOUNT_LOW_AT, now, said);
+    auto seen = modelsSeen(db);
+    foreach (i; 0 .. seen.count) {
+        auto model = seen[i];
+        if (isFable(model)) onePass(db, model, "Fable week", fableTenths, FABLE_LOW_AT, now, said);
+        else onePass(db, model, "week", accountTenths, ACCOUNT_LOW_AT, now, said);
+    }
     return said;
 }
 

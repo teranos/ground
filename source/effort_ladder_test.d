@@ -9,8 +9,7 @@ module effort_ladder_test;
 // week governs Fable and nothing else.
 
 import effort : MEDIUM_AT, ACCOUNT_LOW_AT, FABLE_LOW_AT, wantedFor,
-                modelKey, modelEffortIn, settingsWithModel,
-                FABLE_MODEL, ACCOUNT_MODELS;
+                modelKey, modelEffortIn, settingsWithModel, isFable;
 
 // "for weekly 95+ should be put to low and 80+ should be set to medium"
 // book: effort_ladder-MEDIUM_AT
@@ -43,10 +42,12 @@ static assert(modelKey("claude-opus-5") == "claude-opus-5");
 static assert(modelKey("claude-fable-5-1") == "claude-fable-5-1");
 static assert(modelKey("") == "");
 
-// The models each window governs. Fable's week reaches one model; the
-// account's week reaches the rest.
-static assert(FABLE_MODEL == "claude-fable-5-1");
-static assert(ACCOUNT_MODELS == ["claude-opus-5", "claude-sonnet-5"]);
+// The models each window governs are the ones sessions ran: Fable's week
+// reaches every Fable, the account's week the rest. No model is named in code.
+static assert(isFable("claude-fable-5-1"));
+static assert(isFable("claude-fable-5-2"));
+static assert(!isFable("claude-opus-5-5"));
+static assert(!isFable(""));
 
 // --- reading one model's setting ---
 
