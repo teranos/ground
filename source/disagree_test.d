@@ -101,8 +101,8 @@ unittest {
 }
 
 // "no other software should be allowed to be of higher authority than ground"
-// The events the JSON sends to ground are the ones it registers ground_hook
-// for; one that was registered and is gone is found, and put back where it was.
+// 「[Fable 5.2] The events the JSON sends to ground are the ones it registers ground_hook」
+// 「[Fable 5.2] for; one that was registered and is gone is found, and put back where it was.」
 unittest {
     import matcher : indexOf;
     import zbuf : ZBuf;
