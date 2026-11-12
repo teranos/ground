@@ -279,7 +279,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
                 err.sessionId = cast(string) sessionId;
                 err.timestamp = cast(long) time(null);
                 // "ALSO, IT SPAMS, ONCE IS FINE"
-                // The same refusal on every hook of the session is said to it once.
+                // 「[Fable 5.1, Fable 5.2] The same refusal on every hook of the session is said to it once.」
                 bool said = false;
                 {
                     import db : openDb, sqlite3_close;
