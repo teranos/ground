@@ -1,9 +1,9 @@
 module login_test;
 
-// ground code's sign-in to its QNTX node, against a node that answers as QNTX's
-// server/auth/device.go does: /auth/device starts it, /auth/token says
-// authorization_pending until the person says yes at the passkey, then names
-// the key's DID, once.
+// 「[Opus 5.5] ground code's sign-in to its QNTX node, against a node that answers as QNTX's」
+// 「[Opus 5.5] server/auth/device.go does: /auth/device starts it, /auth/token says」
+// 「[Opus 5.5] authorization_pending until the person says yes at the passkey, then names」
+// 「[Opus 5.5] the key's DID, once.」
 
 import code.login;
 import code.reply : Reply;
@@ -231,7 +231,7 @@ unittest {
     assert(indexOf(other.slice(), `another key`) >= 0);
 }
 
-// A file kept is dropped once; a second drop finds nothing there.
+// 「[Opus 5.5] A file kept is dropped once; a second drop finds nothing there.」
 unittest {
     import core.sys.posix.unistd : getpid, rmdir;
     import core.stdc.stdio : snprintf;
@@ -246,9 +246,9 @@ unittest {
     rmdir(dir.ptr);
 }
 
-// `ground code login`: the link and the code said, the node asked until the
-// person said yes to the key; exit 0. A sign-in nobody said yes to is said as
-// the node said it; exit 1.
+// 「[Opus 5.5] `ground code login`: the link and the code said, the node asked until the」
+// 「[Opus 5.5] person said yes to the key; exit 0. A sign-in nobody said yes to is said as」
+// 「[Opus 5.5] the node said it; exit 1.」
 unittest {
     char[160] key;
     auto keyAt = testKey(key, "login");
@@ -352,8 +352,8 @@ private const(char)[] homeFor(ref char[160] buf, string name) {
     return buf[0 .. cast(size_t) n];
 }
 
-// The key is kept in ~/.qntx/key: a test borrows a home of its own, so nobody's key is touched,
-// and gives back the home the tests after it run in, every byte.
+// 「[Opus 5.5] The key is kept in ~/.qntx/key: a test borrows a home of its own, so nobody's key is touched,」
+// 「[Opus 5.5] and gives back the home the tests after it run in, every byte.」
 private __gshared char[512] keptHome = 0;
 private __gshared size_t keptLen;
 private __gshared bool hadHome;
@@ -376,7 +376,7 @@ private void giveBackHome() {
     if (hadHome) setenv("HOME", keptHome.ptr, 1); else unsetenv("HOME");
 }
 
-// Auth is q's, the block's gateway; its url is k's, the hooks' node, and is left alone.
+// 「[Opus 5.5] Auth is q's, the block's gateway; its url is k's, the hooks' node, and is left alone.」
 enum K_URL = "http://127.0.0.1:9";
 
 // 「[Opus 5.5] authenticate qntx: q starts a sign-in, the person is sent to its link by an elicitation tied to the」
@@ -449,9 +449,9 @@ unittest {
     over.reply.dispose();
 }
 
-// logout drops the key ground code signed in as:
+// 「[Opus 5.5] logout drops the key ground code signed in as:」
 // "Terminates the current authenticated session."
-// A second logout has nothing left to drop.
+// 「[Opus 5.5] A second logout has nothing left to drop.」
 unittest {
     import core.stdc.stdlib : getenv;
     import core.stdc.string : strlen;
@@ -498,8 +498,8 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
 }
 
-// What ground code prompts q with is the key it signed in as: a signature, and
-// no bearer.
+// 「[Opus 5.5] What ground code prompts q with is the key it signed in as: a signature, and」
+// 「[Opus 5.5] no bearer.」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 unittest {
@@ -524,8 +524,8 @@ unittest {
     assert(indexOf(heard, "Bearer") < 0);
 }
 
-// A third party's token on disk longer than ground reads is no token, never
-// the start of one.
+// 「[Opus 5.5] A third party's token on disk longer than ground reads is no token, never」
+// 「[Opus 5.5] the start of one.」
 unittest {
     import core.sys.posix.unistd : getpid, unlink, write, close;
     import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
@@ -547,8 +547,8 @@ unittest {
     unlink(file.ptr);
 }
 
-// A sign-in the client calls off while the node is being asked is called off,
-// though the node's answer is yes: the cancel was asked before only.
+// 「[Opus 5.5] A sign-in the client calls off while the node is being asked is called off,」
+// 「[Opus 5.5] though the node's answer is yes: the cancel was asked before only.」
 unittest {
     import core.sys.posix.unistd : dup, dup2;
     import core.stdc.stdio : fflush, stdout;
