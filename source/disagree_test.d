@@ -25,7 +25,7 @@ enum SETTINGS = `{
 }
 `;
 
-// A rule is its tool and the words it stands for, less the wildcard it ends in.
+// 「[Fable 5.2] A rule is its tool and the words it stands for, less the wildcard it ends in.」
 unittest {
     const(char)[] tool, command;
     ruleParts("Bash(make install*)", tool, command);
@@ -36,8 +36,8 @@ unittest {
     assert(tool == "WebSearch" && command == "", command);
 }
 
-// The JSON asks where ground allows, and allows where ground denies: both are
-// found, and the rule ground agrees with is not.
+// 「[Fable 5.2] The JSON asks where ground allows, and allows where ground denies: both are」
+// 「[Fable 5.2] found, and the rule ground agrees with is not.」
 unittest {
     FoundIn found;
     disagreementsIn(SETTINGS, "/tmp/somewhere", "auto", found);
@@ -51,8 +51,8 @@ unittest {
 }
 
 // "remove as in json side"
-// Taken out of the JSON, the two are gone, what stays is as it was written,
-// and nothing then disagrees.
+// 「[Fable 5.2] Taken out of the JSON, the two are gone, what stays is as it was written,」
+// 「[Fable 5.2] and nothing then disagrees.」
 unittest {
     import matcher : indexOf;
     FoundIn found;
@@ -71,8 +71,8 @@ unittest {
     assert(found.count == 0, "what is left agrees with ground");
 }
 
-// A text that is no settings object, or has no permissions, disagrees with
-// nothing and is written back as it is.
+// 「[Fable 5.2] A text that is no settings object, or has no permissions, disagrees with」
+// 「[Fable 5.2] nothing and is written back as it is.」
 unittest {
     FoundIn found;
     disagreementsIn(`{"model": "fable"}`, "/tmp/somewhere", "auto", found);
@@ -82,8 +82,8 @@ unittest {
     assert(dest[0 .. n] == `{"model": "fable"}`);
 }
 
-// The files read are the person's two and the two of each directory from
-// where the session is up to the home.
+// 「[Fable 5.2] The files read are the person's two and the two of each directory from」
+// 「[Fable 5.2] where the session is up to the home.」
 unittest {
     import core.sys.posix.stdlib : setenv;
     import matcher : indexOf;
