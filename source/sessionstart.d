@@ -388,16 +388,23 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     // The session's own key, admitted by ground's, and its name at the node it
     // is signed in to: what Claude Code calls it, or the next name free (naming.d).
     if (sessionId !is null) {
-        import naming : nameSession, sessionKeyFile, harnessName, Named;
+        import naming : nameSession, sessionKeyFile, harnessName, keptName, Named;
         import nodeconfig : nodeHere;
         import sky : getppid;
         auto here = nodeHere();
         if (here.sandUrl.length > 0) {
             char[256] nameBuf;
-            auto wanted = harnessName(getppid(), nameBuf[]);
-            if (wanted is null || wanted.length == 0) wanted = "session";
+            // "why would ground ask for a rename, its the same session"
+            // The name it holds is asked for again; the harness's only the first time.
+            auto keyAt = sessionKeyFile(sessionId);
+            auto wanted = keptName(keyAt, nameBuf[]);
+            if (wanted is null) wanted = harnessName(getppid(), nameBuf[]);
             __gshared Named named;
-            auto got = nameSession(here.sandUrl, sessionKeyFile(sessionId), wanted, named);
+            int got = -1;
+            if (wanted is null || wanted.length == 0) {
+                named.why.reset();
+                named.why.put("Claude Code gave it none");
+            } else got = nameSession(here.sandUrl, keyAt, wanted, named);
             if (any) ctx.put(" | ");
             if (got == 1) {
                 ctx.put("You are ");
@@ -407,6 +414,10 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 ctx.put(") at ");
                 ctx.put(here.sandUrl);
                 ctx.put(". `ground name <name>` takes another.");
+                if (named.why.len > 0) {
+                    ctx.put(" ");
+                    ctx.put(named.why.slice());
+                }
             } else {
                 // Inside a JSON string: a quote, a backslash or a newline in the reason is escaped.
                 ctx.put("This session is not named: ");
@@ -416,6 +427,7 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                     char[1] one = [c];
                     ctx.put(one[]);
                 }
+                ctx.put(". `ground name <Name>` takes one.");
             }
             any = true;
         }

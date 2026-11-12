@@ -9,15 +9,15 @@ module naming;
 // A session has a key of its own, made where it starts and kept in
 // ~/.qntx/sessions/<session id>/key. The key the person said yes to, ~/.qntx/key,
 // admits it at the node (QNTX /auth/admit, ADR-059), and the session names
-// itself with `i name`, signing as itself. A name another agent holds is taken:
-// the next is asked for, up to ten.
+// itself with `i name`, signing as itself. A name another agent holds is taken,
+// and the session asks for another. What a name is, the node says.
 
 import zbuf : ZBuf;
 import code.reply : Reply, putEscaped;
 
 enum BOOK_COMMAND = q"EOS
 # the session this ground runs in takes a name at its node, by its own key;
-# a name another agent holds is refused, and SessionStart took the next one free:
+# a name another agent holds is refused, and so is what the node holds to be no name:
 ground name Alder
 
 # the Authorization line for one request to a node, signed by ~/.qntx/key,
@@ -31,9 +31,6 @@ struct Named {
     ZBuf did;
     ZBuf why;
 }
-
-// How many names are asked for before giving up: the one wanted, then -1 .. -9.
-enum TRIES = 10;
 
 // Where a session's key is kept: ~/.qntx/sessions/<session id>/key. Null when
 // there is no home, no id, or the id is no file name.
@@ -51,6 +48,53 @@ const(char)* sessionKeyFile(const(char)[] sessionId) {
     path.put(sessionId);
     path.put("/key");
     return path.ptr();
+}
+
+// "the name"
+// "needs to stick"
+// Where the name the node gave is kept: beside the key, as `name`.
+private const(char)* nameFile(const(char)* keyAt) {
+    __gshared ZBuf path;
+    path.reset();
+    if (keyAt is null) return null;
+    size_t n = 0;
+    while (keyAt[n] != 0) n++;
+    if (n < 3) return null;
+    path.put(keyAt[0 .. n - 3]);
+    path.put("name");
+    return path.ptr();
+}
+
+// The name kept beside the key at keyAt. Null when none is kept.
+const(char)[] keptName(const(char)* keyAt, char[] buf) {
+    import core.stdc.stdio : fopen, fread, fclose;
+    auto at = nameFile(keyAt);
+    if (at is null) return null;
+    auto f = fopen(at, "r");
+    if (f is null) return null;
+    auto got = fread(buf.ptr, 1, buf.length, f);
+    fclose(f);
+    while (got > 0 && (buf[got - 1] == '\n' || buf[got - 1] == ' ')) got--;
+    return got == 0 ? null : buf[0 .. got];
+}
+
+// name, kept beside the key at keyAt. What went wrong is put in why.
+private void keepName(const(char)* keyAt, const(char)[] name, ref ZBuf why) {
+    import core.stdc.stdio : fopen, fwrite, fclose;
+    import core.stdc.errno : errno;
+    import core.stdc.string : strerror;
+    auto at = nameFile(keyAt);
+    auto f = at is null ? null : fopen(at, "w");
+    if (f is null || fwrite(name.ptr, 1, name.length, f) != name.length) {
+        auto said = strerror(errno);
+        size_t n = 0;
+        while (said[n] != 0) n++;
+        why.put("the name ");
+        why.put(name);
+        why.put(" was not kept beside the session's key: ");
+        why.put(said[0 .. n]);
+    }
+    if (f !is null) fclose(f);
 }
 
 // application/x-www-form-urlencoded, as code/login.d writes a form.
@@ -86,7 +130,7 @@ private void putStatus(ref ZBuf why, const(char)[] url, int status, int code, co
 }
 
 // The session's key, admitted by ground's at node; then the session named at
-// node as wanted, or the next name free. 1 named; -1 not, and why says.
+// node as wanted. 1 named; -1 not, and why says.
 int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, ref Named out_) {
     import signed : keepKey, putDID;
     import http : httpPostInto, ToNode;
@@ -131,40 +175,36 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
         }
     }
 
-    // The name wanted, else the next one free.
+    // The name wanted.
     url.reset();
     url.put(node);
     url.put("/i/name");
-    foreach (attempt; 0 .. TRIES) {
-        Reply body_;
-        scope (exit) body_.dispose();
-        body_.add(`{"name":"`);
-        putEscaped(body_, wanted);
-        if (attempt > 0) {
-            char[2] suffix = ['-', cast(char)('0' + attempt)];
-            body_.add(suffix[]);
-        }
-        body_.add(`"}`);
-        auto r = httpPostInto(url.slice(), body_.slice(), ToNode(keyAt), reply[], 5);
-        auto answer = reply[0 .. r.len];
-        if (r.status == 200) {
-            char[256] nameBuf;
-            auto name = extractJsonString(answer, `"name"`, nameBuf.ptr, nameBuf.length);
-            if (name is null) {
-                out_.why.put("the node named this session, and its answer carries no name: ");
-                out_.why.put(answer);
-                return -1;
-            }
-            out_.name.put(name);
-            return 1;
-        }
-        if (r.status == 403 && indexOf(answer, "is taken") >= 0) continue;
+    Reply body_;
+    scope (exit) body_.dispose();
+    body_.add(`{"name":"`);
+    putEscaped(body_, wanted);
+    body_.add(`"}`);
+    auto r = httpPostInto(url.slice(), body_.slice(), ToNode(keyAt), reply[], 5);
+    auto answer = reply[0 .. r.len];
+    if (r.status == 403 && indexOf(answer, "is taken") >= 0) {
+        out_.why.put(wanted);
+        out_.why.put(" is taken: another agent holds it");
+        return -1;
+    }
+    if (r.status != 200) {
         putStatus(out_.why, url.slice(), r.status, r.code, r.why(), answer);
         return -1;
     }
-    out_.why.put(wanted);
-    out_.why.put(" and the nine after it are taken");
-    return -1;
+    char[256] nameBuf;
+    auto name = extractJsonString(answer, `"name"`, nameBuf.ptr, nameBuf.length);
+    if (name is null) {
+        out_.why.put("the node named this session, and its answer carries no name: ");
+        out_.why.put(answer);
+        return -1;
+    }
+    out_.name.put(name);
+    keepName(keyAt, name, out_.why);
+    return 1;
 }
 
 // What Claude Code calls the session whose process is pid: `name` in
@@ -233,6 +273,12 @@ int handleName(int argc, const(char)** argv) {
     line.put(here.sandUrl);
     line.put("\n");
     fputs(line.ptr(), stdout);
+    if (named.why.len > 0) {
+        fputs("ground name: ", stderr);
+        fputs(named.why.ptr(), stderr);
+        fputs("\n", stderr);
+        return 1;
+    }
     return 0;
 }
 

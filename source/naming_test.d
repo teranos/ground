@@ -10,7 +10,7 @@ import matcher : indexOf;
 
 enum ADMITTED = http!("200 OK", `{"did":"did:key:z6Mk","token_type":"Signed","expires_in":3600}`);
 enum TAKEN = http!("403 Forbidden", `{"why":"not allowed","says":"\"Alder\" is taken: another agent holds it. Ask again with another name."}`);
-enum NAMED = http!("200 OK", `{"name":"Alder-1","did":"did:key:z6Mk"}`);
+enum NAMED = http!("200 OK", `{"name":"Alder","did":"did:key:z6Mk"}`);
 
 // A home of the test's own, with ground's key kept in it.
 private void testHome(ref char[256] home, ref char[256] key) {
@@ -24,17 +24,17 @@ private void testHome(ref char[256] home, ref char[256] key) {
     assert(keepKey(key.ptr).held, "ground's key was not kept");
 }
 
-// The session's key is admitted by ground's, signed; the name wanted is taken,
-// so the next is asked for, signed by the session's own key; and that is the name.
+// The session's key is admitted by ground's, signed; the name wanted is asked
+// for, signed by the session's own key; and that is the name.
 unittest {
     char[256] home, key;
     testHome(home, key);
-    auto n = node(ADMITTED, TAKEN, NAMED);
+    auto n = node(ADMITTED, NAMED);
     Named named;
     auto at = sessionKeyFile("ses-1");
     assert(at !is null);
     assert(nameSession(n.url, at, "Alder", named) == 1, named.why.slice());
-    assert(named.name.slice() == "Alder-1", named.name.slice());
+    assert(named.name.slice() == "Alder", named.name.slice());
     assert(named.did.slice().length > "did:key:z".length, named.did.slice());
     auto heard = heardAll(n);
     assert(indexOf(heard, "POST /auth/admit HTTP/1.1") >= 0, heard);
@@ -44,7 +44,36 @@ unittest {
     assert(indexOf(heard, "&label=Alder") >= 0, heard);
     assert(indexOf(heard, "POST /i/name HTTP/1.1") >= 0, heard);
     assert(indexOf(heard, `{"name":"Alder"}`) >= 0, heard);
-    assert(indexOf(heard, `{"name":"Alder-1"}`) >= 0, heard);
+}
+
+// A name another agent holds is taken: the session is told, and no other name
+// is asked for in its place.
+unittest {
+    char[256] home, key;
+    testHome(home, key);
+    auto n = node(ADMITTED, TAKEN);
+    Named named;
+    assert(nameSession(n.url, sessionKeyFile("ses-taken"), "Alder", named) == -1);
+    heardAll(n);
+    assert(indexOf(named.why.slice(), "Alder is taken") >= 0, named.why.slice());
+}
+
+// "the name"
+// "needs to stick"
+// The name the node gave is kept beside the session's key, so the session
+// asks for that one again and for no other.
+unittest {
+    char[256] home, key;
+    testHome(home, key);
+    auto n = node(ADMITTED, NAMED);
+    Named named;
+    auto at = sessionKeyFile("ses-kept");
+    char[256] buf;
+    assert(keptName(at, buf[]) is null, "a session never named keeps no name");
+    assert(nameSession(n.url, at, "Alder", named) == 1, named.why.slice());
+    heardAll(n);
+    assert(named.why.len == 0, named.why.slice());
+    assert(keptName(sessionKeyFile("ses-kept"), buf[]) == "Alder", keptName(sessionKeyFile("ses-kept"), buf[]));
 }
 
 // A node that will not admit the key says so, and no name is asked for.
