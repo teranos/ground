@@ -87,11 +87,11 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
         // this is what completes it.
         import say : NEWS_ROW, toldTheNode;
         if (sessionId.length > 0 && msgId.length > NEWS_ROW.length && msgId[0 .. NEWS_ROW.length] == NEWS_ROW) {
-            // Said apart from the hand-over, and again when the node does not
-            // answer: a node still answering the saying itself answered no
-            // receipt sent four seconds after it, and the Task of what the
-            // session had in hand ended as not received. The session is not
-            // kept waiting on the node for it.
+            // 「[Fable 5.2] Said apart from the hand-over, and again when the node does not」
+            // 「[Fable 5.2] answer: a node still answering the saying itself answered no」
+            // 「[Fable 5.2] receipt sent four seconds after it, and the Task of what the」
+            // 「[Fable 5.2] session had in hand ended as not received. The session is not」
+            // 「[Fable 5.2] kept waiting on the node for it.」
             import core.sys.posix.unistd : fork, _exit, sleep;
             import core.sys.posix.signal : signal, SIGCHLD, SIG_IGN;
             signal(SIGCHLD, SIG_IGN);
