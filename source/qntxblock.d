@@ -5,8 +5,8 @@ module qntxblock;
 
 import lexer : skipWS, skipLine, expect, readWord, readValue;
 
-// The qntx { } block. At the top level it names the node: url, where ground
-// writes its namespace, signed with ~/.qntx/key; gateway, the node signed in to.
+// 「[Opus 5.5] The qntx { } block. At the top level it names the node: url, where ground」
+// 「[Opus 5.5] writes its namespace, signed with ~/.qntx/key; gateway, the node signed in to.」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 struct ParsedQntx {
@@ -16,7 +16,7 @@ struct ParsedQntx {
     string gateway; // the node signed in to: it answers prompts and gives the sand; url when empty
 }
 
-// url:, model: and gateway:, and nothing else.
+// 「[Opus 5.5] url:, model: and gateway:, and nothing else.」
 ParsedQntx parseQntxBlock(ref string input, ref size_t pos) {
     ParsedQntx q;
     q.present = true;
