@@ -15,6 +15,16 @@ module naming;
 import zbuf : ZBuf;
 import code.reply : Reply, putEscaped;
 
+enum BOOK_COMMAND = q"EOS
+# the session this ground runs in takes a name at its node, by its own key;
+# a name another agent holds is refused, and SessionStart took the next one free:
+ground name Alder
+
+# the Authorization line for one request to a node, signed by ~/.qntx/key,
+# for curl -H "$(ground sign <url>)" <url>:
+ground sign https://api.q.sbvh.nl/n/l/api/plugins
+EOS";
+
 // What a session came to be called, by what DID; or why it was not.
 struct Named {
     ZBuf name;
