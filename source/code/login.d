@@ -16,7 +16,7 @@ import libjsonc : json_object, json_type, json_object_get_type, json_object_get_
 // 「[Opus 5.5] whether its yes came.」
 enum DEVICE_PATH = "/auth/device";
 enum TOKEN_PATH = "/auth/token";
-// The name the person reads at home before they say yes, and the grant is labelled with.
+// 「[Opus 5.5] The name the person reads at home before they say yes, and the grant is labelled with.」
 enum LABEL = "ground code";
 // 「[Opus 5.5] RFC 8628 §3.4's grant_type.」
 enum DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
@@ -25,8 +25,8 @@ enum SLOW_DOWN_SECONDS = 5;
 private enum ANSWER_BYTES = 16384;
 private enum ASK_SECONDS = 30;
 
-// A sign-in the node started: the code the grant is asked for with, the code
-// the person compares, the link they follow, and how long to wait between asks.
+// 「[Opus 5.5] A sign-in the node started: the code the grant is asked for with, the code」
+// 「[Opus 5.5] the person compares, the link they follow, and how long to wait between asks.」
 struct SignIn {
     Reply deviceCode, userCode, link;
     // The did:key of the key the sign-in is for, which the node answers with once the person said yes.
@@ -154,8 +154,8 @@ int pollSignIn(const(char)[] node, ref SignIn s, ref Reply why) {
     return -1;
 }
 
-// Drops the file kept at file: 1 dropped, 0 none was there, -1 it could not be,
-// why in why.
+// 「[Opus 5.5] Drops the file kept at file: 1 dropped, 0 none was there, -1 it could not be,」
+// 「[Opus 5.5] why in why.」
 int dropKept(const(char)* file, ref Reply why) {
     import core.sys.posix.unistd : unlink;
     import core.stdc.errno : errno, ENOENT;
@@ -170,8 +170,8 @@ int dropKept(const(char)* file, ref Reply why) {
 
 // `ground code login`, as a client's terminal auth method runs it: the link and
 // the code said, the node asked until the person said yes to the key kept at
-// keyAt, which is what speaks from then on.
-// 0 signed in, 1 not, what the node said given to say.
+// 「[Opus 5.5] keyAt, which is what speaks from then on.」
+// 「[Opus 5.5] 0 signed in, 1 not, what the node said given to say.」
 int login(const(char)[] node, const(char)* keyAt, scope void delegate(const(char)[]) say) {
     import core.sys.posix.unistd : sleep;
     import core.stdc.string : strlen;
