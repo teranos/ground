@@ -171,6 +171,185 @@ size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
     return over ? 0 : o;
 }
 
+// ---- the events the JSON sends to ground ----
+//
+// "no other software should be allowed to be of higher authority than ground"
+//
+// Ground governs what Claude Code sends it: an event the person's settings
+// register `ground_hook` for. A registration that was there and is gone is the
+// JSON saying other than ground, as a rule is, and it is shown and put back.
+
+// What ground is registered as.
+enum HOOK = "ground_hook";
+
+// The events the settings text registers ground for, each with a newline after it.
+void registered(const(char)[] text, ref ZBuf events) {
+    import effort : skipValue;
+    import matcher : indexOf;
+    events.reset();
+    auto root = rootAt(text);
+    if (root >= text.length) return;
+    auto hooks = memberOf(text, root, "hooks");
+    if (!hooks.ok || hooks.valAt >= text.length || text[hooks.valAt] != '{') return;
+    size_t i = skipSpace(text, hooks.valAt + 1);
+    while (i < text.length && text[i] == '"') {
+        auto keyEnd = skipString(text, i);
+        auto name = text[i + 1 .. keyEnd - 1];
+        auto at = skipSpace(text, keyEnd);
+        if (at >= text.length || text[at] != ':') return;
+        at = skipSpace(text, at + 1);
+        auto end = skipValue(text, at);
+        if (indexOf(text[at .. end], `"` ~ HOOK ~ `"`) >= 0) {
+            events.put(name);
+            events.put("\n");
+        }
+        i = skipSpace(text, end);
+        if (i < text.length && text[i] == ',') i = skipSpace(text, i + 1);
+    }
+}
+
+// Whether a list of lines holds this one.
+bool holdsLine(const(char)[] lines, const(char)[] one) {
+    size_t at = 0;
+    while (at < lines.length) {
+        auto end = at;
+        while (end < lines.length && lines[end] != '\n') end++;
+        if (lines[at .. end] == one) return true;
+        at = end + 1;
+    }
+    return false;
+}
+
+// The events that were registered and are not now: each line of was that is
+// no line of now, into gone. How many.
+size_t goneFrom(const(char)[] was, const(char)[] now, ref ZBuf gone) {
+    gone.reset();
+    size_t count = 0;
+    size_t at = 0;
+    while (at < was.length) {
+        auto end = at;
+        while (end < was.length && was[end] != '\n') end++;
+        auto one = was[at .. end];
+        at = end + 1;
+        if (one.length == 0 || holdsLine(now, one)) continue;
+        gone.put(one);
+        gone.put("\n");
+        count++;
+    }
+    return count;
+}
+
+// The settings text with ground registered again for each event of gone, at
+// the front of its hooks, and nothing else touched. The length written, 0
+// when it did not fit or the text holds no hooks to put them in.
+size_t registeredAgain(const(char)[] text, const(char)[] gone, char[] dest) {
+    size_t o = 0;
+    bool over = false;
+    void put(const(char)[] s) {
+        foreach (c; s) { if (o < dest.length) dest[o++] = c; else over = true; }
+    }
+    auto root = rootAt(text);
+    if (root >= text.length) return 0;
+    auto hooks = memberOf(text, root, "hooks");
+    if (!hooks.ok || hooks.valAt >= text.length || text[hooks.valAt] != '{') return 0;
+    put(text[0 .. hooks.valAt + 1]);
+    auto first = skipSpace(text, hooks.valAt + 1);
+    auto gap = text[hooks.valAt + 1 .. first];
+    bool empty = first < text.length && text[first] == '}';
+    size_t at = 0, written = 0;
+    while (at < gone.length) {
+        auto end = at;
+        while (end < gone.length && gone[end] != '\n') end++;
+        auto one = gone[at .. end];
+        at = end + 1;
+        if (one.length == 0) continue;
+        if (written > 0) put(",");
+        put(gap);
+        put(`"`);
+        put(one);
+        put(`": [{"matcher": "", "hooks": [{"type": "command", "command": "` ~ HOOK ~ `"}]}]`);
+        written++;
+    }
+    if (written > 0 && !empty) put(",");
+    put(text[hooks.valAt + 1 .. $]);
+    return over ? 0 : o;
+}
+
+// Where ground keeps the events it has been registered for.
+private const(char)* registeredFile() {
+    import core.stdc.stdlib : getenv;
+    __gshared ZBuf path;
+    path.reset();
+    auto h = getenv("HOME\0".ptr);
+    if (h is null) return null;
+    size_t n = 0;
+    while (h[n] != 0) n++;
+    path.put(h[0 .. n]);
+    path.put("/.local/share/ground/hooks-registered");
+    return path.ptr();
+}
+
+private const(char)* personsSettings() {
+    import core.stdc.stdlib : getenv;
+    __gshared ZBuf path;
+    path.reset();
+    auto h = getenv("HOME\0".ptr);
+    if (h is null) return null;
+    size_t n = 0;
+    while (h[n] != 0) n++;
+    path.put(h[0 .. n]);
+    path.put("/.claude/settings.json");
+    return path.ptr();
+}
+
+// The events that were registered for ground and are not now, into gone; and
+// every event registered now is kept as one that was. How many are gone.
+size_t goneRegistrations(ref ZBuf gone) {
+    import core.stdc.stdio : fopen, fread, fwrite, fclose;
+    gone.reset();
+    auto settings = personsSettings();
+    auto keptAt = registeredFile();
+    if (settings is null || keptAt is null) return 0;
+    auto got = readWhole(settings);
+    if (got <= 0) return 0;
+    __gshared ZBuf now, all;
+    registered(fileText[0 .. got], now);
+
+    __gshared char[4096] was;
+    size_t wasLen = 0;
+    auto f = fopen(keptAt, "r");
+    if (f !is null) {
+        wasLen = fread(was.ptr, 1, was.length, f);
+        fclose(f);
+    }
+    auto count = goneFrom(was[0 .. wasLen], now.slice(), gone);
+
+    // What was registered stays remembered; what is registered now is added.
+    all.reset();
+    all.put(was[0 .. wasLen]);
+    size_t at = 0;
+    auto lines = now.slice();
+    bool grew = false;
+    while (at < lines.length) {
+        auto end = at;
+        while (end < lines.length && lines[end] != '\n') end++;
+        if (!holdsLine(was[0 .. wasLen], lines[at .. end])) {
+            all.put(lines[at .. end]);
+            all.put("\n");
+            grew = true;
+        }
+        at = end + 1;
+    }
+    if (grew) {
+        auto w = fopen(keptAt, "w");
+        if (w !is null) {
+            fwrite(all.ptr(), 1, all.len, w);
+            fclose(w);
+        }
+    }
+    return count;
+}
+
 // ---- the files, and the two commands ----
 
 private __gshared char[262144] fileText;
@@ -250,12 +429,14 @@ const(char)[] startingMode(char[] buf) {
     return buf[0 .. said.length];
 }
 
-// How many rules in the JSON a session in cwd reads say other than ground.
+// How many rules in the JSON a session in cwd reads say other than ground,
+// and how many events it sends to ground no more.
 size_t countDisagreements(const(char)[] cwd, const(char)[] mode) {
     __gshared ZBuf paths;
     __gshared FoundIn found;
+    __gshared ZBuf gone;
     settingsFiles(cwd, paths);
-    size_t total = 0;
+    size_t total = goneRegistrations(gone);
     size_t at = 0;
     auto all = paths.slice();
     while (at < all.length) {
@@ -365,6 +546,57 @@ private int walk(bool takeOut) {
             line.put(" was not written, so its rules still stand there\n");
             fputs(line.ptr(), stderr);
             failed = 1;
+        }
+    }
+    // An event the JSON sent to ground and sends no more.
+    {
+        import core.stdc.stdio : fopen, fwrite, fclose, rename, remove;
+        __gshared ZBuf gone;
+        auto lost = goneRegistrations(gone);
+        auto settings = personsSettings();
+        size_t at2 = 0;
+        auto names = gone.slice();
+        while (at2 < names.length) {
+            auto end = at2;
+            while (end < names.length && names[end] != '\n') end++;
+            line.reset();
+            line.put("ground  answers ");
+            line.put(names[at2 .. end]);
+            line.put("\nJSON    sends it to ground no more\n                ");
+            size_t sn = 0;
+            while (settings[sn] != 0) sn++;
+            line.put(settings[0 .. sn]);
+            line.put(takeOut ? "\n" : "\n\n");
+            fputs(line.ptr(), stdout);
+            at2 = end + 1;
+        }
+        total += lost;
+        if (takeOut && lost > 0) {
+            auto got = readWhole(settings);
+            bool written = false;
+            if (got > 0) {
+                auto n = registeredAgain(fileText[0 .. got], gone.slice(), fileFresh[]);
+                __gshared ZBuf fresh;
+                fresh.reset();
+                size_t sn = 0;
+                while (settings[sn] != 0) sn++;
+                fresh.put(settings[0 .. sn]);
+                fresh.put(".ground-new");
+                if (n > 0) {
+                    auto out_ = fopen(fresh.ptr(), "w");
+                    if (out_ !is null) {
+                        written = fwrite(fileFresh.ptr, 1, n, out_) == n;
+                        if (fclose(out_) != 0) written = false;
+                        if (written) written = rename(fresh.ptr(), settings) == 0;
+                        if (!written) remove(fresh.ptr());
+                    }
+                }
+            }
+            if (written) fputs("put back in the JSON\n\n", stdout);
+            else {
+                fputs("ground agree: the registration was not put back in Claude Code's settings\n", stderr);
+                failed = 1;
+            }
         }
     }
     if (total == 0 && failed == 0) {
