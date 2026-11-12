@@ -146,7 +146,7 @@ const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
     }
     auto here = nodeHere();
     auto keyAt = sessionKeyFile(sessionId);
-    // No node to say it to, or no key to say it by, is not said: and is said so.
+    // 「[Fable 5.2] No node to say it to, or no key to say it by, is not said: and is said so.」
     if (here.sandUrl.length == 0) return "this ground is signed in to no node, so nothing was said as received";
     if (keyAt is null) return "this session has no key of its own, so nothing was said as received";
     __gshared ZBuf url;
@@ -156,7 +156,7 @@ const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
     url.put(item);
     __gshared char[4096] reply;
     auto r = httpGet(url.slice(), ToNode(keyAt), reply[], 15);
-    // The node answered with the item: it heard who asked.
+    // 「[Fable 5.2] The node answered with the item: it heard who asked.」
     if (r.status == 200) return "";
     __gshared ZBuf why;
     why.reset();
