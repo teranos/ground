@@ -22,6 +22,14 @@ extern (C) int main(int argc, const(char)** argv) {
             import naming : handleSign;
             return handleSign(argc, argv);
         }
+        if (cmd == "say") {
+            import say : handleSay;
+            return handleSay(argc, argv);
+        }
+        if (cmd == "heard") {
+            import say : handleHeard;
+            return handleHeard(argc, argv);
+        }
         if (cmd == "disagreements") {
             import disagree : handleDisagreements;
             return handleDisagreements();

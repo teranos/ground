@@ -156,6 +156,17 @@ private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
         typeZ.put(contentType);
         headers = curl_slist_append(headers, typeZ.ptr());
     }
+    // A node's A2A is asked in the version ground speaks: one that names none
+    // is taken for 0.3 and refused.
+    {
+        // Searched here: ug is built with this module and with no matcher.
+        enum a2a = "/a2a/";
+        bool asksA2A = false;
+        foreach (i; 0 .. url.length) {
+            if (i + a2a.length <= url.length && url[i .. i + a2a.length] == a2a) { asksA2A = true; break; }
+        }
+        if (asksA2A) headers = curl_slist_append(headers, "A2A-Version: 1.0\0".ptr);
+    }
 
     Sink sink;
     sink.dest = dest;
@@ -223,7 +234,7 @@ Http httpGet(const(char)[] url, const(char)[] token, char[] dest, int timeoutSec
 
 // The same, to a node.
 Http httpGet(const(char)[] url, ToNode node, char[] dest, int timeoutSec = 10) {
-    return perform(url, null, false, null, true, null, dest, timeoutSec, WEB);
+    return perform(url, null, false, null, true, null, dest, timeoutSec, WEB, Abort.init, node.key);
 }
 
 // The same, for a caller that names what the url may speak.

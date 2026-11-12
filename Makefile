@@ -108,7 +108,7 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
+             ug/tmux.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
              source/http.d source/zbuf.d source/token.d source/signed.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
@@ -199,6 +199,8 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d source/http.d source/zbuf.d ug/fable_test.d
 	ldc2 -betterC -of=/tmp/ug-close-test -I=ug ug/sql.d ug/close_test.d -L-lsqlite3
 	/tmp/ug-close-test
+	ldc2 -betterC -of=/tmp/ug-named-test -I=ug ug/named.d ug/named_test.d
+	/tmp/ug-named-test
 
 # ug the way Claude Code runs it: frames cancelled mid-run, against a QNTX that
 # never answers. Not part of make test, because it waits on curl's timeout.
