@@ -2,7 +2,7 @@ module backend;
 
 // "no double or split config, they all need to go to the same call from the same token"
 // Where an attestation is posted: the one node the top-level qntx block names,
-// signed with ~/.qntx/key. Every attestation, in a project or at the top
+// 「[Opus 5.5] signed with ~/.qntx/key. Every attestation, in a project or at the top」
 // level, goes there; with no node named, nothing is posted and the build says
 // what would have been.
 
