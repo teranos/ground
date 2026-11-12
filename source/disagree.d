@@ -171,18 +171,18 @@ size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
     return over ? 0 : o;
 }
 
-// ---- the events the JSON sends to ground ----
+// 「[Fable 5.2] ---- the events the JSON sends to ground ----」
 //
 // "no other software should be allowed to be of higher authority than ground"
 //
-// Ground governs what Claude Code sends it: an event the person's settings
-// register `ground_hook` for. A registration that was there and is gone is the
-// JSON saying other than ground, as a rule is, and it is shown and put back.
+// 「[Fable 5.2] Ground governs what Claude Code sends it: an event the person's settings」
+// 「[Fable 5.2] register `ground_hook` for. A registration that was there and is gone is the」
+// 「[Fable 5.2] JSON saying other than ground, as a rule is, and it is shown and put back.」
 
-// What ground is registered as.
+// 「[Fable 5.2] What ground is registered as.」
 enum HOOK = "ground_hook";
 
-// The events the settings text registers ground for, each with a newline after it.
+// 「[Fable 5.2] The events the settings text registers ground for, each with a newline after it.」
 void registered(const(char)[] text, ref ZBuf events) {
     import effort : skipValue;
     import matcher : indexOf;
@@ -208,7 +208,7 @@ void registered(const(char)[] text, ref ZBuf events) {
     }
 }
 
-// Whether a list of lines holds this one.
+// 「[Fable 5.2] Whether a list of lines holds this one.」
 bool holdsLine(const(char)[] lines, const(char)[] one) {
     size_t at = 0;
     while (at < lines.length) {
@@ -220,8 +220,8 @@ bool holdsLine(const(char)[] lines, const(char)[] one) {
     return false;
 }
 
-// The events that were registered and are not now: each line of was that is
-// no line of now, into gone. How many.
+// 「[Fable 5.2] The events that were registered and are not now: each line of was that is」
+// 「[Fable 5.2] no line of now, into gone. How many.」
 size_t goneFrom(const(char)[] was, const(char)[] now, ref ZBuf gone) {
     gone.reset();
     size_t count = 0;
@@ -239,9 +239,9 @@ size_t goneFrom(const(char)[] was, const(char)[] now, ref ZBuf gone) {
     return count;
 }
 
-// The settings text with ground registered again for each event of gone, at
-// the front of its hooks, and nothing else touched. The length written, 0
-// when it did not fit or the text holds no hooks to put them in.
+// 「[Fable 5.2] The settings text with ground registered again for each event of gone, at」
+// 「[Fable 5.2] the front of its hooks, and nothing else touched. The length written, 0」
+// 「[Fable 5.2] when it did not fit or the text holds no hooks to put them in.」
 size_t registeredAgain(const(char)[] text, const(char)[] gone, char[] dest) {
     size_t o = 0;
     bool over = false;
@@ -275,7 +275,7 @@ size_t registeredAgain(const(char)[] text, const(char)[] gone, char[] dest) {
     return over ? 0 : o;
 }
 
-// Where ground keeps the events it has been registered for.
+// 「[Fable 5.2] Where ground keeps the events it has been registered for.」
 private const(char)* registeredFile() {
     import core.stdc.stdlib : getenv;
     __gshared ZBuf path;
@@ -302,8 +302,8 @@ private const(char)* personsSettings() {
     return path.ptr();
 }
 
-// The events that were registered for ground and are not now, into gone; and
-// every event registered now is kept as one that was. How many are gone.
+// 「[Fable 5.2] The events that were registered for ground and are not now, into gone; and」
+// 「[Fable 5.2] every event registered now is kept as one that was. How many are gone.」
 size_t goneRegistrations(ref ZBuf gone) {
     import core.stdc.stdio : fopen, fread, fwrite, fclose;
     gone.reset();
@@ -324,7 +324,7 @@ size_t goneRegistrations(ref ZBuf gone) {
     }
     auto count = goneFrom(was[0 .. wasLen], now.slice(), gone);
 
-    // What was registered stays remembered; what is registered now is added.
+    // 「[Fable 5.2] What was registered stays remembered; what is registered now is added.」
     all.reset();
     all.put(was[0 .. wasLen]);
     size_t at = 0;
@@ -429,8 +429,8 @@ const(char)[] startingMode(char[] buf) {
     return buf[0 .. said.length];
 }
 
-// How many rules in the JSON a session in cwd reads say other than ground,
-// and how many events it sends to ground no more.
+// 「[Fable 5.2] How many rules in the JSON a session in cwd reads say other than ground,」
+// 「[Fable 5.2] and how many events it sends to ground no more.」
 size_t countDisagreements(const(char)[] cwd, const(char)[] mode) {
     __gshared ZBuf paths;
     __gshared FoundIn found;
@@ -548,7 +548,7 @@ private int walk(bool takeOut) {
             failed = 1;
         }
     }
-    // An event the JSON sent to ground and sends no more.
+    // 「[Fable 5.2] An event the JSON sent to ground and sends no more.」
     {
         import core.stdc.stdio : fopen, fwrite, fclose, rename, remove;
         __gshared ZBuf gone;
