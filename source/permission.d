@@ -208,7 +208,7 @@ NormalizedCmd normalizeGitC(const(char)[] cmd) {
     // Not a git -C command — copy as-is
     if (cmd.length < 8 || cmd[0 .. 4] != "git " || cmd[4 .. 6] != "-C") {
         auto n = cmd.length < r._buf.length ? cmd.length : r._buf.length;
-        r._buf[0 .. n] = cmd[0 .. n];
+        foreach (at; 0 .. n) r._buf[at] = cmd[at];
         r.len = n;
         return r;
     }
@@ -231,7 +231,7 @@ NormalizedCmd normalizeGitC(const(char)[] cmd) {
 
     if (i >= cmd.length) {
         auto n = cmd.length < r._buf.length ? cmd.length : r._buf.length;
-        r._buf[0 .. n] = cmd[0 .. n];
+        foreach (at; 0 .. n) r._buf[at] = cmd[at];
         r.len = n;
         return r;
     }
@@ -240,7 +240,7 @@ NormalizedCmd normalizeGitC(const(char)[] cmd) {
     r._buf[0 .. 4] = "git ";
     auto rest = cmd[i .. $];
     auto n = rest.length < (r._buf.length - 4) ? rest.length : (r._buf.length - 4);
-    r._buf[4 .. 4 + n] = rest[0 .. n];
+    foreach (at; 0 .. n) r._buf[4 + at] = rest[at];
     r.len = 4 + n;
     return r;
 }
