@@ -1,15 +1,15 @@
 module token;
 
-// A third party's token as a file holds it (Jev's, ~/.qntx/jev-token): in a
-// module of its own so what needs only that compiles nothing else. A QNTX node
-// is never spoken to with one: ground signs with ~/.qntx/key (signed.d).
+// 「[Opus 5.5] A third party's token as a file holds it (Jev's, ~/.qntx/jev-token): in a」
+// 「[Opus 5.5] module of its own so what needs only that compiles nothing else. A QNTX node」
+// 「[Opus 5.5] is never spoken to with one: ground signs with ~/.qntx/key (signed.d).」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 
 import zbuf : ZBuf;
 
-// A token as a file holds it: surrounding whitespace and a trailing newline
-// are not part of it.
+// 「[Opus 5.5] A token as a file holds it: surrounding whitespace and a trailing newline」
+// 「[Opus 5.5] are not part of it.」
 const(char)[] trimToken(const(char)[] s) {
     size_t b = 0;
     size_t e = s.length;
@@ -19,8 +19,8 @@ const(char)[] trimToken(const(char)[] s) {
     return s[b .. e];
 }
 
-// The token in the file at path, `~/` being the home, or null when there is
-// no such file or no home. Good until the next call.
+// 「[Opus 5.5] The token in the file at path, `~/` being the home, or null when there is」
+// 「[Opus 5.5] no such file or no home. Good until the next call.」
 const(char)[] tokenIn(const(char)[] path) {
     import core.stdc.stdlib : getenv;
     import core.sys.posix.fcntl : open, O_RDONLY;
@@ -44,7 +44,7 @@ const(char)[] tokenIn(const(char)[] path) {
     close(fd);
     if (n <= 0) return null;
     auto t = trimToken(tokBuf[0 .. cast(size_t) n]);
-    // Longer than ground reads is no token, never the start of one, and is said.
+    // 「[Opus 5.5] Longer than ground reads is no token, never the start of one, and is said.」
     if (t.length > TOKEN_MAX) {
         import core.stdc.stdio : stderr, fprintf;
         fprintf(stderr, "ground: the token in %s is longer than the %d bytes ground reads, so it is not used\n",
@@ -54,5 +54,5 @@ const(char)[] tokenIn(const(char)[] path) {
     return t;
 }
 
-// The longest token ground reads back.
+// 「[Opus 5.5] The longest token ground reads back.」
 enum TOKEN_MAX = 4096;
