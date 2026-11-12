@@ -48,7 +48,7 @@ def main():
     # dub's pre-build runs tools/wind, which writes .version; a fresh checkout
     # has none before that, and the first run on a hosted runner read it too early.
     version = open(".version").read().strip()
-    # One id per measurement, so a row taken twice is the same row.
+    # 「[Opus 5.5] One id per measurement, so a row taken twice is the same row.」
     ran = os.environ.get("GITHUB_RUN_ID") or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     row = {
         "id": "ground:bench:ctfe:" + sha[:12] + ":" + runner + ":" + ran,
