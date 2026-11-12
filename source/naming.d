@@ -40,7 +40,11 @@ const(char)* sessionKeyFile(const(char)[] sessionId) {
     path.reset();
     auto home = getenv("HOME\0".ptr);
     if (home is null || sessionId.length == 0) return null;
-    foreach (c; sessionId) if (c == '/' || c == 0) return null;
+    // An id is a file name of its own: letters, digits, a dash, an underscore.
+    // A dot would make `..` one, and that is ground's own key.
+    foreach (c; sessionId) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return null;
+    }
     size_t n = 0;
     while (home[n] != 0) n++;
     path.put(home[0 .. n]);
@@ -65,8 +69,9 @@ private const(char)* nameFile(const(char)* keyAt) {
     return path.ptr();
 }
 
-// The name kept beside the key at keyAt. Null when none is kept.
-const(char)[] keptName(const(char)* keyAt, char[] buf) {
+// The name kept beside the key at keyAt, given at node. Null when none is
+// kept, or the one kept was another node's: a name is one node's to give.
+const(char)[] keptName(const(char)* keyAt, const(char)[] node, char[] buf) {
     import core.stdc.stdio : fopen, fread, fclose;
     auto at = nameFile(keyAt);
     if (at is null) return null;
@@ -74,27 +79,52 @@ const(char)[] keptName(const(char)* keyAt, char[] buf) {
     if (f is null) return null;
     auto got = fread(buf.ptr, 1, buf.length, f);
     fclose(f);
-    while (got > 0 && (buf[got - 1] == '\n' || buf[got - 1] == ' ')) got--;
-    return got == 0 ? null : buf[0 .. got];
+    // The name on the first line, its node on the second.
+    size_t line = 0;
+    while (line < got && buf[line] != '\n') line++;
+    if (line == 0 || line >= got) return null;
+    auto rest = buf[line + 1 .. got];
+    size_t end = 0;
+    while (end < rest.length && rest[end] != '\n') end++;
+    if (rest[0 .. end] != node) return null;
+    return buf[0 .. line];
 }
 
-// name, kept beside the key at keyAt. What went wrong is put in why.
-private void keepName(const(char)* keyAt, const(char)[] name, ref ZBuf why) {
-    import core.stdc.stdio : fopen, fwrite, fclose;
+// name, as node gave it, kept beside the key at keyAt: written apart and put
+// in place whole, so what was kept before stands until this is. What went
+// wrong is put in why.
+private void keepName(const(char)* keyAt, const(char)[] name, const(char)[] node, ref ZBuf why) {
+    import core.stdc.stdio : fopen, fwrite, fclose, rename, remove;
     import core.stdc.errno : errno;
     import core.stdc.string : strerror;
     auto at = nameFile(keyAt);
-    auto f = at is null ? null : fopen(at, "w");
-    if (f is null || fwrite(name.ptr, 1, name.length, f) != name.length) {
-        auto said = strerror(errno);
+    __gshared ZBuf fresh;
+    fresh.reset();
+    bool kept = false;
+    if (at !is null) {
         size_t n = 0;
-        while (said[n] != 0) n++;
-        why.put("the name ");
-        why.put(name);
-        why.put(" was not kept beside the session's key: ");
-        why.put(said[0 .. n]);
+        while (at[n] != 0) n++;
+        fresh.put(at[0 .. n]);
+        fresh.put(".new");
+        auto f = fopen(fresh.ptr(), "w");
+        if (f !is null) {
+            kept = fwrite(name.ptr, 1, name.length, f) == name.length
+                && fwrite("\n".ptr, 1, 1, f) == 1
+                && fwrite(node.ptr, 1, node.length, f) == node.length
+                && fwrite("\n".ptr, 1, 1, f) == 1;
+            if (fclose(f) != 0) kept = false;
+            if (kept) kept = rename(fresh.ptr(), at) == 0;
+            if (!kept) remove(fresh.ptr());
+        }
     }
-    if (f !is null) fclose(f);
+    if (kept) return;
+    auto said = strerror(errno);
+    size_t n = 0;
+    while (said[n] != 0) n++;
+    why.put("the node gave the name ");
+    why.put(name);
+    why.put(", and it was not kept beside the session's key: ");
+    why.put(said[0 .. n]);
 }
 
 // application/x-www-form-urlencoded, as code/login.d writes a form.
@@ -168,7 +198,7 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
         url.reset();
         url.put(node);
         url.put("/auth/admit");
-        auto r = httpPostInto(url.slice(), form.slice(), ToNode(), reply[], 5, "application/x-www-form-urlencoded");
+        auto r = httpPostInto(url.slice(), form.slice(), ToNode(), reply[], 2, "application/x-www-form-urlencoded");
         if (r.status != 200 && r.status != 409) {
             putStatus(out_.why, url.slice(), r.status, r.code, r.why(), reply[0 .. r.len]);
             return -1;
@@ -184,7 +214,7 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
     body_.add(`{"name":"`);
     putEscaped(body_, wanted);
     body_.add(`"}`);
-    auto r = httpPostInto(url.slice(), body_.slice(), ToNode(keyAt), reply[], 5);
+    auto r = httpPostInto(url.slice(), body_.slice(), ToNode(keyAt), reply[], 2);
     auto answer = reply[0 .. r.len];
     if (r.status == 403 && indexOf(answer, "is taken") >= 0) {
         out_.why.put(wanted);
@@ -197,13 +227,22 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
     }
     char[256] nameBuf;
     auto name = extractJsonString(answer, `"name"`, nameBuf.ptr, nameBuf.length);
-    if (name is null) {
-        out_.why.put("the node named this session, and its answer carries no name: ");
+    // The whole name, closed by its quote: an answer cut short, or a name
+    // longer than is read here, is no name.
+    __gshared ZBuf whole;
+    whole.reset();
+    if (name !is null) {
+        whole.put(`"`);
+        whole.put(name);
+        whole.put(`"`);
+    }
+    if (name is null || name.length + 1 >= nameBuf.length || indexOf(answer, whole.slice()) < 0) {
+        out_.why.put("the node named this session, and its answer carries no whole name: ");
         out_.why.put(answer);
         return -1;
     }
     out_.name.put(name);
-    keepName(keyAt, name, out_.why);
+    keepName(keyAt, name, node, out_.why);
     return 1;
 }
 
@@ -264,6 +303,12 @@ int handleName(int argc, const(char)** argv) {
         fputs("\n", stderr);
         return 1;
     }
+    if (named.why.len > 0) {
+        fputs("ground name: ", stderr);
+        fputs(named.why.ptr(), stderr);
+        fputs("\n", stderr);
+        return 1;
+    }
     __gshared ZBuf line;
     line.put("You are ");
     line.put(named.name.slice());
@@ -273,12 +318,6 @@ int handleName(int argc, const(char)** argv) {
     line.put(here.sandUrl);
     line.put("\n");
     fputs(line.ptr(), stdout);
-    if (named.why.len > 0) {
-        fputs("ground name: ", stderr);
-        fputs(named.why.ptr(), stderr);
-        fputs("\n", stderr);
-        return 1;
-    }
     return 0;
 }
 

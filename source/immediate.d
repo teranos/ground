@@ -1188,7 +1188,9 @@ bool saidToSession(sqlite3* db, const(char)[] sessionId, const(char)[] controlNa
     detail.put(controlName);
     detail.put(": ");
     detail.put(result);
-    enum sql = "SELECT 1 FROM attestations WHERE id LIKE 'immediate:exec-result:' || ?1 || ':%' AND json_extract(attributes, '$.detail') = ?2 LIMIT 1\0";
+    // The id begins with this session's, letter for letter: a percent sign or
+    // an underscore in an id is itself, and no other session's row answers.
+    enum sql = "SELECT 1 FROM attestations WHERE substr(id, 1, length('immediate:exec-result:' || ?1 || ':')) = 'immediate:exec-result:' || ?1 || ':' AND json_extract(attributes, '$.detail') = ?2 LIMIT 1\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
     scope (exit) sqlite3_finalize(stmt);
