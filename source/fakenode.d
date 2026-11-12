@@ -1,8 +1,8 @@
 module fakenode;
 
-// A node for a test: it answers each request with the next answer it was
-// given, and keeps every request it heard. From login_test.d, where ground
-// code's sign-in is tested against it; naming_test.d asks it too.
+// 「[Fable 5.1, Fable 5.2] A node for a test: it answers each request with the next answer it was」
+// 「[Fable 5.1, Fable 5.2] given, and keeps every request it heard. From login_test.d, where ground」
+// 「[Fable 5.1, Fable 5.2] code's sign-in is tested against it; naming_test.d asks it too.」
 
 version (Posix):
 
