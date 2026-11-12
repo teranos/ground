@@ -1,6 +1,6 @@
 module touch_test;
 
-// teranos/ground#275
+// 「[Fable 5.2] teranos/ground#275」
 // "AND BASH AS WELL WHEN IT TOUCHES A FILE"
 // "WE SHOULD CONSIDER A OBSIDIAN VAULT ITS OWN THING"
 // "ON THE SAME ABSTRACTION LEVEL AS REPO, AND/OR KNOW ABOUT BINDINGS"
@@ -11,11 +11,11 @@ import touch;
 import zbuf : ZBuf;
 import matcher : indexOf;
 
-// This file, and the top of the tree it is in.
+// 「[Fable 5.2] This file, and the top of the tree it is in.」
 private enum HERE = __FILE_FULL_PATH__;
 private enum TOP = HERE[0 .. $ - "/source/touch_test.d".length];
 
-// A tool's event for one file, as Claude Code sends it.
+// 「[Fable 5.2] A tool's event for one file, as Claude Code sends it.」
 private void toolEvent(ref ZBuf payload, string event, string tool, string key, const(char)[] value) {
     payload.reset();
     payload.put(`{"hook_event_name":"`);
@@ -29,8 +29,8 @@ private void toolEvent(ref ZBuf payload, string event, string tool, string key, 
     payload.put(`"}}`);
 }
 
-// A file is its repository's: the origin's owner and repo, the commit the
-// working tree is at, and the path inside it.
+// 「[Fable 5.2] A file is its repository's: the origin's owner and repo, the commit the」
+// 「[Fable 5.2] working tree is at, and the path inside it.」
 unittest {
     Touched t;
     assert(touched(HERE, t), "this file is in a repository with an origin");
@@ -40,7 +40,7 @@ unittest {
     foreach (c; t.commit()) assert((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'), t.commit());
 }
 
-// A file in no repository carries none of the three.
+// 「[Fable 5.2] A file in no repository carries none of the three.」
 unittest {
     Touched t;
     assert(!touched("/etc/hosts", t));
@@ -48,7 +48,7 @@ unittest {
     assert(!touched("relative/path.d", t), "a path that is not whole is in no repository");
 }
 
-// A Read names its file on the row, as git writes a path at a commit.
+// 「[Fable 5.2] A Read names its file on the row, as git writes a path at a commit.」
 unittest {
     ZBuf contexts, payload;
     contexts.put(`["session:s`);
@@ -59,8 +59,8 @@ unittest {
     assert(indexOf(said, `:source/touch_test.d`) >= 0, said);
 }
 
-// A command names the files its words are, read from where it runs and from
-// where a cd in it moved to, once each; a word that is no file is none.
+// 「[Fable 5.2] A command names the files its words are, read from where it runs and from」
+// 「[Fable 5.2] where a cd in it moved to, once each; a word that is no file is none.」
 unittest {
     ZBuf files;
     auto n = namedFiles("cat source/touch_test.d | head -3 && cd source && wc -l 'touch.d' touch_test.d nothere.d > /dev/null", TOP, files);
@@ -78,7 +78,7 @@ unittest {
     assert(indexOf(said, `hosts`) < 0, "a file in no repository was named on the row");
 }
 
-// A row that is no tool's, or a tool that touches no file, is as it was.
+// 「[Fable 5.2] A row that is no tool's, or a tool that touches no file, is as it was.」
 unittest {
     ZBuf contexts, payload;
     contexts.put(`["session:s`);
@@ -88,8 +88,8 @@ unittest {
     assert(contexts.slice() == `["session:s`, contexts.slice());
 }
 
-// A note is its vault's: the directory that holds .obsidian, by its name,
-// and the note's path inside it. A vault that is no repository is still one.
+// 「[Fable 5.2] A note is its vault's: the directory that holds .obsidian, by its name,」
+// 「[Fable 5.2] and the note's path inside it. A vault that is no repository is still one.」
 unittest {
     import core.stdc.stdio : snprintf, fopen, fputs, fclose;
     import core.sys.posix.stdlib : setenv;
@@ -122,7 +122,7 @@ unittest {
     putTouched(contexts, "PreToolUse", top[0 .. tn], payload.slice());
     assert(contexts.slice() == `["session:s","vault:garden:Beds/Pond notes.md`, contexts.slice());
 
-    // Bound at the node, the note is the repository's file as well.
+    // 「[Fable 5.2] Bound at the node, the note is the repository's file as well.」
     setenv("HOME", top.ptr, 1);
     char[256] share = 0;
     snprintf(share.ptr, share.length, "/tmp/ground-vault-%d/.local", getpid());
@@ -141,9 +141,9 @@ unittest {
     assert(contexts.slice() == `["session:s","vault:garden:Beds/Pond notes.md","file:acme/garden-docs@main:docs/beds/Pond notes.md`, contexts.slice());
 }
 
-// What a node says is bound, as the lines ground keeps; and a note's place
-// among them: the note's own binding, the nearest folder above it, the top of
-// a repository, or none.
+// 「[Fable 5.2] What a node says is bound, as the lines ground keeps; and a note's place」
+// 「[Fable 5.2] among them: the note's own binding, the nearest folder above it, the top of」
+// 「[Fable 5.2] a repository, or none.」
 unittest {
     enum answer = `{"vaults":[{"name":"syncbvh","path":"/var/lib/obsidian/syncbvh","folders":["github.com/teranos/QNTX@main:docs/adr=QNTX/ADR","github.com/teranos/QNTX@main:AGENTS.md=QNTX/AgentInstructions/QNTX/AGENTS.md","github.com/teranos/ground@main:.=teranos/ground","github.com/sbvh-nl/ramen@master:SPEC.md=ramen/SPEC.md"],"disabled":[]}]}`;
     ZBuf lines;

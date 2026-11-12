@@ -1,48 +1,48 @@
 module touch;
 
-// teranos/ground#275
+// 「[Fable 5.2] teranos/ground#275」
 // "DO THAT ISSUE PLEASE"
 // "AND BASH AS WELL WHEN IT TOUCHES A FILE"
 //
-// A row for a tool's use said where the session started and not the file it
-// touched. For a Read, an Edit and a Write, and for a Bash command that names
-// a file, the row's contexts carry one more for each file, as git writes a
-// path at a commit:
+// 「[Fable 5.2] A row for a tool's use said where the session started and not the file it」
+// 「[Fable 5.2] touched. For a Read, an Edit and a Write, and for a Bash command that names」
+// 「[Fable 5.2] a file, the row's contexts carry one more for each file, as git writes a」
+// 「[Fable 5.2] path at a commit:」
 //
-//     file:<owner>/<repo>@<commit>:<path in the repository>
+//     「[Fable 5.2] file:<owner>/<repo>@<commit>:<path in the repository>」
 //
-// The repository is the file's own, asked of git for the file's path: a
-// worktree answers with the origin of the tree it was cut from, a submodule
-// with its own. The commit is the one the working tree was at. A file in no
-// repository, or in one with no origin, carries none.
+// 「[Fable 5.2] The repository is the file's own, asked of git for the file's path: a」
+// 「[Fable 5.2] worktree answers with the origin of the tree it was cut from, a submodule」
+// 「[Fable 5.2] with its own. The commit is the one the working tree was at. A file in no」
+// 「[Fable 5.2] repository, or in one with no origin, carries none.」
 //
 // "WE SHOULD CONSIDER A OBSIDIAN VAULT ITS OWN THING"
 //
-// A note of an Obsidian vault is the vault's, whether or not the vault is a
-// repository as well: the directory that holds `.obsidian`, by its name.
+// 「[Fable 5.2] A note of an Obsidian vault is the vault's, whether or not the vault is a」
+// 「[Fable 5.2] repository as well: the directory that holds `.obsidian`, by its name.」
 //
-//     vault:<vault>:<path in the vault>
+//     「[Fable 5.2] vault:<vault>:<path in the vault>」
 //
 // "ON THE SAME ABSTRACTION LEVEL AS REPO, AND/OR KNOW ABOUT BINDINGS"
 //
-// A vault stands beside a repository, and a folder or a note of one can be
-// bound to a folder or a note of the other at the node (QNTX vault bind). A
-// note in a bound place is also the repository's file it is bound to, on the
-// branch the binding names:
+// 「[Fable 5.2] A vault stands beside a repository, and a folder or a note of one can be」
+// 「[Fable 5.2] bound to a folder or a note of the other at the node (QNTX vault bind). A」
+// 「[Fable 5.2] note in a bound place is also the repository's file it is bound to, on the」
+// 「[Fable 5.2] branch the binding names:」
 //
-//     file:<owner>/<repo>@<branch>:<path in the repository>
+//     「[Fable 5.2] file:<owner>/<repo>@<branch>:<path in the repository>」
 //
-// Ground keeps what its node says is bound, asked where a session starts.
+// 「[Fable 5.2] Ground keeps what its node says is bound, asked where a session starts.」
 
 import zbuf : ZBuf;
 
-// What the context begins with.
+// 「[Fable 5.2] What the context begins with.」
 enum TOUCHED = "file:";
 
-// How many files one row names: a command can name many, and a row is one line.
+// 「[Fable 5.2] How many files one row names: a command can name many, and a row is one line.」
 enum MOST = 16;
 
-// One file as its repository holds it.
+// 「[Fable 5.2] One file as its repository holds it.」
 struct Touched {
     char[256] repoBuf = 0;
     size_t repoLen;
@@ -55,8 +55,8 @@ struct Touched {
     const(char)[] path() const return { return pathBuf[0 .. pathLen]; }
 }
 
-// The file at an absolute path, as its repository holds it. False when it is
-// in no repository, the repository has no origin, or HEAD names no commit.
+// 「[Fable 5.2] The file at an absolute path, as its repository holds it. False when it is」
+// 「[Fable 5.2] in no repository, the repository has no origin, or HEAD names no commit.」
 bool touched(const(char)[] file, ref Touched out_) {
     import core.sys.posix.stdlib : realpath;
     import libgit2 : Repo;
@@ -66,7 +66,7 @@ bool touched(const(char)[] file, ref Touched out_) {
     if (__ctfe) return false;
     if (file.length == 0 || file[0] != '/' || file.length >= 4000) return false;
 
-    // The file's own path, links resolved, as the working tree's top is.
+    // 「[Fable 5.2] The file's own path, links resolved, as the working tree's top is.」
     char[4096] asked = 0;
     foreach (i, c; file) asked[i] = c;
     char[4096] resolved = 0;
@@ -103,12 +103,12 @@ bool touched(const(char)[] file, ref Touched out_) {
     return true;
 }
 
-// What a vault's context begins with.
+// 「[Fable 5.2] What a vault's context begins with.」
 enum VAULT = "vault:";
 
-// The vault a file at an absolute path is a note of: the nearest directory
-// above it that holds `.obsidian`. Its name and the file's path inside it
-// are slices of file. False when no directory above the file is a vault.
+// 「[Fable 5.2] The vault a file at an absolute path is a note of: the nearest directory」
+// 「[Fable 5.2] above it that holds `.obsidian`. Its name and the file's path inside it」
+// 「[Fable 5.2] are slices of file. False when no directory above the file is a vault.」
 bool vaultOf(const(char)[] file, out const(char)[] name, out const(char)[] inVault) {
     import core.sys.posix.sys.stat : stat, stat_t, S_IFMT, S_IFDIR;
     if (__ctfe) return false;
@@ -134,7 +134,7 @@ bool vaultOf(const(char)[] file, out const(char)[] name, out const(char)[] inVau
     }
 }
 
-// A path as it stands inside a JSON string.
+// 「[Fable 5.2] A path as it stands inside a JSON string.」
 private void putPath(ref ZBuf contexts, const(char)[] path) {
     enum hex = "0123456789abcdef";
     foreach (c; path) {
@@ -144,10 +144,10 @@ private void putPath(ref ZBuf contexts, const(char)[] path) {
     }
 }
 
-// ---- what is bound ----
+// 「[Fable 5.2] ---- what is bound ----」
 
-// Where ground keeps what its node says is bound: one binding a line,
-// <vault> TAB <place in the vault> TAB <owner>/<repo> TAB <branch> TAB <path>.
+// 「[Fable 5.2] Where ground keeps what its node says is bound: one binding a line,」
+// 「[Fable 5.2] <vault> TAB <place in the vault> TAB <owner>/<repo> TAB <branch> TAB <path>.」
 const(char)* bindingsFile() {
     import core.stdc.stdlib : getenv;
     __gshared ZBuf path;
@@ -161,9 +161,9 @@ const(char)* bindingsFile() {
     return path.ptr();
 }
 
-// The bindings in what a node answers at /api/vault, as the lines ground
-// keeps. A binding is written there as
-// github.com/<owner>/<repo>@<branch>:<path>=<place>. How many were read.
+// 「[Fable 5.2] The bindings in what a node answers at /api/vault, as the lines ground」
+// 「[Fable 5.2] keeps. A binding is written there as」
+// 「[Fable 5.2] github.com/<owner>/<repo>@<branch>:<path>=<place>. How many were read.」
 size_t bindingsFrom(const(char)[] answer, ref ZBuf lines) {
     import effort : rootAt, memberOf, skipSpace, skipString, skipValue;
     lines.reset();
@@ -184,7 +184,7 @@ size_t bindingsFrom(const(char)[] answer, ref ZBuf lines) {
                 auto end = skipString(answer, i);
                 auto said = answer[i + 1 .. end - 1];
                 enum host = "github.com/";
-                // owner/repo @ branch : path = place
+                // 「[Fable 5.2] owner/repo @ branch : path = place」
                 size_t at = 0, colon = 0, equals = 0;
                 foreach (k, c; said) {
                     if (c == '@' && at == 0) at = k;
@@ -214,10 +214,10 @@ size_t bindingsFrom(const(char)[] answer, ref ZBuf lines) {
     return count;
 }
 
-// The repository's file a note is bound to, from the lines ground keeps: the
-// binding of the note itself, or of the nearest folder above it. Its
-// repository, its branch, and its path into dest. False when the note is in
-// no bound place.
+// 「[Fable 5.2] The repository's file a note is bound to, from the lines ground keeps: the」
+// 「[Fable 5.2] binding of the note itself, or of the nearest folder above it. Its」
+// 「[Fable 5.2] repository, its branch, and its path into dest. False when the note is in」
+// 「[Fable 5.2] no bound place.」
 bool boundTo(const(char)[] lines, const(char)[] vault, const(char)[] inVault,
              out const(char)[] repo, out const(char)[] branch, ref ZBuf dest) {
     dest.reset();
@@ -249,7 +249,7 @@ bool boundTo(const(char)[] lines, const(char)[] vault, const(char)[] inVault,
         repo = part[2];
         branch = part[3];
         dest.reset();
-        // A folder bound to the top of a repository is bound to `.`.
+        // 「[Fable 5.2] A folder bound to the top of a repository is bound to `.`.」
         if (part[4] != ".") dest.put(part[4]);
         if (above) {
             if (dest.len > 0) dest.put("/");
@@ -259,7 +259,7 @@ bool boundTo(const(char)[] lines, const(char)[] vault, const(char)[] inVault,
     return found && dest.len > 0;
 }
 
-// What the node says is bound, asked and kept. What went wrong, or nothing.
+// 「[Fable 5.2] What the node says is bound, asked and kept. What went wrong, or nothing.」
 const(char)[] keepBindings(const(char)[] node) {
     import core.stdc.stdio : fopen, fwrite, fclose, rename, remove;
     import http : httpGet, ToNode;
@@ -273,7 +273,7 @@ const(char)[] keepBindings(const(char)[] node) {
     url.put("/api/vault");
     auto r = httpGet(url.slice(), ToNode(), answer[], 2);
     if (r.status != 200) {
-        // A node that keeps no vault answers so, and nothing is bound.
+        // 「[Fable 5.2] A node that keeps no vault answers so, and nothing is bound.」
         if (r.status == 404) return "";
         why.put(url.slice());
         why.put(r.status > 0 ? " did not answer what is bound" : " was not reached for what is bound");
@@ -297,9 +297,9 @@ const(char)[] keepBindings(const(char)[] node) {
     return why.slice();
 }
 
-// The row's contexts for one file: its vault when it is a note of one, with
-// the repository's file it is bound to; and its own repository when it is in
-// one.
+// 「[Fable 5.2] The row's contexts for one file: its vault when it is a note of one, with」
+// 「[Fable 5.2] the repository's file it is bound to; and its own repository when it is in」
+// 「[Fable 5.2] one.」
 private void putFile(ref ZBuf contexts, const(char)[] file) {
     const(char)[] vault, inVault;
     if (vaultOf(file, vault, inVault)) {
@@ -333,8 +333,8 @@ private void putFile(ref ZBuf contexts, const(char)[] file) {
     if (touched(file, one)) putContext(contexts, one);
 }
 
-// One more context of the row, written inside the JSON array as it stands
-// open: `","file:owner/repo@commit:path`.
+// 「[Fable 5.2] One more context of the row, written inside the JSON array as it stands」
+// 「[Fable 5.2] open: `","file:owner/repo@commit:path`.」
 private void putContext(ref ZBuf contexts, ref const Touched t) {
     contexts.put(`","`);
     contexts.put(TOUCHED);
@@ -345,7 +345,7 @@ private void putContext(ref ZBuf contexts, ref const Touched t) {
     putPath(contexts, t.path());
 }
 
-// Whether a path names a file that is there.
+// 「[Fable 5.2] Whether a path names a file that is there.」
 private bool isFile(const(char)[] path) {
     import core.sys.posix.sys.stat : stat, stat_t, S_IFMT, S_IFREG;
     if (path.length == 0 || path.length >= 4000) return false;
@@ -355,10 +355,10 @@ private bool isFile(const(char)[] path) {
     return stat(&z[0], &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG;
 }
 
-// The files a shell command names: each word of it that, read from where the
-// command runs, is a file that is there. `cd <dir>` moves where the words
-// after it are read from. What a command reaches without naming it, a glob or
-// a file a script opens, is not known from the command and is not said.
+// 「[Fable 5.2] The files a shell command names: each word of it that, read from where the」
+// 「[Fable 5.2] command runs, is a file that is there. `cd <dir>` moves where the words」
+// 「[Fable 5.2] after it are read from. What a command reaches without naming it, a glob or」
+// 「[Fable 5.2] a file a script opens, is not known from the command and is not said.」
 size_t namedFiles(const(char)[] command, const(char)[] cwd, ref ZBuf files) {
     import core.stdc.stdlib : getenv;
     files.reset();
@@ -369,7 +369,7 @@ size_t namedFiles(const(char)[] command, const(char)[] cwd, ref ZBuf files) {
     base.put(cwd);
     __gshared ZBuf full;
 
-    // A word read from the base: absolute as it is, ~/ from the home.
+    // 「[Fable 5.2] A word read from the base: absolute as it is, ~/ from the home.」
     void resolve(const(char)[] word) {
         full.reset();
         if (word.length > 1 && word[0] == '~' && word[1] == '/') {
@@ -396,7 +396,7 @@ size_t namedFiles(const(char)[] command, const(char)[] cwd, ref ZBuf files) {
     size_t at = 0;
     while (at < command.length && count < MOST) {
         if (ends(command[at])) { at++; continue; }
-        // One word, a pair of quotes around it or inside it taken off.
+        // 「[Fable 5.2] One word, a pair of quotes around it or inside it taken off.」
         char[4096] word = 0;
         size_t w = 0;
         char quote = 0;
@@ -426,14 +426,14 @@ size_t namedFiles(const(char)[] command, const(char)[] cwd, ref ZBuf files) {
         }
         if (said == "cd") { cdNext = true; continue; }
         if (said[0] == '-') continue;
-        // What stands after the equals sign of an assignment is a path too.
+        // 「[Fable 5.2] What stands after the equals sign of an assignment is a path too.」
         foreach (i, ch; said) {
             if (ch == '/') break;
             if (ch == '=' && i + 1 < said.length) { said = said[i + 1 .. $]; break; }
         }
         resolve(said);
         if (full.len == 0 || !isFile(full.slice())) continue;
-        // Once each.
+        // 「[Fable 5.2] Once each.」
         bool seen = false;
         size_t f = 0;
         auto all = files.slice();
@@ -451,9 +451,9 @@ size_t namedFiles(const(char)[] command, const(char)[] cwd, ref ZBuf files) {
     return count;
 }
 
-// The row's contexts for the files this event's tool touches. Written into
-// the array while it stands open, so nothing is written for an event that is
-// no tool's, a tool that touches no file, or a file in no repository.
+// 「[Fable 5.2] The row's contexts for the files this event's tool touches. Written into」
+// 「[Fable 5.2] the array while it stands open, so nothing is written for an event that is」
+// 「[Fable 5.2] no tool's, a tool that touches no file, or a file in no repository.」
 void putTouched(ref ZBuf contexts, const(char)[] eventName, const(char)[] cwd, const(char)[] payload) {
     import parse : extractToolName, extractFilePath, extractCommand, extractJsonString;
     if (eventName != "PreToolUse" && eventName != "PostToolUse" && eventName != "PostToolUseFailure") return;

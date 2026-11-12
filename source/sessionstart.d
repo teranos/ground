@@ -464,8 +464,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     }
 
     // "ON THE SAME ABSTRACTION LEVEL AS REPO, AND/OR KNOW ABOUT BINDINGS"
-    // What the node says is bound between vaults and repositories is asked
-    // where a session starts, and kept for the rows of the files it touches.
+    // 「[Fable 5.2] What the node says is bound between vaults and repositories is asked」
+    // 「[Fable 5.2] where a session starts, and kept for the rows of the files it touches.」
     if (isStartup) {
         import touch : keepBindings;
         import nodeconfig : nodeHere;

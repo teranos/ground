@@ -129,7 +129,7 @@ immutable Owner[] owners = [
                           "sessiontrail", "nodeconfig",
                           // A session's name at its node, and what is said to a name.
                           "naming", "say",
-                          // Which file a tool's row is about, by the file's own repository.
+                          // 「[Fable 5.2] Which file a tool's row is about, by the file's own repository.」
                           "touch"]),
 ];
 
