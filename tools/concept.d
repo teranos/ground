@@ -128,7 +128,9 @@ immutable Owner[] owners = [
     Owner("attestation", ["db", "attest", "backend", "provenance", "queued", "immediate", "stream",
                           "sessiontrail", "nodeconfig",
                           // A session's name at its node, and what is said to a name.
-                          "naming", "say"]),
+                          "naming", "say",
+                          // Which file a tool's row is about, by the file's own repository.
+                          "touch"]),
 ];
 
 // Who owns the repos the examples are about. Four owners, each with a world

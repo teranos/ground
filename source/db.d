@@ -1224,6 +1224,11 @@ void attestEventAt(
     contexts.put(sessionId);
     if (origin !is null) { contexts.put(`","origin:`); contexts.put(origin); }
     if (place !is null) { contexts.put(`","project:`); contexts.put(place); }
+    // Then each file the tool touches, by its own repository (teranos/ground#275).
+    {
+        import touch : putTouched;
+        putTouched(contexts, eventName, cwd, payload);
+    }
     contexts.put(`"]`);
 
     jsonArray1(actors, "ground");
