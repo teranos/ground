@@ -81,6 +81,29 @@ private Asking asking(const(char)* what) {
     return a;
 }
 
+// "do you think the ground say should show near misses ?"
+// What a node says of a name nobody holds, in words: nobody holds it, and the
+// names near it when the node gave some (QNTX #1686). Empty when the answer is
+// about something else.
+const(char)[] nobodyHolds(const(char)[] name, const(char)[] answer, ref ZBuf line) {
+    import matcher : indexOf;
+    enum none = "no agent is served at tenant ";
+    if (indexOf(answer, none) < 0) return "";
+    line.reset();
+    line.put("nobody holds the name ");
+    line.put(name);
+    enum near = ". Near it: ";
+    auto at = indexOf(answer, near);
+    if (at >= 0) {
+        auto rest = answer[at + near.length .. $];
+        size_t end = 0;
+        while (end < rest.length && rest[end] != '"' && rest[end] != '\\') end++;
+        line.put(". Near it: ");
+        line.put(rest[0 .. end]);
+    }
+    return line.slice();
+}
+
 // What the node answered with, said whole when it was no Task.
 private int refused(const(char)* what, const(char)[] url, int status, int code, const(char)[] why, const(char)[] answer) {
     import core.stdc.stdio : stderr, fputs;
@@ -221,6 +244,16 @@ int handleSay(int argc, const(char)** argv) {
     __gshared char[16384] reply;
     auto r = httpPostInto(url.slice(), body_.slice(), ToNode(who.keyAt), reply[], 60);
     auto answer = reply[0 .. r.len];
+    if (r.status == 404) {
+        __gshared ZBuf nobody;
+        auto said = nobodyHolds(name, answer, nobody);
+        if (said.length > 0) {
+            fputs("ground say: ", stderr);
+            nobody.put("\n");
+            fputs(nobody.ptr(), stderr);
+            return 1;
+        }
+    }
     if (r.status != 200) return refused("ground say", url.slice(), r.status, r.code, r.why(), answer);
 
     char[128] taskBuf, stateBuf;

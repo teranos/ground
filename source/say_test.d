@@ -23,3 +23,14 @@ unittest {
     assert(stateSaid("TASK_STATE_COMPLETED") == "was received");
     assert(stateSaid("TASK_STATE_FAILED") == "was not received");
 }
+
+// "do you think the ground say should show near misses ?"
+// A name nobody holds is said so, with the names the node says are near it.
+unittest {
+    ZBuf line;
+    auto answer = `{"error":{"code":404,"status":"NOT_FOUND","message":"no agent is served at tenant Kwi Kwi. Near it: Kwikwi","details":[]}}`;
+    assert(nobodyHolds("Kwi Kwi", answer, line) == "nobody holds the name Kwi Kwi. Near it: Kwikwi", line.slice());
+    auto alone = `{"error":{"code":404,"message":"no agent is served at tenant Slate","details":[]}}`;
+    assert(nobodyHolds("Slate", alone, line) == "nobody holds the name Slate", line.slice());
+    assert(nobodyHolds("Slate", `{"error":{"code":404,"message":"no such task"}}`, line) == "");
+}
