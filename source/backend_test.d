@@ -1,6 +1,6 @@
 module backend_test;
 
-// BOOK_GLOSSARY **Backend**: The QNTX every attestation goes to, named once at the top level by its url.
+// 「[Opus 5.5] BOOK_GLOSSARY **Backend**: The QNTX every attestation goes to, named once at the top level by its url.」
 
 import proto : parsePbt;
 import backend : postings, unbacked;
