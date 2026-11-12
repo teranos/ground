@@ -274,7 +274,7 @@ Key keepKey(const(char)* file) {
 // by the key kept in ~/.qntx/key, and nothing when no key is kept. Anywhere
 // else, the far end's own token as a bearer, or nothing. An absent line is an
 // absent header.
-void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs) {
+void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs, const(char)* keyAt = null) {
     import token : trimToken;
     line.reset();
     if (!signs) {
@@ -284,7 +284,7 @@ void authLine(ref ZBuf line, const(char)[] url, const(char)[] token, bool signs)
         line.put(tok);
         return;
     }
-    auto key = keptKey(keyFile());
+    auto key = keptKey(keyAt is null ? keyFile() : keyAt);
     if (!key.held) return;
     import core.stdc.time : time;
     ubyte[JTI_BYTES] jti;

@@ -107,13 +107,16 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 struct ToNode {
+    // The key that signs: ~/.qntx/key when null, a session's own when it names one (naming.d).
+    const(char)* key;
 }
 
 // One request. `body_` null is a GET. `protocols` is what the url may speak:
 // a caller that did not ask for files cannot be handed one by a url.
 private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
                      const(char)[] token, bool signs, const(char)[] contentType,
-                     char[] dest, int timeoutSec, const(char)[] protocols, Abort abort = Abort.init) {
+                     char[] dest, int timeoutSec, const(char)[] protocols, Abort abort = Abort.init,
+                     const(char)* key = null) {
     Http r;
 
     void say(const(char)[] s) {
@@ -145,7 +148,7 @@ private Http perform(const(char)[] url, const(char)[] body_, bool isPost,
     scope (exit) if (headers !is null) curl_slist_free_all(headers);
 
     import signed : authLine;
-    authLine(authZ, url, token, signs);
+    authLine(authZ, url, token, signs, key);
     if (authZ.len > 0) headers = curl_slist_append(headers, authZ.ptr());
     if (isPost && contentType.length > 0) {
         typeZ.reset();
@@ -312,7 +315,7 @@ Http httpPost(const(char)[] url, const(char)[] body_, const(char)[] token,
 // The same, to a node.
 Http httpPost(const(char)[] url, const(char)[] body_, ToNode node,
               int timeoutSec = 10, const(char)[] contentType = "application/json") {
-    return perform(url, body_, true, null, true, contentType, null, timeoutSec, WEB);
+    return perform(url, body_, true, null, true, contentType, null, timeoutSec, WEB, Abort.init, node.key);
 }
 
 // The same, keeping the reply in dest. For a caller that owes somebody the
@@ -327,7 +330,7 @@ Http httpPostInto(const(char)[] url, const(char)[] body_, const(char)[] token, c
 // The same, to a node.
 Http httpPostInto(const(char)[] url, const(char)[] body_, ToNode node, char[] dest,
                   int timeoutSec = 10, const(char)[] contentType = "application/json", Abort abort = Abort.init) {
-    return perform(url, body_, true, null, true, contentType, dest, timeoutSec, WEB, abort);
+    return perform(url, body_, true, null, true, contentType, dest, timeoutSec, WEB, abort, node.key);
 }
 
 // The HTTP status, or 0 when there was none. For a caller that reads only the

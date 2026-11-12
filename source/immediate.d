@@ -1177,6 +1177,28 @@ unittest {
 // doesn't silently drop rows). Caller inspects the return and — if
 // false — must escalate to a fallback delivery channel. Per the
 // axiom, silent failure at this layer is forbidden.
+// "ALSO, IT SPAMS, ONCE IS FINE"
+// Whether this session was already handed this exec result's detail: a refusal
+// that is the same on every hook (a sand this engine cannot hold) is said once.
+bool saidToSession(sqlite3* db, const(char)[] sessionId, const(char)[] controlName, const(char)[] result) {
+    // The detail as writeExecResult writes one with no streams.
+    __gshared ZBuf detail;
+    detail.reset();
+    detail.put("exec ");
+    detail.put(controlName);
+    detail.put(": ");
+    detail.put(result);
+    // The id begins with this session's, letter for letter: a percent sign or
+    // an underscore in an id is itself, and no other session's row answers.
+    enum sql = "SELECT 1 FROM attestations WHERE substr(id, 1, length('immediate:exec-result:' || ?1 || ':')) = 'immediate:exec-result:' || ?1 || ':' AND json_extract(attributes, '$.detail') = ?2 LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    scope (exit) sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt, 1, sessionId.ptr, cast(int) sessionId.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, detail.ptr(), cast(int) detail.len, SQLITE_TRANSIENT);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+}
+
 bool writeExecResult(sqlite3* db,
                      const(char)[] sessionId,
                      const(char)[] controlName,

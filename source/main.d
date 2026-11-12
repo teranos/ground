@@ -14,6 +14,14 @@ extern (C) int main(int argc, const(char)** argv) {
             import attest : handleAttest;
             return handleAttest();
         }
+        if (cmd == "name") {
+            import naming : handleName;
+            return handleName(argc, argv);
+        }
+        if (cmd == "sign") {
+            import naming : handleSign;
+            return handleSign(argc, argv);
+        }
         if (cmd == "profile") {
             import profile : handleProfile;
             return handleProfile(argc, argv);

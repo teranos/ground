@@ -450,12 +450,14 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     pendingWhy = why[0 .. wn];
 }
 
-// A message to a subagent resumes it on the model it was started on. Why a
-// SendMessage is refused, when it is to one started on its session's own;
-// empty for every other message.
+// A message to a subagent resumes it. Why a SendMessage is refused, when it is
+// to a subagent this session started, whatever model it was started on; empty
+// for every other message.
+// "no subagents ever anynore period"
+// "some people might like them, good for them"
 const(char)[] resumesOnItsSessions(const(char)[] input) {
     import parse : extractTranscriptPath, extractToolInputRegion;
-    import subagent : subagentsDir, namedNoModel, isAgent, sentTo;
+    import subagent : subagentsDir, isAgent, sentTo;
     import core.sys.posix.dirent : opendir, readdir, closedir;
     import core.sys.posix.fcntl : open, O_RDONLY;
     import core.sys.posix.unistd : read, close;
@@ -492,13 +494,13 @@ const(char)[] resumesOnItsSessions(const(char)[] input) {
         close(fd);
         if (got <= 0) continue;
         auto note = meta[0 .. cast(size_t) got];
-        if (!isAgent(name, note, to) || !namedNoModel(note)) continue;
+        if (!isAgent(name, note, to)) continue;
 
         __gshared char[1024] why = 0;
         size_t wn;
         void say(const(char)[] t) { foreach (c; t) if (wn < why.length) why[wn++] = c; }
         say(to);
-        say(" was started on its session's model, and a message resumes it there. A subagent runs on what the models block picks: start a new one and hand it what this one reported.");
+        say(" is a subagent, and a message resumes it. No subagents, ever: its transcript stays readable beside this session's; the work goes to a session of its own, named, that owns what carries its name.");
         return why[0 .. wn];
     }
     return "";
@@ -1327,7 +1329,8 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     }
 
     // "Subagents Alwys Opus, never Fable, Fable is for what is worth human attention span"
-    // A message to a subagent started on its session's model would run it there again.
+    // "no subagents ever anynore period"
+    // A message to a subagent would run it again.
     if (toolName == "SendMessage") {
         auto resumed = resumesOnItsSessions(input);
         if (resumed.length > 0) {
