@@ -18,7 +18,13 @@ private enum TOP = HERE[0 .. $ - "/source/touch_test.d".length];
 // A tool's event for one file, as Claude Code sends it.
 private void toolEvent(ref ZBuf payload, string event, string tool, string key, const(char)[] value) {
     payload.reset();
-    payload.put(`{"hook_event_name":"` ~ event ~ `","tool_name":"` ~ tool ~ `","tool_input":{"` ~ key ~ `":"`);
+    payload.put(`{"hook_event_name":"`);
+    payload.put(event);
+    payload.put(`","tool_name":"`);
+    payload.put(tool);
+    payload.put(`","tool_input":{"`);
+    payload.put(key);
+    payload.put(`":"`);
     payload.put(value);
     payload.put(`"}}`);
 }
