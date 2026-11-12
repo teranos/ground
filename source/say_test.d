@@ -7,8 +7,8 @@ version (Posix):
 import say;
 import zbuf : ZBuf;
 
-// A name is a tenant of its node's A2A, and a name of two words is written as
-// an address writes one.
+// 「[Fable 5.2] A name is a tenant of its node's A2A, and a name of two words is written as」
+// 「[Fable 5.2] an address writes one.」
 unittest {
     ZBuf url;
     tenantUrl(url, "https://api.q.sbvh.nl", "Slate");
@@ -25,7 +25,7 @@ unittest {
 }
 
 // "do you think the ground say should show near misses ?"
-// A name nobody holds is said so, with the names the node says are near it.
+// 「[Fable 5.2] A name nobody holds is said so, with the names the node says are near it.」
 unittest {
     ZBuf line;
     auto answer = `{"error":{"code":404,"status":"NOT_FOUND","message":"no agent is served at tenant Kwi Kwi. Near it: Kwikwi","details":[]}}`;

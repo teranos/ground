@@ -6,10 +6,10 @@ module disagree;
 // "make it easy to spot and remove"
 // "remove as in json side"
 //
-// Claude Code keeps rules of its own, in the permissions of its settings JSON:
-// allow, ask and deny. Ground's rules are the ones that stand. A JSON rule that
-// says other than ground says for the same thing is a disagreement: it is
-// shown, with the file it is in, and taken out of the JSON on one word.
+// 「[Fable 5.2] Claude Code keeps rules of its own, in the permissions of its settings JSON:」
+// 「[Fable 5.2] allow, ask and deny. Ground's rules are the ones that stand. A JSON rule that」
+// 「[Fable 5.2] says other than ground says for the same thing is a disagreement: it is」
+// 「[Fable 5.2] shown, with the file it is in, and taken out of the JSON on one word.」
 
 import zbuf : ZBuf;
 import permission : Decision;
@@ -23,7 +23,7 @@ ground disagreements
 ground agree
 EOS";
 
-// What the JSON says of a rule, by the list it is in.
+// 「[Fable 5.2] What the JSON says of a rule, by the list it is in.」
 enum Json { allows, asks, denies }
 
 immutable string[3] LISTS = ["allow", "ask", "deny"];
@@ -38,8 +38,8 @@ const(char)[] groundSays(Decision d) {
     }
 }
 
-// One rule of the JSON that says other than ground: where its string stands in
-// the text, quotes and all.
+// 「[Fable 5.2] One rule of the JSON that says other than ground: where its string stands in」
+// 「[Fable 5.2] the text, quotes and all.」
 struct Found {
     Json json;
     Decision ground;
@@ -52,9 +52,9 @@ struct FoundIn {
     size_t more; // found past what all holds
 }
 
-// What a rule is about: the tool before its parenthesis, and inside it the
-// words the rule stands for, less the wildcard it ends in. `Bash(make
-// install*)` is Bash and `make install`; `WebSearch` is WebSearch and nothing.
+// 「[Fable 5.2] What a rule is about: the tool before its parenthesis, and inside it the」
+// 「[Fable 5.2] words the rule stands for, less the wildcard it ends in. `Bash(make」
+// 「[Fable 5.2] install*)` is Bash and `make install`; `WebSearch` is WebSearch and nothing.」
 void ruleParts(const(char)[] rule, out const(char)[] tool, out const(char)[] command) {
     size_t open = rule.length;
     foreach (i, c; rule) if (c == '(') { open = i; break; }
@@ -67,8 +67,8 @@ void ruleParts(const(char)[] rule, out const(char)[] tool, out const(char)[] com
     command = inner;
 }
 
-// Whether the JSON's word and ground's are two words. Where ground says
-// nothing, there is nothing to disagree with.
+// 「[Fable 5.2] Whether the JSON's word and ground's are two words. Where ground says」
+// 「[Fable 5.2] nothing, there is nothing to disagree with.」
 bool disagrees(Json json, Decision ground) {
     final switch (ground) {
         case Decision.none: return false;
@@ -78,8 +78,8 @@ bool disagrees(Json json, Decision ground) {
     }
 }
 
-// Every rule in the settings text that says other than ground says, for a
-// session in cwd, in mode.
+// 「[Fable 5.2] Every rule in the settings text that says other than ground says, for a」
+// 「[Fable 5.2] session in cwd, in mode.」
 void disagreementsIn(const(char)[] text, const(char)[] cwd, const(char)[] mode, ref FoundIn found) {
     import controls : permissionScopes;
     import permissionrequest : permissionFor;
@@ -109,9 +109,9 @@ void disagreementsIn(const(char)[] text, const(char)[] cwd, const(char)[] mode, 
     }
 }
 
-// The settings text with every rule in found taken out of its list, and
-// nothing else touched: a list is written again with the rules that stay, in
-// the spacing it had. The length written, 0 when it did not fit.
+// 「[Fable 5.2] The settings text with every rule in found taken out of its list, and」
+// 「[Fable 5.2] nothing else touched: a list is written again with the rules that stay, in」
+// 「[Fable 5.2] the spacing it had. The length written, 0 when it did not fit.」
 size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
     size_t o = 0;
     bool over = false;
@@ -127,7 +127,7 @@ size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
     auto perms = root < text.length ? memberOf(text, root, "permissions") : typeof(memberOf(text, 0, "")).init;
     if (!perms.ok) { put(text); return over ? 0 : o; }
 
-    // The three lists, in the order they stand in the file.
+    // 「[Fable 5.2] The three lists, in the order they stand in the file.」
     size_t[3] starts, ends;
     size_t lists = 0;
     foreach (key; LISTS) {
@@ -143,7 +143,7 @@ size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
     size_t done = 0;
     foreach (l; 0 .. lists) {
         put(text[done .. starts[l] + 1]);
-        // The spacing before the first rule is the spacing before each.
+        // 「[Fable 5.2] The spacing before the first rule is the spacing before each.」
         auto first = skipSpace(text, starts[l] + 1);
         auto gap = text[starts[l] + 1 .. first];
         size_t kept = 0;
@@ -161,8 +161,8 @@ size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
             i = skipSpace(text, end);
             if (i < text.length && text[i] == ',') i = skipSpace(text, i + 1);
         }
-        // What stood between the last rule and the bracket closes the list
-        // again, when a rule is left in it.
+        // 「[Fable 5.2] What stood between the last rule and the bracket closes the list」
+        // 「[Fable 5.2] again, when a rule is left in it.」
         if (kept > 0) put(text[last .. ends[l] - 1]);
         put("]");
         done = ends[l];
@@ -171,14 +171,14 @@ size_t agreed(const(char)[] text, ref const FoundIn found, char[] dest) {
     return over ? 0 : o;
 }
 
-// ---- the files, and the two commands ----
+// 「[Fable 5.2] ---- the files, and the two commands ----」
 
 private __gshared char[262144] fileText;
 private __gshared char[262144 + 64] fileFresh;
 
-// The settings files Claude Code reads for a session in cwd: the person's two,
-// and the two of every directory from cwd up to the home. Each path with a NUL
-// after it.
+// 「[Fable 5.2] The settings files Claude Code reads for a session in cwd: the person's two,」
+// 「[Fable 5.2] and the two of every directory from cwd up to the home. Each path with a NUL」
+// 「[Fable 5.2] after it.」
 void settingsFiles(const(char)[] cwd, ref ZBuf paths) {
     import core.stdc.stdlib : getenv;
     paths.reset();
@@ -197,7 +197,7 @@ void settingsFiles(const(char)[] cwd, ref ZBuf paths) {
     two(home);
     auto dir = cwd;
     while (dir.length > 1 && dir != home) {
-        // Under the home only: a directory elsewhere is climbed to the root.
+        // 「[Fable 5.2] Under the home only: a directory elsewhere is climbed to the root.」
         two(dir);
         size_t cut = dir.length;
         while (cut > 0 && dir[cut - 1] != '/') cut--;
@@ -205,8 +205,8 @@ void settingsFiles(const(char)[] cwd, ref ZBuf paths) {
     }
 }
 
-// The file at path, read whole. -1 when there is none; -2 when it is larger
-// than is read here, which is said.
+// 「[Fable 5.2] The file at path, read whole. -1 when there is none; -2 when it is larger」
+// 「[Fable 5.2] than is read here, which is said.」
 private ptrdiff_t readWhole(const(char)* path) {
     import core.stdc.stdio : fopen, fread, fclose, fgetc, EOF, stderr, fputs;
     auto f = fopen(path, "r");
@@ -223,8 +223,8 @@ private ptrdiff_t readWhole(const(char)* path) {
     return cast(ptrdiff_t) got;
 }
 
-// The mode a session starts in, as the person's settings say: the mode ground's
-// rules are asked in when no session says its own.
+// 「[Fable 5.2] The mode a session starts in, as the person's settings say: the mode ground's」
+// 「[Fable 5.2] rules are asked in when no session says its own.」
 const(char)[] startingMode(char[] buf) {
     import core.stdc.stdlib : getenv;
     auto h = getenv("HOME\0".ptr);
@@ -250,7 +250,7 @@ const(char)[] startingMode(char[] buf) {
     return buf[0 .. said.length];
 }
 
-// How many rules in the JSON a session in cwd reads say other than ground.
+// 「[Fable 5.2] How many rules in the JSON a session in cwd reads say other than ground.」
 size_t countDisagreements(const(char)[] cwd, const(char)[] mode) {
     __gshared ZBuf paths;
     __gshared FoundIn found;
@@ -312,8 +312,8 @@ private int walk(bool takeOut) {
             const(char)[] tool, command;
             auto rule = text[f.at + 1 .. f.end - 1];
             ruleParts(rule, tool, command);
-            // Two lines under each other, what each says in one column and
-            // what it says it of in the next.
+            // 「[Fable 5.2] Two lines under each other, what each says in one column and」
+            // 「[Fable 5.2] what it says it of in the next.」
             void said(const(char)[] who, const(char)[] says, const(char)[] of) {
                 line.put(who);
                 line.put(says);
@@ -377,8 +377,8 @@ private int walk(bool takeOut) {
     return failed;
 }
 
-// ground disagreements: each rule in the JSON that says other than ground.
+// 「[Fable 5.2] ground disagreements: each rule in the JSON that says other than ground.」
 int handleDisagreements() { return walk(false); }
 
-// ground agree: the same, and each is taken out of the JSON.
+// 「[Fable 5.2] ground agree: the same, and each is taken out of the JSON.」
 int handleAgree() { return walk(true); }

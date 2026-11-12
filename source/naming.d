@@ -33,12 +33,12 @@ struct Named {
 }
 
 // "and it needs to be more clear if a session named itself, or if the User gave it that name]"
-// Who gave a session its name: the person, when the name stands in their own
-// words to the session; the session itself, when it asked for a name nobody
-// said to it; or its harness, when it is what Claude Code calls the session.
+// 「[Fable 5.2] Who gave a session its name: the person, when the name stands in their own」
+// 「[Fable 5.2] words to the session; the session itself, when it asked for a name nobody」
+// 「[Fable 5.2] said to it; or its harness, when it is what Claude Code calls the session.」
 enum Giver : string { user = "user", itself = "itself", harness = "harness" }
 
-// The words a session is told its name's giver in.
+// 「[Fable 5.2] The words a session is told its name's giver in.」
 const(char)[] givenAs(const(char)[] giver) {
     if (giver == Giver.user) return "the name the User gave you";
     if (giver == Giver.harness) return "Claude Code's name for this session";
@@ -46,8 +46,8 @@ const(char)[] givenAs(const(char)[] giver) {
     return "";
 }
 
-// Whether the person said this name to the session: it stands in a prompt of
-// theirs, as ground wrote each one down.
+// 「[Fable 5.2] Whether the person said this name to the session: it stands in a prompt of」
+// 「[Fable 5.2] theirs, as ground wrote each one down.」
 bool userSaid(const(char)[] sessionId, const(char)[] name) {
     import db : openDb, sqlite3, sqlite3_close, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_step, sqlite3_finalize,
         sqlite3_bind_text, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT;
@@ -100,8 +100,8 @@ private const(char)* nameFile(const(char)* keyAt) {
     return path.ptr();
 }
 
-// Who gave the name kept beside the key at keyAt, as its third line says.
-// Empty when none is kept or none is said.
+// 「[Fable 5.2] Who gave the name kept beside the key at keyAt, as its third line says.」
+// 「[Fable 5.2] Empty when none is kept or none is said.」
 const(char)[] keptGiver(const(char)* keyAt, char[] buf) {
     import core.stdc.stdio : fopen, fread, fclose;
     auto at = nameFile(keyAt);

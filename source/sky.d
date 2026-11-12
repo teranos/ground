@@ -82,9 +82,9 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
                      const(char)[] sessionId, const(char)[] mark) {
     if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) {
         // "A SESSION THATS SENDING TO ANOTHER SESSION BY NAME IS TOLD ABOUT THE MESSAGE BEING RECEIVED OR NOT"
-        // News handed to a session is said to the node as received, by the
-        // session's own key: what was said to its name is a Task there, and
-        // this is what completes it.
+        // 「[Fable 5.2] News handed to a session is said to the node as received, by the」
+        // 「[Fable 5.2] session's own key: what was said to its name is a Task there, and」
+        // 「[Fable 5.2] this is what completes it.」
         import say : NEWS_ROW, toldTheNode;
         if (sessionId.length > 0 && msgId.length > NEWS_ROW.length && msgId[0 .. NEWS_ROW.length] == NEWS_ROW) {
             auto why = toldTheNode(sessionId, msgId[NEWS_ROW.length .. $]);

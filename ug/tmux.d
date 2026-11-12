@@ -473,9 +473,9 @@ const(char)[] newsPass(const(char)[] home) {
         if (repo is null) repo = "";
 
         // "AGENTS CAN TALK TO EACH OTHER BY THEIR NAME"
-        // What is said to a name is the session's that keeps the name. No
-        // session here keeps it: it is another machine's, and is left on the
-        // row for that machine's ug.
+        // 「[Fable 5.2] What is said to a name is the session's that keeps the name. No」
+        // 「[Fable 5.2] session here keeps it: it is another machine's, and is left on the」
+        // 「[Fable 5.2] row for that machine's ug.」
         auto to = jsonString(whole.body_, "to");
         __gshared char[128] keeper = void;
         if ((session is null || session.length == 0) && to !is null && to.length > 0) {

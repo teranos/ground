@@ -6,9 +6,9 @@ module say;
 // "AGENTS CAN TALK TO EACH OTHER BY THEIR NAME"
 // "A SESSION THATS SENDING TO ANOTHER SESSION BY NAME IS TOLD ABOUT THE MESSAGE BEING RECEIVED OR NOT, AND WE DONT INVENT HERE, WE TAKE THE A2A CONVENTIONS, WE TAKE THE SDK SERIOUSLY"
 //
-// A name an agent holds is an A2A tenant at its node (QNTX #1671): what is
-// said to it is a Task. The session says it with its own key, and asks after
-// the Task by its id.
+// 「[Fable 5.2] A name an agent holds is an A2A tenant at its node (QNTX #1671): what is」
+// 「[Fable 5.2] said to it is a Task. The session says it with its own key, and asks after」
+// 「[Fable 5.2] the Task by its id.」
 
 import zbuf : ZBuf;
 import code.reply : Reply, putEscaped;
@@ -25,8 +25,8 @@ ground heard Slate 01a1d0c3-0922-759f-a495-a1e92e3a6851
 ground received 01a1d0c3-0922-759f-a495-a1e92e3a6851
 EOS";
 
-// The node's A2A address of a name: its tenant. A space in a name of two
-// words is written as the address writes one.
+// 「[Fable 5.2] The node's A2A address of a name: its tenant. A space in a name of two」
+// 「[Fable 5.2] words is written as the address writes one.」
 void tenantUrl(ref ZBuf url, const(char)[] node, const(char)[] name) {
     url.reset();
     url.put(node);
@@ -37,7 +37,7 @@ void tenantUrl(ref ZBuf url, const(char)[] node, const(char)[] name) {
     }
 }
 
-// What a Task is in, in the words it is told in.
+// 「[Fable 5.2] What a Task is in, in the words it is told in.」
 const(char)[] stateSaid(const(char)[] state) {
     if (state == "TASK_STATE_SUBMITTED") return "is not received yet";
     if (state == "TASK_STATE_WORKING") return "is being received";
@@ -54,8 +54,8 @@ private struct Asking {
     bool ok;
 }
 
-// The node this session is signed in to and the key it says things by, or why
-// not, said on stderr.
+// 「[Fable 5.2] The node this session is signed in to and the key it says things by, or why」
+// 「[Fable 5.2] not, said on stderr.」
 private Asking asking(const(char)* what) {
     import core.stdc.stdio : stderr, fputs;
     import core.stdc.stdlib : getenv;
@@ -82,9 +82,9 @@ private Asking asking(const(char)* what) {
 }
 
 // "do you think the ground say should show near misses ?"
-// What a node says of a name nobody holds, in words: nobody holds it, and the
-// names near it when the node gave some (QNTX #1686). Empty when the answer is
-// about something else.
+// 「[Fable 5.2] What a node says of a name nobody holds, in words: nobody holds it, and the」
+// 「[Fable 5.2] names near it when the node gave some (QNTX #1686). Empty when the answer is」
+// 「[Fable 5.2] about something else.」
 const(char)[] nobodyHolds(const(char)[] name, const(char)[] answer, ref ZBuf line) {
     import matcher : indexOf;
     enum none = "no agent is served at tenant ";
@@ -104,7 +104,7 @@ const(char)[] nobodyHolds(const(char)[] name, const(char)[] answer, ref ZBuf lin
     return line.slice();
 }
 
-// What the node answered with, said whole when it was no Task.
+// 「[Fable 5.2] What the node answered with, said whole when it was no Task.」
 private int refused(const(char)* what, const(char)[] url, int status, int code, const(char)[] why, const(char)[] answer) {
     import core.stdc.stdio : stderr, fputs;
     __gshared ZBuf line;
@@ -129,14 +129,14 @@ private int refused(const(char)* what, const(char)[] url, int status, int code, 
     return 1;
 }
 
-// The row ug writes news as: the item's id after it, which for what was said
-// to a name is its Task's.
+// 「[Fable 5.2] The row ug writes news as: the item's id after it, which for what was said」
+// 「[Fable 5.2] to a name is its Task's.」
 enum NEWS_ROW = "immediate:news:";
 
-// The session asks its node for the whole of a news item, by its own key: for
-// what was said to its name, that is the node hearing it was received (QNTX
-// #1684). Any other news is asked for and nothing follows. Empty when the node
-// answered, whatever it answered; else why it was not reached.
+// 「[Fable 5.2] The session asks its node for the whole of a news item, by its own key: for」
+// 「[Fable 5.2] what was said to its name, that is the node hearing it was received (QNTX」
+// 「[Fable 5.2] #1684). Any other news is asked for and nothing follows. Empty when the node」
+// 「[Fable 5.2] answered, whatever it answered; else why it was not reached.」
 const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
     import http : httpGet, ToNode;
     import nodeconfig : nodeHere;
@@ -154,8 +154,8 @@ const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
     url.put(item);
     __gshared char[4096] reply;
     auto r = httpGet(url.slice(), ToNode(keyAt), reply[], 15);
-    // The item is there and the node answered with it, or it is news the row
-    // let go of already: neither is a failure to say it.
+    // 「[Fable 5.2] The item is there and the node answered with it, or it is news the row」
+    // 「[Fable 5.2] let go of already: neither is a failure to say it.」
     if (r.status == 200 || r.status == 404) return "";
     __gshared ZBuf why;
     why.reset();
@@ -172,9 +172,9 @@ const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
     return why.slice();
 }
 
-// ground received <task>: this session says to its node, by its own key, that
-// it received what a Task said to its name. sky says so as it hands news over;
-// this is the same said by hand.
+// 「[Fable 5.2] ground received <task>: this session says to its node, by its own key, that」
+// 「[Fable 5.2] it received what a Task said to its name. sky says so as it hands news over;」
+// 「[Fable 5.2] this is the same said by hand.」
 int handleReceived(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;
     import core.stdc.stdlib : getenv;
@@ -204,7 +204,7 @@ int handleReceived(int argc, const(char)** argv) {
     return 0;
 }
 
-// ground say <Name> <words>: said to the agent that holds the name, as a Task.
+// 「[Fable 5.2] ground say <Name> <words>: said to the agent that holds the name, as a Task.」
 int handleSay(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;
     import core.stdc.time : time;
@@ -278,7 +278,7 @@ int handleSay(int argc, const(char)** argv) {
     return 0;
 }
 
-// ground heard <Name> <task>: whether what was said to the name was received.
+// 「[Fable 5.2] ground heard <Name> <task>: whether what was said to the name was received.」
 int handleHeard(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;
     import hookrun : argLen;
