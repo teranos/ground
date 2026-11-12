@@ -246,7 +246,7 @@ const(char)[] startingMode(char[] buf) {
     if (!mode.ok || mode.valAt >= text.length || text[mode.valAt] != '"') return "default";
     auto said = text[mode.valAt + 1 .. mode.valEnd - 1];
     if (said.length > buf.length) return "default";
-    buf[0 .. said.length] = said[];
+    foreach (i, c; said) buf[i] = c;
     return buf[0 .. said.length];
 }
 
@@ -285,7 +285,7 @@ private int walk(bool takeOut) {
     char[32] modeBuf = 0;
     __gshared char[32] modeKept;
     auto m = startingMode(modeBuf[]);
-    modeKept[0 .. m.length] = m[];
+    foreach (i, c; m) modeKept[i] = c;
     auto mode = modeKept[0 .. m.length];
 
     __gshared ZBuf paths;
