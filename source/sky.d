@@ -87,9 +87,28 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
         // this is what completes it.
         import say : NEWS_ROW, toldTheNode;
         if (sessionId.length > 0 && msgId.length > NEWS_ROW.length && msgId[0 .. NEWS_ROW.length] == NEWS_ROW) {
-            auto why = toldTheNode(sessionId, msgId[NEWS_ROW.length .. $]);
-            if (why.length > 0)
-                toSentry("sky.received", "what was handed to the session was not said to the node as received", 1, sessionId, why);
+            // Said apart from the hand-over, and again when the node does not
+            // answer: a node still answering the saying itself answered no
+            // receipt sent four seconds after it, and the Task of what the
+            // session had in hand ended as not received. The session is not
+            // kept waiting on the node for it.
+            import core.sys.posix.unistd : fork, _exit, sleep;
+            import core.sys.posix.signal : signal, SIGCHLD, SIG_IGN;
+            signal(SIGCHLD, SIG_IGN);
+            auto apart = fork();
+            if (apart == 0) {
+                const(char)[] why;
+                foreach (attempt; 0 .. 6) {
+                    why = toldTheNode(sessionId, msgId[NEWS_ROW.length .. $]);
+                    if (why.length == 0) break;
+                    sleep(10);
+                }
+                if (why.length > 0)
+                    toSentry("sky.received", "what was handed to the session was not said to the node as received", 1, sessionId, why);
+                _exit(0);
+            }
+            if (apart < 0)
+                toSentry("sky.received", "the receipt could not be said apart from the hand-over, and was not said", 1, sessionId, msgId);
         }
         return true;
     }
