@@ -1,7 +1,7 @@
 module saidonce_test;
 
 // "ALSO, IT SPAMS, ONCE IS FINE"
-// A refusal that is the same on every hook of a session is said to it once.
+// 「[Fable 5.1, Fable 5.2] A refusal that is the same on every hook of a session is said to it once.」
 
 unittest {
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK;
