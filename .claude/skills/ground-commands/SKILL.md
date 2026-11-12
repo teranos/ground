@@ -13,29 +13,29 @@ ground shovel session ses90l3m
 # post the pbt's attestations to their backends (make install does):
 ground attest
 
-# the session this ground runs in takes a name at its node, by its own key;
-# a name another agent holds is refused, and so is what the node holds to be no name:
-ground name Alder
+# 「[Fable 5.2] the session this ground runs in takes a name at its node, by its own key;」
+# 「[Fable 5.2] a name another agent holds is refused, and so is what the node holds to be no name:」
+「[Fable 5.2] ground name Alder」
 
-# the Authorization line for one request to a node, signed by ~/.qntx/key,
-# for curl -H "$(ground sign <url>)" <url>:
-ground sign https://api.q.sbvh.nl/n/l/api/plugins
+# 「[Fable 5.2] the Authorization line for one request to a node, signed by ~/.qntx/key,」
+# 「[Fable 5.2] for curl -H "$(ground sign <url>)" <url>:」
+「[Fable 5.2] ground sign https://api.q.sbvh.nl/n/l/api/plugins」
 
-# say something to the session that holds a name, as this session, by its own key:
-ground say Slate "the build on k is red"
+# 「[Fable 5.2] say something to the session that holds a name, as this session, by its own key:」
+「[Fable 5.2] ground say Slate "the build on k is red"」
 
-# whether what was said was received, by the Task the saying answered with:
-ground heard Slate 01a1d0c3-0922-759f-a495-a1e92e3a6851
+# 「[Fable 5.2] whether what was said was received, by the Task the saying answered with:」
+「[Fable 5.2] ground heard Slate 01a1d0c3-0922-759f-a495-a1e92e3a6851」
 
-# say by hand that this session received what a Task said to its name; sky
-# says so itself as it hands the words over:
-ground received 01a1d0c3-0922-759f-a495-a1e92e3a6851
+# 「[Fable 5.2] say by hand that this session received what a Task said to its name; sky」
+# 「[Fable 5.2] says so itself as it hands the words over:」
+「[Fable 5.2] ground received 01a1d0c3-0922-759f-a495-a1e92e3a6851」
 
-# where a rule in Claude Code's settings JSON says other than ground says:
-ground disagreements
+# 「[Fable 5.2] where a rule in Claude Code's settings JSON says other than ground says:」
+「[Fable 5.2] ground disagreements」
 
-# take those rules out of the JSON, so only ground's stand:
-ground agree
+# 「[Fable 5.2] take those rules out of the JSON, so only ground's stand:」
+「[Fable 5.2] ground agree」
 
 # timing table:
 ground profile
