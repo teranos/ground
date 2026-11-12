@@ -1,13 +1,4 @@
-Rituals and rites. A ritual is one or more sequences of rites blocks, and a rite is a command whose exit code says whether the walk advances, holds or halts. A performance is one full run of a ritual, in a checkout of its own. 
-
-- TODO A run's result reaches the parent when that run concludes "failure needs to prop to parent immediately when i happens" "if FLIP1 ci is red, parent should know about it on T15 and the FLIP2 ci red would surface on T2 + T15" "90c is only halfish done, because we cant do better on a --bg agent" 
-- TODO List rituals for this path "ask about rituals for where we are now" 
-- TODO Show one ritual's rites "ask about what rites are inside of one specific ritual" 
-- TODO A rite's verdict reaches the agent, unasked "i am a user, not an agent" 
-- TODO Ground's trace is on your screen as it happens "the first two sentences of what happened in last_assistent_message pre-Stop inside of any rite as a Notification in the parent session" 
-- TODO Commit, push and CI auto-approved inside a performance "commits and pushes and ci check, are all auto-approved" 
-- TODO Notification "Notification is one that is on my wish list actually" "never believe anything Claude is inferring from this, always consult Antropic docs as first source." 
-- TODO TaskCreated TODO TaskCompleted
+Rituals and rites. A ritual is one or more sequences of rites blocks, and a rite is a command whose exit code says whether the walk advances, holds or halts. A performance is one full run of a ritual, in a checkout of its own. TODO A run's result reaches the parent when that run concludes "failure needs to prop to parent immediately when i happens" "if FLIP1 ci is red, parent should know about it on T15 and the FLIP2 ci red would surface on T2 + T15" "90c is only halfish done, because we cant do better on a --bg agent" TODO List rituals for this path "ask about rituals for where we are now" TODO Show one ritual's rites "ask about what rites are inside of one specific ritual" TODO A rite's verdict reaches the agent, unasked "i am a user, not an agent" TODO Ground's trace is on your screen as it happens "the first two sentences of what happened in last_assistent_message pre-Stop inside of any rite as a Notification in the parent session" TODO Commit, push and CI auto-approved inside a performance "commits and pushes and ci check, are all auto-approved" TODO Notification "Notification is one that is on my wish list actually" "never believe anything Claude is inferring from this, always consult Antropic docs as first source." TODO TaskCreated TODO TaskCompleted
 
 ## proto_ritual-ritesInput
 
@@ -114,9 +105,7 @@ A project that names its repo is every checkout of it.
 A project block holding no ritual has nothing to switch, however deep it is.
 
 ## regoto-withRegoto
-A second fire starts no performance. The live one's tree is brought onto the push, its walk goes to the named rite with its counts started over, and its agent and parent are told. A fire after the regoto rite sends the walk back to it: regoto-walk on W3, pushed again, stood on W2 in the same row, its tree at the new push. 
-TODO open: a fire that lands before the regoto rite jumps forward to it, W1 to W2. Whether to keep that is undecided. 
-TODO open: without a tree of its own a regoto moves the checkout the ritual fired from. Whether the parser should refuse regoto without tree is undecided.
+A second fire starts no performance. The live one's tree is brought onto the push, its walk goes to the named rite with its counts started over, and its agent and parent are told. A fire after the regoto rite sends the walk back to it: regoto-walk on W3, pushed again, stood on W2 in the same row, its tree at the new push. TODO open: a fire that lands before the regoto rite jumps forward to it, W1 to W2. Whether to keep that is undecided. TODO open: without a tree of its own a regoto moves the checkout the ritual fired from. Whether the parser should refuse regoto without tree is undecided.
 
 ## regoto-withoutRegoto
 
