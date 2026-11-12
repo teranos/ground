@@ -102,6 +102,40 @@ private int refused(const(char)* what, const(char)[] url, int status, int code, 
     return 1;
 }
 
+// The row ug writes news as: the item's id after it, which for what was said
+// to a name is its Task's.
+enum NEWS_ROW = "immediate:news:";
+
+// The session asks its node for the whole of a news item, by its own key: for
+// what was said to its name, that is the node hearing it was received (QNTX
+// #1684). Any other news is asked for and nothing follows. Empty when the node
+// answered, whatever it answered; else why it was not reached.
+const(char)[] toldTheNode(const(char)[] sessionId, const(char)[] item) {
+    import http : httpGet, ToNode;
+    import nodeconfig : nodeHere;
+    import naming : sessionKeyFile;
+    foreach (c; item) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-')) return "";
+    }
+    auto here = nodeHere();
+    auto keyAt = sessionKeyFile(sessionId);
+    if (here.sandUrl.length == 0 || keyAt is null) return "";
+    __gshared ZBuf url;
+    url.reset();
+    url.put(here.sandUrl);
+    url.put("/am/statusline/");
+    url.put(item);
+    __gshared char[4096] reply;
+    auto r = httpGet(url.slice(), ToNode(keyAt), reply[], 5);
+    if (r.status > 0) return "";
+    __gshared ZBuf why;
+    why.reset();
+    why.put(url.slice());
+    why.put(" was not reached: ");
+    why.put(r.why());
+    return why.slice();
+}
+
 // ground say <Name> <words>: said to the agent that holds the name, as a Task.
 int handleSay(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;

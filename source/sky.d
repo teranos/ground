@@ -80,7 +80,19 @@ private void toSentry(string origin, string message, int exitCode,
 
 private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectContext,
                      const(char)[] sessionId, const(char)[] mark) {
-    if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) return true;
+    if (markImmediateDelivered(db, msgId, projectContext, sessionId, mark)) {
+        // "A SESSION THATS SENDING TO ANOTHER SESSION BY NAME IS TOLD ABOUT THE MESSAGE BEING RECEIVED OR NOT"
+        // News handed to a session is said to the node as received, by the
+        // session's own key: what was said to its name is a Task there, and
+        // this is what completes it.
+        import say : NEWS_ROW, toldTheNode;
+        if (sessionId.length > 0 && msgId.length > NEWS_ROW.length && msgId[0 .. NEWS_ROW.length] == NEWS_ROW) {
+            auto why = toldTheNode(sessionId, msgId[NEWS_ROW.length .. $]);
+            if (why.length > 0)
+                toSentry("sky.received", "what was handed to the session was not said to the node as received", 1, sessionId, why);
+        }
+        return true;
+    }
     toSentry("sky.receipt",
              "the delivery receipt did not land, so this message would be handed over without end",
              1, "", msgId);
