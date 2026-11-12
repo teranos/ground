@@ -42,8 +42,8 @@ static assert(modelKey("claude-opus-5") == "claude-opus-5");
 static assert(modelKey("claude-fable-5-1") == "claude-fable-5-1");
 static assert(modelKey("") == "");
 
-// The models each window governs are the ones sessions ran: Fable's week
-// reaches every Fable, the account's week the rest. No model is named in code.
+// 「[Fable 5.1, Fable 5.2] The models each window governs are the ones sessions ran: Fable's week」
+// 「[Fable 5.1, Fable 5.2] reaches every Fable, the account's week the rest. No model is named in code.」
 static assert(isFable("claude-fable-5-1"));
 static assert(isFable("claude-fable-5-2"));
 static assert(!isFable("claude-opus-5-5"));

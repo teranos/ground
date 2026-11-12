@@ -102,9 +102,9 @@ static assert(decide(true, "medium", "medium", "xhigh", "high") == Move.letGo);
 static assert(decide(true, "low", "medium", "", "high") == Move.letGo);
 
 // "the hardcoded list is BS"
-// The pass governs the models sessions ran, read from session_model: a Fable
-// by Fable's week, the rest by the account's. A model named nowhere in code is
-// pinned the day a session runs it.
+// 「[Fable 5.1, Fable 5.2] The pass governs the models sessions ran, read from session_model: a Fable」
+// 「[Fable 5.1, Fable 5.2] by Fable's week, the rest by the account's. A model named nowhere in code is」
+// 「[Fable 5.1, Fable 5.2] pinned the day a session runs it.」
 unittest {
     import core.stdc.stdio : snprintf, fopen, fputs, fclose;
     import core.sys.posix.stdlib : setenv;
@@ -137,17 +137,17 @@ unittest {
     assert(seen.count == 2, "two models were run");
     assert(seen[0] == "claude-fable-5-2" && seen[1] == "claude-opus-5-5", "by settings key, the bracket gone");
 
-    // Fable's week past its limit pins the Fable and no other.
+    // 「[Fable 5.1, Fable 5.2] Fable's week past its limit pins the Fable and no other.」
     effortPass(db, 0, 900, 2000);
     assert(openPin(db, "claude-fable-5-2").open, "the Fable a session ran is pinned");
     assert(!openPin(db, "claude-opus-5-5").open, "the account's week is not past its limit");
-    // The account's week past its limit pins the rest.
+    // 「[Fable 5.1, Fable 5.2] The account's week past its limit pins the rest.」
     effortPass(db, 960, 900, 3000);
     assert(openPin(db, "claude-opus-5-5").open, "the model the account's week governs is pinned");
 }
 
-// Every model a session ran is seen, however many and however long its name;
-// and a name with what a settings key cannot hold is no model.
+// 「[Fable 5.1, Fable 5.2] Every model a session ran is seen, however many and however long its name;」
+// 「[Fable 5.1, Fable 5.2] and a name with what a settings key cannot hold is no model.」
 unittest {
     import core.stdc.stdio : snprintf;
     import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK, recordModel;
@@ -171,8 +171,8 @@ unittest {
     assert(seen[39] == "claude-a-model-with-a-name-longer-than-sixteen-bytes-39", seen[39]);
 }
 
-// More models moved than the notice holds: every line said is whole, and the
-// last says how many were left out.
+// 「[Fable 5.1, Fable 5.2] More models moved than the notice holds: every line said is whole, and the」
+// 「[Fable 5.1, Fable 5.2] last says how many were left out.」
 unittest {
     import effort : Pinned;
     import matcher : indexOf;
