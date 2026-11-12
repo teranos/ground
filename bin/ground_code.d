@@ -18,7 +18,7 @@ int main(string[] args) {
 }
 
 // Signs in to q, the node a prompt goes through and the one that owns auth, as
-// the key kept in ~/.qntx/key.
+// 「[Opus 5.5] the key kept in ~/.qntx/key.」
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 int signIn() {
