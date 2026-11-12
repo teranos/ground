@@ -3,12 +3,12 @@ module named;
 // "AGENTS CAN TALK TO EACH OTHER BY THEIR NAME"
 // "AND GROUND DELIVERS IT VIA UG AND STATUSLINE"
 //
-// What is said to a name is the session's that keeps the name. Ground keeps a
-// session's name beside its key, in ~/.qntx/sessions/<session id>/name, the
-// name on its first line (source/naming.d). The session is found there.
+// 「[Fable 5.2] What is said to a name is the session's that keeps the name. Ground keeps a」
+// 「[Fable 5.2] session's name beside its key, in ~/.qntx/sessions/<session id>/name, the」
+// 「[Fable 5.2] name on its first line (source/naming.d). The session is found there.」
 
-// The id of the session on this machine that keeps name, into dest. Its
-// length, 0 when no session here keeps it: the name is another machine's.
+// 「[Fable 5.2] The id of the session on this machine that keeps name, into dest. Its」
+// 「[Fable 5.2] length, 0 when no session here keeps it: the name is another machine's.」
 size_t sessionKeeping(const(char)[] home, const(char)[] name, char[] dest) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     import core.stdc.stdio : fopen, fread, fclose;
