@@ -49,8 +49,71 @@ enum MEDIUM_AT = 800;
 enum ACCOUNT_LOW_AT = 950;
 enum FABLE_LOW_AT = 850;
 
-enum FABLE_MODEL = "claude-fable-5-1";
-immutable string[2] ACCOUNT_MODELS = ["claude-opus-5", "claude-sonnet-5"];
+// "the hardcoded list is BS"
+// The models each window governs are the models sessions ran, as ug wrote them
+// down (session_model), each by its settings key. Fable's week reaches every
+// Fable; the account's week reaches the rest. No model is named here: a new
+// one is governed the day a session runs it.
+enum FABLE_PREFIX = "claude-fable-";
+enum MODELS_SEEN_SQL = "SELECT DISTINCT model FROM session_model WHERE model LIKE 'claude-%' ORDER BY model\0";
+
+// A settings key is written into the settings file as it stands, between
+// quotes: only what a model's name is made of is one. A name a hook event
+// carried with a quote or a brace in it is no model, and is no key.
+bool isSettingsKey(const(char)[] key) {
+    if (key.length == 0) return false;
+    foreach (c; key) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.')) return false;
+    }
+    return true;
+}
+
+// Every key, each with a NUL after it, in a buffer that grows: as many models
+// as sessions ran, as long as their names are.
+struct ModelsSeen {
+    import code.reply : Reply;
+    Reply keys;
+    size_t count;
+    const(char)[] opIndex(size_t i) const return {
+        auto all = keys.slice();
+        size_t at = 0;
+        foreach (_; 0 .. i) {
+            while (all[at] != 0) at++;
+            at++;
+        }
+        auto end = at;
+        while (all[end] != 0) end++;
+        return all[at .. end];
+    }
+    void add(const(char)[] key) {
+        if (!isSettingsKey(key)) return;
+        foreach (i; 0 .. count) if (this[i] == key) return;
+        keys.add(key);
+        keys.add("\0");
+        count++;
+    }
+    void dispose() { keys.dispose(); count = 0; }
+}
+
+bool isFable(const(char)[] model) {
+    return model.length >= FABLE_PREFIX.length && model[0 .. FABLE_PREFIX.length] == FABLE_PREFIX;
+}
+
+// Every model a session ran, by its settings key, once each.
+ModelsSeen modelsSeen(sqlite3* db) {
+    import db : sqlite3_stmt, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_text, sqlite3_finalize, SQLITE_OK, SQLITE_ROW;
+    import core.stdc.string : strlen;
+    ModelsSeen seen;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, MODELS_SEEN_SQL.ptr, -1, &stmt, null) != SQLITE_OK) return seen;
+    scope (exit) sqlite3_finalize(stmt);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto t = cast(const(char)*) sqlite3_column_text(stmt, 0);
+        if (t is null) continue;
+        seen.add(modelKey(t[0 .. strlen(t)]));
+    }
+    return seen;
+}
 
 // What a reading asks of the models its window governs: "low", "medium", or
 // "" for a reading that asks nothing. A window with no reading, and one that
@@ -540,14 +603,46 @@ bool settingsWrite(const(char)[] text) {
 
 // What a pass did, in words for the session, or nothing.
 struct Pinned {
-    // Three models can move in one pass, each with its own line.
-    char[512] buf = 0;
+    // Every model a session ran can move in one pass, each with its own line.
+    // A line that does not fit is left out whole and counted, and close says
+    // how many: no line is cut in the middle.
+    char[4096] buf = 0;
     size_t len;
+    size_t lineAt;
+    size_t unsaid;
+    bool leftOut;
+    enum TAIL = 64;
     const(char)[] text() const return { return buf[0 .. len]; }
-    void put(const(char)[] s) { foreach (c; s) if (len < buf.length) buf[len++] = c; }
+    void put(const(char)[] s) {
+        if (leftOut) return;
+        foreach (c; s) {
+            if (len < buf.length - TAIL) { buf[len++] = c; continue; }
+            len = lineAt;
+            leftOut = true;
+            unsaid++;
+            return;
+        }
+    }
     // Each model that moved says so on its own line: a pass can move more
     // than one, and two of them run together read as one wrong sentence.
-    void line() { if (len > 0 && len < buf.length) buf[len++] = '\n'; }
+    void line() {
+        leftOut = false;
+        lineAt = len;
+        if (len > 0) put("\n");
+    }
+    // The last line, when lines were left out: how many.
+    void close() {
+        if (unsaid == 0) return;
+        void tail(const(char)[] s) { foreach (c; s) if (len < buf.length) buf[len++] = c; }
+        char[20] d = void;
+        size_t dl = 0;
+        auto n = unsaid;
+        while (n > 0 && dl < d.length) { d[dl++] = cast(char)('0' + n % 10); n /= 10; }
+        tail("\nand ");
+        foreach_reverse (i; 0 .. dl) tail(d[i .. i + 1]);
+        tail(" more moved, not said here");
+        unsaid = 0;
+    }
     void tenths(long v) {
         char[24] d = void; size_t dl = 0; auto w = v / 10;
         if (w <= 0) d[dl++] = '0';
@@ -683,9 +778,14 @@ private void legacyHandBack(sqlite3* db, long now, ref Pinned said) {
 Pinned effortPass(sqlite3* db, long accountTenths, long fableTenths, long now) {
     Pinned said;
     legacyHandBack(db, now, said);
-    onePass(db, FABLE_MODEL, "Fable week", fableTenths, FABLE_LOW_AT, now, said);
-    foreach (model; ACCOUNT_MODELS)
-        onePass(db, model, "week", accountTenths, ACCOUNT_LOW_AT, now, said);
+    auto seen = modelsSeen(db);
+    scope (exit) seen.dispose();
+    foreach (i; 0 .. seen.count) {
+        auto model = seen[i];
+        if (isFable(model)) onePass(db, model, "Fable week", fableTenths, FABLE_LOW_AT, now, said);
+        else onePass(db, model, "week", accountTenths, ACCOUNT_LOW_AT, now, said);
+    }
+    said.close();
     return said;
 }
 
