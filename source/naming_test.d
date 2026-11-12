@@ -33,7 +33,7 @@ unittest {
     Named named;
     auto at = sessionKeyFile("ses-1");
     assert(at !is null);
-    assert(nameSession(n.url, at, "Alder", named) == 1, named.why.slice());
+    assert(nameSession(n.url, at, "Alder", Giver.user, named) == 1, named.why.slice());
     assert(named.name.slice() == "Alder", named.name.slice());
     assert(named.did.slice().length > "did:key:z".length, named.did.slice());
     auto heard = heardAll(n);
@@ -43,7 +43,13 @@ unittest {
     assert(indexOf(heard, "did=did%3Akey%3Az") >= 0, heard);
     assert(indexOf(heard, "&label=Alder") >= 0, heard);
     assert(indexOf(heard, "POST /i/name HTTP/1.1") >= 0, heard);
-    assert(indexOf(heard, `{"name":"Alder"}`) >= 0, heard);
+    // "and it needs to be more clear if a session named itself, or if the User gave it that name]"
+    assert(indexOf(heard, `{"name":"Alder","given":"user"}`) >= 0, heard);
+    char[256] buf;
+    assert(keptGiver(sessionKeyFile("ses-1"), buf[]) == "user", keptGiver(sessionKeyFile("ses-1"), buf[]));
+    assert(givenAs("user") == "the name the User gave you");
+    assert(givenAs("itself") == "a name you took yourself");
+    assert(givenAs("harness") == "Claude Code's name for this session");
 }
 
 // A name another agent holds is taken: the session is told, and no other name
@@ -53,7 +59,7 @@ unittest {
     testHome(home, key);
     auto n = node(ADMITTED, TAKEN);
     Named named;
-    assert(nameSession(n.url, sessionKeyFile("ses-taken"), "Alder", named) == -1);
+    assert(nameSession(n.url, sessionKeyFile("ses-taken"), "Alder", Giver.itself, named) == -1);
     heardAll(n);
     assert(indexOf(named.why.slice(), "Alder is taken") >= 0, named.why.slice());
 }
@@ -70,7 +76,7 @@ unittest {
     auto at = sessionKeyFile("ses-kept");
     char[256] buf;
     assert(keptName(at, n.url, buf[]) is null, "a session never named keeps no name");
-    assert(nameSession(n.url, at, "Alder", named) == 1, named.why.slice());
+    assert(nameSession(n.url, at, "Alder", Giver.user, named) == 1, named.why.slice());
     heardAll(n);
     assert(named.why.len == 0, named.why.slice());
     assert(keptName(sessionKeyFile("ses-kept"), n.url, buf[]) == "Alder", keptName(sessionKeyFile("ses-kept"), n.url, buf[]));
@@ -84,7 +90,7 @@ unittest {
     testHome(home, key);
     auto n = node(http!("403 Forbidden", `{"error":"only a key the person said yes to admits a session's key"}`));
     Named named;
-    assert(nameSession(n.url, sessionKeyFile("ses-2"), "Alder", named) == -1);
+    assert(nameSession(n.url, sessionKeyFile("ses-2"), "Alder", Giver.itself, named) == -1);
     heardAll(n);
     assert(indexOf(named.why.slice(), "/auth/admit answered 403") >= 0, named.why.slice());
     assert(indexOf(named.why.slice(), "only a key the person said yes to") >= 0, named.why.slice());
@@ -111,7 +117,7 @@ unittest {
     testHome(home, key);
     auto n = node(ADMITTED, http!("200 OK", `{"name":"Ald`));
     Named named;
-    assert(nameSession(n.url, sessionKeyFile("ses-cut"), "Alder", named) == -1);
+    assert(nameSession(n.url, sessionKeyFile("ses-cut"), "Alder", Giver.itself, named) == -1);
     heardAll(n);
     assert(indexOf(named.why.slice(), "no whole name") >= 0, named.why.slice());
     char[256] buf;
