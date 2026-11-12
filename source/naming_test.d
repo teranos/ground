@@ -27,7 +27,7 @@ private void testHome(ref char[256] home, ref char[256] key) {
 // The session's key is admitted by ground's, signed; the name wanted is asked
 // for, signed by the session's own key; and that is the name.
 unittest {
-    // book: naming-1
+    // 「[Fable 5.2] book: naming-1」
     char[256] home, key;
     testHome(home, key);
     auto n = node(ADMITTED, NAMED);
