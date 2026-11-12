@@ -2,6 +2,8 @@ module touch_test;
 
 // teranos/ground#275
 // "AND BASH AS WELL WHEN IT TOUCHES A FILE"
+// "WE SHOULD CONSIDER A OBSIDIAN VAULT ITS OWN THING"
+// "ON THE SAME ABSTRACTION LEVEL AS REPO, AND/OR KNOW ABOUT BINDINGS"
 
 version (Posix):
 
@@ -78,4 +80,81 @@ unittest {
     toolEvent(payload, "PreToolUse", "WebSearch", "query", "x");
     putTouched(contexts, "PreToolUse", TOP, payload.slice());
     assert(contexts.slice() == `["session:s`, contexts.slice());
+}
+
+// A note is its vault's: the directory that holds .obsidian, by its name,
+// and the note's path inside it. A vault that is no repository is still one.
+unittest {
+    import core.stdc.stdio : snprintf, fopen, fputs, fclose;
+    import core.sys.posix.stdlib : setenv;
+    import core.sys.posix.unistd : getpid;
+    import db : mkdir;
+    char[256] top = 0, dot = 0, sub = 0, note = 0;
+    auto tn = snprintf(top.ptr, top.length, "/tmp/ground-vault-%d", getpid());
+    mkdir(top.ptr, 448);
+    snprintf(dot.ptr, dot.length, "/tmp/ground-vault-%d/garden", getpid());
+    mkdir(dot.ptr, 448);
+    snprintf(dot.ptr, dot.length, "/tmp/ground-vault-%d/garden/.obsidian", getpid());
+    mkdir(dot.ptr, 448);
+    snprintf(sub.ptr, sub.length, "/tmp/ground-vault-%d/garden/Beds", getpid());
+    mkdir(sub.ptr, 448);
+    auto nn = snprintf(note.ptr, note.length, "/tmp/ground-vault-%d/garden/Beds/Pond notes.md", getpid());
+    auto f = fopen(note.ptr, "w");
+    assert(f !is null);
+    fputs("the pond", f);
+    fclose(f);
+
+    const(char)[] vault, inVault;
+    assert(vaultOf(note[0 .. nn], vault, inVault), "a note under .obsidian's directory is in no vault");
+    assert(vault == "garden", vault);
+    assert(inVault == "Beds/Pond notes.md", inVault);
+    assert(!vaultOf(HERE, vault, inVault), "a source file was taken for a note");
+
+    ZBuf contexts, payload;
+    contexts.put(`["session:s`);
+    toolEvent(payload, "PreToolUse", "Read", "file_path", note[0 .. nn]);
+    putTouched(contexts, "PreToolUse", top[0 .. tn], payload.slice());
+    assert(contexts.slice() == `["session:s","vault:garden:Beds/Pond notes.md`, contexts.slice());
+
+    // Bound at the node, the note is the repository's file as well.
+    setenv("HOME", top.ptr, 1);
+    char[256] share = 0;
+    snprintf(share.ptr, share.length, "/tmp/ground-vault-%d/.local", getpid());
+    mkdir(share.ptr, 448);
+    snprintf(share.ptr, share.length, "/tmp/ground-vault-%d/.local/share", getpid());
+    mkdir(share.ptr, 448);
+    snprintf(share.ptr, share.length, "/tmp/ground-vault-%d/.local/share/ground", getpid());
+    mkdir(share.ptr, 448);
+    auto kept = fopen(bindingsFile(), "w");
+    assert(kept !is null);
+    fputs("garden\tBeds\tacme/garden-docs\tmain\tdocs/beds\n", kept);
+    fclose(kept);
+    contexts.reset();
+    contexts.put(`["session:s`);
+    putTouched(contexts, "PreToolUse", top[0 .. tn], payload.slice());
+    assert(contexts.slice() == `["session:s","vault:garden:Beds/Pond notes.md","file:acme/garden-docs@main:docs/beds/Pond notes.md`, contexts.slice());
+}
+
+// What a node says is bound, as the lines ground keeps; and a note's place
+// among them: the note's own binding, the nearest folder above it, the top of
+// a repository, or none.
+unittest {
+    enum answer = `{"vaults":[{"name":"syncbvh","path":"/var/lib/obsidian/syncbvh","folders":["github.com/teranos/QNTX@main:docs/adr=QNTX/ADR","github.com/teranos/QNTX@main:AGENTS.md=QNTX/AgentInstructions/QNTX/AGENTS.md","github.com/teranos/ground@main:.=teranos/ground","github.com/sbvh-nl/ramen@master:SPEC.md=ramen/SPEC.md"],"disabled":[]}]}`;
+    ZBuf lines;
+    assert(bindingsFrom(answer, lines) == 4, lines.slice());
+    assert(indexOf(lines.slice(), "syncbvh\tQNTX/ADR\tteranos/QNTX\tmain\tdocs/adr\n") == 0, lines.slice());
+
+    const(char)[] repo, branch;
+    ZBuf path;
+    assert(boundTo(lines.slice(), "syncbvh", "QNTX/ADR/ADR-059-Harness-is-a-Plugin.md", repo, branch, path));
+    assert(repo == "teranos/QNTX" && branch == "main" && path.slice() == "docs/adr/ADR-059-Harness-is-a-Plugin.md", path.slice());
+    assert(boundTo(lines.slice(), "syncbvh", "QNTX/AgentInstructions/QNTX/AGENTS.md", repo, branch, path));
+    assert(repo == "teranos/QNTX" && path.slice() == "AGENTS.md", path.slice());
+    assert(boundTo(lines.slice(), "syncbvh", "teranos/ground/doc/book/attestation.md", repo, branch, path));
+    assert(repo == "teranos/ground" && path.slice() == "doc/book/attestation.md", path.slice());
+    assert(boundTo(lines.slice(), "syncbvh", "ramen/SPEC.md", repo, branch, path));
+    assert(repo == "sbvh-nl/ramen" && branch == "master" && path.slice() == "SPEC.md", path.slice());
+    assert(!boundTo(lines.slice(), "syncbvh", "QNTX/2026-11-12.md", repo, branch, path), "a note in no bound place was given a repository");
+    assert(!boundTo(lines.slice(), "another", "QNTX/ADR/x.md", repo, branch, path), "another vault's note was given this one's binding");
+    assert(!boundTo(lines.slice(), "syncbvh", "QNTX/ADRs/x.md", repo, branch, path), "a folder whose name only begins alike was taken for the bound one");
 }

@@ -463,6 +463,23 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         }
     }
 
+    // "ON THE SAME ABSTRACTION LEVEL AS REPO, AND/OR KNOW ABOUT BINDINGS"
+    // What the node says is bound between vaults and repositories is asked
+    // where a session starts, and kept for the rows of the files it touches.
+    if (isStartup) {
+        import touch : keepBindings;
+        import nodeconfig : nodeHere;
+        auto here = nodeHere();
+        if (here.sandUrl.length > 0) {
+            auto why = keepBindings(here.sandUrl);
+            if (why.length > 0) {
+                if (any) ctx.put(" | ");
+                ctx.put(why);
+                any = true;
+            }
+        }
+    }
+
     // "show the disagreement"
     // A rule in Claude Code's JSON that says other than ground is said where
     // the session starts, with the two words that show it and take it out.
