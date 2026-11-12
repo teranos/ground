@@ -1066,8 +1066,8 @@ private const(char)* authMethods(ref const Sessions sessions) {
 // sign-in, the person is sent to its link by an elicitation "tied to a
 // specific JSON-RPC request outside of a session (e.g., during
 // auth/configuration phases before any session is started)", the node is
-// asked until they said yes to the key ground signs with. The client can call
-// it off while it waits.
+// 「[Opus 5.5] asked until they said yes to the key ground signs with. The client can call」
+// 「[Opus 5.5] it off while it waits.」
 private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     import code.login : SignIn, startSignIn, pollSignIn, LABEL;
     import signed : keyFile;
@@ -1081,7 +1081,7 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
         r.add(`}}`);
     }
     if (sessions.input is null) return error(-32603, "ground code reads no input here, so it cannot ask the client");
-    // Auth is q's, the block's gateway; the block's url is k's, the hooks' node for attestations.
+    // 「[Opus 5.5] Auth is q's, the block's gateway; the block's url is k's, the hooks' node for attestations.」
     auto q = sessions.node.gateway.length > 0 ? sessions.node.gateway : sessions.node.url;
     if (q.length == 0) return error(-32603, "the qntx block names no node, so there is none to sign in to");
     Reply keyAt, why, pid, text, answered;
@@ -1779,7 +1779,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     }
 
     // "Terminates the current authenticated session": the key ground code
-    // signed in as is dropped.
+    // 「[Opus 5.5] signed in as is dropped.」
     if (method == AGENT_METHODS.logout) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
         if (__ctfe) assert(0, "a key file is dropped at runtime");
@@ -2454,7 +2454,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
             from = at_ + 1;
         }
-        // The model is the qntx block's, the signature the one every attestation carries.
+        // 「[Opus 5.5] The model is the qntx block's, the signature the one every attestation carries.」
         if (qntxNode.model.length == 0) {
             put(`,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
             return true;
@@ -2649,7 +2649,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 models.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); models.add(MODELS_PATH);
                 auto listed = httpGet(models.slice(), ToNode(), dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
                 if (listed.code != 0 || listed.overran || listed.status != 200) {
-                    // "Authentication required": the node holds no grant for the key, and a sign-in gives it one.
+                    // 「[Opus 5.5] "Authentication required": the node holds no grant for the key, and a sign-in gives it one.」
                     put(listed.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
                         : `,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
                     putEscaped(r, models.slice());
