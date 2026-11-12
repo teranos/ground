@@ -107,7 +107,7 @@ private extern (C) size_t intoSink(char* ptr, size_t size, size_t nmemb, void* u
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 struct ToNode {
-    // The key that signs: ~/.qntx/key when null, a session's own when it names one (naming.d).
+    // 「[Fable 5.1, Fable 5.2] The key that signs: ~/.qntx/key when null, a session's own when it names one (naming.d).」
     const(char)* key;
 }
 

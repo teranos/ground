@@ -450,9 +450,9 @@ void subagentRewrite(const(char)[] input, const(char)[] cwd, const(char)[] sessi
     pendingWhy = why[0 .. wn];
 }
 
-// A message to a subagent resumes it. Why a SendMessage is refused, when it is
-// to a subagent this session started, whatever model it was started on; empty
-// for every other message.
+// 「[Fable 5.1, Fable 5.2] A message to a subagent resumes it. Why a SendMessage is refused, when it is」
+// 「[Fable 5.1, Fable 5.2] to a subagent this session started, whatever model it was started on; empty」
+// 「[Fable 5.1, Fable 5.2] for every other message.」
 // "no subagents ever anynore period"
 // "some people might like them, good for them"
 const(char)[] resumesOnItsSessions(const(char)[] input) {
@@ -1330,7 +1330,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
     // "Subagents Alwys Opus, never Fable, Fable is for what is worth human attention span"
     // "no subagents ever anynore period"
-    // A message to a subagent would run it again.
+    // 「[Fable 5.1, Fable 5.2] A message to a subagent would run it again.」
     if (toolName == "SendMessage") {
         auto resumed = resumesOnItsSessions(input);
         if (resumed.length > 0) {

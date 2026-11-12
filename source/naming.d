@@ -6,11 +6,11 @@ module naming;
 // "SO, ONE ALDER"
 // "ONE SLATE"
 //
-// A session has a key of its own, made where it starts and kept in
-// ~/.qntx/sessions/<session id>/key. The key the person said yes to, ~/.qntx/key,
-// admits it at the node (QNTX /auth/admit, ADR-059), and the session names
-// itself with `i name`, signing as itself. A name another agent holds is taken,
-// and the session asks for another. What a name is, the node says.
+// 「[Fable 5.1, Fable 5.2] A session has a key of its own, made where it starts and kept in」
+// 「[Fable 5.1, Fable 5.2] ~/.qntx/sessions/<session id>/key. The key the person said yes to, ~/.qntx/key,」
+// 「[Fable 5.1, Fable 5.2] admits it at the node (QNTX /auth/admit, ADR-059), and the session names」
+// 「[Fable 5.1, Fable 5.2] itself with `i name`, signing as itself. A name another agent holds is taken,」
+// 「[Fable 5.1, Fable 5.2] and the session asks for another. What a name is, the node says.」
 
 import zbuf : ZBuf;
 import code.reply : Reply, putEscaped;
@@ -25,23 +25,23 @@ ground name Alder
 ground sign https://api.q.sbvh.nl/n/l/api/plugins
 EOS";
 
-// What a session came to be called, by what DID; or why it was not.
+// 「[Fable 5.1, Fable 5.2] What a session came to be called, by what DID; or why it was not.」
 struct Named {
     ZBuf name;
     ZBuf did;
     ZBuf why;
 }
 
-// Where a session's key is kept: ~/.qntx/sessions/<session id>/key. Null when
-// there is no home, no id, or the id is no file name.
+// 「[Fable 5.1, Fable 5.2] Where a session's key is kept: ~/.qntx/sessions/<session id>/key. Null when」
+// 「[Fable 5.1, Fable 5.2] there is no home, no id, or the id is no file name.」
 const(char)* sessionKeyFile(const(char)[] sessionId) {
     import core.stdc.stdlib : getenv;
     __gshared ZBuf path;
     path.reset();
     auto home = getenv("HOME\0".ptr);
     if (home is null || sessionId.length == 0) return null;
-    // An id is a file name of its own: letters, digits, a dash, an underscore.
-    // A dot would make `..` one, and that is ground's own key.
+    // 「[Fable 5.1, Fable 5.2] An id is a file name of its own: letters, digits, a dash, an underscore.」
+    // 「[Fable 5.1, Fable 5.2] A dot would make `..` one, and that is ground's own key.」
     foreach (c; sessionId) {
         if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return null;
     }
@@ -56,7 +56,7 @@ const(char)* sessionKeyFile(const(char)[] sessionId) {
 
 // "the name"
 // "needs to stick"
-// Where the name the node gave is kept: beside the key, as `name`.
+// 「[Fable 5.1, Fable 5.2] Where the name the node gave is kept: beside the key, as `name`.」
 private const(char)* nameFile(const(char)* keyAt) {
     __gshared ZBuf path;
     path.reset();
@@ -69,8 +69,8 @@ private const(char)* nameFile(const(char)* keyAt) {
     return path.ptr();
 }
 
-// The name kept beside the key at keyAt, given at node. Null when none is
-// kept, or the one kept was another node's: a name is one node's to give.
+// 「[Fable 5.1, Fable 5.2] The name kept beside the key at keyAt, given at node. Null when none is」
+// 「[Fable 5.1, Fable 5.2] kept, or the one kept was another node's: a name is one node's to give.」
 const(char)[] keptName(const(char)* keyAt, const(char)[] node, char[] buf) {
     import core.stdc.stdio : fopen, fread, fclose;
     auto at = nameFile(keyAt);
@@ -79,7 +79,7 @@ const(char)[] keptName(const(char)* keyAt, const(char)[] node, char[] buf) {
     if (f is null) return null;
     auto got = fread(buf.ptr, 1, buf.length, f);
     fclose(f);
-    // The name on the first line, its node on the second.
+    // 「[Fable 5.1, Fable 5.2] The name on the first line, its node on the second.」
     size_t line = 0;
     while (line < got && buf[line] != '\n') line++;
     if (line == 0 || line >= got) return null;
@@ -90,9 +90,9 @@ const(char)[] keptName(const(char)* keyAt, const(char)[] node, char[] buf) {
     return buf[0 .. line];
 }
 
-// name, as node gave it, kept beside the key at keyAt: written apart and put
-// in place whole, so what was kept before stands until this is. What went
-// wrong is put in why.
+// 「[Fable 5.1, Fable 5.2] name, as node gave it, kept beside the key at keyAt: written apart and put」
+// 「[Fable 5.1, Fable 5.2] in place whole, so what was kept before stands until this is. What went」
+// 「[Fable 5.1, Fable 5.2] wrong is put in why.」
 private void keepName(const(char)* keyAt, const(char)[] name, const(char)[] node, ref ZBuf why) {
     import core.stdc.stdio : fopen, fwrite, fclose, rename, remove;
     import core.stdc.errno : errno;
@@ -127,7 +127,7 @@ private void keepName(const(char)* keyAt, const(char)[] name, const(char)[] node
     why.put(said[0 .. n]);
 }
 
-// application/x-www-form-urlencoded, as code/login.d writes a form.
+// 「[Fable 5.1, Fable 5.2] application/x-www-form-urlencoded, as code/login.d writes a form.」
 private void putForm(ref Reply r, const(char)[] s) {
     enum hex = "0123456789ABCDEF";
     foreach (c; s) {
@@ -142,7 +142,7 @@ private void putForm(ref Reply r, const(char)[] s) {
     }
 }
 
-// What a request to the node came to, when it did not come to a yes.
+// 「[Fable 5.1, Fable 5.2] What a request to the node came to, when it did not come to a yes.」
 private void putStatus(ref ZBuf why, const(char)[] url, int status, int code, const(char)[] said, const(char)[] body_) {
     why.put(url);
     if (status > 0) {
@@ -159,8 +159,8 @@ private void putStatus(ref ZBuf why, const(char)[] url, int status, int code, co
     }
 }
 
-// The session's key, admitted by ground's at node; then the session named at
-// node as wanted. 1 named; -1 not, and why says.
+// 「[Fable 5.1, Fable 5.2] The session's key, admitted by ground's at node; then the session named at」
+// 「[Fable 5.1, Fable 5.2] node as wanted. 1 named; -1 not, and why says.」
 int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, ref Named out_) {
     import signed : keepKey, putDID;
     import http : httpPostInto, ToNode;
@@ -187,7 +187,7 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
     __gshared ZBuf url;
     __gshared char[8192] reply;
 
-    // The key the person said yes to admits this one. Already held is admitted.
+    // 「[Fable 5.1, Fable 5.2] The key the person said yes to admits this one. Already held is admitted.」
     {
         Reply form;
         scope (exit) form.dispose();
@@ -205,7 +205,7 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
         }
     }
 
-    // The name wanted.
+    // 「[Fable 5.1, Fable 5.2] The name wanted.」
     url.reset();
     url.put(node);
     url.put("/i/name");
@@ -227,8 +227,8 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
     }
     char[256] nameBuf;
     auto name = extractJsonString(answer, `"name"`, nameBuf.ptr, nameBuf.length);
-    // The whole name, closed by its quote: an answer cut short, or a name
-    // longer than is read here, is no name.
+    // 「[Fable 5.1, Fable 5.2] The whole name, closed by its quote: an answer cut short, or a name」
+    // 「[Fable 5.1, Fable 5.2] longer than is read here, is no name.」
     __gshared ZBuf whole;
     whole.reset();
     if (name !is null) {
@@ -246,8 +246,8 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, re
     return 1;
 }
 
-// What Claude Code calls the session whose process is pid: `name` in
-// ~/.claude/sessions/<pid>.json. Null when there is none.
+// 「[Fable 5.1, Fable 5.2] What Claude Code calls the session whose process is pid: `name` in」
+// 「[Fable 5.1, Fable 5.2] ~/.claude/sessions/<pid>.json. Null when there is none.」
 const(char)[] harnessName(int pid, char[] buf) {
     import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fopen, fread, fclose;
@@ -270,8 +270,8 @@ const(char)[] harnessName(int pid, char[] buf) {
     return extractJsonString(json[0 .. got], `"name"`, buf.ptr, buf.length);
 }
 
-// ground name <name>: the session this ground runs in names itself, at the
-// node it is signed in to. Its key is kept by its CLAUDE_CODE_SESSION_ID.
+// 「[Fable 5.1, Fable 5.2] ground name <name>: the session this ground runs in names itself, at the」
+// 「[Fable 5.1, Fable 5.2] node it is signed in to. Its key is kept by its CLAUDE_CODE_SESSION_ID.」
 int handleName(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;
     import core.stdc.stdlib : getenv;
@@ -321,10 +321,10 @@ int handleName(int argc, const(char)** argv) {
     return 0;
 }
 
-// ground sign <url>: the Authorization line a request to url goes with, signed
-// by ~/.qntx/key for that one request, on stdout; for curl -H "$(ground sign
-// <url>)". The signature is spent once at the node and lasts a minute; the key
-// never leaves the file.
+// 「[Fable 5.1, Fable 5.2] ground sign <url>: the Authorization line a request to url goes with, signed」
+// 「[Fable 5.1, Fable 5.2] by ~/.qntx/key for that one request, on stdout; for curl -H "$(ground sign」
+// 「[Fable 5.1, Fable 5.2] <url>)". The signature is spent once at the node and lasts a minute; the key」
+// 「[Fable 5.1, Fable 5.2] never leaves the file.」
 int handleSign(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;
     import hookrun : argLen;

@@ -385,8 +385,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         }
     }
 
-    // The session's own key, admitted by ground's, and its name at the node it
-    // is signed in to: what Claude Code calls it, or the next name free (naming.d).
+    // 「[Fable 5.1, Fable 5.2] The session's own key, admitted by ground's, and its name at the node it」
+    // 「[Fable 5.1, Fable 5.2] is signed in to: what Claude Code calls it, or the next name free (naming.d).」
     if (sessionId !is null) {
         import naming : nameSession, sessionKeyFile, harnessName, keptName, Named;
         import nodeconfig : nodeHere;
@@ -395,12 +395,12 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         if (here.sandUrl.length > 0) {
             char[256] nameBuf;
             // "why would ground ask for a rename, its the same session"
-            // The name it holds is asked for again; the harness's only the first time.
+            // 「[Fable 5.1, Fable 5.2] The name it holds is asked for again; the harness's only the first time.」
             auto keyAt = sessionKeyFile(sessionId);
             auto kept = keptName(keyAt, here.sandUrl, nameBuf[]);
-            // What is written into ctx stands inside a JSON string: a quote, a
-            // backslash and every control character of a name, a node's address
-            // or a node's answer is escaped.
+            // 「[Fable 5.1, Fable 5.2] What is written into ctx stands inside a JSON string: a quote, a」
+            // 「[Fable 5.1, Fable 5.2] backslash and every control character of a name, a node's address」
+            // 「[Fable 5.1, Fable 5.2] or a node's answer is escaped.」
             void inJson(const(char)[] s) {
                 enum hex = "0123456789abcdef";
                 foreach (c; s) {
@@ -411,9 +411,9 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 }
             }
             if (any) ctx.put(" | ");
-            // A compact or a clear is the same session going on: the name it
-            // keeps is said, and the node is not asked, so a node that is slow
-            // or away holds up no session that is already named.
+            // 「[Fable 5.1, Fable 5.2] A compact or a clear is the same session going on: the name it」
+            // 「[Fable 5.1, Fable 5.2] keeps is said, and the node is not asked, so a node that is slow」
+            // 「[Fable 5.1, Fable 5.2] or away holds up no session that is already named.」
             bool goesOn = source !is null && (contains(source, "compact") || contains(source, "clear"));
             if (kept !is null && goesOn) {
                 ctx.put("You are ");
