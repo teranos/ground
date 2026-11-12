@@ -266,8 +266,7 @@ private void out_(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); }
 
 int handleCtfe(int argc, const(char)** argv) {
     import nodeconfig : nodeHere;
-    import attest : qntxToken;
-    import http : httpGet;
+    import http : httpGet, ToNode;
     import db : ZBuf;
 
     const(char)[] mode;
@@ -287,11 +286,6 @@ int handleCtfe(int argc, const(char)** argv) {
         say("ground ctfe: no qntx block and no nodes.pbt names a node, and the rows are on one\n");
         return 1;
     }
-    auto token = qntxToken(node.token);
-    if (token.length == 0) {
-        say("ground ctfe: no token at "); say(node.token); say(" for "); say(node.url); say("\n");
-        return 1;
-    }
 
     __gshared ZBuf url;
     url.reset();
@@ -301,7 +295,7 @@ int handleCtfe(int argc, const(char)** argv) {
         Text p; putNum(p, PAGE); url.put(p.text());
     }
     __gshared char[1024 * 1024] body_ = "";
-    auto r = httpGet(url.slice(), token, body_[], 30);
+    auto r = httpGet(url.slice(), ToNode(), body_[], 30);
     if (r.code != 0 || r.status != 200) {
         say("ground ctfe: "); say(url.slice()); say(" answered ");
         Text s; putNum(s, r.status); say(s.text());

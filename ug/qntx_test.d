@@ -30,12 +30,9 @@ static assert(classify(CURL_OK, 0) == State.probeError);
 // Success says nothing: the absence of the row is what fine looks like.
 static assert(word(State.ok).length == 0);
 
-// A token that is not there and a token that would not read are different
-// facts with different fixes, so they never share a word.
-static assert(word(State.noToken) == "token");
-static assert(word(State.tokenUnreadable) == "unreadable");
-static assert(colourOf(State.noToken) == YELLOW);
-static assert(colourOf(State.tokenUnreadable) == RED);
+// No key kept is ours to fix: the row says key.
+static assert(word(State.noKey) == "key");
+static assert(colourOf(State.noKey) == YELLOW);
 
 // Sent and refused is ours to fix; the box breaking is not.
 static assert(colourOf(State.unauthed) == YELLOW);
@@ -44,7 +41,7 @@ static assert(colourOf(State.serverError) == RED);
 // Every state past ok has a word and a colour, so no measurement reaches the
 // row with nothing to say.
 bool everyStateSpeaks() {
-    foreach (s; [State.noToken, State.tokenUnreadable, State.unauthed,
+    foreach (s; [State.noKey, State.unauthed,
                  State.clientError, State.oddStatus, State.serverError,
                  State.malformedBody, State.dnsFailure, State.refused,
                  State.timeout, State.tlsFailure, State.probeError]) {
@@ -164,8 +161,7 @@ static assert(pluginsLen(`{}`) == 0);
 // through a short silence rather than wiping it. A key that was never set is
 // not a blip: nothing about waiting will produce one, so it stands at once.
 import qntx : standing;
-static assert(standing(State.noToken));
-static assert(standing(State.tokenUnreadable));
+static assert(standing(State.noKey));
 
 // Reaching failures pass or they do not, and the quiet window is theirs.
 static assert(!standing(State.dnsFailure));

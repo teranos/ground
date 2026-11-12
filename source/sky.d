@@ -504,28 +504,17 @@ int handleSky(int argc, const(char)** argv) {
 
     // "tomorrow i want to send the exact same data to both our local sqlite and also qntx at the same time"
     // "so give it a config per ground per node"
-    // The node and its token, read once: a token that changes is a sky that
-    // is respawned at the next hook anyway. No node named is no stream. A node
-    // named with no token is spoken to by ground's key, or, at an agent's door
-    // the node opened for it, with nothing (QNTX server/agent_door.go).
+    // The node, read once. No node named is no stream. A node is spoken to
+    // signed with ground's key, and at an agent's door the node opened for it
+    // the signature is not asked for (QNTX server/agent_door.go).
     //
     // "A signature proves the key, and nothing reusable leaves the node."
-    import attest : qntxToken;
     import nodeconfig : nodeHere;
     __gshared typeof(nodeHere()) node;
     node = nodeHere();
     if (node.why().length > 0) toSentry("sky.node", cast(string) node.why(), -1, sessionId, "");
-    // qntxToken answers into one buffer, so each token is kept in its own.
-    __gshared ZBuf streamTok;
-    streamTok.reset();
-    if (node.url.length > 0) streamTok.put(qntxToken(node.token));
-    const(char)[] streamToken = streamTok.slice();
     // "and q gies the sand"
-    // The sand is pulled from the node signed in to, with the token it was signed in with.
-    __gshared ZBuf sandTok;
-    sandTok.reset();
-    if (node.sandUrl.length > 0) sandTok.put(qntxToken(node.sandToken));
-    const(char)[] sandToken = sandTok.slice();
+    // The sand is pulled from the node signed in to.
     long streamBackoffUntil = 0;
     long streamed = 0;
     long cometBackoffUntil = 0;
@@ -680,7 +669,7 @@ int handleSky(int argc, const(char)** argv) {
             // node did not take waits, longer each time, up to 5m.
             if (node.url.length > 0 && now >= streamBackoffUntil) {
                 import stream : streamPass, paceLanded, paceFailed;
-                auto pass = streamPass(db, node.url, streamToken, myPid, now, pace.take, streamed);
+                auto pass = streamPass(db, node.url, myPid, now, pace.take, streamed);
                 if (pass.ok) {
                     if (pass.sent) paceLanded(pace, pass.grow);
                 } else {
@@ -714,7 +703,7 @@ int handleSky(int argc, const(char)** argv) {
             // answers its own machine without a token is asked without one (bearerLine).
             if (node.sandUrl.length > 0 && originLen > 0 && now >= cometBackoffUntil) {
                 import comet : land, Landed;
-                auto landing = land(node.sandUrl, sandToken, getHome(), originBuf[0 .. originLen]);
+                auto landing = land(node.sandUrl, getHome(), originBuf[0 .. originLen]);
                 if (landing.what == Landed.failed) {
                     cometBackoffUntil = now + SHIP_BACKOFF_SEC;
                     toSentry("sky.comet", cast(string) landing.why(), -1, sessionId, "");

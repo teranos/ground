@@ -15,10 +15,10 @@ unittest {
 
 // A node that does not answer is a landing that failed, and says why; no origin asks nothing.
 unittest {
-    auto down = land("http://127.0.0.1:1", "t", "/tmp", "abcd-nl/grove");
+    auto down = land("http://127.0.0.1:1", "/tmp", "abcd-nl/grove");
     assert(down.what == Landed.failed);
     assert(down.why().length > 0);
-    assert(land("http://127.0.0.1:1", "t", "/tmp", "").what == Landed.none);
+    assert(land("http://127.0.0.1:1", "/tmp", "").what == Landed.none);
 }
 
 // A repository's comet sits under ground's home, by owner and repo: the sand, as make sand names it.

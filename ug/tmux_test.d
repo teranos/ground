@@ -321,10 +321,10 @@ static assert(rowPathInto("a&b", "tmux", new char[160]) == nodeRow.length);
 import tmux : stateInto;
 import qntx : State;
 
-enum wantKeyless = YELLOW ~ "QNTX token" ~ PLAIN;
+enum wantKeyless = YELLOW ~ "QNTX key" ~ PLAIN;
 static assert(() {
     char[64] b = 0;
-    auto n = stateInto(State.noToken, b[]);
+    auto n = stateInto(State.noKey, b[]);
     return b[0 .. n] == wantKeyless;
 }());
 

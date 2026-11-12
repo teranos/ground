@@ -176,7 +176,7 @@ struct Sessions {
     size_t openLen;
     sqlite3* db;   // where sessions are kept; none, and they live in this process only
     bool settingsEffort; // a new session starts at the effort Claude Code's settings name
-    ParsedQntx node; // the node a prompt goes through: its gateway, its token file, its model
+    ParsedQntx node; // the node a prompt goes through: its gateway and its model
     long clock;      // the time, when one is given; otherwise the system's
     uint asked;      // the questions ground code has asked the client, for the next one's id
     bool clientReadsFiles; // initialize said the client answers fs/read_text_file
@@ -1066,11 +1066,10 @@ private const(char)* authMethods(ref const Sessions sessions) {
 // sign-in, the person is sent to its link by an elicitation "tied to a
 // specific JSON-RPC request outside of a session (e.g., during
 // auth/configuration phases before any session is started)", the node is
-// asked until they said yes, and the token it gives is kept where every
-// ground reads its token. The client can call it off while it waits.
+// asked until they said yes to the key ground signs with. The client can call
+// it off while it waits.
 private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
-    import code.login : SignIn, startSignIn, pollSignIn, dropToken, LABEL;
-    import token : qntxTokenFile;
+    import code.login : SignIn, startSignIn, pollSignIn, LABEL;
     import signed : keyFile;
     import libacp : acp_elicitation_url_write, acp_elicitation_complete_write, acp_buffer, acp_buffer_free, acp_status;
     import core.stdc.string : strlen;
@@ -1082,17 +1081,14 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
         r.add(`}}`);
     }
     if (sessions.input is null) return error(-32603, "ground code reads no input here, so it cannot ask the client");
-    // Auth is q's, the block's gateway, and its token is kept in ~/.qntx/token: the block's url and
-    // token file are k's, the hooks' node for attestations, and are left alone.
+    // Auth is q's, the block's gateway; the block's url is k's, the hooks' node for attestations.
     auto q = sessions.node.gateway.length > 0 ? sessions.node.gateway : sessions.node.url;
     if (q.length == 0) return error(-32603, "the qntx block names no node, so there is none to sign in to");
-    auto named = qntxTokenFile("");
-    if (named is null) return error(-32603, "the key is kept in a home, and HOME names none");
-    Reply file, keyAt, why, pid, text, answered;
+    Reply keyAt, why, pid, text, answered;
     SignIn s;
-    scope(exit) { file.dispose(); keyAt.dispose(); why.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
-    file.add(named[0 .. strlen(named)]); file.add("\0");
+    scope(exit) { keyAt.dispose(); why.dispose(); pid.dispose(); text.dispose(); answered.dispose(); s.dispose(); }
     auto keyNamed = keyFile();
+    if (keyNamed is null) return error(-32603, "the key is kept in a home, and HOME names none");
     keyAt.add(keyNamed[0 .. strlen(keyNamed)]); keyAt.add("\0");
     if (startSignIn(q, keyAt.slice().ptr, s, why) != 1) return error(-32603, "the node did not start a sign-in", why.slice());
 
@@ -1104,7 +1100,7 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     auto linkAt = at(s.link.slice());
     auto messageAt = text.len; text.add("Sign in to QNTX as "); text.add(LABEL); text.add(". The code there is ");
     text.add(s.userCode.slice()); text.add(".\0");
-    if (text.full || file.full) return error(-32603, "could not allocate the sign-in");
+    if (text.full) return error(-32603, "could not allocate the sign-in");
     auto t = text.slice().ptr;
     acp_buffer asked;
     scope(exit) acp_buffer_free(&asked);
@@ -1155,9 +1151,6 @@ private void signIn(ref Sessions sessions, const(char)[] id, ref Reply r) {
     }
     // A cancel the client sent while the node was asked is a sign-in called off: nothing is kept.
     if (cancelAsked(turn)) return error(-32800, "the client cancelled the sign-in");
-    why.len = 0;
-    // The key is what speaks from now on: a token once kept would be sent before it.
-    if (dropToken(file.slice().ptr, why) < 0) return error(-32603, "signed in, but the token once kept could not be dropped", why.slice());
     // "Notification sent by the agent when a URL-based elicitation is complete."
     acp_buffer done;
     scope(exit) acp_buffer_free(&done);
@@ -1786,30 +1779,17 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
     }
 
     // "Terminates the current authenticated session": the key ground code
-    // signed in as, and any token once kept, are dropped.
+    // signed in as is dropped.
     if (method == AGENT_METHODS.logout) {
         put(`{"jsonrpc":"2.0","id":`); put(id);
-        if (__ctfe) assert(0, "a token file is dropped at runtime");
+        if (__ctfe) assert(0, "a key file is dropped at runtime");
         else {
-            import token : qntxTokenFile;
-            import code.login : dropToken;
-            import core.stdc.stdlib : getenv;
-            // q's token, the one ground code signed in with, in ~/.qntx/token; k's is the hooks'.
-            if (getenv("QNTX_TOKEN\0".ptr) !is null) {
-                put(`,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
-                return true;
-            }
-            auto file = qntxTokenFile("");
-            if (file is null) { put(`,"error":{"code":-32603,"message":"the token is kept in a home, and HOME names none"}}`); return true; }
+            import code.login : dropKept;
             Reply why;
             scope(exit) why.dispose();
-            if (dropToken(file, why) < 0) {
-                put(`,"error":{"code":-32603,"message":"logout could not drop the token","data":`); put(why.slice()); put(`}}`);
-                return true;
-            }
             import signed : keyFile;
             auto key = keyFile();
-            if (key !is null && dropToken(key, why) < 0) {
+            if (key !is null && dropKept(key, why) < 0) {
                 put(`,"error":{"code":-32603,"message":"logout could not drop the key","data":`); put(why.slice()); put(`}}`);
                 return true;
             }
@@ -2474,7 +2454,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             }
             from = at_ + 1;
         }
-        // The model is the qntx block's, the token the one every attestation carries.
+        // The model is the qntx block's, the signature the one every attestation carries.
         if (qntxNode.model.length == 0) {
             put(`,"error":{"code":-32603,"message":"the qntx block names no model, so ground code has none to prompt"}}`);
             return true;
@@ -2485,7 +2465,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
         }
         if (__ctfe) assert(0, "the gateway is spoken to at runtime");
         else {
-            import token : qntxToken;
             import http : httpPostInto, ToNode;
             import core.stdc.stdlib : malloc;
             auto o = &sessions.open[cast(size_t) at];
@@ -2656,8 +2635,6 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
             if (sessions.clientRunsCommands) putRunTool(tools);
             putPlanTool(tools);
             url.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); url.add(GATEWAY_PATH);
-            // One token: what ground code signed in to q with, ~/.qntx/token. The block's file is k's.
-            auto token = qntxToken("");
             auto dest = cast(char*) malloc(GATEWAY_BODY);
             if (dest is null) { put(`,"error":{"code":-32603,"message":"could not allocate the gateway's answer"}}`); return true; }
             scope(exit) free(dest);
@@ -2670,9 +2647,9 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 Reply models;
                 scope(exit) models.dispose();
                 models.add(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url); models.add(MODELS_PATH);
-                auto listed = httpGet(models.slice(), ToNode(token), dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
+                auto listed = httpGet(models.slice(), ToNode(), dest[0 .. GATEWAY_BODY], MODELS_SECONDS);
                 if (listed.code != 0 || listed.overran || listed.status != 200) {
-                    // "Authentication required": the node did not take the token, and a sign-in gives it one it does.
+                    // "Authentication required": the node holds no grant for the key, and a sign-in gives it one.
                     put(listed.status == 401 ? `,"error":{"code":-32000,"message":"the node did not accept ground code's sign-in","data":{"url":"`
                         : `,"error":{"code":-32603,"message":"the gateway's models list did not answer","data":{"url":"`);
                     putEscaped(r, models.slice());
@@ -2698,7 +2675,7 @@ bool answer(const(char)[] line, ref Reply r, ref Sessions sessions) {
                 requestBody(body_, qntxNode.model, o.history.slice(), tools.slice(), efforts[o.effort]);
                 if (o.history.full || body_.full) { put(`,"error":{"code":-32603,"message":"the session's history outgrew memory"}}`); return true; }
                 import http : Abort;
-                auto http = httpPostInto(url.slice(), body_.slice(), ToNode(token), dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS,
+                auto http = httpPostInto(url.slice(), body_.slice(), ToNode(), dest[0 .. GATEWAY_BODY], GATEWAY_SECONDS,
                     "application/json", Abort(&stopIfCancelled, &turn));
                 if (turn.cancelled) { stopCancelled(); return true; }
                 if (http.code != 0 || http.overran || http.status != 200) {
@@ -3052,7 +3029,6 @@ int handleCode() {
         if (nodes.count == 1) {
             sessions.node.present = true;
             sessions.node.url = cast(string) nodes.nodes[0].url;
-            sessions.node.token = cast(string) nodes.nodes[0].token;
             sessions.node.model = cast(string) nodes.nodes[0].model;
             sessions.node.gateway = cast(string) nodes.nodes[0].gateway;
         }

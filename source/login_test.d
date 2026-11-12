@@ -1,9 +1,9 @@
 module login_test;
 
-// 「[Opus 5.5] ground code's sign-in to its QNTX node, against a node that answers as」
-// 「[Opus 5.5] QNTX's server/auth/device.go does: /auth/device starts it, /auth/token says」
-// 「[Opus 5.5] authorization_pending until the person says yes at the passkey, then gives」
-// 「[Opus 5.5] the token, once.」
+// ground code's sign-in to its QNTX node, against a node that answers as QNTX's
+// server/auth/device.go does: /auth/device starts it, /auth/token says
+// authorization_pending until the person says yes at the passkey, then names
+// the key's DID, once.
 
 import code.login;
 import code.reply : Reply;
@@ -231,74 +231,43 @@ unittest {
     assert(indexOf(other.slice(), `another key`) >= 0);
 }
 
-// 「[Opus 5.5] The token is kept where every ground reads it: its directory made, the file」
-// 「[Opus 5.5] only its owner's, replaced whole; and dropped again, a file that is not」
-// 「[Opus 5.5] there being nothing to drop.」
+// A file kept is dropped once; a second drop finds nothing there.
 unittest {
-    import core.sys.posix.sys.stat : stat_t, stat, S_IFMT, S_IFDIR;
-    import core.sys.posix.unistd : getpid;
+    import core.sys.posix.unistd : getpid, rmdir;
     import core.stdc.stdio : snprintf;
-    import attest : qntxToken;
-    char[128] dir;
-    auto dl = snprintf(dir.ptr, dir.length, "/tmp/ground-login-%d", getpid());
-    char[160] file;
-    snprintf(file.ptr, file.length, "%s/.qntx/token", dir.ptr);
+    char[160] dir, file;
+    snprintf(dir.ptr, dir.length, "/tmp/ground-login-drop-%d", getpid());
+    snprintf(file.ptr, file.length, "%s/key", dir.ptr);
+    zeroKeyAt(file.ptr);
     Reply why;
     scope(exit) why.dispose();
-    assert(keepToken(file.ptr, "qntx_first", why));
-    assert(keepToken(file.ptr, "qntx_second", why));
-    stat_t st;
-    assert(stat(file.ptr, &st) == 0);
-    assert((st.st_mode & 0x1ff) == 0x180); // 0600
-    char[160] parent;
-    snprintf(parent.ptr, parent.length, "%s/.qntx", dir.ptr);
-    assert(stat(parent.ptr, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR && (st.st_mode & 0x1ff) == 0x1c0); // 0700
-    size_t fl = 0; while (file[fl] != 0) fl++;
-    assert(qntxToken(file[0 .. fl]) == "qntx_second");
-    assert(dropToken(file.ptr, why) == 1);
-    assert(qntxToken(file[0 .. fl]) is null);
-    assert(dropToken(file.ptr, why) == 0);
-    import core.sys.posix.unistd : rmdir;
-    rmdir(parent.ptr);
+    assert(dropKept(file.ptr, why) == 1);
+    assert(dropKept(file.ptr, why) == 0);
     rmdir(dir.ptr);
-    cast(void) dl;
 }
 
-// 「[Opus 5.5] `ground code login`: the link and the code said, the node asked until the」
-// 「[Opus 5.5] person said yes, and the token kept; exit 0. A sign-in nobody said yes to」
-// 「[Opus 5.5] is said as the node said it; exit 1 and nothing kept.」
+// `ground code login`: the link and the code said, the node asked until the
+// person said yes to the key; exit 0. A sign-in nobody said yes to is said as
+// the node said it; exit 1.
 unittest {
-    import core.sys.posix.unistd : getpid, unlink, rmdir;
-    import core.stdc.stdio : snprintf;
-    import attest : qntxToken;
-    char[160] file;
-    snprintf(file.ptr, file.length, "/tmp/ground-login-run-%d", getpid());
-    size_t fl = 0; while (file[fl] != 0) fl++;
     char[160] key;
     auto keyAt = testKey(key, "login");
-    Reply said, why;
-    scope(exit) { said.dispose(); why.dispose(); }
+    Reply said;
+    scope(exit) said.dispose();
     void say(const(char)[] s) { said.add(s); }
 
-    // Signed in as the key: the token once kept is dropped, so the key is what speaks.
-    assert(keepToken(file.ptr, "qntx_once", why));
     auto n = node(DEVICE, PENDING, SAID_YES);
-    assert(login(n.url, file.ptr, keyAt, &say) == 0);
+    assert(login(n.url, keyAt, &say) == 0);
     heardAll(n);
     assert(indexOf(said.slice(), "http://q/auth/device/approve?user_code=BCDF-GHJK") >= 0);
     assert(indexOf(said.slice(), "BCDF-GHJK") >= 0);
     assert(indexOf(said.slice(), "Signed in as " ~ ZERO_DID) >= 0, said.slice());
-    assert(qntxToken(file[0 .. fl]) is null, "the token once kept still stands before the key");
 
-    // Nobody said yes: what was kept stays as it was.
     said.len = 0;
-    assert(keepToken(file.ptr, "qntx_once", why));
     auto m = node(DEVICE, EXPIRED);
-    assert(login(m.url, file.ptr, keyAt, &say) == 1);
+    assert(login(m.url, keyAt, &say) == 1);
     heardAll(m);
     assert(indexOf(said.slice(), "nobody said yes within 10m0s") >= 0);
-    assert(qntxToken(file[0 .. fl]) == "qntx_once");
-    unlink(file.ptr);
 }
 
 // 「[Opus 5.5] ---- What ground code says of signing in, over ACP. ----」
@@ -376,15 +345,15 @@ private void speak(ref Sessions s, string line, string queued, ref Spoken out_) 
     close(o[0]);
 }
 
-private const(char)[] tokenFile(ref char[160] buf, string name) {
+private const(char)[] homeFor(ref char[160] buf, string name) {
     import core.sys.posix.unistd : getpid;
     import core.stdc.stdio : snprintf;
     auto n = snprintf(buf.ptr, buf.length, "/tmp/ground-%s-%d", name.ptr, getpid());
     return buf[0 .. cast(size_t) n];
 }
 
-// 「[Opus 5.5] q's token is kept in ~/.qntx/token: a test borrows a home of its own, so nobody's token is touched,」
-// 「[Opus 5.5] and gives back the home the tests after it run in, every byte. QNTX_TOKEN, read first, is unset.」
+// The key is kept in ~/.qntx/key: a test borrows a home of its own, so nobody's key is touched,
+// and gives back the home the tests after it run in, every byte.
 private __gshared char[512] keptHome = 0;
 private __gshared size_t keptLen;
 private __gshared bool hadHome;
@@ -398,9 +367,8 @@ private void borrowHome(string name) {
     keptLen = 0;
     if (hadHome) while (was[keptLen] != 0 && keptLen + 1 < keptHome.length) { keptHome[keptLen] = was[keptLen]; keptLen++; }
     keptHome[keptLen] = 0;
-    tokenFile(borrowed, name);
+    homeFor(borrowed, name);
     setenv("HOME", borrowed.ptr, 1);
-    unsetenv("QNTX_TOKEN");
 }
 
 private void giveBackHome() {
@@ -408,24 +376,19 @@ private void giveBackHome() {
     if (hadHome) setenv("HOME", keptHome.ptr, 1); else unsetenv("HOME");
 }
 
-// 「[Opus 5.5] Auth is q's, the block's gateway; its url and token file are k's, the hooks' node, and are left alone.」
+// Auth is q's, the block's gateway; its url is k's, the hooks' node, and is left alone.
 enum K_URL = "http://127.0.0.1:9";
-enum K_TOKEN = "/tmp/ground-k-token-left-alone";
 
 // 「[Opus 5.5] authenticate qntx: q starts a sign-in, the person is sent to its link by an elicitation tied to the」
-// 「[Opus 5.5] authenticate request, q is asked until they said yes, its token is kept in ~/.qntx/token, the」
+// 「[Opus 5.5] authenticate request, q is asked until they said yes to the key kept in ~/.qntx/key, the」
 // 「[Opus 5.5] elicitation is said complete, and authenticate is answered.」
 unittest {
-    import attest : qntxToken;
-    import core.sys.posix.unistd : unlink, access, F_OK;
+    import core.sys.posix.unistd : unlink;
     auto n = node(DEVICE, PENDING, SAID_YES);
     Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.gateway = cast(string) n.url;
     s.node.url = K_URL;
-    s.node.token = K_TOKEN;
-    // 「[Opus 5.5] From no k token, so one an aborted run left cannot stand in for one this run wrote.」
-    unlink(K_TOKEN.ptr);
     borrowHome("auth");
     scope(exit) giveBackHome();
     {
@@ -443,9 +406,6 @@ unittest {
         ~ `"message":"Sign in to QNTX as ground code. The code there is BCDF-GHJK.","elicitationId":"qntx-BCDF-GHJK",`
         ~ `"url":"http://q/auth/device/approve?user_code=BCDF-GHJK"}}` ~ "\n"
         ~ `{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"qntx-BCDF-GHJK"}}` ~ "\n");
-    // Signed in as the key: no token is kept, and none for k either.
-    assert(qntxToken("") is null);
-    assert(access(K_TOKEN.ptr, F_OK) != 0);
     import signed : keyFile;
     unlink(keyFile());
 }
@@ -453,11 +413,9 @@ unittest {
 // 「[Opus 5.5] The person declines, the client calls authenticate off, or nobody says yes:」
 // 「[Opus 5.5] each is said to the client as it happened, and nothing is kept.」
 unittest {
-    import attest : qntxToken;
     Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.url = K_URL;
-    s.node.token = K_TOKEN;
     borrowHome("auth-no");
     scope(exit) giveBackHome();
 
@@ -489,45 +447,31 @@ unittest {
     assert(indexOf(over.reply.slice(), `{"jsonrpc":"2.0","id":6,"error":{"code":-32000,"message":"the node did not sign ground code in","data":{"url":"`) == 0);
     assert(indexOf(over.reply.slice(), `nobody said yes within 10m0s`) >= 0);
     over.reply.dispose();
-    assert(qntxToken("") is null);
 }
 
-// 「[Opus 5.5] logout drops q's token, the one ground code signed in with; k's is left alone:」
+// logout drops the key ground code signed in as:
 // "Terminates the current authenticated session."
-// 「[Opus 5.5] A second logout has nothing left to drop, and one QNTX_TOKEN gives, read before the file, it cannot end.」
+// A second logout has nothing left to drop.
 unittest {
-    import attest : qntxToken, qntxTokenFile;
-    import core.sys.posix.stdlib : setenv, unsetenv;
     import core.stdc.stdlib : getenv;
     import core.stdc.string : strlen;
-    import core.sys.posix.unistd : unlink;
+    import core.sys.posix.unistd : access, F_OK;
+    import signed : keyFile;
     auto wasHome = getenv("HOME");
     size_t wasLen = wasHome is null ? 0 : strlen(wasHome);
     borrowHome("logout");
-    Reply why;
-    scope(exit) why.dispose();
-    assert(keepToken(qntxTokenFile(""), "qntx_abc123", why));
-    assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
-    scope(exit) unlink(K_TOKEN.ptr);
     Sessions s = Sessions(100, 7); s.initialized = true;
-    s.node.token = K_TOKEN;
     Reply r;
     scope(exit) r.dispose();
     {
         scope(exit) giveBackHome();
+        zeroKeyAt(keyFile());
         answer(`{"jsonrpc":"2.0","id":7,"method":"logout","params":{}}`, r, s);
-        assert(r.slice() == `{"jsonrpc":"2.0","id":7,"result":{}}`);
-        assert(qntxToken("") is null);
-        assert(qntxToken(K_TOKEN) == "qntx_k");
+        assert(r.slice() == `{"jsonrpc":"2.0","id":7,"result":{}}`, r.slice());
+        assert(access(keyFile(), F_OK) != 0, "the key outlived logout");
         r.len = 0;
         answer(`{"jsonrpc":"2.0","id":8,"method":"logout"}`, r, s);
         assert(r.slice() == `{"jsonrpc":"2.0","id":8,"result":{}}`);
-
-        setenv("QNTX_TOKEN", "qntx_env", 1);
-        scope(exit) unsetenv("QNTX_TOKEN");
-        r.len = 0;
-        answer(`{"jsonrpc":"2.0","id":9,"method":"logout","params":{}}`, r, s);
-        assert(r.slice() == `{"jsonrpc":"2.0","id":9,"error":{"code":-32603,"message":"QNTX_TOKEN in ground code's environment is read before the token file, and logout cannot drop it"}}`);
     }
     // 「[Opus 5.5] The home the tests after this one run in is the one they were given, every byte.」
     auto isHome = getenv("HOME");
@@ -541,7 +485,7 @@ unittest {
     enum refused = http!("401 Unauthorized", `{"error":"token expired"}`);
     auto n = node(refused);
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.url = cast(string) n.url; s.node.model = "m"; s.node.token = "/nonexistent"; s.contextSize = 200_000;
+    s.node.url = cast(string) n.url; s.node.model = "m"; s.contextSize = 200_000;
     __gshared Spoken opened, prompted;
     speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
     opened.reply.dispose();
@@ -554,23 +498,21 @@ unittest {
     if (s.open[0].history !is null) s.open[0].history.dispose();
 }
 
-// 「[Opus 5.5] One token: what ground code signed in with, ~/.qntx/token, is what it prompts q with. The block's」
-// 「[Opus 5.5] token file is k's, and no prompt carries it.」
+// What ground code prompts q with is the key it signed in as: a signature, and
+// no bearer.
+//
+// "A signature proves the key, and nothing reusable leaves the node."
 unittest {
-    import attest : qntxTokenFile;
     import core.sys.posix.unistd : unlink;
-    enum refused = http!("401 Unauthorized", `{"error":"token expired"}`);
+    import signed : keyFile;
+    enum refused = http!("401 Unauthorized", `{"error":"no grant for this key"}`);
     auto n = node(refused);
     borrowHome("prompt");
     scope(exit) giveBackHome();
-    Reply why;
-    scope(exit) why.dispose();
-    assert(keepToken(qntxTokenFile(""), "qntx_signed_in", why));
-    scope(exit) unlink(qntxTokenFile(""));
-    assert(keepToken(K_TOKEN.ptr, "qntx_k", why));
-    scope(exit) unlink(K_TOKEN.ptr);
+    zeroKeyAt(keyFile());
+    scope(exit) unlink(keyFile());
     Sessions s = Sessions(100, 7); s.initialized = true; s.clock = 1_700_000_000;
-    s.node.gateway = cast(string) n.url; s.node.url = K_URL; s.node.model = "m"; s.node.token = K_TOKEN; s.contextSize = 200_000;
+    s.node.gateway = cast(string) n.url; s.node.url = K_URL; s.node.model = "m"; s.contextSize = 200_000;
     __gshared Spoken opened, prompted;
     speak(s, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`, "", opened);
     opened.reply.dispose();
@@ -578,54 +520,41 @@ unittest {
     auto heard = heardAll(n);
     prompted.reply.dispose();
     if (s.open[0].history !is null) s.open[0].history.dispose();
-    assert(indexOf(heard, "Authorization: Bearer qntx_signed_in\r\n") >= 0);
-    assert(indexOf(heard, "qntx_k") < 0);
+    assert(indexOf(heard, "Authorization: Signed ") >= 0, heard);
+    assert(indexOf(heard, "Bearer") < 0);
 }
 
-// 「[Opus 5.5] A token longer than ground reads back is not kept, and says so: it was kept whole and read back」
-// 「[Opus 5.5] cut to 512 bytes, so every later request sent the cut one and was refused. One on disk that is」
-// 「[Opus 5.5] longer than ground reads is no token, never the start of one.」
+// A third party's token on disk longer than ground reads is no token, never
+// the start of one.
 unittest {
-    import core.sys.posix.unistd : getpid, unlink, rmdir;
+    import core.sys.posix.unistd : getpid, unlink, write, close;
     import core.sys.posix.fcntl : open, O_WRONLY, O_CREAT, O_TRUNC;
-    import core.sys.posix.unistd : write, close;
     import core.stdc.stdio : snprintf;
-    import attest : qntxToken;
-    import token : TOKEN_MAX;
+    import token : tokenIn, TOKEN_MAX;
     char[160] file;
     snprintf(file.ptr, file.length, "/tmp/ground-login-long-%d", getpid());
     size_t fl = 0; while (file[fl] != 0) fl++;
     __gshared char[TOKEN_MAX + 1] long_ = 'a';
-    Reply why;
-    scope(exit) why.dispose();
-    assert(!keepToken(file.ptr, long_[], why));
-    assert(indexOf(why.slice(), "longer than") >= 0, why.slice());
-    assert(qntxToken(file[0 .. fl]) is null);
-
-    // 「[Opus 5.5] At the most ground reads, it is kept and read back whole.」
-    why.dispose();
-    assert(keepToken(file.ptr, long_[0 .. TOKEN_MAX], why), why.slice());
-    assert(qntxToken(file[0 .. fl]) == long_[0 .. TOKEN_MAX]);
-
-    // 「[Opus 5.5] Written longer by something else, it is no token.」
     auto fd = open(file.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x180);
     assert(fd >= 0);
+    assert(write(fd, long_.ptr, TOKEN_MAX) == TOKEN_MAX);
+    close(fd);
+    assert(tokenIn(file[0 .. fl]) == long_[0 .. TOKEN_MAX]);
+    fd = open(file.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x180);
     assert(write(fd, long_.ptr, long_.length) == long_.length);
     close(fd);
-    assert(qntxToken(file[0 .. fl]) is null);
+    assert(tokenIn(file[0 .. fl]) is null);
     unlink(file.ptr);
 }
 
-// 「[Opus 5.5] A sign-in the client calls off while the node is being asked for the token is called off, and」
-// 「[Opus 5.5] keeps nothing, though the node's answer is the token: the cancel was asked before only.」
+// A sign-in the client calls off while the node is being asked is called off,
+// though the node's answer is yes: the cancel was asked before only.
 unittest {
-    import attest : qntxToken;
     import core.sys.posix.unistd : dup, dup2;
     import core.stdc.stdio : fflush, stdout;
     Sessions s = Sessions(100, 7); s.initialized = true;
     s.elicitsUrls = true;
     s.node.url = K_URL;
-    s.node.token = K_TOKEN;
     borrowHome("auth-late");
     scope(exit) giveBackHome();
 
@@ -657,36 +586,4 @@ unittest {
     fflush(stdout); dup2(saved, 1); close(saved); close(o[1]); close(o[0]);
     heardAll(n);
     assert(reply.slice() == `{"jsonrpc":"2.0","id":8,"error":{"code":-32800,"message":"the client cancelled the sign-in"}}`, reply.slice());
-    assert(qntxToken("") is null);
-}
-
-// 「[Opus 5.5] The token is written to a file only this sign-in made: one standing at its name beforehand, a」
-// 「[Opus 5.5] link another user planted to read what comes, is not written through.」
-unittest {
-    import core.sys.posix.unistd : getpid, unlink, symlink, read, close;
-    import core.sys.posix.fcntl : open, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC;
-    import core.sys.posix.unistd : write;
-    import core.stdc.stdio : snprintf;
-    import attest : qntxToken;
-    char[160] file, temp, victim;
-    snprintf(file.ptr, file.length, "/tmp/ground-login-link-%d", getpid());
-    snprintf(temp.ptr, temp.length, "/tmp/ground-login-link-%d.login", getpid());
-    snprintf(victim.ptr, victim.length, "/tmp/ground-login-victim-%d", getpid());
-    auto vf = open(victim.ptr, O_WRONLY | O_CREAT | O_TRUNC, 0x1a4);
-    assert(vf >= 0);
-    write(vf, "before".ptr, 6);
-    close(vf);
-    assert(symlink(victim.ptr, temp.ptr) == 0);
-    scope(exit) { unlink(file.ptr); unlink(temp.ptr); unlink(victim.ptr); }
-
-    Reply why;
-    scope(exit) why.dispose();
-    assert(keepToken(file.ptr, "qntx_mine", why), why.slice());
-    char[16] got = 0;
-    auto rf = open(victim.ptr, O_RDONLY);
-    auto n = read(rf, got.ptr, got.length);
-    close(rf);
-    assert(got[0 .. cast(size_t) n] == "before", got[0 .. cast(size_t) n]);
-    size_t fl = 0; while (file[fl] != 0) fl++;
-    assert(qntxToken(file[0 .. fl]) == "qntx_mine");
 }

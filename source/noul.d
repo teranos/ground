@@ -41,8 +41,8 @@ size_t diffLines(const(char)[] worktree) {
 
 // The token, or null: no file at the path is no Jev, and no Jev is autopass.
 const(char)[] jevToken() {
-    import attest : qntxToken;
-    return qntxToken(JEV_TOKEN_PATH);
+    import token : tokenIn;
+    return tokenIn(JEV_TOKEN_PATH);
 }
 
 // A push's diff does not fit a ZBuf. This holds the state and the body.

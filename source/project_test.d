@@ -106,13 +106,11 @@ static assert(projectWithEnvParsed.envs[0].keys[0] == "port");
 static assert(projectWithEnvParsed.envs[0].values[0] == "8771");
 static assert(projectWithEnvParsed.envs[0].count == 1);
 
-// "no double or split config, they all need to go to the same call from the same token"
 // "isnt there a top level place where its actually defined"
 // book: project-backedInput
 enum backedInput = `
 qntx {
   url: "https://qntx.alice.example"
-  token: "~/.qntx/ground-token"
 }
 
 project {
@@ -124,7 +122,6 @@ project {
 enum backedParsed = parsePbt(backedInput);
 static assert(backedParsed.qntx.present);
 static assert(backedParsed.qntx.url == "https://qntx.alice.example");
-static assert(backedParsed.qntx.token == "~/.qntx/ground-token");
 
 // "I'm saying, I want to kill it, and make sure QNTX takes over"
 // "All the UDP machinery can also go given how sky handles it"

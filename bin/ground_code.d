@@ -18,19 +18,14 @@ int main(string[] args) {
 }
 
 // Signs in to q, the node a prompt goes through and the one that owns auth, as
-// the key kept in ~/.qntx/key; the token once kept in ~/.qntx/token is dropped.
+// the key kept in ~/.qntx/key.
 //
 // "A signature proves the key, and nothing reusable leaves the node."
 int signIn() {
     import code.login : login;
     import code.node : qntxNode;
-    import token : qntxTokenFile;
     import signed : keyFile;
-    import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fwrite, fflush, stdout;
     void say(const(char)[] s) { fwrite(s.ptr, 1, s.length, stdout); fflush(stdout); }
-    auto status = login(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url, qntxTokenFile(""), keyFile(), &say);
-    if (status == 0 && getenv("QNTX_TOKEN\0".ptr) !is null)
-        say("QNTX_TOKEN is set in this environment, and is sent before the key signs.\n");
-    return status;
+    return login(qntxNode.gateway.length > 0 ? qntxNode.gateway : qntxNode.url, keyFile(), &say);
 }

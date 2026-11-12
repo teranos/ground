@@ -29,8 +29,6 @@ int backoffSeconds(int attempt) {
     }
 }
 
-// 「[Opus 5.5] The token lives in token.d, which ground_code imports without attest's own imports.」
-public import token : qntxToken, qntxTokenFile;
 
 enum BOOK_COMMAND = q"EOS
 # post the pbt's attestations to their backends (make install does):
@@ -55,7 +53,6 @@ int handleAttest() {
     foreach (ref p; postingList) {
         {
             auto a = attestations[p.attestation];
-            auto token = qntxToken(p.token);
             __gshared ZBuf body_;
             body_.reset();
             body_.put(`{"subjects":["`);
@@ -81,7 +78,7 @@ int handleAttest() {
             int code;
             int tries = 0;
             while (true) {
-                code = curlPost(url.slice(), body_.slice(), ToNode(token));
+                code = curlPost(url.slice(), body_.slice(), ToNode());
                 if (!shouldRetry(code) || tries >= RETRY_ATTEMPTS - 1) break;
 
                 auto wait = backoffSeconds(tries);
@@ -103,9 +100,7 @@ int handleAttest() {
             } else if (code == 401 || code == 403) {
                 // Naming the cause here is the difference between a fix and a
                 // hunt: the endpoint answered, it just would not take us.
-                fputs(token.length > 0 ? "401/403 — token rejected (" : "401/403 — no token (", stderr);
-                fputs2(p.token.length > 0 ? p.token : "QNTX_TOKEN or ~/.qntx/token");
-                fputs(")\n", stderr);
+                fputs("401/403 — the node holds no grant for ~/.qntx/key\n", stderr);
                 failed++;
             } else if (code == 0) {
                 fputs("unreachable (curl)\n", stderr);

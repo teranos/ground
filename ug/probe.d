@@ -22,10 +22,6 @@ const(char)[] host() {
 // every request of its own. There is no program to find, so no path to pin and
 // no PATH to be wrong about.
 
-// Where the token is, under the home the row is running as. One file, so there
-// is one thing to rotate and nothing that can go stale unnoticed beside it.
-enum TOKEN_FILE = "/.qntx/token";
-
 // Longer than the frame, deliberately: a probe that gave up inside a second
 // would report a timeout the box never had.
 enum MAX_TIME = 3;
@@ -37,22 +33,7 @@ struct Answer {
     const(char)[] body_;
 }
 
-// The token, or which of the two ways there wasn't one. Absent and unreadable
-// are different facts with different fixes: one says mint a token, the other
-// says the one on disk is fine and the permissions are not.
-struct Token {
-    const(char)[] value;
-    State fault;
-    bool ok;
-}
-
 // "A signature proves the key, and nothing reusable leaves the node."
-// No token, and a key kept in ~/.qntx/key: nothing is presented as a token,
-// and http.d signs the request with the key (source/signed.d).
-Token noTokenBut(bool keyKept) {
-    return keyKept ? Token("", State.ok, true) : Token(null, State.noToken, false);
-}
-
 // Whether a key is kept under home, which http.d signs with.
 bool keyKept(const(char)[] home) {
     import core.stdc.stdio : fopen, fclose;
@@ -69,45 +50,6 @@ bool keyKept(const(char)[] home) {
     return true;
 }
 
-Token readToken(const(char)[] home) {
-    import core.stdc.stdio : fopen, fread, fclose;
-    import core.stdc.stdlib : getenv;
-
-    auto env = getenv("QNTX_TOKEN\0".ptr);
-    if (env !is null) {
-        size_t n = 0;
-        while (env[n] != 0) n++;
-        auto t = trimToken(env[0 .. n]);
-        if (t.length > 0) return Token(t, State.ok, true);
-    }
-
-    if (home.length == 0) return Token(null, State.noToken, false);
-
-    __gshared char[1024] path = void;
-    if (home.length + TOKEN_FILE.length + 1 > path.length)
-        return noTokenBut(keyKept(home));
-
-    size_t p = 0;
-    foreach (c; home) path[p++] = c;
-    foreach (c; TOKEN_FILE) path[p++] = c;
-    path[p] = 0;
-
-    auto f = fopen(&path[0], "rb");
-    if (f is null) return noTokenBut(keyKept(home));
-
-    __gshared char[4096] buf = void;
-    auto n = fread(&buf[0], 1, buf.length, f);
-    fclose(f);
-
-    // A file that opened and gave nothing is not the same as no file: the
-    // token is there and something about reading it went wrong.
-    if (n == 0) return Token(null, State.tokenUnreadable, false);
-
-    auto t = trimToken(buf[0 .. n]);
-    if (t.length == 0) return noTokenBut(keyKept(home));
-    return Token(t, State.ok, true);
-}
-
 // The URL, host then path. Nothing quotes it and nothing escapes it: the
 // request is made in this process, so there is no shell to mis-read an `&` in
 // `&plugin=` and no command line for another process to read.
@@ -118,21 +60,18 @@ size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
     return o;
 }
 
-// One request, made in this process. It was the curl program behind a pipe,
-// which meant a path to pin, a config file under /tmp to hold the token, and a
-// command line for a shell to read.
+// One request, made in this process, signed with the key kept under home.
 Answer fetch(const(char)[] home, const(char)[] path) {
     import http : httpGet, ToNode;
 
-    auto tok = readToken(home);
-    if (!tok.ok) return Answer(tok.fault, 0, "");
+    if (!keyKept(home)) return Answer(State.noKey, 0, "");
 
     __gshared char[400] url = void;
     auto u = urlInto(host(), path, url[]);
     if (u == 0) return Answer(State.probeError, 0, "");
 
     __gshared char[262144] out_ = void;
-    auto r = httpGet(url[0 .. u], ToNode(tok.value), out_[], MAX_TIME);
+    auto r = httpGet(url[0 .. u], ToNode(), out_[], MAX_TIME);
 
     // A body larger than the buffer is neither the far end failing nor a
     // failure to reach it, so it is read as neither.
@@ -143,39 +82,26 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     return Answer(classify(r.code, r.status), r.status, out_[0 .. r.len]);
 }
 
-// What a POST came back with. curlExit is -1 when no token was there to send,
-// which is a request never made rather than one that failed.
+// What a POST came back with. curlExit is -1 when no key was there to sign
+// with, which is a request never made rather than one that failed.
 struct Posted {
     int status;
     int curlExit;
 }
 
-// One POST of a JSON body, made in this process. The token and the body were
-// written to files under /tmp to keep them off a command line; now there is no
-// command line, so there is nothing to keep them off and nothing left behind.
+// One POST of a JSON body, made in this process, signed with the key kept
+// under home.
 Posted post(const(char)[] home, const(char)[] path, const(char)[] body_) {
     import http : httpPost, ToNode;
 
-    auto tok = readToken(home);
-    if (!tok.ok) return Posted(0, -1);
+    if (!keyKept(home)) return Posted(0, -1);
 
     __gshared char[400] url = void;
     auto u = urlInto(host(), path, url[]);
     if (u == 0) return Posted(0, 0);
 
-    auto r = httpPost(url[0 .. u], body_, ToNode(tok.value), MAX_TIME);
+    auto r = httpPost(url[0 .. u], body_, ToNode(), MAX_TIME);
     return Posted(r.status, r.code);
-}
-
-// Surrounding whitespace is not part of a credential; a file written by echo
-// carries the newline it ended with.
-const(char)[] trimToken(const(char)[] s) {
-    size_t b = 0;
-    size_t e = s.length;
-    static bool ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
-    while (b < e && ws(s[b])) b++;
-    while (e > b && ws(s[e - 1])) e--;
-    return s[b .. e];
 }
 
 // The marker is the last line curl writes, so it is found from the end. A
