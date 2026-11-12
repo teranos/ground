@@ -69,11 +69,13 @@ unittest {
     Named named;
     auto at = sessionKeyFile("ses-kept");
     char[256] buf;
-    assert(keptName(at, buf[]) is null, "a session never named keeps no name");
+    assert(keptName(at, n.url, buf[]) is null, "a session never named keeps no name");
     assert(nameSession(n.url, at, "Alder", named) == 1, named.why.slice());
     heardAll(n);
     assert(named.why.len == 0, named.why.slice());
-    assert(keptName(sessionKeyFile("ses-kept"), buf[]) == "Alder", keptName(sessionKeyFile("ses-kept"), buf[]));
+    assert(keptName(sessionKeyFile("ses-kept"), n.url, buf[]) == "Alder", keptName(sessionKeyFile("ses-kept"), n.url, buf[]));
+    // A name is one node's to give: at another node this session keeps none.
+    assert(keptName(sessionKeyFile("ses-kept"), "https://another.node", buf[]) is null, "a name one node gave was asked for at another");
 }
 
 // A node that will not admit the key says so, and no name is asked for.
@@ -97,4 +99,21 @@ unittest {
     while (at[n] != 0) n++;
     assert(indexOf(at[0 .. n], "/.qntx/sessions/abc/key") >= 0, at[0 .. n]);
     assert(sessionKeyFile("a/b") is null, "a slash in an id is no path of ours");
+    // `..` would be ~/.qntx/key, the key the person said yes to.
+    assert(sessionKeyFile("..") is null, "two dots as an id reach ground's own key");
+    assert(sessionKeyFile(".") is null);
+    assert(sessionKeyFile("s%") is null);
+}
+
+// An answer cut short, with no quote closing the name, names nobody.
+unittest {
+    char[256] home, key;
+    testHome(home, key);
+    auto n = node(ADMITTED, http!("200 OK", `{"name":"Ald`));
+    Named named;
+    assert(nameSession(n.url, sessionKeyFile("ses-cut"), "Alder", named) == -1);
+    heardAll(n);
+    assert(indexOf(named.why.slice(), "no whole name") >= 0, named.why.slice());
+    char[256] buf;
+    assert(keptName(sessionKeyFile("ses-cut"), n.url, buf[]) is null, "half a name was kept");
 }
