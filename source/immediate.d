@@ -1178,18 +1178,18 @@ unittest {
 // false — must escalate to a fallback delivery channel. Per the
 // axiom, silent failure at this layer is forbidden.
 // "ALSO, IT SPAMS, ONCE IS FINE"
-// Whether this session was already handed this exec result's detail: a refusal
-// that is the same on every hook (a sand this engine cannot hold) is said once.
+// 「[Fable 5.1, Fable 5.2] Whether this session was already handed this exec result's detail: a refusal」
+// 「[Fable 5.1, Fable 5.2] that is the same on every hook (a sand this engine cannot hold) is said once.」
 bool saidToSession(sqlite3* db, const(char)[] sessionId, const(char)[] controlName, const(char)[] result) {
-    // The detail as writeExecResult writes one with no streams.
+    // 「[Fable 5.1, Fable 5.2] The detail as writeExecResult writes one with no streams.」
     __gshared ZBuf detail;
     detail.reset();
     detail.put("exec ");
     detail.put(controlName);
     detail.put(": ");
     detail.put(result);
-    // The id begins with this session's, letter for letter: a percent sign or
-    // an underscore in an id is itself, and no other session's row answers.
+    // 「[Fable 5.1, Fable 5.2] The id begins with this session's, letter for letter: a percent sign or」
+    // 「[Fable 5.1, Fable 5.2] an underscore in an id is itself, and no other session's row answers.」
     enum sql = "SELECT 1 FROM attestations WHERE substr(id, 1, length('immediate:exec-result:' || ?1 || ':')) = 'immediate:exec-result:' || ?1 || ':' AND json_extract(attributes, '$.detail') = ?2 LIMIT 1\0";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
