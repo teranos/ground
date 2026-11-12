@@ -30,7 +30,7 @@ static assert(classify(CURL_OK, 0) == State.probeError);
 // Success says nothing: the absence of the row is what fine looks like.
 static assert(word(State.ok).length == 0);
 
-// No key kept is ours to fix: the row says key.
+// 「[Opus 5.5] No key kept is ours to fix: the row says key.」
 static assert(word(State.noKey) == "key");
 static assert(colourOf(State.noKey) == YELLOW);
 
