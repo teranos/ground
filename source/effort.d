@@ -50,16 +50,16 @@ enum ACCOUNT_LOW_AT = 950;
 enum FABLE_LOW_AT = 850;
 
 // "the hardcoded list is BS"
-// The models each window governs are the models sessions ran, as ug wrote them
-// down (session_model), each by its settings key. Fable's week reaches every
-// Fable; the account's week reaches the rest. No model is named here: a new
-// one is governed the day a session runs it.
+// 「[Fable 5.1, Fable 5.2] The models each window governs are the models sessions ran, as ug wrote them」
+// 「[Fable 5.1, Fable 5.2] down (session_model), each by its settings key. Fable's week reaches every」
+// 「[Fable 5.1, Fable 5.2] Fable; the account's week reaches the rest. No model is named here: a new」
+// 「[Fable 5.1, Fable 5.2] one is governed the day a session runs it.」
 enum FABLE_PREFIX = "claude-fable-";
 enum MODELS_SEEN_SQL = "SELECT DISTINCT model FROM session_model WHERE model LIKE 'claude-%' ORDER BY model\0";
 
-// A settings key is written into the settings file as it stands, between
-// quotes: only what a model's name is made of is one. A name a hook event
-// carried with a quote or a brace in it is no model, and is no key.
+// 「[Fable 5.1, Fable 5.2] A settings key is written into the settings file as it stands, between」
+// 「[Fable 5.1, Fable 5.2] quotes: only what a model's name is made of is one. A name a hook event」
+// 「[Fable 5.1, Fable 5.2] carried with a quote or a brace in it is no model, and is no key.」
 bool isSettingsKey(const(char)[] key) {
     if (key.length == 0) return false;
     foreach (c; key) {
@@ -68,8 +68,8 @@ bool isSettingsKey(const(char)[] key) {
     return true;
 }
 
-// Every key, each with a NUL after it, in a buffer that grows: as many models
-// as sessions ran, as long as their names are.
+// 「[Fable 5.1, Fable 5.2] Every key, each with a NUL after it, in a buffer that grows: as many models」
+// 「[Fable 5.1, Fable 5.2] as sessions ran, as long as their names are.」
 struct ModelsSeen {
     import code.reply : Reply;
     Reply keys;
@@ -99,7 +99,7 @@ bool isFable(const(char)[] model) {
     return model.length >= FABLE_PREFIX.length && model[0 .. FABLE_PREFIX.length] == FABLE_PREFIX;
 }
 
-// Every model a session ran, by its settings key, once each.
+// 「[Fable 5.1, Fable 5.2] Every model a session ran, by its settings key, once each.」
 ModelsSeen modelsSeen(sqlite3* db) {
     import db : sqlite3_stmt, sqlite3_prepare_v2, sqlite3_step, sqlite3_column_text, sqlite3_finalize, SQLITE_OK, SQLITE_ROW;
     import core.stdc.string : strlen;
@@ -603,9 +603,9 @@ bool settingsWrite(const(char)[] text) {
 
 // What a pass did, in words for the session, or nothing.
 struct Pinned {
-    // Every model a session ran can move in one pass, each with its own line.
-    // A line that does not fit is left out whole and counted, and close says
-    // how many: no line is cut in the middle.
+    // 「[Fable 5.1, Fable 5.2] Every model a session ran can move in one pass, each with its own line.」
+    // 「[Fable 5.1, Fable 5.2] A line that does not fit is left out whole and counted, and close says」
+    // 「[Fable 5.1, Fable 5.2] how many: no line is cut in the middle.」
     char[4096] buf = 0;
     size_t len;
     size_t lineAt;
@@ -630,7 +630,7 @@ struct Pinned {
         lineAt = len;
         if (len > 0) put("\n");
     }
-    // The last line, when lines were left out: how many.
+    // 「[Fable 5.1, Fable 5.2] The last line, when lines were left out: how many.」
     void close() {
         if (unsaid == 0) return;
         void tail(const(char)[] s) { foreach (c; s) if (len < buf.length) buf[len++] = c; }
