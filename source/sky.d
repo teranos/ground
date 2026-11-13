@@ -582,9 +582,9 @@ int handleSky(int argc, const(char)** argv) {
 
     while (true) {
         // "I OPEN MY OBSIDIAN, I SEE LIVE STATE OF AGENT MEMORY"
-        // The session's memory is brought in step with its Memory Store at the
-        // node (memory.d), apart from this pass: the node is asked over the
-        // network, and what waits for the session does not wait on it.
+        // 「[Fable 5.2] The session's memory is brought in step with its Memory Store at the」
+        // 「[Fable 5.2] node (memory.d), apart from this pass: the node is asked over the」
+        // 「[Fable 5.2] network, and what waits for the session does not wait on it.」
         {
             auto now = cast(long) time(null);
             if (sessionId.length > 0 && now - memoryCarriedAt >= MEMORY_SEC) {
@@ -596,8 +596,8 @@ int handleSky(int argc, const(char)** argv) {
                 if (apart == 0) {
                     import memory : carry;
                     auto done = carry(sessionId);
-                    // A session with no name, or a node that keeps no memory,
-                    // carries nothing and is no failure of the carrying.
+                    // 「[Fable 5.2] A session with no name, or a node that keeps no memory,」
+                    // 「[Fable 5.2] carries nothing and is no failure of the carrying.」
                     if (!done.ok && !done.nothingToCarry)
                         toSentry("sky.memory", "a memory was not brought in step with the node", 1, sessionId, done.why.slice());
                     _exit(0);
@@ -810,7 +810,7 @@ int handleSky(int argc, const(char)** argv) {
 
 // "the 2s can move to 5s and just collect everything in that 5s and send it always, like it still does but batch them"
 enum PASS_SEC = 5;
-// How often the session's memory is brought in step with the node.
+// 「[Fable 5.2] How often the session's memory is brought in step with the node.」
 enum MEMORY_SEC = 30;
 
 // How long a pass that could not post waits before trying again. A refusal
