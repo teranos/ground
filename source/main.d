@@ -38,6 +38,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import say : handleHeard;
             return handleHeard(argc, argv);
         }
+        if (cmd == "collected") {
+            import collected : handleCollected;
+            return handleCollected();
+        }
         if (cmd == "disagreements") {
             import disagree : handleDisagreements;
             return handleDisagreements();
