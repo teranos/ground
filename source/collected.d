@@ -57,7 +57,10 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, ref ZBuf out_)
     }
 
     auto n = json_object_array_length(all);
-    bool any = false;
+
+    // "i want both incomign and outgoing"
+    // Both are said every time; one with nothing in it says so.
+    bool waits = false;
 
     // What waits for did.
     foreach (k; 0 .. n) {
@@ -65,7 +68,7 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, ref ZBuf out_)
         if (text(jsonField(one, "did")) != did) continue;
         auto waiting = jsonField(one, "waiting");
         if (json_object_get_type(waiting) != json_type.array || json_object_array_length(waiting) == 0) continue;
-        any = true;
+        waits = true;
         out_.put("Waiting for you, due ");
         out_.put(text(jsonField(one, "due")));
         out_.put(":\n");
@@ -81,6 +84,8 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, ref ZBuf out_)
         }
     }
 
+    if (!waits) out_.put("Waiting for you: nothing\n");
+
     // What did said that waits for another.
     bool saidHeader = false;
     foreach (k; 0 .. n) {
@@ -90,7 +95,6 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, ref ZBuf out_)
         foreach (w; 0 .. json_object_array_length(waiting)) {
             auto said = json_object_array_get_idx(waiting, w);
             if (text(jsonField(said, "from_did")) != did) continue;
-            any = true;
             if (!saidHeader) { out_.put("You said, waiting:\n"); saidHeader = true; }
             out_.put("  to ");
             out_.put(text(jsonField(one, "to")));
@@ -102,7 +106,7 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, ref ZBuf out_)
         }
     }
 
-    if (!any) out_.put("Nothing waits for you, and nothing you said waits.\n");
+    if (!saidHeader) out_.put("You said, waiting: nothing\n");
     return 0;
 }
 

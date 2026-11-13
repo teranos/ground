@@ -40,11 +40,28 @@ unittest {
         ~ "  to Mycelia, due 2026-11-14T04:00:00Z: the build on k is red\n", said.slice());
 }
 
-// Nothing either way is said, not left blank.
+// "i want both incomign and outgoing"
+// Both are said every time; one with nothing in it says so.
 unittest {
     ZBuf said;
     assert(collectedFor("1000\n{\"collected\":[]}", ME, 1010, said) == 0);
-    assert(said.slice() == "Nothing waits for you, and nothing you said waits.\n", said.slice());
+    assert(said.slice() == "Waiting for you: nothing\nYou said, waiting: nothing\n", said.slice());
+}
+
+unittest {
+    enum onlyOut = "1000\n" ~ `{"collected":[{"to":"Shiitake","did":"` ~ OTHER ~ `","due":"2026-11-14T04:01:37Z","waiting":[`
+        ~ `{"from":"Mycelia","says":"Mycelia here","at":"2026-11-13T22:01:37Z","from_did":"` ~ ME ~ `"}]}]}`;
+    ZBuf said;
+    assert(collectedFor(onlyOut, ME, 1010, said) == 0);
+    assert(said.slice() ==
+        "Waiting for you: nothing\n"
+        ~ "You said, waiting:\n"
+        ~ "  to Shiitake, due 2026-11-14T04:01:37Z: Mycelia here\n", said.slice());
+    assert(collectedFor(onlyOut, OTHER, 1010, said) == 0);
+    assert(said.slice() ==
+        "Waiting for you, due 2026-11-14T04:01:37Z:\n"
+        ~ "  Mycelia, 2026-11-13T22:01:37Z: Mycelia here\n"
+        ~ "You said, waiting: nothing\n", said.slice());
 }
 
 // What mycelia could not ask is kept in the answer's place, and said as that.
