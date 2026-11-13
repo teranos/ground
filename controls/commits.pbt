@@ -7,6 +7,7 @@ scope {
   # One tool call is one event to ground, and one event opens one door.
   control {
     name: "commit-and-push-are-two-calls"
+    handler_params { unless_agent: "codex" }
     cmd: "*git commit*"
     content: "git push"
     msg: "A commit and a push are two tool calls. One call is one event to ground, and one event opens one door: a push in the commit's call is never walked."
