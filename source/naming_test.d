@@ -125,8 +125,8 @@ unittest {
     assert(keptName(sessionKeyFile("ses-cut"), n.url, buf[]) is null, "half a name was kept");
 }
 
-// Claude Code keeps a session's record under $CLAUDE_CONFIG_DIR when it is set,
-// and under ~/.claude when it is not: the name it gave is read where it is kept.
+// 「[Opus 5.5] Claude Code keeps a session's record under $CLAUDE_CONFIG_DIR when it is set,」
+// 「[Opus 5.5] and under ~/.claude when it is not: the name it gave is read where it is kept.」
 unittest {
     import core.stdc.stdio : snprintf, fopen, fputs, fclose;
     import core.sys.posix.stdlib : setenv, unsetenv;
