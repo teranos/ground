@@ -130,15 +130,15 @@ unittest {
 unittest {
     import core.stdc.stdio : snprintf, fopen, fputs, fclose;
     import core.sys.posix.stdlib : setenv, unsetenv;
-    import core.sys.posix.sys.stat : mkdir;
+    import db : mkdir;
     import core.sys.posix.unistd : getpid;
     char[256] home, config, dir, file;
     snprintf(home.ptr, home.length, "/tmp/ground-harness-home-%d", getpid());
     snprintf(config.ptr, config.length, "/tmp/ground-harness-config-%d", getpid());
-    mkdir(home.ptr, 0x1ED /* 0755 */);
-    mkdir(config.ptr, 0x1ED /* 0755 */);
+    mkdir(home.ptr, 448);
+    mkdir(config.ptr, 448);
     snprintf(dir.ptr, dir.length, "%s/sessions", config.ptr);
-    mkdir(dir.ptr, 0x1ED /* 0755 */);
+    mkdir(dir.ptr, 448);
     snprintf(file.ptr, file.length, "%s/sessions/4242.json", config.ptr);
     auto f = fopen(file.ptr, "w");
     assert(f !is null);
