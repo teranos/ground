@@ -394,9 +394,10 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
     auto asked = httpGet(store.slice(), ToNode(keyAt), answer[], 20);
     if (asked.status != 200) {
         refused(store.slice(), asked.status, asked.len, asked.why());
-        // A node that keeps no memory answers that nothing is there.
-        done.nothingToCarry = asked.status == 404;
-        if (asked.status == 404) {
+        // A node that keeps no memory answers that nothing is there; one that
+        // is not reached is asked again later, as that one is.
+        done.nothingToCarry = asked.status == 404 || asked.status == 0;
+        if (done.nothingToCarry) {
             import core.stdc.time : time;
             ZBuf now;
             now.putUint(cast(ulong) time(null));
