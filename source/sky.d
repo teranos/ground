@@ -578,8 +578,32 @@ int handleSky(int argc, const(char)** argv) {
 
     int nextSleep = PASS_SEC;
     long storeSaidAt = 0;
+    long memoryCarriedAt = 0;
 
     while (true) {
+        // "I OPEN MY OBSIDIAN, I SEE LIVE STATE OF AGENT MEMORY"
+        // The session's memory is brought in step with its Memory Store at the
+        // node (memory.d), apart from this pass: the node is asked over the
+        // network, and what waits for the session does not wait on it.
+        {
+            auto now = cast(long) time(null);
+            if (sessionId.length > 0 && now - memoryCarriedAt >= MEMORY_SEC) {
+                memoryCarriedAt = now;
+                import core.sys.posix.unistd : fork, _exit;
+                import core.sys.posix.signal : signal, SIGCHLD, SIG_IGN;
+                signal(SIGCHLD, SIG_IGN);
+                auto apart = fork();
+                if (apart == 0) {
+                    import memory : carry;
+                    auto done = carry(sessionId);
+                    // A session with no name, or a node that keeps no memory,
+                    // carries nothing and is no failure of the carrying.
+                    if (!done.ok && !done.nothingToCarry)
+                        toSentry("sky.memory", "a memory was not brought in step with the node", 1, sessionId, done.why.slice());
+                    _exit(0);
+                }
+            }
+        }
         // A wrapper the kernel has no process for left its run unsaid. Said
         // first, so this pass hands the session the row it becomes.
         {
@@ -786,6 +810,8 @@ int handleSky(int argc, const(char)** argv) {
 
 // "the 2s can move to 5s and just collect everything in that 5s and send it always, like it still does but batch them"
 enum PASS_SEC = 5;
+// How often the session's memory is brought in step with the node.
+enum MEMORY_SEC = 30;
 
 // How long a pass that could not post waits before trying again. A refusal
 // every five seconds would be the same refusal, said twelve times a minute.
