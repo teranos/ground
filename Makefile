@@ -108,14 +108,22 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
+             ug/tmux.d ug/mycelia.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
              source/http.d source/zbuf.d source/token.d source/signed.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
 # reading from its input, which no hook is handed, every four hours and once
 # per new session. libgit2 reads the tree's status in its own process.
+UG_LIBS = -L-lsqlite3 -L-lgit2 -L-lcurl -L-lsodium
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2 -L-lcurl -L-lsodium
+	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) $(UG_LIBS)
+
+# "so, why would the part that asks the node, not be able to be its own tiny binary"
+# mycelia asks the node; ground_tmux draws what it kept. Each is ug/bin/<name>.d
+# and the modules ug is built from, without ug's own main.
+UG_MODULES = $(filter-out ug/main.d,$(UG_SOURCES))
+ug/mycelia ug/ground_tmux: $(UG_MODULES) ug/bin/mycelia.d ug/bin/ground_tmux.d
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/$(notdir $@).d $(UG_MODULES) $(UG_LIBS)
 
 # "make test should be the fast version"
 # "and ci does slower shit"
@@ -194,7 +202,8 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/qntx.d ug/json.d ug/qntx_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/probe.d ug/qntx.d ug/json.d source/http.d source/zbuf.d ug/probe_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/mycelia.d ug/tmux.d ug/statusline.d ug/json.d ug/mycelia_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d source/http.d source/zbuf.d ug/fable_test.d
 	ldc2 -betterC -of=/tmp/ug-close-test -I=ug ug/sql.d ug/close_test.d -L-lsqlite3
@@ -215,10 +224,9 @@ test-ug-live: build ug
 # onto an existing file keeps its inode. On 2026-09-14, arm64 macOS: the ground
 # cp wrote over the running one was SIGKILLed on every launch, codesign said
 # valid, and the same bytes copied to a new inode ran.
-install-ug: ug
+install-ug: ug ug/mycelia ug/ground_tmux
 	mkdir -p $(PREFIX)/bin
-	cp ug/ug $(PREFIX)/bin/ug.new
-	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
+	for b in ug mycelia ground_tmux; do cp ug/$$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
 
 # "make ground aget fix it"
 # 「[Opus 5.5] A tree without controls/local folds no project, and its sand in place of the machine's is the floor:」

@@ -28,6 +28,8 @@ tools/press
 tools/binder
 tools/editor
 ug/ug
+ug/mycelia
+ug/ground_tmux
 
 # Generated
 .version
