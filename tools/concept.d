@@ -129,6 +129,8 @@ immutable Owner[] owners = [
                           "sessiontrail", "nodeconfig",
                           // A session's name at its node, and what is said to a name.
                           "naming", "say",
+                          // A session's memory, in step with its Memory Store at the node.
+                          "memory",
                           // Which file a tool's row is about, by the file's own repository.
                           "touch"]),
 ];
