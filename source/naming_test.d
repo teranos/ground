@@ -124,3 +124,30 @@ unittest {
     char[256] buf;
     assert(keptName(sessionKeyFile("ses-cut"), n.url, buf[]) is null, "half a name was kept");
 }
+
+// Claude Code keeps a session's record under $CLAUDE_CONFIG_DIR when it is set,
+// and under ~/.claude when it is not: the name it gave is read where it is kept.
+unittest {
+    import core.stdc.stdio : snprintf, fopen, fputs, fclose;
+    import core.sys.posix.stdlib : setenv, unsetenv;
+    import db : mkdir;
+    import core.sys.posix.unistd : getpid;
+    char[256] home, config, dir, file;
+    snprintf(home.ptr, home.length, "/tmp/ground-harness-home-%d", getpid());
+    snprintf(config.ptr, config.length, "/tmp/ground-harness-config-%d", getpid());
+    mkdir(home.ptr, 448);
+    mkdir(config.ptr, 448);
+    snprintf(dir.ptr, dir.length, "%s/sessions", config.ptr);
+    mkdir(dir.ptr, 448);
+    snprintf(file.ptr, file.length, "%s/sessions/4242.json", config.ptr);
+    auto f = fopen(file.ptr, "w");
+    assert(f !is null);
+    fputs(`{"pid":4242,"sessionId":"s","name":"Birch"}`, f);
+    fclose(f);
+    setenv("HOME", home.ptr, 1);
+    setenv("CLAUDE_CONFIG_DIR", config.ptr, 1);
+    char[64] buf;
+    assert(harnessName(4242, buf[]) == "Birch", "the name under CLAUDE_CONFIG_DIR was not read");
+    unsetenv("CLAUDE_CONFIG_DIR");
+    assert(harnessName(4242, buf[]) is null, "with CLAUDE_CONFIG_DIR unset, ~/.claude is read, and holds none");
+}

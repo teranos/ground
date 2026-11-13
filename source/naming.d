@@ -304,19 +304,25 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, co
 }
 
 // What Claude Code calls the session whose process is pid: `name` in
-// ~/.claude/sessions/<pid>.json. Null when there is none.
+// $CLAUDE_CONFIG_DIR/sessions/<pid>.json, else ~/.claude/sessions/<pid>.json,
+// where Claude Code keeps it. Null when there is none.
 const(char)[] harnessName(int pid, char[] buf) {
     import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fopen, fread, fclose;
     import parse : extractJsonString;
-    auto home = getenv("HOME\0".ptr);
-    if (home is null) return null;
+    auto base = getenv("CLAUDE_CONFIG_DIR\0".ptr);
+    const(char)[] tail = "/sessions/";
+    if (base is null || base[0] == 0) {
+        base = getenv("HOME\0".ptr);
+        tail = "/.claude/sessions/";
+    }
+    if (base is null) return null;
     size_t n = 0;
-    while (home[n] != 0) n++;
+    while (base[n] != 0) n++;
     __gshared ZBuf path;
     path.reset();
-    path.put(home[0 .. n]);
-    path.put("/.claude/sessions/");
+    path.put(base[0 .. n]);
+    path.put(tail);
     path.putUint(cast(ulong) pid);
     path.put(".json");
     auto f = fopen(path.ptr(), "r");
