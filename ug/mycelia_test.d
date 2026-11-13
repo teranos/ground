@@ -45,3 +45,48 @@ static assert(silent!(3600)()[0 .. oneHour.length] == oneHour);
 enum never = RED ~ "mycelia silent" ~ PLAIN;
 static assert(silentInto(-1, new char[96]) == never.length, "never kept anything");
 static assert(silent!(-1)()[0 .. never.length] == never);
+
+// "for knowing what is incoming"
+// "and also what is outbound,"
+// What is collected for each agent (QNTX server/collected.go), kept as the
+// node answered it, beside the row.
+import mycelia : collectedPathInto, COLLECTED, refusedInto;
+import qntx : State;
+
+static assert(COLLECTED == "/api/collected");
+
+char[128] collectedPath(const(char)[] home)() {
+    char[128] buf = '.';
+    collectedPathInto(home, buf[]);
+    return buf;
+}
+
+enum collected = "/h/.local/state/ug/collected";
+static assert(collectedPathInto("/h", new char[128]) == collected.length);
+static assert(collectedPath!"/h"()[0 .. collected.length] == collected);
+static assert(collectedPathInto("", new char[128]) == 0);
+
+// What the node did not answer is kept in its place, in words: the reader
+// says it, and never draws an old answer as the current one.
+char[64] refused(State s, int status)() {
+    char[64] buf = '.';
+    refusedInto(s, status, buf[]);
+    return buf;
+}
+
+enum badGateway = "QNTX 502";
+static assert(refusedInto(State.serverError, 502, new char[64]) == badGateway.length);
+static assert(refused!(State.serverError, 502)()[0 .. badGateway.length] == badGateway);
+enum timedOut = "QNTX timeout";
+static assert(refused!(State.timeout, 0)()[0 .. timedOut.length] == timedOut);
+enum noKey = "QNTX key";
+static assert(refused!(State.noKey, 0)()[0 .. noKey.length] == noKey);
+
+// "mycelia connect needs to also be a thing"
+// The key mycelia asks with is the one a person says yes to at the node, so
+// mycelia is what connects it. With no verb it asks, pass after pass.
+import mycelia : verbOf, Verb;
+
+static assert(verbOf(null) == Verb.ask);
+static assert(verbOf("connect") == Verb.connect);
+static assert(verbOf("conect") == Verb.unknown, "a verb mycelia does not know is said, not run as the loop");

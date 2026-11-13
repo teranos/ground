@@ -122,8 +122,14 @@ ug: $(UG_SOURCES)
 # mycelia asks the node; ground_tmux draws what it kept. Each is ug/bin/<name>.d
 # and the modules ug is built from, without ug's own main.
 UG_MODULES = $(filter-out ug/main.d,$(UG_SOURCES))
-ug/mycelia ug/ground_tmux: $(UG_MODULES) ug/bin/mycelia.d ug/bin/ground_tmux.d
-	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/$(notdir $@).d $(UG_MODULES) $(UG_LIBS)
+ug/ground_tmux: $(UG_MODULES) ug/bin/ground_tmux.d
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/ground_tmux.d $(UG_MODULES) $(UG_LIBS)
+
+# "mycelia connect needs to also be a thing"
+# The device flow ground_code login runs, carried by mycelia alone.
+LOGIN_SOURCES = source/code/login.d source/code/reply.d source/libjsonc.d
+ug/mycelia: $(UG_MODULES) $(LOGIN_SOURCES) ug/bin/mycelia.d
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) $(LOGIN_SOURCES) $(UG_LIBS) -L-ljson-c
 
 # "make test should be the fast version"
 # "and ci does slower shit"

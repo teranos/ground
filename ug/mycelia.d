@@ -9,6 +9,7 @@ module mycelia;
 // it to the session.
 
 import tmux : RED, PLAIN;
+import qntx : State;
 
 // How long between passes, and how old a kept row may be before mycelia is
 // taken to have stopped: a pass that waits out every fetch's MAX_TIME is
@@ -228,14 +229,77 @@ const(char)[] newsPass(const(char)[] home) {
     return body_;
 }
 
+// "for knowing what is incoming"
+// "and also what is outbound,"
+// What agents said to an agent waits at the node until it is delivered or a
+// person releases it (QNTX server/collected.go). mycelia keeps the node's
+// answer whole, beside the row; who it is for and who said it are the
+// reader's to pick out by DID.
+enum COLLECTED = "/api/collected";
+enum COLLECTED_KEPT = ".local/state/ug/collected";
+
+size_t collectedPathInto(const(char)[] home, char[] dest) {
+    if (home.length == 0 || home.length + COLLECTED_KEPT.length + 2 > dest.length) return 0;
+    size_t o = 0;
+    foreach (c; home) dest[o++] = c;
+    if (dest[o - 1] != '/') dest[o++] = '/';
+    foreach (c; COLLECTED_KEPT) dest[o++] = c;
+    if (o < dest.length) dest[o] = 0;
+    return o;
+}
+
+// What the node did not answer, in words: the status it chose, else the step
+// that failed.
+size_t refusedInto(State s, int status, char[] dest) {
+    import qntx : word;
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    put("QNTX ");
+    if (status > 0) {
+        char[12] d = 0;
+        size_t dl = 0;
+        int v = status;
+        while (v > 0 && dl < d.length) { d[dl++] = cast(char)('0' + v % 10); v /= 10; }
+        foreach_reverse (i; 0 .. dl) if (o < dest.length) dest[o++] = d[i];
+    } else {
+        put(word(s));
+    }
+    return o;
+}
+
+// The node's answer when it gave one, else what went wrong, kept with the
+// moment it was asked.
+void collectedPass(const(char)[] home, long now) {
+    import probe : fetch;
+    __gshared char[512] path = void;
+    auto n = collectedPathInto(home, path[]);
+    auto answer = fetch(home, COLLECTED);
+    if (answer.state == State.ok) {
+        keepAt(path[0 .. n], now, answer.body_);
+        return;
+    }
+    __gshared char[64] why = void;
+    auto w = refusedInto(answer.state, answer.status, why[]);
+    keepAt(path[0 .. n], now, why[0 .. w]);
+}
+
 // Written beside and moved over, so ground_tmux never reads half a row.
 void keep(const(char)[] home, long now, const(char)[] line) {
+    __gshared char[512] path = void;
+    auto n = keptPathInto(home, path[]);
+    keepAt(path[0 .. n], now, line);
+}
+
+// The moment and the text at path, written beside it and moved over.
+void keepAt(const(char)[] at, long now, const(char)[] text_) {
     import core.stdc.stdio : fopen, fwrite, fclose, rename;
     import core.sys.posix.sys.stat : mkdir;
 
     __gshared char[512] path = void;
-    auto n = keptPathInto(home, path[]);
+    auto n = at.length;
     if (n == 0 || n + 6 > path.length) return;
+    foreach (i, c; at) path[i] = c;
+    path[n] = 0;
     foreach_reverse (i; 0 .. n) {
         if (path[i] != '/') continue;
         path[i] = 0;
@@ -248,8 +312,9 @@ void keep(const(char)[] home, long now, const(char)[] line) {
     foreach (i, c; ".new") beside[n + i] = c;
     beside[n + 4] = 0;
 
-    __gshared char[8256] text = void;
-    auto t = keptInto(now, line, text[]);
+    // As large as the most fetch answers with, and the stamp before it.
+    __gshared char[262144 + 32] text = void;
+    auto t = keptInto(now, text_, text[]);
     auto f = fopen(&beside[0], "wb");
     if (f is null) return;
     fwrite(text.ptr, 1, t, f);
@@ -270,6 +335,18 @@ Kept readKept(const(char)[] home) {
     return keptOf(buf[0 .. n]);
 }
 
+// "mycelia connect needs to also be a thing"
+// With no verb mycelia asks the node, pass after pass. connect signs the key
+// it asks with in to the node, as `ground_code login` does for an ACP client:
+// the same device flow (source/code/login.d), against the node mycelia asks.
+enum Verb { ask, connect, unknown }
+
+Verb verbOf(const(char)[] verb) {
+    if (verb.length == 0) return Verb.ask;
+    if (verb == "connect") return Verb.connect;
+    return Verb.unknown;
+}
+
 // The whole of mycelia: a pass, kept, then a wait, until it is stopped.
 int myceliaMain(const(char)[] home) {
     import core.stdc.time : time;
@@ -279,6 +356,7 @@ int myceliaMain(const(char)[] home) {
         __gshared char[8192] line = void;
         auto n = passInto(home, now, line[]);
         keep(home, now, line[0 .. n]);
+        collectedPass(home, now);
         sleep(PASS);
     }
 }
