@@ -167,7 +167,8 @@ int handleCollected(int argc, const(char)** argv) {
     path.put(home[0 .. hn]);
     path.put("/.local/state/ug/collected");
 
-    __gshared char[262144 + 32] kept;
+    // As large as mycelia keeps (ug/probe.d BODY_BYTES), and its stamp.
+    __gshared char[(4 << 20) + 32] kept;
     size_t got = 0;
     auto f = fopen(path.ptr(), "rb");
     if (f !is null) {

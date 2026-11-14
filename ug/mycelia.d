@@ -255,6 +255,12 @@ size_t refusedInto(State s, int status, char[] dest) {
     size_t o = 0;
     void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
     put("QNTX ");
+    // The node answered, with more than fetch holds: fetch keeps none of a
+    // body cut short, and the status alone read as a 200 refused.
+    if (s == State.malformedBody && status == 200) {
+        put("answered 200 with more than mycelia holds");
+        return o;
+    }
     if (status > 0) {
         char[12] d = 0;
         size_t dl = 0;
@@ -313,7 +319,8 @@ void keepAt(const(char)[] at, long now, const(char)[] text_) {
     beside[n + 4] = 0;
 
     // As large as the most fetch answers with, and the stamp before it.
-    __gshared char[262144 + 32] text = void;
+    import probe : BODY_BYTES;
+    __gshared char[BODY_BYTES + 32] text = void;
     auto t = keptInto(now, text_, text[]);
     auto f = fopen(&beside[0], "wb");
     if (f is null) return;

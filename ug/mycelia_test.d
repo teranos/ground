@@ -81,6 +81,11 @@ enum timedOut = "QNTX timeout";
 static assert(refused!(State.timeout, 0)()[0 .. timedOut.length] == timedOut);
 enum noKey = "QNTX key";
 static assert(refused!(State.noKey, 0)()[0 .. noKey.length] == noKey);
+// The node answered 200 with more than mycelia holds: not a 200 to draw as a
+// refusal, and not the node failing. Said as what it is.
+enum tooLarge = "QNTX answered 200 with more than mycelia holds";
+static assert(refusedInto(State.malformedBody, 200, new char[64]) == tooLarge.length);
+static assert(refused!(State.malformedBody, 200)()[0 .. tooLarge.length] == tooLarge);
 
 // "mycelia connect needs to also be a thing"
 // The key mycelia asks with is the one a person says yes to at the node, so
