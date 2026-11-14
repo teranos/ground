@@ -46,7 +46,7 @@ int door_url(char *out, int cap, double seconds) {
     return 0;
 }
 
-// No Touch ID here: ag is paired with a finger on a Mac, and nowhere else.
+// 「[Opus 5.5] No Touch ID here: ag is paired with a finger on a Mac, and nowhere else.」
 int touch_ask(const char *reason, char *why, int cap) {
     (void) reason;
     const char said[] = "this machine has no Touch ID to pair ag with";

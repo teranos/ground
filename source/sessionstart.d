@@ -390,8 +390,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     // is signed in to: what Claude Code calls it, or the next name free (naming.d).
     if (sessionId !is null) {
         // "maybe i want that session to inherit the name and not you"
-        // A fork that goes on as its parent takes the parent's key and name
-        // before anything makes it a key of its own (lineage.d).
+        // 「[Opus 5.5] A fork that goes on as its parent takes the parent's key and name」
+        // 「[Opus 5.5] before anything makes it a key of its own (lineage.d).」
         if (source !is null && contains(source, "fork")) {
             import lineage : forkStart;
             __gshared ZBuf forked;

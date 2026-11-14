@@ -16,8 +16,8 @@ const BAND = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-// What mycelia was asked over its socket, as [path, secret, body]; a fake
-// mycelia that pairs once and does every press.
+// 「[Opus 5.5] What mycelia was asked over its socket, as [path, secret, body]; a fake」
+// 「[Opus 5.5] mycelia that pairs once and does every press.」
 type Asked = [string, string, string]
 function mycelia(on: Parameters<Parameters<typeof test>[1]>[1], asked: Asked[]) {
   on('clock.now', () => ({ value: 0 }))
@@ -75,7 +75,7 @@ test('a press is asked of mycelia directly, with the secret the first one paired
   expect(asked).toContainEqual(['/api/collected/release', 'a'.repeat(64), '{"to":"did:key:z6MkMe"}'])
   expect(asked.find(a => a[0] === '/api/collected/hold')?.[2]).toMatch(/"until":"\d{4}-\d\d-\d\dT\d\d:40:00Z"/)
   expect(asked).toContainEqual(['/api/collected/release', 'a'.repeat(64), '{"to":"did:key:z6MkMe","says":"hello, edited"}'])
-  // No press goes through ground collected, which any agent can run.
+  // 「[Opus 5.5] No press goes through ground collected, which any agent can run.」
   expect(ran.some(argv => argv[1] === 'collected' && argv[2] !== 'json')).toBe(false)
   await ui.unmount()
 })
@@ -162,7 +162,7 @@ test('a session that branched from this one stands as a row, and a click gives i
   expect((await ui.find({ in: 'lines', type: 'Text', text: /stays with/ }))?.text).toBe('⑂ Mycelia stays with  ')
   expect((await ui.find({ in: 'lines', type: 'Text', text: /● this session/ }))?.props.bold).toBe(true)
   expect((await ui.find({ in: 'lines', type: 'Text', text: /○ mycelia on k/ }))?.text).toBe('   ○ mycelia on k')
-  // On the filled one: nothing moves.
+  // 「[Opus 5.5] On the filled one: nothing moves.」
   await ui.pointer({ type: 'down', x: 25, y: 0, button: 'left' })
   expect(ran.some(argv => argv[1] === 'forks' && argv[2] === 'give')).toBe(false)
   await ui.pointer({ type: 'down', x: 42, y: 0, button: 'left' })
