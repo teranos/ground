@@ -26,7 +26,7 @@ extern (C) int main(int argc, char** argv) {
 
     // The QNTX row lives on the tmux bar, where it is visible whether or not a
     // session is open, and where it does not spend this frame on a network
-    // call. ground_tmux draws it, from what mycelia kept.
+    // 「[Opus 5.5] call. ground_tmux draws it, from what mycelia kept.」
     statushead(session, now);
     ritualLines(session, now);
 
