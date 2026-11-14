@@ -5,21 +5,21 @@ import mycelia : myceliaMain, verbOf, Verb, SOCKET, DOOR_PATH, homeUrlInto, tick
     sessionSaidPathInto;
 static import zbuf;
 
-// The Keychain, behind Touch ID (ug/touch.c).
+// 「[Opus 5.5] The Keychain, behind Touch ID (ug/touch.c).」
 extern (C) int touch_keep(const(ubyte)* held, int n);
 extern (C) int touch_take(ubyte* out_, int cap, const(char)* prompt, int* n);
 extern (C) void touch_said(int st, char* out_, int cap);
 extern (C) int touch_forget_seed();
-// The url the system opened Mycelia.app with (ug/door.m).
+// 「[Opus 5.5] The url the system opened Mycelia.app with (ug/door.m).」
 extern (C) int door_url(char* out_, int cap, double seconds);
 
-// The person's session, once a touch has taken it out of the Keychain or the
-// door has just collected it: held until mycelia stops, which a reboot or a
-// restart is.
+// 「[Opus 5.5] The person's session, once a touch has taken it out of the Keychain or the」
+// 「[Opus 5.5] door has just collected it: held until mycelia stops, which a reboot or a」
+// 「[Opus 5.5] restart is.」
 __gshared char[256] session = void;
 __gshared size_t sessionLen;
 
-// Apple's words for an OSStatus.
+// 「[Opus 5.5] Apple's words for an OSStatus.」
 const(char)[] saidOf(int st) {
     __gshared char[256] why = 0;
     why[] = 0;
@@ -33,8 +33,8 @@ void putStatus(ref zbuf.ZBuf b, int st) {
     if (st < 0) { b.put("-"); b.putUint(cast(ulong) -st); } else b.putUint(cast(ulong) st);
 }
 
-// A press, made in the person's session: the node's status on the first line
-// of reply, its body after; 0 and why when it was not asked.
+// 「[Opus 5.5] A press, made in the person's session: the node's status on the first line」
+// 「[Opus 5.5] of reply, its body after; 0 and why when it was not asked.」
 int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
     import http : httpPostInto;
     import probe : host;
@@ -47,13 +47,13 @@ int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
             putStatus(reply, st);
             reply.put(" ");
             reply.put(saidOf(st));
-            // errSecItemNotFound: nothing was ever collected at the door.
+            // 「[Opus 5.5] errSecItemNotFound: nothing was ever collected at the door.」
             reply.put(st == -25300 ? " (mycelia connect collects one)" : "");
             return 1;
         }
         sessionLen = n;
-        // A session kept behind a touch on every read is kept again as one
-        // read once a boot, so this touch is its last (ug/touch.c touch_keep).
+        // 「[Opus 5.5] A session kept behind a touch on every read is kept again as one」
+        // 「[Opus 5.5] read once a boot, so this touch is its last (ug/touch.c touch_keep).」
         auto kept = touch_keep(cast(const(ubyte)*) session.ptr, cast(int) sessionLen);
         if (kept != 0) {
             import core.stdc.stdio : fprintf, stderr;
@@ -80,7 +80,7 @@ int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
 
 __gshared const(char)[] homeHeld;
 
-// What mycelia says of the session, beside the row: the moment, then the words.
+// 「[Opus 5.5] What mycelia says of the session, beside the row: the moment, then the words.」
 void sessionSaid(const(char)[] words) {
     import mycelia : keepAt;
     import core.stdc.time : time;
@@ -89,10 +89,10 @@ void sessionSaid(const(char)[] words) {
     if (n > 0) keepAt(path[0 .. n], cast(long) time(null), words);
 }
 
-// The browser came back to the door: the ticket is spent for the session,
-// which is kept in the Keychain and held. What happened is said beside the
-// row, for mycelia connect, and answered: the node's status on a line, then
-// the words.
+// 「[Opus 5.5] The browser came back to the door: the ticket is spent for the session,」
+// 「[Opus 5.5] which is kept in the Keychain and held. What happened is said beside the」
+// 「[Opus 5.5] row, for mycelia connect, and answered: the node's status on a line, then」
+// 「[Opus 5.5] the words.」
 int door(const(char)[] url, ref zbuf.ZBuf reply) {
     import http : httpGet;
     import probe : host;
@@ -140,7 +140,7 @@ int door(const(char)[] url, ref zbuf.ZBuf reply) {
     return 0;
 }
 
-// The socket of the mycelia that is running, connected; -1 when none answers.
+// 「[Opus 5.5] The socket of the mycelia that is running, connected; -1 when none answers.」
 int running(const(char)[] home) {
     import core.sys.posix.sys.socket : socket, connect, AF_UNIX, SOCK_STREAM, sockaddr;
     import core.sys.posix.sys.un : sockaddr_un;
@@ -159,8 +159,8 @@ int running(const(char)[] home) {
     return fd;
 }
 
-// The system started this Mycelia.app for a url while another mycelia runs:
-// the url is that one's to collect.
+// 「[Opus 5.5] The system started this Mycelia.app for a url while another mycelia runs:」
+// 「[Opus 5.5] the url is that one's to collect.」
 int handOver(int fd) {
     import core.sys.posix.sys.socket : shutdown, SHUT_WR;
     import core.sys.posix.unistd : read, write, close;
@@ -190,9 +190,9 @@ int handOver(int fd) {
     return 0;
 }
 
-// The person is sent home for the passkey, in the browser; the node sends the
-// browser back to the door, and the mycelia that is running collects the
-// session. This waits for what it says of it.
+// 「[Opus 5.5] The person is sent home for the passkey, in the browser; the node sends the」
+// 「[Opus 5.5] browser back to the door, and the mycelia that is running collects the」
+// 「[Opus 5.5] session. This waits for what it says of it.」
 int connectMain(const(char)[] home) {
     import probe : host;
     import mycelia : keptOf;
@@ -224,7 +224,7 @@ int connectMain(const(char)[] home) {
 
     __gshared char[512] path = void;
     sessionSaidPathInto(home, path[]);
-    // The node keeps a journey home for ten minutes (QNTX homewardTTL).
+    // 「[Opus 5.5] The node keeps a journey home for ten minutes (QNTX homewardTTL).」
     foreach (_; 0 .. 600) {
         sleep(1);
         auto f = fopen(&path[0], "rb");
@@ -234,7 +234,7 @@ int connectMain(const(char)[] home) {
         fclose(f);
         auto kept = keptOf(buf[0 .. n]);
         if (kept.at < since) continue;
-        // The node's status on a line, then what happened.
+        // 「[Opus 5.5] The node's status on a line, then what happened.」
         auto words = kept.line;
         size_t nl = 0;
         while (nl < words.length && words[nl] != '\n') nl++;
@@ -269,12 +269,12 @@ extern (C) int main(int argc, char** argv) {
             fputs(USAGE.ptr, stderr);
             return 2;
         case Verb.ask:
-            // One mycelia asks the node. Another started while it runs is the
-            // system opening the door's url, and hands it over.
+            // 「[Opus 5.5] One mycelia asks the node. Another started while it runs is the」
+            // 「[Opus 5.5] system opening the door's url, and hands it over.」
             auto fd = running(h[0 .. hl]);
             if (fd >= 0) return handOver(fd);
-            // The seed kept before presses were made in the session goes,
-            // said in mycelia's log when it went or could not.
+            // 「[Opus 5.5] The seed kept before presses were made in the session goes,」
+            // 「[Opus 5.5] said in mycelia's log when it went or could not.」
             auto st = touch_forget_seed();
             if (st != -25300) {
                 import core.stdc.stdio : fprintf;
