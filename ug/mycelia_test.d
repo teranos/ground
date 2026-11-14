@@ -170,9 +170,9 @@ static assert(!pressAllowed("/api/collected/release/../../auth/admit"));
 static assert(!pressAllowed("/api/collected/releasex"));
 
 // "yes, build that"
-// A press is a click in ag: ag asks mycelia over its socket as HTTP, carrying
-// the secret it was given when the person paired it with a finger. Anything
-// else that writes to the socket is no click.
+// 「[Opus 5.5] A press is a click in ag: ag asks mycelia over its socket as HTTP, carrying」
+// 「[Opus 5.5] the secret it was given when the person paired it with a finger. Anything」
+// 「[Opus 5.5] else that writes to the socket is no click.」
 import mycelia : requestOf, Request;
 
 enum PRESS = "POST /api/collected/cancel HTTP/1.1\r\nHost: mycelia\r\nX-Ag-Secret: s3cr3t\r\nContent-Length: 19\r\n\r\n{\"to\":\"a\",\"id\":\"b\"}";
