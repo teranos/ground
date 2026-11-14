@@ -335,6 +335,21 @@ Kept readKept(const(char)[] home) {
     return keptOf(buf[0 .. n]);
 }
 
+// "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+// The person's key lives in the Keychain, behind Touch ID (ug/touch.c); its
+// DID is written down here, so who the person is is known without a touch.
+enum PERSON = ".local/state/ug/person";
+
+size_t personPathInto(const(char)[] home, char[] dest) {
+    if (home.length == 0 || home.length + PERSON.length + 2 > dest.length) return 0;
+    size_t o = 0;
+    foreach (c; home) dest[o++] = c;
+    if (dest[o - 1] != '/') dest[o++] = '/';
+    foreach (c; PERSON) dest[o++] = c;
+    if (o < dest.length) dest[o] = 0;
+    return o;
+}
+
 // "mycelia connect needs to also be a thing"
 // With no verb mycelia asks the node, pass after pass. connect signs the key
 // it asks with in to the node, as `ground_code login` does for an ACP client:

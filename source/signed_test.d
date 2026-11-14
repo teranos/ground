@@ -168,3 +168,26 @@ unittest {
     unlink(file.ptr);
     rmdir(dir.ptr);
 }
+
+// "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+// A key held in memory, as mycelia holds the person's after one touch, signs
+// as itself: no file is read for it.
+unittest {
+    import core.sys.posix.stdlib : setenv;
+    setenv("HOME", "/nonexistent-ground-home\0".ptr, 1);
+    ubyte[SEED_BYTES] zero;
+    auto held = keyOf(zero[]);
+    ZBuf line;
+    authLine(line, "https://api.q.sbvh.nl/api/collected/cancel", "", true, null, &held);
+    enum signedLine = "Authorization: Signed ";
+    assert(line.slice().length > signedLine.length && line.slice()[0 .. signedLine.length] == signedLine, line.slice());
+    // Its claims name the held key: the zero seed's DID.
+    auto jwt = line.slice()[signedLine.length .. $];
+    size_t first = 0, second = 0, dots = 0;
+    foreach (i, c; jwt) if (c == '.') { if (dots++ == 0) first = i; else second = i; }
+    ZBuf iss;
+    putBase64URL(iss, cast(const(ubyte)[]) `{"iss":"did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp"`);
+    // base64url of a prefix is a prefix of the base64url, up to the last whole group of three.
+    auto whole = iss.slice()[0 .. iss.slice().length / 4 * 4];
+    assert(jwt[first + 1 .. first + 1 + whole.length] == whole, jwt[first + 1 .. second]);
+}

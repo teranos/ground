@@ -9,6 +9,7 @@ module code.login;
 // "A signature proves the key, and nothing reusable leaves the node."
 
 import code.reply : Reply, putEscaped, putNumber;
+import signed : Key;
 import libjsonc : json_object, json_type, json_object_get_type, json_object_get_string, json_object_get_string_len,
     json_object_get_int64, json_object_put, jsonField, parseJson;
 
@@ -84,13 +85,20 @@ private int ask(const(char)[] url, const(char)[] form, char[] dest, ref size_t l
 // key kept at keyAt, made there first when there is none: 1 the sign-in is
 // started, -1 it is not, the node's answer in why.
 int startSignIn(const(char)[] node, const(char)* keyAt, ref SignIn s, ref Reply why) {
-    import signed : keepKey, putDID;
-    import zbuf : ZBuf;
+    import signed : keepKey;
     auto key = keepKey(keyAt);
     if (!key.held) {
         why.add(`{"message":"no key is kept for ground to sign with"}`);
         return -1;
     }
+    return startSignInFor(node, key, s, why);
+}
+
+// The same for a key held in memory: mycelia's person key, which lives in the
+// Keychain and in no file.
+int startSignInFor(const(char)[] node, ref const Key key, ref SignIn s, ref Reply why, const(char)[] label = LABEL) {
+    import signed : putDID;
+    import zbuf : ZBuf;
     __gshared ZBuf did;
     did.reset();
     putDID(did, key.public_[]);
@@ -98,7 +106,7 @@ int startSignIn(const(char)[] node, const(char)* keyAt, ref SignIn s, ref Reply 
     Reply url, form;
     scope(exit) { url.dispose(); form.dispose(); }
     url.add(node); url.add(DEVICE_PATH);
-    form.add("label="); putForm(form, LABEL);
+    form.add("label="); putForm(form, label);
     form.add("&did="); putForm(form, did.slice());
     __gshared char[ANSWER_BYTES] dest;
     size_t len;
@@ -173,18 +181,29 @@ int dropKept(const(char)* file, ref Reply why) {
 // keyAt, which is what speaks from then on.
 // 0 signed in, 1 not, what the node said given to say.
 int login(const(char)[] node, const(char)* keyAt, scope void delegate(const(char)[]) say) {
-    import core.sys.posix.unistd : sleep;
     import core.stdc.string : strlen;
+    import signed : keepKey;
+    if (node.length == 0) { say("ground code login: the qntx block names no url, so there is no node to sign in to\n"); return 1; }
+    if (keyAt is null) { say("ground code login: the key is kept in a home, and HOME names none\n"); return 1; }
+    auto key = keepKey(keyAt);
+    if (!key.held) { say("ground code login: the node did not start a sign-in: {\"message\":\"no key is kept for ground to sign with\"}\n"); return 1; }
+    return loginFor(node, key, keyAt[0 .. strlen(keyAt)], LABEL, say);
+}
+
+// The sign-in for a key held in memory, under label; kept names where the key
+// is kept, for the line that says it is signed in.
+int loginFor(const(char)[] node, ref const Key key, const(char)[] kept, const(char)[] label,
+             scope void delegate(const(char)[]) say) {
+    import core.sys.posix.unistd : sleep;
     SignIn s;
     Reply why;
     scope(exit) { s.dispose(); why.dispose(); }
     if (node.length == 0) { say("ground code login: the qntx block names no url, so there is no node to sign in to\n"); return 1; }
-    if (keyAt is null) { say("ground code login: the key is kept in a home, and HOME names none\n"); return 1; }
-    if (startSignIn(node, keyAt, s, why) != 1) {
+    if (startSignInFor(node, key, s, why, label) != 1) {
         say("ground code login: the node did not start a sign-in: "); say(why.slice()); say("\n");
         return 1;
     }
-    say("Sign in to QNTX as "); say(LABEL); say(": open\n\n  "); say(s.link.slice());
+    say("Sign in to QNTX as "); say(label); say(": open\n\n  "); say(s.link.slice());
     say("\n\nand check the code there is "); say(s.userCode.slice()); say(".\n");
     while (true) {
         sleep(s.interval);
@@ -194,6 +213,6 @@ int login(const(char)[] node, const(char)* keyAt, scope void delegate(const(char
         if (got < 0) { say("ground code login: not signed in: "); say(why.slice()); say("\n"); return 1; }
         break;
     }
-    say("Signed in as "); say(s.did.slice()); say(". The key is kept in "); say(keyAt[0 .. strlen(keyAt)]); say(".\n");
+    say("Signed in as "); say(s.did.slice()); say(". The key is kept in "); say(kept); say(".\n");
     return 0;
 }

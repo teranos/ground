@@ -128,8 +128,32 @@ ug/ground_tmux: $(UG_MODULES) ug/bin/ground_tmux.d
 # "mycelia connect needs to also be a thing"
 # The device flow ground_code login runs, carried by mycelia alone.
 LOGIN_SOURCES = source/code/login.d source/code/reply.d source/libjsonc.d
-ug/mycelia: $(UG_MODULES) $(LOGIN_SOURCES) ug/bin/mycelia.d
-	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) $(LOGIN_SOURCES) $(UG_LIBS) -L-ljson-c
+ug/touch.o: ug/touch.c
+	clang -c -o $@ ug/touch.c
+ug/mycelia: $(UG_MODULES) $(LOGIN_SOURCES) ug/bin/mycelia.d ug/touch.o
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) $(LOGIN_SOURCES) ug/touch.o $(UG_LIBS) -L-ljson-c \
+		-L-framework -LSecurity -L-framework -LCoreFoundation
+
+# "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+# The person's key lives in a Keychain group only a binary signed with the
+# team's profile sees, so mycelia is an app: the binary, the profile, and a
+# signature naming the group. How this Mac signs is its own, outside the tree.
+-include $(HOME)/.config/mycelia/signing.mk
+ug/Mycelia.app: ug/mycelia
+	@test -n "$(MYCELIA_IDENTITY)" || { echo "ug/Mycelia.app: ~/.config/mycelia/signing.mk names no MYCELIA_IDENTITY to sign with"; exit 1; }
+	rm -rf $@ && mkdir -p $@/Contents/MacOS
+	cp ug/mycelia $@/Contents/MacOS/mycelia
+	cp "$(MYCELIA_PROFILE)" $@/Contents/embedded.provisionprofile
+	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
+		'<key>CFBundleIdentifier</key><string>$(MYCELIA_BUNDLE)</string>' \
+		'<key>CFBundleExecutable</key><string>mycelia</string>' \
+		'<key>CFBundlePackageType</key><string>APPL</string>' '</dict></plist>' > $@/Contents/Info.plist
+	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
+		'<key>com.apple.application-identifier</key><string>$(MYCELIA_TEAM).$(MYCELIA_BUNDLE)</string>' \
+		'<key>com.apple.developer.team-identifier</key><string>$(MYCELIA_TEAM)</string>' \
+		'<key>keychain-access-groups</key><array><string>$(MYCELIA_TEAM).$(MYCELIA_BUNDLE)</string></array>' \
+		'</dict></plist>' > ug/mycelia.entitlements
+	codesign -f -s $(MYCELIA_IDENTITY) --entitlements ug/mycelia.entitlements $@
 
 # "make test should be the fast version"
 # "and ci does slower shit"
@@ -230,9 +254,12 @@ test-ug-live: build ug
 # onto an existing file keeps its inode. On 2026-09-14, arm64 macOS: the ground
 # cp wrote over the running one was SIGKILLed on every launch, codesign said
 # valid, and the same bytes copied to a new inode ran.
-install-ug: ug ug/mycelia ug/ground_tmux
-	mkdir -p $(PREFIX)/bin
-	for b in ug mycelia ground_tmux; do cp ug/$$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
+install-ug: ug ug/Mycelia.app ug/ground_tmux
+	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/mycelia
+	for b in ug ground_tmux; do cp ug/$$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
+	rm -rf $(PREFIX)/lib/mycelia/Mycelia.app.new && cp -R ug/Mycelia.app $(PREFIX)/lib/mycelia/Mycelia.app.new
+	rm -rf $(PREFIX)/lib/mycelia/Mycelia.app && mv $(PREFIX)/lib/mycelia/Mycelia.app.new $(PREFIX)/lib/mycelia/Mycelia.app
+	ln -sfn ../lib/mycelia/Mycelia.app/Contents/MacOS/mycelia $(PREFIX)/bin/mycelia
 
 # "make ground aget fix it"
 # 「[Opus 5.5] A tree without controls/local folds no project, and its sand in place of the machine's is the floor:」

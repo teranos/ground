@@ -29,6 +29,9 @@ tools/binder
 tools/editor
 ug/ug
 ug/mycelia
+ug/Mycelia.app/
+ug/touch.o
+ug/mycelia.entitlements
 ug/ground_tmux
 
 # Generated

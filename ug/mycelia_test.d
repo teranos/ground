@@ -90,3 +90,19 @@ import mycelia : verbOf, Verb;
 static assert(verbOf(null) == Verb.ask);
 static assert(verbOf("connect") == Verb.connect);
 static assert(verbOf("conect") == Verb.unknown, "a verb mycelia does not know is said, not run as the loop");
+
+// "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+// The person's key lives in the Keychain; its DID is written down beside the
+// row, so who the person is is known without a touch.
+import mycelia : personPathInto;
+
+char[128] personPath(const(char)[] home)() {
+    char[128] buf = '.';
+    personPathInto(home, buf[]);
+    return buf;
+}
+
+enum person = "/h/.local/state/ug/person";
+static assert(personPathInto("/h", new char[128]) == person.length);
+static assert(personPath!"/h"()[0 .. person.length] == person);
+static assert(personPathInto("", new char[128]) == 0);
