@@ -14,6 +14,7 @@ type State = {
   open?: number // the message clicked in
   armed?: number // the message whose arrow was pressed once: XXXX
   deleting?: boolean // [delete] pressed once on the message clicked in: [DELETE]
+  releasing?: boolean // [now] pressed once on the message clicked in: [NOW]
   due?: string // the time it is held to, as moved by +-, before it is asked
   typing?: string // what is typed in place of what is said, while editing
 }
@@ -23,8 +24,9 @@ type State = {
 //     16:25 <-- Shiitake: Some text of Shiitake to us.
 // "the word cancel isnt clear"
 const AT = { now: 6, edit: 20, delete: 40, esc: 49 }
-const buttonsOf = (deleting: boolean) =>
-  '+- +- [now]'.padEnd(AT.edit) + '[edit]'.padEnd(AT.delete - AT.edit) + (deleting ? '[DELETE]' : '[delete]') + ' [esc]'
+// "[now], this means to me kind fo same thing as [delete] two stage, press once, you get [NOW] green, and press another time, it actually get's released"
+const nowOf = (releasing: boolean) => (releasing ? '[NOW]' : '[now]')
+const deleteOf = (deleting: boolean) => (deleting ? '[DELETE]' : '[delete]')
 // How far the message line stands in under its buttons.
 const UNDER = 2
 
@@ -76,8 +78,11 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
     if (e.x === 3) return hold(moved(due, 5))
     if (e.x === 4) return hold(moved(due, -5))
     if (e.x >= at.now && e.x < at.now + 5) {
-      surface.post({ act: 'release', to: line.to })
-      return set({})
+      if (state.releasing) {
+        surface.post({ act: 'release', to: line.to })
+        return set({})
+      }
+      return set({ ...state, releasing: true, deleting: false })
     }
     if (e.x >= at.edit && e.x < at.edit + 6) {
       const whole = props.lines.filter(l => l.way === line.way && l.to === line.to).map(l => l.says).join('\n')
@@ -89,7 +94,7 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
         surface.post({ act: 'cancel', to: line.to, id: line.id })
         return set({})
       }
-      return set({ ...state, deleting: true })
+      return set({ ...state, deleting: true, releasing: false })
     }
     // "cancel should get us out of the clicked-in,"
     if (e.x >= at.esc && e.x < at.esc + 5) return set({})
@@ -112,12 +117,13 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
       {rows.map(row => {
         const line = props.lines[row.line] as Line
         if (row.buttons) {
-          const all = buttonsOf(!!state.deleting)
           return (
             <Box key={`b${row.line}`} flexDirection="row">
-              <Text>{all.slice(0, AT.delete)}</Text>
-              <Text color={state.deleting ? 'red' : undefined} bold={!!state.deleting}>{all.slice(AT.delete, AT.delete + 8)}</Text>
-              <Text>{all.slice(AT.delete + 8)}</Text>
+              <Text>{'+- +- '}</Text>
+              <Text color={state.releasing ? 'green' : undefined} bold={!!state.releasing}>{nowOf(!!state.releasing)}</Text>
+              <Text>{' '.repeat(AT.edit - AT.now - 5) + '[edit]' + ' '.repeat(AT.delete - AT.edit - 6)}</Text>
+              <Text color={state.deleting ? 'red' : undefined} bold={!!state.deleting}>{deleteOf(!!state.deleting)}</Text>
+              <Text>{' [esc]'}</Text>
             </Box>
           )
         }

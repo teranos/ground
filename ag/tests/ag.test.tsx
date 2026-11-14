@@ -94,6 +94,22 @@ test('a message clicked in shows its buttons; esc closes them, delete twice dele
   await ui.unmount()
 })
 
+// "[now], this means to me kind fo same thing as [delete] two stage, press once, you get [NOW] green, and press another time, it actually get's released"
+test('now is pressed twice: once it is [NOW] green, and the second releases', async ($, on) => {
+  const ran: string[][] = []
+  engine(on, ran)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  await ui.pointer({ type: 'down', x: 10, y: 0, button: 'left' })
+  await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
+  expect((await ui.find({ in: 'lines', type: 'Text', text: /^\[NOW\]$/ }))?.props.color).toBe('green')
+  expect(ran.some(argv => argv[2] === 'release')).toBe(false)
+  await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
+  expect(ran).toContainEqual(['ground', 'collected', 'release', 'did:key:z6MkMe'])
+  await ui.unmount()
+})
+
 test('nothing waiting draws nothing', async ($, on) => {
   const ran: string[][] = []
   engine(on, ran, '{"incoming":[],"outbound":[]}')
