@@ -179,7 +179,11 @@ export const register: Register = on => {
     // Claude Code said of it stands under the rows. Taking the name back to
     // this session switches nothing.
     if (d.act === 'open') {
-      await update($, refused, () => `the name stays here: that session is open in another window; \`claude attach ${d.to.slice(0, 8)}\` opens it`)
+      // "I PRESSED IT, I AM HUMAN, THE INTENT IT FOR IT TO HAVE IT"
+      // The click is the decision: the name goes. Only the switch waits, on
+      // a session open in another window, and how to get there is said.
+      const gave = await press($, { ...d, act: 'give' } as Press, sessionId)
+      if (gave) await update($, refused, () => `the name is that session's now; it is open in another window: \`claude attach ${d.to.slice(0, 8)}\``)
     } else if (d.act === 'give') {
       let said = ''
       try {

@@ -173,7 +173,7 @@ test('a session that branched from this one stands as a row, and a click gives i
 })
 
 // "i dont thin that ux is good"
-test('a branch running in the background is not given the name; what Claude Code said stands', async ($, on) => {
+test('a branch running in another window is given the name on a click, and how to open it is said', async ($, on) => {
   const ran: string[][] = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'sid' }))
@@ -191,8 +191,8 @@ test('a branch running in the background is not given the name; what Claude Code
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await ui.pointer({ type: 'down', x: 42, y: 0, button: 'left' })
-  expect(ran.some(argv => argv[1] === 'forks' && argv[2] === 'give')).toBe(false)
-  expect((await ui.find({ type: 'Text', text: /the name stays here/ }))?.text).toContain('claude attach fa8a1589')
+  expect(ran).toContainEqual(['ground', 'forks', 'give', 'fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
+  expect((await ui.find({ type: 'Text', text: /the name is that session's now/ }))?.text).toContain('claude attach fa8a1589')
   await ui.unmount()
 })
 
