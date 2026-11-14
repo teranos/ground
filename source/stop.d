@@ -1,6 +1,7 @@
 module stop;
 
 import parse : extractBool, extractLastAssistantMessage, writeJsonString;
+import hooks : Control;
 import db : openDb, attestEvent,
                 getBranch, sqlite3, sqlite3_close, ZBuf;
 import core.stdc.stdio : stdout, stderr, fputs, fprintf;
@@ -92,6 +93,26 @@ bool ritualPending(const(char)[] cwd) {
     auto found = readPositionAt(db, cwd);
     sqlite3_close(db);
     return found.valid && found.p.state == RitualState.Live;
+}
+
+// Background context waits for the user; it must never manufacture a turn.
+bool nextUserPrompt(ref const Control c) {
+    foreach (i; 0 .. c.paramCount)
+        if (c.paramKeys[i] == "delivery") return c.paramValues[i] == "next_user_prompt";
+    return false;
+}
+
+void queuePromptReminder(sqlite3* db, ref const Control c, const(char)[] message,
+                         const(char)[] cwd, const(char)[] sessionId) {
+    import immediate : writeNote;
+    import db : attestControlFire;
+    if (!writeNote(db, sessionId, c.name, message, 0, "next_user_prompt")) {
+        fputs("ground: could not queue reminder for the next user prompt\n", stderr);
+        return;
+    }
+    attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
+    import fired : noteFired;
+    noteFired(db, sessionId, "Stop", "control", c.name, "next_user_prompt", cwd);
 }
 
 int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) {
@@ -292,6 +313,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     import db : attestationExists, attestControlFire;
                     if (attestationExists(db, "GroundedStop", c.name, sessionId))
                         continue;
+                    if (nextUserPrompt(c)) {
+                        import matcher : envSubst;
+                        queuePromptReminder(db, c, envSubst(c.msg.value, cwd), cwd, sessionId);
+                        continue;
+                    }
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
                     {
                         import fired : noteFired;
@@ -381,6 +407,11 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
                     if (deliver is null) { unheld("deliver", c.defer.deliver, c.name); continue; }
                     auto delivered = deliver(cwd);
                     if (delivered is null) continue;
+
+                    if (nextUserPrompt(c)) {
+                        queuePromptReminder(db, c, delivered, cwd, sessionId);
+                        continue;
+                    }
 
                     attestControlFire(db, "GroundedStop", c.name, cwd, sessionId);
                     {
