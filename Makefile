@@ -108,14 +108,61 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
+             ug/tmux.d ug/mycelia.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
              source/http.d source/zbuf.d source/token.d source/signed.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
 # reading from its input, which no hook is handed, every four hours and once
 # per new session. libgit2 reads the tree's status in its own process.
+UG_LIBS = -L-lsqlite3 -L-lgit2 -L-lcurl -L-lsodium
 ug: $(UG_SOURCES)
-	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) -L-lsqlite3 -L-lgit2 -L-lcurl -L-lsodium
+	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) $(UG_LIBS)
+
+# "so, why would the part that asks the node, not be able to be its own tiny binary"
+# mycelia asks the node; ground_tmux draws what it kept. Each is ug/bin/<name>.d
+# and the modules ug is built from, without ug's own main.
+UG_MODULES = $(filter-out ug/main.d,$(UG_SOURCES))
+ug/ground_tmux: $(UG_MODULES) ug/bin/ground_tmux.d
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/ground_tmux.d $(UG_MODULES) $(UG_LIBS)
+
+# "mycelia connect needs to also be a thing"
+# The Keychain (touch.c), and the door the browser comes back to (door.m),
+# carried by mycelia alone.
+ug/touch.o: ug/touch.c
+	clang -c -o $@ ug/touch.c
+ug/door.o: ug/door.m
+	clang -c -fobjc-arc -o $@ ug/door.m
+ug/mycelia: $(UG_MODULES) ug/bin/mycelia.d ug/touch.o ug/door.o
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) ug/touch.o ug/door.o $(UG_LIBS) \
+		-L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation
+
+# "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+# The person's session lives in a Keychain group only a binary signed with the
+# team's profile sees, so mycelia is an app: the binary, the profile, and a
+# signature naming the group. How this Mac signs is its own, outside the tree.
+# The app answers mycelia://, the door the node sends the browser back to, and
+# shows nothing: no Dock icon, no menu.
+-include $(HOME)/.config/mycelia/signing.mk
+ug/Mycelia.app: ug/mycelia
+	@test -n "$(MYCELIA_IDENTITY)" || { echo "ug/Mycelia.app: ~/.config/mycelia/signing.mk names no MYCELIA_IDENTITY to sign with"; exit 1; }
+	rm -rf $@ && mkdir -p $@/Contents/MacOS
+	cp ug/mycelia $@/Contents/MacOS/mycelia
+	cp "$(MYCELIA_PROFILE)" $@/Contents/embedded.provisionprofile
+	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
+		'<key>CFBundleIdentifier</key><string>$(MYCELIA_BUNDLE)</string>' \
+		'<key>CFBundleExecutable</key><string>mycelia</string>' \
+		'<key>CFBundlePackageType</key><string>APPL</string>' \
+		'<key>LSUIElement</key><true/>' \
+		'<key>CFBundleURLTypes</key><array><dict>' \
+		'<key>CFBundleURLName</key><string>$(MYCELIA_BUNDLE).door</string>' \
+		'<key>CFBundleURLSchemes</key><array><string>mycelia</string></array>' \
+		'</dict></array>' '</dict></plist>' > $@/Contents/Info.plist
+	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
+		'<key>com.apple.application-identifier</key><string>$(MYCELIA_TEAM).$(MYCELIA_BUNDLE)</string>' \
+		'<key>com.apple.developer.team-identifier</key><string>$(MYCELIA_TEAM)</string>' \
+		'<key>keychain-access-groups</key><array><string>$(MYCELIA_TEAM).$(MYCELIA_BUNDLE)</string></array>' \
+		'</dict></plist>' > ug/mycelia.entitlements
+	codesign -f -s $(MYCELIA_IDENTITY) --entitlements ug/mycelia.entitlements $@
 
 # "make test should be the fast version"
 # "and ci does slower shit"
@@ -194,7 +241,8 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/qntx.d ug/json.d ug/qntx_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/probe.d ug/qntx.d ug/json.d source/http.d source/zbuf.d ug/probe_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/mycelia.d ug/tmux.d ug/statusline.d ug/json.d ug/mycelia_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d source/http.d source/zbuf.d ug/fable_test.d
 	ldc2 -betterC -of=/tmp/ug-close-test -I=ug ug/sql.d ug/close_test.d -L-lsqlite3
@@ -215,10 +263,13 @@ test-ug-live: build ug
 # onto an existing file keeps its inode. On 2026-09-14, arm64 macOS: the ground
 # cp wrote over the running one was SIGKILLed on every launch, codesign said
 # valid, and the same bytes copied to a new inode ran.
-install-ug: ug
-	mkdir -p $(PREFIX)/bin
-	cp ug/ug $(PREFIX)/bin/ug.new
-	mv -f $(PREFIX)/bin/ug.new $(PREFIX)/bin/ug
+install-ug: ug ug/Mycelia.app ug/ground_tmux
+	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/mycelia
+	for b in ug ground_tmux; do cp ug/$$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
+	rm -rf $(PREFIX)/lib/mycelia/Mycelia.app.new && cp -R ug/Mycelia.app $(PREFIX)/lib/mycelia/Mycelia.app.new
+	rm -rf $(PREFIX)/lib/mycelia/Mycelia.app && mv $(PREFIX)/lib/mycelia/Mycelia.app.new $(PREFIX)/lib/mycelia/Mycelia.app
+	ln -sfn ../lib/mycelia/Mycelia.app/Contents/MacOS/mycelia $(PREFIX)/bin/mycelia
+	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f $(PREFIX)/lib/mycelia/Mycelia.app
 
 # "make ground aget fix it"
 # 「[Opus 5.5] A tree without controls/local folds no project, and its sand in place of the machine's is the floor:」

@@ -1,0 +1,11 @@
+{
+  "name": "ground",
+  "owner": { "name": "teranos" },
+  "plugins": [
+    {
+      "name": "ag",
+      "source": "./ag",
+      "description": "Above ground: what comes in for a session and what it said that goes out, as mycelia kept them"
+    }
+  ]
+}
