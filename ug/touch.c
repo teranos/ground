@@ -18,26 +18,26 @@ static CFMutableDictionaryRef session(void) {
     return q;
 }
 
-// Keeps the session, readable only with a touch on this device, in place of
-// the one kept before: a new passkey at home is a new session. The OSStatus.
+// Keeps the session on this device, in place of the one kept before: a new
+// passkey at home is a new session. The OSStatus.
+//
+// "next reboot i expect to have to put my finger again."
+// Readable once the Mac is unlocked after it starts, and not before: the
+// finger at the login is the touch, once a boot. A touch asked of every
+// mycelia that starts was asked again at every install and restart.
 int touch_keep(const unsigned char *held, int n) {
     CFMutableDictionaryRef gone = session();
     OSStatus st = SecItemDelete(gone);
     CFRelease(gone);
     if (st != errSecSuccess && st != errSecItemNotFound) return st;
 
-    CFErrorRef err = NULL;
-    SecAccessControlRef ac = SecAccessControlCreateWithFlags(NULL,
-        kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, kSecAccessControlUserPresence, &err);
-    if (!ac) return errSecParam;
     CFMutableDictionaryRef q = session();
-    CFDictionarySetValue(q, kSecAttrAccessControl, ac);
+    CFDictionarySetValue(q, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly);
     CFDataRef v = CFDataCreate(NULL, held, n);
     CFDictionarySetValue(q, kSecValueData, v);
     st = SecItemAdd(q, NULL);
     CFRelease(v);
     CFRelease(q);
-    CFRelease(ac);
     return st;
 }
 

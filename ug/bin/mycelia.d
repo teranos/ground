@@ -52,6 +52,14 @@ int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
             return 1;
         }
         sessionLen = n;
+        // A session kept behind a touch on every read is kept again as one
+        // read once a boot, so this touch is its last (ug/touch.c touch_keep).
+        auto kept = touch_keep(cast(const(ubyte)*) session.ptr, cast(int) sessionLen);
+        if (kept != 0) {
+            import core.stdc.stdio : fprintf, stderr;
+            fprintf(stderr, "mycelia: the session was not kept again to be read without a touch: OSStatus %d %.*s\n",
+                kept, cast(int) saidOf(kept).length, saidOf(kept).ptr);
+        }
     }
     __gshared zbuf.ZBuf url;
     url.reset();

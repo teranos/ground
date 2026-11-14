@@ -51,13 +51,15 @@ the app is, and holds the person's session:
   the passkey is done. The node sends the browser back to `mycelia://door`
   with a ticket; the system starts `Mycelia.app` for it, which hands the url
   to the mycelia that is running. That one spends the ticket at
-  `/auth/door/home/result` for the session, keeps it in the Keychain behind
-  Touch ID, and says what happened in `~/.local/state/ug/session`, which
+  `/auth/door/home/result` for the session, keeps it in the Keychain,
+  readable once the Mac is unlocked after it starts (the finger at the login),
+  and says what happened in `~/.local/state/ug/session`, which
   `mycelia connect` reads back. The session lasts as long as the node's
   `session_expiry_hours`.
 - A press is handed to mycelia over `~/.local/state/ug/mycelia.sock`, which
   only the person's user opens. On the first press since it started, mycelia
-  takes the session out, with a touch, and holds it until it stops. It makes
+  takes the session out and holds it until it stops; no touch is asked, so a
+  restart costs none. It makes
   only what a person does with what is collected in it, as a bearer.
 
 "i want to get past it"
