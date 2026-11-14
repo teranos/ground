@@ -2,16 +2,16 @@ module lineage;
 
 // "maybe i want that session to inherit the name and not you"
 //
-// A fork starts as a new session, with the parent's messages copied into its
-// transcript under their own uuids. Claude Code says only `source: fork`: both
-// sides of a /fork start so, and the parent's id is left to nobody. The one
-// whose copy holds the parent's last message (the /fork row itself) goes on as
-// the parent and takes its key and name; the one that stops before it branched,
-// and is kept as having come from the parent, for the name to be given to it.
+// 「[Opus 5.5] A fork starts as a new session, with the parent's messages copied into its」
+// 「[Opus 5.5] transcript under their own uuids. Claude Code says only `source: fork`: both」
+// 「[Opus 5.5] sides of a /fork start so, and the parent's id is left to nobody. The one」
+// 「[Opus 5.5] whose copy holds the parent's last message (the /fork row itself) goes on as」
+// 「[Opus 5.5] the parent and takes its key and name; the one that stops before it branched,」
+// 「[Opus 5.5] and is kept as having come from the parent, for the name to be given to it.」
 
 import zbuf : ZBuf;
 
-// As ground declares it elsewhere (exec.d): one mangled name, one signature.
+// 「[Opus 5.5] As ground declares it elsewhere (exec.d): one mangled name, one signature.」
 private extern (C) int chmod(const(char)* path, uint mode);
 
 enum BOOK_COMMAND = q"EOS
@@ -25,7 +25,7 @@ EOS";
 
 enum Line { none, continues, branches }
 
-// The last message uuid a transcript holds; empty for none.
+// 「[Opus 5.5] The last message uuid a transcript holds; empty for none.」
 const(char)[] lastUuid(const(char)[] text) {
     enum key = `"uuid":"`;
     enum UUID = 36;
@@ -40,8 +40,8 @@ const(char)[] lastUuid(const(char)[] text) {
     return found;
 }
 
-// The title Claude Code gave a session last, past its ⑂ when it has one: what
-// the person asked a fork to do. Empty for none.
+// 「[Opus 5.5] The title Claude Code gave a session last, past its ⑂ when it has one: what」
+// 「[Opus 5.5] the person asked a fork to do. Empty for none.」
 const(char)[] titleOf(const(char)[] text) {
     enum key = `"agentName":"`;
     enum fork = "⑂ ";
@@ -74,17 +74,17 @@ private bool holds(const(char)[] text, const(char)[] needle) {
     return false;
 }
 
-// What own is to parent: a copy of all of it goes on as the parent; a copy
-// that stops before its last message branched; none, when parent never held
-// what own ends with.
+// 「[Opus 5.5] What own is to parent: a copy of all of it goes on as the parent; a copy」
+// 「[Opus 5.5] that stops before its last message branched; none, when parent never held」
+// 「[Opus 5.5] what own ends with.」
 Line lineOf(const(char)[] own, const(char)[] parent) {
     auto mine = lastUuid(own);
     if (mine.length == 0 || !holds(parent, mine)) return Line.none;
     return holds(own, lastUuid(parent)) ? Line.continues : Line.branches;
 }
 
-// The pid of the process a Claude Code session file names for sessionId; 0
-// when the file is another session's, or names no pid.
+// 「[Opus 5.5] The pid of the process a Claude Code session file names for sessionId; 0」
+// 「[Opus 5.5] when the file is another session's, or names no pid.」
 long pidFor(const(char)[] file, const(char)[] sessionId) {
     enum sid = `"sessionId":"`;
     enum pid = `"pid":`;
@@ -104,9 +104,9 @@ long pidFor(const(char)[] file, const(char)[] sessionId) {
     return ours ? found : 0;
 }
 
-// Whether a session is alive in some window: Claude Code keeps a file for
-// each live session under ~/.claude/sessions, and its pid answers. One alive
-// cannot be resumed into another window.
+// 「[Opus 5.5] Whether a session is alive in some window: Claude Code keeps a file for」
+// 「[Opus 5.5] each live session under ~/.claude/sessions, and its pid answers. One alive」
+// 「[Opus 5.5] cannot be resumed into another window.」
 bool running(const(char)[] sessionId) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     import core.sys.posix.signal : kill;
@@ -139,7 +139,7 @@ bool running(const(char)[] sessionId) {
     return false;
 }
 
-// --- Where sessions are kept: ~/.qntx/sessions/<id>/ ---
+// 「[Opus 5.5] --- Where sessions are kept: ~/.qntx/sessions/<id>/ ---」
 
 private bool sessionsDirInto(ref ZBuf out_) {
     import core.stdc.stdlib : getenv;
@@ -170,13 +170,13 @@ private long mtimeOf(const(char)* path) {
     import core.sys.posix.sys.stat : stat, stat_t;
     stat_t st;
     if (stat(path, &st) != 0) return -1;
-    // The field itself: on Linux st_mtime is a druntime function, which a
-    // -betterC binary has nothing to link against.
+    // 「[Opus 5.5] The field itself: on Linux st_mtime is a druntime function, which a」
+    // 「[Opus 5.5] -betterC binary has nothing to link against.」
     version (OSX) return cast(long) st.st_mtimespec.tv_sec;
     else return cast(long) st.st_mtim.tv_sec;
 }
 
-// The whole of a file, in memory the caller frees; null when it does not read.
+// 「[Opus 5.5] The whole of a file, in memory the caller frees; null when it does not read.」
 private char[] readWhole(const(char)* path) {
     import core.stdc.stdio : fopen, fread, fclose, fseek, ftell, SEEK_END, SEEK_SET;
     import core.stdc.stdlib : malloc;
@@ -208,7 +208,7 @@ private bool copyFile(const(char)* from, const(char)* to) {
     return writeWhole(to, text);
 }
 
-// The first line of a session's file; empty for none.
+// 「[Opus 5.5] The first line of a session's file; empty for none.」
 private const(char)[] lineFrom(const(char)[] id, const(char)[] file, char[] buf) {
     import core.stdc.stdio : fopen, fread, fclose;
     __gshared ZBuf at;
@@ -222,7 +222,7 @@ private const(char)[] lineFrom(const(char)[] id, const(char)[] file, char[] buf)
     return buf[0 .. n];
 }
 
-// Every session id kept under ~/.qntx/sessions, each given to each.
+// 「[Opus 5.5] Every session id kept under ~/.qntx/sessions, each given to each.」
 private void eachSession(scope void delegate(const(char)[] id) each) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     __gshared ZBuf dir;
@@ -239,10 +239,10 @@ private void eachSession(scope void delegate(const(char)[] id) each) {
     }
 }
 
-// At a fork's start: the session it came from, kept as <session>/from; one
-// that goes on as the parent takes its key and name before anything makes it
-// one of its own. What happened is said, for the session's context; nothing,
-// when this is no fork of a session kept here.
+// 「[Opus 5.5] At a fork's start: the session it came from, kept as <session>/from; one」
+// 「[Opus 5.5] that goes on as the parent takes its key and name before anything makes it」
+// 「[Opus 5.5] one of its own. What happened is said, for the session's context; nothing,」
+// 「[Opus 5.5] when this is no fork of a session kept here.」
 void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf said) {
     import core.stdc.stdlib : free;
     import core.stdc.time : time;
@@ -256,15 +256,15 @@ void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf s
     if (own is null) return;
     scope (exit) free(own.ptr);
 
-    // Transcripts sit side by side, one a session.
+    // 「[Opus 5.5] Transcripts sit side by side, one a session.」
     size_t slash = transcriptPath.length;
     while (slash > 0 && transcriptPath[slash - 1] != '/') slash--;
     auto dir = transcriptPath[0 .. slash];
     auto now = cast(long) time(null);
 
-    // The parent: of every session a copy of whose messages this holds, the
-    // one whose key is oldest, which a session that went on before this one
-    // started does not have.
+    // 「[Opus 5.5] The parent: of every session a copy of whose messages this holds, the」
+    // 「[Opus 5.5] one whose key is oldest, which a session that went on before this one」
+    // 「[Opus 5.5] started does not have.」
     __gshared char[64] parent;
     size_t parentLen = 0;
     long parentKey = long.max;
@@ -279,7 +279,7 @@ void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf s
         theirs.put(dir);
         theirs.put(id);
         theirs.put(".jsonl");
-        // A parent was written to as the fork was made.
+        // 「[Opus 5.5] A parent was written to as the fork was made.」
         if (mtimeOf(theirs.ptr()) < now - 3600) return;
         auto text = readWhole(theirs.ptr());
         if (text is null) return;
@@ -302,7 +302,7 @@ void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf s
     text.put(from);
     text.put("\n");
     writeWhole(at.ptr(), text.slice());
-    // Where it is said, for the title it is shown by (titleOf).
+    // 「[Opus 5.5] Where it is said, for the title it is shown by (titleOf).」
     fileInto(at, sessionId, "transcript");
     writeWhole(at.ptr(), transcriptPath);
 
@@ -337,8 +337,8 @@ void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf s
     said.put(", with its key and name");
 }
 
-// The sessions that came from where this one came from, or from this one:
-// the branches, and the one that holds the name when this one does not.
+// 「[Opus 5.5] The sessions that came from where this one came from, or from this one:」
+// 「[Opus 5.5] the branches, and the one that holds the name when this one does not.」
 private void eachSibling(const(char)[] sessionId, scope void delegate(const(char)[] id) each) {
     char[64] fromBuf;
     auto from = lineFrom(sessionId, "from", fromBuf[]);
@@ -351,7 +351,7 @@ private void eachSibling(const(char)[] sessionId, scope void delegate(const(char
     });
 }
 
-// ground forks [json | give <id>]
+// 「[Opus 5.5] ground forks [json | give <id>]」
 int handleForks(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs;
     import core.stdc.stdlib : getenv;
@@ -375,7 +375,7 @@ int handleForks(int argc, const(char)** argv) {
     __gshared ZBuf out_;
     out_.reset();
     if (json) {
-        // The name, wherever of these it is held, and whether here.
+        // 「[Opus 5.5] The name, wherever of these it is held, and whether here.」
         char[256] ownBuf, heldBuf;
         auto own = lineFrom(self, "name", ownBuf[]);
         auto held = own;
@@ -413,8 +413,8 @@ int handleForks(int argc, const(char)** argv) {
     return 0;
 }
 
-// The title of a session kept here, read from the transcript it was forked
-// with; empty when none is kept.
+// 「[Opus 5.5] The title of a session kept here, read from the transcript it was forked」
+// 「[Opus 5.5] with; empty when none is kept.」
 private const(char)[] titleOfSession(const(char)[] id) {
     import core.stdc.stdlib : free;
     char[1024] pathBuf;
@@ -431,8 +431,8 @@ private const(char)[] titleOfSession(const(char)[] id) {
     return title[0 .. n];
 }
 
-// This session and one that came from the same place trade keys, names and
-// which goes on: the name goes to the one that did not hold it, either way.
+// 「[Opus 5.5] This session and one that came from the same place trade keys, names and」
+// 「[Opus 5.5] which goes on: the name goes to the one that did not hold it, either way.」
 private int give(const(char)[] self, const(char)[] to) {
     import core.stdc.stdio : stdout, stderr, fputs, rename;
     bool sibling = false;
@@ -441,7 +441,7 @@ private int give(const(char)[] self, const(char)[] to) {
         fputs("ground forks give: that is no session that came from where this one did\n", stderr);
         return 1;
     }
-    // One file of each, traded through a third name; one missing is moved.
+    // 「[Opus 5.5] One file of each, traded through a third name; one missing is moved.」
     bool trade(const(char)[] file) {
         __gshared ZBuf mine, theirs, held;
         fileInto(mine, self, file);
