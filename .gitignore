@@ -99,3 +99,5 @@ sesscodex
 
 # The row ci/bench.py writes beside the build, for the run to upload.
 bench-ctfe.json
+ag/.claude-plugin/types/
+ag/tsconfig.json
