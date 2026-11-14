@@ -132,9 +132,19 @@ ug/touch.o: ug/touch.c
 	clang -c -o $@ ug/touch.c
 ug/door.o: ug/door.m
 	clang -c -fobjc-arc -o $@ ug/door.m
-ug/mycelia: $(UG_MODULES) ug/bin/mycelia.d ug/touch.o ug/door.o
-	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) ug/touch.o ug/door.o $(UG_LIBS) \
-		-L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation -L-framework -LLocalAuthentication
+# A machine with no Keychain and no door, as k: mycelia asks the node and keeps
+# what it learns there, and a press made on it says it is the Mac's to make.
+ug/touch_none.o: ug/touch_none.c
+	$(CC) -c -o $@ ug/touch_none.c
+ifeq ($(shell uname -s),Darwin)
+MYCELIA_OWN = ug/touch.o ug/door.o
+MYCELIA_LIBS = -L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation -L-framework -LLocalAuthentication
+else
+MYCELIA_OWN = ug/touch_none.o
+MYCELIA_LIBS =
+endif
+ug/mycelia: $(UG_MODULES) ug/bin/mycelia.d $(MYCELIA_OWN)
+	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) $(MYCELIA_OWN) $(UG_LIBS) $(MYCELIA_LIBS)
 
 # "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
 # The person's session lives in a Keychain group only a binary signed with the
