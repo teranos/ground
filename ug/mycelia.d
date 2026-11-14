@@ -465,9 +465,9 @@ bool pressAllowed(const(char)[] path) {
 }
 
 // "yes, build that"
-// A press is a click in ag, asked over the socket as HTTP with the secret ag
-// was given when the person paired it, once, with a finger. What the request
-// carries, read without the GC: method and path, the secret, the body.
+// 「[Opus 5.5] A press is a click in ag, asked over the socket as HTTP with the secret ag」
+// 「[Opus 5.5] was given when the person paired it, once, with a finger. What the request」
+// 「[Opus 5.5] carries, read without the GC: method and path, the secret, the body.」
 struct Request {
     bool http;
     const(char)[] path;
@@ -493,7 +493,7 @@ Request requestOf(const(char)[] asked) {
     size_t end = post.length;
     while (end < asked.length && asked[end] != ' ' && asked[end] != '\r' && asked[end] != '\n') end++;
     r.path = asked[post.length .. end];
-    // The headers, a line each, to the empty line; the body after it.
+    // 「[Opus 5.5] The headers, a line each, to the empty line; the body after it.」
     size_t at = end;
     while (at < asked.length && asked[at] != '\n') at++;
     at++;
@@ -553,8 +553,8 @@ private int listenAt(const(char)[] home) {
     return fd;
 }
 
-// The secrets ag was given when the person paired it, each with a finger:
-// held while mycelia runs, never written anywhere.
+// 「[Opus 5.5] The secrets ag was given when the person paired it, each with a finger:」
+// 「[Opus 5.5] held while mycelia runs, never written anywhere.」
 __gshared char[64][16] paired;
 __gshared size_t pairedCount;
 
@@ -570,12 +570,12 @@ bool heldSecret(const(char)[] secret) {
     return false;
 }
 
-// Asks the person, with a finger, to pair ag; answers "200" and the secret,
-// or "0" and why.
+// 「[Opus 5.5] Asks the person, with a finger, to pair ag; answers "200" and the secret,」
+// 「[Opus 5.5] or "0" and why.」
 alias Pairs = int function(ref ZBuf reply);
 
-// How many bytes an HTTP request holds in all, once its headers are read; 0
-// while they are not.
+// 「[Opus 5.5] How many bytes an HTTP request holds in all, once its headers are read; 0」
+// 「[Opus 5.5] while they are not.」
 private size_t wholeOf(const(char)[] got) {
     foreach (i; 0 .. got.length) {
         if (i + 4 > got.length || got[i .. i + 4] != "\r\n\r\n") continue;
@@ -616,7 +616,7 @@ private void waitPresses(int fd, int seconds, Presses presses, Doors doors, Pair
             auto got = read(c, &asked[n], asked.length - n);
             if (got <= 0) break;
             n += got;
-            // HTTP is read to its length: its caller waits for the answer.
+            // 「[Opus 5.5] HTTP is read to its length: its caller waits for the answer.」
             auto whole = n >= 5 && asked[0 .. 5] == "POST " ? wholeOf(asked[0 .. n]) : 0;
             if (whole > 0 && n >= whole) break;
         }
