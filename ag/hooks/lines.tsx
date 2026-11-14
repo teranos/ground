@@ -8,8 +8,8 @@ import type { Fork, Line } from '../types'
 //   +- +- [now]         [edit]              [delete] [esc]
 // What a press means is posted to ag's hooks, which ask ground.
 
-// The sessions that branched from this one stand above the messages, a row
-// each; a click on one gives it this session's name (ground forks give).
+// 「[Opus 5.5] The sessions that branched from this one stand above the messages, a row」
+// 「[Opus 5.5] each; a click on one gives it this session's name (ground forks give).」
 export type Lines = { lines: Line[]; forks?: Fork[]; name?: string; here?: boolean }
 
 type State = {
@@ -114,8 +114,8 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
   const forks = props.forks ?? []
   const rows = rowsOf(props.lines, state.open)
   // "yes,"
-  // ⑂ Mycelia stays with  ● this session   ○ mycelia on k
-  // The name is on the filled one; a click on another moves it there.
+  // 「[Opus 5.5] ⑂ Mycelia stays with  ● this session   ○ mycelia on k」
+  // 「[Opus 5.5] The name is on the filled one; a click on another moves it there.」
   const here = props.here !== false
   const lead = `⑂ ${props.name || 'the name'} stays with  `
   const hereLabel = `${here ? '●' : '○'} this session`
@@ -135,15 +135,15 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
   surface.onPointer((e: ClientPointerEvent) => {
     if (e.type !== 'down') return
     if (forks.length > 0 && e.y === 0) {
-      // A hollow one is the choice: a branch, to give the name to, or this
-      // session, to take it back from the one holding it.
+      // 「[Opus 5.5] A hollow one is the choice: a branch, to give the name to, or this」
+      // 「[Opus 5.5] session, to take it back from the one holding it.」
       if (!here && holder && e.x >= lead.length && e.x < lead.length + hereLabel.length) {
         apply({ post: { act: 'take', to: holder.session }, next: state })
         return
       }
       const at = choices.find(c => !c.holds && here && e.x >= c.from && e.x < c.to)
-      // A branch alive in another window cannot become this one: the name
-      // stays, and how to open it is said.
+      // 「[Opus 5.5] A branch alive in another window cannot become this one: the name」
+      // 「[Opus 5.5] stays, and how to open it is said.」
       const running = at && forks.find(f => f.session === at.session)?.running
       if (at) apply({ post: { act: running ? 'open' : 'give', to: at.session }, next: state })
       return
