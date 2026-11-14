@@ -353,6 +353,34 @@ enum NEWS_SQL = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, c
     ~ "VALUES (?1, '[\"ci\"]', ?2, ?3, '[\"ug\"]', strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'ug', ?4)";
 
 // What goes between the quotes of a JSON string.
+// The most an item on the row says that is kept: a room's wake, waiting for an
+// agent, was 130 KiB, and a message cut at 1 KiB reached Tether ending at
+// point 4 of 4.
+enum NEWS_BYTES = 1 << 20;
+
+// The attributes an item is kept with: what it says, as JSON, whole. 0 when it
+// does not fit in dest, which is not made rather than kept cut and unclosed.
+size_t newsAttrsInto(const(char)[] detail, char[] dest) {
+    enum open = `{"detail":"`;
+    enum close = `","after":0}`;
+    if (open.length > dest.length) return 0;
+    size_t a = 0;
+    foreach (c; open) dest[a++] = c;
+    auto room = dest.length - close.length;
+    if (room < a) return 0;
+    auto end = putJsonInto(detail, dest[0 .. room], a);
+    // putJsonInto stops where the next byte would not fit: a detail that
+    // stopped short is one that did not fit.
+    size_t wrote = 0;
+    foreach (c; detail) {
+        if (c < 0x20 && c != '\n' && c != '\r' && c != '\t') continue;
+        wrote += (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t') ? 2 : 1;
+    }
+    if (end - a != wrote) return 0;
+    foreach (c; close) dest[end++] = c;
+    return end;
+}
+
 private size_t putJsonInto(const(char)[] s, char[] dest, size_t o) {
     foreach (c; s) {
         if (o + 2 > dest.length) break;
@@ -413,11 +441,10 @@ bool leaveNews(const(char)[] home, const(char)[] id, const(char)[] session,
     __gshared char[512] ctx = void;
     auto ctxLen = newsContextsInto(session, repo, ctx[]);
 
-    __gshared char[4096] attrs = void;
-    size_t a = 0;
-    foreach (c; `{"detail":"`) attrs[a++] = c;
-    a = putJsonInto(detail, attrs[], a);
-    foreach (c; `","after":0}`) if (a < attrs.length) attrs[a++] = c;
+    // Escaped, a byte is at most two.
+    __gshared char[NEWS_BYTES * 2 + 32] attrs = void;
+    auto a = newsAttrsInto(detail, attrs[]);
+    if (a == 0) return false;
 
     sqlite3* db;
     if (openGround(&path[0], db) != SQLITE_OK) return false;

@@ -12,7 +12,7 @@ import perf : chainInto, Perf, Budget;
 
 // The QNTX line was here. It draws on the tmux bar now, where it is visible
 // whether or not a session is open and where it does not spend a 1000ms frame
-// on a network call. `ug tmux` is what renders it.
+// on a network call. ground_tmux is what renders it, from what mycelia kept.
 
 void ritualLines(const(char)[] input, time_t now) {
     import core.stdc.stdlib : getenv;

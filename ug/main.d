@@ -15,41 +15,18 @@ import report : ritualLines;
 
 extern (C) int main(int argc, char** argv) {
     import core.stdc.stdlib : getenv;
-    import tmux : tmuxMain, clickMain;
 
     auto h = getenv("HOME\0".ptr);
     size_t hl = 0;
     if (h !is null) while (h[hl] != 0) hl++;
-    auto home = hl > 0 ? h[0 .. hl] : "";
-
-    // A status bar has no session to tell us about, so this mode reads no
-    // stdin and draws one line.
-    if (argc >= 2 && argv[1] !is null) {
-        size_t al = 0;
-        while (argv[1][al] != 0) al++;
-        auto verb = argv[1][0 .. al];
-
-        if (verb == "tmux")
-            return tmuxMain(home, cast(long) time(null));
-
-        // What tmux runs on a click, with the clicked range's name.
-        if (verb == "click") {
-            const(char)[] which;
-            if (argc >= 3 && argv[2] !is null) {
-                size_t nl = 0;
-                while (argv[2][nl] != 0) nl++;
-                which = argv[2][0 .. nl];
-            }
-            return clickMain(home, which);
-        }
-    }
+    auto home = h[0 .. hl];
 
     auto session = readStdin();
     time_t now = time(null);
 
     // The QNTX row lives on the tmux bar, where it is visible whether or not a
     // session is open, and where it does not spend this frame on a network
-    // call. `ug tmux` draws it.
+    // call. ground_tmux draws it, from what mycelia kept.
     statushead(session, now);
     ritualLines(session, now);
 

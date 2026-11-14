@@ -1,0 +1,1 @@
+{ "name": "ag", "version": "0.1.0", "description": "Above ground: what waits for this session, and what it said that waits, as mycelia kept them", "types": "./types/index.d.ts" }

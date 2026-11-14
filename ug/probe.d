@@ -60,6 +60,11 @@ size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
     return o;
 }
 
+// The most a node's answer may be. What is collected for agents carries what
+// a room woke them with, whole: two GitHub wakes in the Node Room were 260 KiB
+// waiting for one agent, past the 256 KiB this was, and none of it was kept.
+enum BODY_BYTES = 4 << 20;
+
 // One request, made in this process, signed with the key kept under home.
 Answer fetch(const(char)[] home, const(char)[] path) {
     import http : httpGet, ToNode;
@@ -70,7 +75,7 @@ Answer fetch(const(char)[] home, const(char)[] path) {
     auto u = urlInto(host(), path, url[]);
     if (u == 0) return Answer(State.probeError, 0, "");
 
-    __gshared char[262144] out_ = void;
+    __gshared char[BODY_BYTES] out_ = void;
     auto r = httpGet(url[0 .. u], ToNode(), out_[], MAX_TIME);
 
     // A body larger than the buffer is neither the far end failing nor a

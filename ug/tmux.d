@@ -6,8 +6,8 @@ module tmux;
 // #[fg=...] rather than ANSI. Both are why this is a separate surface.
 
 import json : jsonString, jsonNumber;
-import statusline : nextObject, itemsAt, lastAnswer, keepAnswer, QUIET;
-import qntx : State, standing;
+import statusline : nextObject;
+import qntx : State;
 
 enum GREEN = "#[fg=colour34]";
 enum RED   = "#[fg=colour160]";
@@ -254,80 +254,40 @@ void clearFocus(const(char)[] home) {
     remove(&path[0]);
 }
 
-// `ug click <name>`: what tmux runs when a name on the row is clicked. On the
-// node's row, a plugin's name turns the row into that plugin's row; on a
-// plugin's row, any click turns it back. The row changes in place, and tmux is
-// told to draw it again now rather than at its next interval.
+// `ground_tmux click <name>`: what tmux runs when a name on the row is
+// clicked. On the node's row, a plugin's name turns the row into that
+// plugin's row; on a plugin's row, any click turns it back. Nothing is asked
+// here: mycelia asks for the focused row on its next pass, and drops a focus
+// the node holds no plugin under (404).
 int clickMain(const(char)[] home, const(char)[] name) {
     import core.stdc.stdlib : system;
-    import probe : fetch;
-    import qntx : State;
 
     if (readFocus(home) !is null) {
         clearFocus(home);
     } else if (isPluginName(name)) {
-        // Only a name the node holds a plugin under. Clicking `handlers` or the
-        // caller leaves the row as it is.
-        __gshared char[160] path = void;
-        auto p = rowPathInto(name, "json", path[]);
-        auto answer = fetch(home, path[0 .. p]);
-        if (answer.state == State.ok) writeFocus(home, name);
+        writeFocus(home, name);
     }
     system("tmux refresh-client -S >/dev/null 2>&1");
     return 0;
 }
 
-// The whole of `ug tmux`: one line on stdout and nothing else. It reads no
-// stdin, because tmux has no session to tell it about.
+// The whole of ground_tmux: one line on stdout and nothing else. It reads no
+// stdin, because tmux has no session to tell it about, and it asks the node
+// nothing: the row is what mycelia kept.
 int tmuxMain(const(char)[] home, long now) {
     import core.stdc.stdio : stdout, fwrite, fputs;
-    import probe : fetch;
-    import qntx : State;
-
-    auto focus = readFocus(home);
-    __gshared char[160] rowPath = void;
-    auto rp = rowPathInto(focus, "tmux", rowPath[]);
-    auto answer = fetch(home, rowPath[0 .. rp]);
-
-    // A plugin the node no longer holds is not a row to keep asking for.
-    if (focus !is null && answer.status == 404) {
-        clearFocus(home);
-        focus = null;
-        answer = fetch(home, "/am/statusline?format=tmux");
-    }
+    import mycelia : readKept, silentInto, SILENT;
 
     __gshared char[8192] line = void;
     size_t n;
 
-    if (answer.state == State.ok) {
-        // What is kept stands in for the node's row through a short silence,
-        // so a plugin's row is not what gets kept.
-        if (focus is null) keepAnswer(home, now, answer.body_);
-        n = oneLineInto(answer.body_, line[]);
-        // The node answered, so it can be asked what it left for this token,
-        // and each deploy is drawn on its plugin's name.
-        auto json = newsPass(home);
-        __gshared char[8192] over = void;
-        auto on = deploysOverInto(line[0 .. n], json, now, over[]);
-        foreach (i; 0 .. on) line[i] = over[i];
-        n = on;
-    } else if (answer.status > 0) {
-        // The node answered and the answer was a refusal. That is not silence,
-        // and it must not wait out the quiet window pretending it might pass.
-        n = statusInto(answer.status, line[]);
-    } else if (standing(answer.state)) {
-        // Nothing was sent, and nothing about waiting will change that. Held
-        // behind the quiet window, a key nobody set read as a passing silence.
-        n = stateInto(answer.state, line[]);
+    auto kept = readKept(home);
+    if (kept.at == 0) {
+        n = silentInto(-1, line[]);
+    } else if (now - kept.at > SILENT) {
+        n = silentInto(now - kept.at, line[]);
     } else {
-        auto seen = lastAnswer(home);
-        if (seen.at > 0) {
-            auto silence = now - seen.at;
-            if (silence < QUIET)
-                n = oneLineInto(seen.body_, line[]);
-            else
-                n = sinceInto(silence, line[]);
-        }
+        foreach (c; kept.line) if (n < line.length) line[n++] = c;
     }
 
     // The readings go to the other end of the bar, away from what the node is
@@ -419,89 +379,6 @@ int tmuxMain(const(char)[] home, long now) {
         fputs("\n", stdout);
     }
     return 0;
-}
-
-// What the node left for this token, written into ground's store once each so
-// sky carries it to the session. The row is asked for as items rather than as
-// the spelled line, because an id does not survive being drawn. An item that
-// is already in the store costs one SELECT; a new one costs one more ask, for
-// the whole of it, which is where the session it is for is named.
-const(char)[] newsPass(const(char)[] home) {
-    import probe : fetch;
-    import qntx : State;
-    import sql : newsSeen, leaveNews;
-
-    // Asked for as the row's own token. The node files news under the person
-    // a token speaks for, so what the ground token's push earned is found by
-    // this one; the ground token itself cannot read the row.
-    auto answer = fetch(home, "/am/statusline?format=json");
-    if (answer.state != State.ok || !isJson(answer.body_)) return "";
-
-    // fetch answers out of one static buffer, and the ask for an item's
-    // detail below is a second fetch: it overwrote the items while they were
-    // being walked, and two rows went into the store with ids cut from the
-    // middle of a detail body. The items are copied out first.
-    __gshared char[65536] items = void;
-    size_t n = 0;
-    foreach (c; answer.body_) { if (n >= items.length) break; items[n++] = c; }
-    auto body_ = items[0 .. n];
-
-    size_t at = itemsAt(body_);
-    while (true) {
-        auto span = nextObject(body_, at);
-        if (!span.ok) break;
-        at = span.end;
-
-        auto obj = body_[span.start .. span.end];
-        auto id = jsonString(obj, "id");
-        if (id is null || id.length == 0) continue;
-        if (newsSeen(home, id)) continue;
-
-        __gshared char[512] path = void;
-        size_t p = 0;
-        foreach (c; "/am/statusline/") path[p++] = c;
-        foreach (c; id) {
-            if (p + 1 >= path.length) break;
-            if (c == '/' || c == '?' || c == '#' || c == '&' || c == ' ') continue;
-            path[p++] = c;
-        }
-        auto whole = fetch(home, path[0 .. p]);
-        if (whole.state != State.ok) continue;
-
-        auto session = jsonString(whole.body_, "session");
-        auto repo = jsonString(whole.body_, "repo");
-        if (repo is null) repo = "";
-
-        // "AGENTS CAN TALK TO EACH OTHER BY THEIR NAME"
-        // What is said to a name is the session's that keeps the name. No
-        // session here keeps it: it is another machine's, and is left on the
-        // row for that machine's ug.
-        auto to = jsonString(whole.body_, "to");
-        __gshared char[128] keeper = void;
-        if ((session is null || session.length == 0) && to !is null && to.length > 0) {
-            import named : sessionKeeping;
-            auto kept = sessionKeeping(home, to, keeper[]);
-            if (kept == 0) continue;
-            session = keeper[0 .. kept];
-        }
-
-        // What sky speaks: the conclusion, where, and the run to open.
-        // Decoded once here, because leaveNews encodes it again for the row.
-        import json : jsonUnescapeInto;
-        __gshared char[1024] detail = void;
-        size_t d = 0;
-        void put(const(char)[] s) { foreach (c; s) if (d < detail.length) detail[d++] = c; }
-        void putDecoded(const(char)[] raw) { d += jsonUnescapeInto(raw, detail[d .. $]); }
-        auto name = jsonString(obj, "name");
-        auto note = jsonString(obj, "note");
-        if (name is null) put("news"); else putDecoded(name);
-        if (note !is null && note.length > 0) { put(": "); putDecoded(note); }
-        auto url = jsonString(whole.body_, "url");
-        if (url !is null && url.length > 0) { put(" "); putDecoded(url); }
-
-        leaveNews(home, id, session is null ? "" : session, repo, detail[0 .. d]);
-    }
-    return body_;
 }
 
 // A plugin's deploy is drawn on the plugin's own name, from what the node holds

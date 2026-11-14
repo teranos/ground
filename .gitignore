@@ -28,6 +28,11 @@ tools/press
 tools/binder
 tools/editor
 ug/ug
+ug/mycelia
+ug/Mycelia.app/
+ug/touch.o
+ug/mycelia.entitlements
+ug/ground_tmux
 
 # Generated
 .version
@@ -97,3 +102,5 @@ sesscodex
 
 # The row ci/bench.py writes beside the build, for the run to upload.
 bench-ctfe.json
+ag/.claude-plugin/types/
+ag/tsconfig.json
