@@ -138,7 +138,7 @@ ug/touch_none.o: ug/touch_none.c
 	$(CC) -c -o $@ ug/touch_none.c
 ifeq ($(shell uname -s),Darwin)
 MYCELIA_OWN = ug/touch.o ug/door.o
-MYCELIA_LIBS = -L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation
+MYCELIA_LIBS = -L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation -L-framework -LLocalAuthentication
 else
 MYCELIA_OWN = ug/touch_none.o
 MYCELIA_LIBS =

@@ -52,3 +52,32 @@ int door_url(char *out, int cap, double seconds) {
         return (int) n;
     }
 }
+
+// "FINGER PRINT ONCE, IT REMEMEBERS"
+// Asks the person at this Mac to confirm, with Touch ID or the Mac's password,
+// that ag may press for them: answered by the person, never by a process.
+// 0 when they did; otherwise the error's code, its words in why.
+#import <LocalAuthentication/LocalAuthentication.h>
+
+int touch_ask(const char *reason, char *why, int cap) {
+    @autoreleasepool {
+        why[0] = 0;
+        LAContext *context = [LAContext new];
+        __block NSError *failed = nil;
+        __block BOOL ok = NO;
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        [context evaluatePolicy:LAPolicyDeviceOwnerAuthentication
+                localizedReason:[NSString stringWithUTF8String:reason]
+                          reply:^(BOOL success, NSError *error) {
+            ok = success;
+            failed = error;
+            dispatch_semaphore_signal(done);
+        }];
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        if (ok) return 0;
+        const char *said = failed ? failed.localizedDescription.UTF8String : "not confirmed";
+        strncpy(why, said, cap - 1);
+        why[cap - 1] = 0;
+        return failed ? (int) failed.code : -1;
+    }
+}

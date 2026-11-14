@@ -168,3 +168,19 @@ static assert(!pressAllowed("/auth/admit"), "the person's session admits nobody 
 static assert(!pressAllowed("/auth/tokens"), "the person's session mints nothing through the socket");
 static assert(!pressAllowed("/api/collected/release/../../auth/admit"));
 static assert(!pressAllowed("/api/collected/releasex"));
+
+// "yes, build that"
+// A press is a click in ag: ag asks mycelia over its socket as HTTP, carrying
+// the secret it was given when the person paired it with a finger. Anything
+// else that writes to the socket is no click.
+import mycelia : requestOf, Request;
+
+enum PRESS = "POST /api/collected/cancel HTTP/1.1\r\nHost: mycelia\r\nX-Ag-Secret: s3cr3t\r\nContent-Length: 19\r\n\r\n{\"to\":\"a\",\"id\":\"b\"}";
+static assert(requestOf(PRESS).http);
+static assert(requestOf(PRESS).path == "/api/collected/cancel");
+static assert(requestOf(PRESS).secret == "s3cr3t");
+static assert(requestOf(PRESS).body_ == "{\"to\":\"a\",\"id\":\"b\"}");
+static assert(requestOf("POST /pair HTTP/1.1\r\nHost: mycelia\r\n\r\n").path == "/pair");
+static assert(requestOf("POST /pair HTTP/1.1\r\nHost: mycelia\r\n\r\n").secret.length == 0, "pairing carries no secret");
+static assert(!requestOf("/api/collected/cancel\n{}").http, "the old way of asking is no click");
+static assert(requestOf("POST /x HTTP/1.1\r\nx-ag-secret: lower\r\n\r\n").secret == "lower", "a header's name is any case");

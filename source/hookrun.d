@@ -391,8 +391,9 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
     // SessionStart — emit arch context on startup/clear
     if (event == HookEvent.SessionStart) {
         auto source = extractSource(input);
+        import parse : extractTranscriptPath;
         import sessionstart : handleSessionStart;
-        return handleSessionStart(source, cwd, sessionId);
+        return handleSessionStart(source, cwd, sessionId, extractTranscriptPath(input));
     }
 
     // The only event that reaches the person and costs nothing: exit 2 shows

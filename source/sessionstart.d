@@ -111,7 +111,8 @@ void attestTypes() {
 //   available here — one extra JSON emit on startup/resume.
 // TODO (CC .152): reloadSkills: true on SessionStart when a control has just
 //   installed skills into the skills dir — makes them usable in the same session.
-int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId) {
+int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId,
+                       const(char)[] transcriptPath = null) {
     import hookrun : usecNow;
     auto t0 = usecNow();
 
@@ -388,6 +389,19 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     // The session's own key, admitted by ground's, and its name at the node it
     // is signed in to: what Claude Code calls it, or the next name free (naming.d).
     if (sessionId !is null) {
+        // "maybe i want that session to inherit the name and not you"
+        // A fork that goes on as its parent takes the parent's key and name
+        // before anything makes it a key of its own (lineage.d).
+        if (source !is null && contains(source, "fork")) {
+            import lineage : forkStart;
+            __gshared ZBuf forked;
+            forkStart(sessionId, transcriptPath, forked);
+            if (forked.len > 0) {
+                if (any) ctx.put(" | ");
+                ctx.put(forked.slice());
+                any = true;
+            }
+        }
         import naming : nameSession, sessionKeyFile, harnessName, keptName, keptGiver, givenAs, Giver, Named;
         import nodeconfig : nodeHere;
         import sky : getppid;

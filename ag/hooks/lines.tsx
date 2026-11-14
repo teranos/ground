@@ -1,6 +1,6 @@
 import type { ClientModule, ClientPointerEvent, ClientKeyEvent } from 'claude-code'
 
-import type { Line } from '../types'
+import type { Fork, Line } from '../types'
 
 // One line a message, drawn and pressed here. At rest a message is its line:
 //   16:25 <-- Shiitake: Some text of Shiitake to us.
@@ -8,7 +8,9 @@ import type { Line } from '../types'
 //   +- +- [now]         [edit]              [delete] [esc]
 // What a press means is posted to ag's hooks, which ask ground.
 
-export type Lines = { lines: Line[] }
+// The sessions that branched from this one stand above the messages, a row
+// each; a click on one gives it this session's name (ground forks give).
+export type Lines = { lines: Line[]; forks?: Fork[]; name?: string; here?: boolean }
 
 type State = {
   open?: number // the message clicked in
@@ -109,7 +111,22 @@ function onKey(state: State, key: string, line: Line): Pressed {
 const Ag: ClientModule<Lines, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   const state: State = surface.state ?? {}
+  const forks = props.forks ?? []
   const rows = rowsOf(props.lines, state.open)
+  // "yes,"
+  // ⑂ Mycelia stays with  ● this session   ○ mycelia on k
+  // The name is on the filled one; a click on another moves it there.
+  const here = props.here !== false
+  const lead = `⑂ ${props.name || 'the name'} stays with  `
+  const hereLabel = `${here ? '●' : '○'} this session`
+  const holder = forks.find(f => f.holds)
+  const choices: { session: string; label: string; holds: boolean; from: number; to: number }[] = []
+  let x = lead.length + hereLabel.length
+  for (const f of forks) {
+    const label = `${f.holds ? '●' : '○'} ${f.title || f.name || f.session.slice(0, 8)}`
+    choices.push({ session: f.session, label, holds: f.holds, from: x + 3, to: x + 3 + label.length })
+    x += 3 + label.length
+  }
   const apply = (pressed: Pressed) => {
     if (pressed.post) surface.post(pressed.post)
     surface.setState(pressed.next)
@@ -117,7 +134,21 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
 
   surface.onPointer((e: ClientPointerEvent) => {
     if (e.type !== 'down') return
-    const row = rows[e.y]
+    if (forks.length > 0 && e.y === 0) {
+      // A hollow one is the choice: a branch, to give the name to, or this
+      // session, to take it back from the one holding it.
+      if (!here && holder && e.x >= lead.length && e.x < lead.length + hereLabel.length) {
+        apply({ post: { act: 'take', to: holder.session }, next: state })
+        return
+      }
+      const at = choices.find(c => !c.holds && here && e.x >= c.from && e.x < c.to)
+      // A branch alive in another window cannot become this one: the name
+      // stays, and how to open it is said.
+      const running = at && forks.find(f => f.session === at.session)?.running
+      if (at) apply({ post: { act: running ? 'open' : 'give', to: at.session }, next: state })
+      return
+    }
+    const row = rows[e.y - (forks.length > 0 ? 1 : 0)]
     const line = row ? props.lines[row.line] : undefined
     if (!row || !line) return
     apply(row.buttons ? onButtons(state, e.x, line, props.lines) : onLine(state, row.line, e.x, line))
@@ -145,12 +176,14 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
     const armed = state.armed === at
     return (
       <Box key={`l${at}`} flexDirection="row">
-        {open ? <Text>{' '.repeat(UNDER)}</Text> : null}
-        <Text>{open && state.due ? state.due : line.due}</Text>
-        <Text> </Text>
-        <Text color={armed ? 'red' : undefined}>{armed ? 'XXXX' : line.way === 'in' ? '<-- ' : '--> '}</Text>
-        <Text bold>{line.who}</Text>
-        <Text>: </Text>
+        <Box flexShrink={0} flexDirection="row">
+          {open ? <Text>{' '.repeat(UNDER)}</Text> : null}
+          <Text>{open && state.due ? state.due : line.due}</Text>
+          <Text> </Text>
+          <Text color={armed ? 'red' : undefined}>{armed ? 'XXXX' : line.way === 'in' ? '<-- ' : '--> '}</Text>
+          <Text bold>{line.who}</Text>
+          <Text>: </Text>
+        </Box>
         <Text dimColor={!editing} wrap="truncate">{editing ? `${state.typing}_` : line.says}</Text>
       </Box>
     )
@@ -158,6 +191,15 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
 
   return (
     <Box flexDirection="column">
+      {forks.length > 0 ? (
+        <Box key="forks" flexDirection="row">
+          <Text>{lead}</Text>
+          <Text bold={here} dimColor={!here}>{hereLabel}</Text>
+          {choices.map(c => (
+            <Text key={c.session} bold={c.holds} dimColor={!c.holds}>{'   ' + c.label}</Text>
+          ))}
+        </Box>
+      ) : null}
       {rows.map(row => (row.buttons ? buttonsOf(row.line) : lineOf(row.line, props.lines[row.line] as Line)))}
     </Box>
   )

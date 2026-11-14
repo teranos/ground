@@ -45,3 +45,13 @@ int door_url(char *out, int cap, double seconds) {
     if (cap > 0) out[0] = 0;
     return 0;
 }
+
+// No Touch ID here: ag is paired with a finger on a Mac, and nowhere else.
+int touch_ask(const char *reason, char *why, int cap) {
+    (void) reason;
+    const char said[] = "this machine has no Touch ID to pair ag with";
+    int n = 0;
+    while (said[n] != 0 && n + 1 < cap) { why[n] = said[n]; n++; }
+    if (cap > 0) why[n] = 0;
+    return -1;
+}
