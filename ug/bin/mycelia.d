@@ -9,6 +9,7 @@ static import zbuf;
 extern (C) int touch_keep(const(ubyte)* held, int n);
 extern (C) int touch_take(ubyte* out_, int cap, const(char)* prompt, int* n);
 extern (C) void touch_said(int st, char* out_, int cap);
+extern (C) int touch_forget_seed();
 // The url the system opened Mycelia.app with (ug/door.m).
 extern (C) int door_url(char* out_, int cap, double seconds);
 
@@ -264,6 +265,15 @@ extern (C) int main(int argc, char** argv) {
             // system opening the door's url, and hands it over.
             auto fd = running(h[0 .. hl]);
             if (fd >= 0) return handOver(fd);
+            // The seed kept before presses were made in the session goes,
+            // said in mycelia's log when it went or could not.
+            auto st = touch_forget_seed();
+            if (st != -25300) {
+                import core.stdc.stdio : fprintf;
+                fprintf(stderr, "mycelia: the person's old seed was %s: OSStatus %d %.*s\n",
+                    st == 0 ? "removed from the Keychain".ptr : "not removed from the Keychain".ptr,
+                    st, cast(int) saidOf(st).length, saidOf(st).ptr);
+            }
             return myceliaMain(h[0 .. hl], &press, &door);
     }
 }

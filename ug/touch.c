@@ -62,6 +62,20 @@ int touch_take(unsigned char *out, int cap, const char *prompt, int *n) {
     return st;
 }
 
+// Removes the person's seed kept before presses were made in the session
+// (account "person"), which nothing reads since. Only this signed binary
+// reaches the item. The OSStatus; errSecItemNotFound is nothing left to remove.
+int touch_forget_seed(void) {
+    CFMutableDictionaryRef q = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(q, kSecClass, kSecClassGenericPassword);
+    CFDictionarySetValue(q, kSecAttrService, CFSTR("mycelia"));
+    CFDictionarySetValue(q, kSecAttrAccount, CFSTR("person"));
+    CFDictionarySetValue(q, kSecUseDataProtectionKeychain, kCFBooleanTrue);
+    OSStatus st = SecItemDelete(q);
+    CFRelease(q);
+    return st;
+}
+
 // What an OSStatus says, in Apple's words, into out.
 void touch_said(int st, char *out, int cap) {
     out[0] = 0;
