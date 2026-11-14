@@ -53,6 +53,28 @@ async function ask($: EngineInterface, sessionId: string) {
   await update($, said, () => now)
 }
 
+// What a press posted, as the press it is.
+type Press = { act: string; to: string; id?: string; until?: string; says?: string }
+
+// The ground command a press is: what is pressed, on whom, and what it carries.
+function argvOf(d: Press): string[] {
+  const argv = ['ground', 'collected', d.act, d.to]
+  if (d.act === 'cancel' && d.id) argv.push(d.id)
+  if (d.act === 'hold' && d.until) argv.push(d.until)
+  if (d.act === 'release' && d.says !== undefined) argv.push(d.says)
+  return argv
+}
+
+// A press, asked of the node by ground as the person: what the node refused
+// is kept for the band, and every press is written down.
+async function press($: EngineInterface, d: Press) {
+  const argv = argvOf(d)
+  const r = await $.process.run(argv, { timeoutMs: 60000 })
+  const why = r.exitCode === 0 ? null : (r.stderr || r.stdout).trim() || `${argv.join(' ')} exited ${r.exitCode}`
+  await update($, refused, () => why)
+  await $.fs.write(PRESSES, JSON.stringify({ at: await $.clock.now(), argv, exitCode: r.exitCode, stderr: r.stderr }) + '\n')
+}
+
 export const register: Register = on => {
   let sessionId = ''
 
@@ -64,18 +86,10 @@ export const register: Register = on => {
     return started
   })
 
-  // What a press on a line means, asked of the node by ground as the person.
   on('ui.message', async ($, e, next) => {
-    const d = e.data as { act?: string; to?: string; id?: string; until?: string; says?: string }
+    const d = e.data as Partial<Press>
     if (!d.act || !d.to) return next(e)
-    const argv = ['ground', 'collected', d.act, d.to]
-    if (d.act === 'cancel' && d.id) argv.push(d.id)
-    if (d.act === 'hold' && d.until) argv.push(d.until)
-    if (d.act === 'release' && d.says !== undefined) argv.push(d.says)
-    const r = await $.process.run(argv, { timeoutMs: 60000 })
-    const why = r.exitCode === 0 ? null : (r.stderr || r.stdout).trim() || `${argv.join(' ')} exited ${r.exitCode}`
-    await update($, refused, () => why)
-    await $.fs.write(PRESSES, JSON.stringify({ at: await $.clock.now(), argv, exitCode: r.exitCode, stderr: r.stderr }) + '\n')
+    await press($, d as Press)
     await ask($, sessionId)
     return next(e)
   })

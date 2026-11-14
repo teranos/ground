@@ -5,7 +5,7 @@ import type { Line } from '../types'
 // One line a message, drawn and pressed here. At rest a message is its line:
 //   16:25 <-- Shiitake: Some text of Shiitake to us.
 // Clicked in, its buttons stand on a line above it:
-//   +- +- [now]         [edit]              [cancel]
+//   +- +- [now]         [edit]              [delete] [esc]
 // What a press means is posted to ag's hooks, which ask ground.
 
 export type Lines = { lines: Line[] }
@@ -19,16 +19,18 @@ type State = {
   typing?: string // what is typed in place of what is said, while editing
 }
 
-// Where each button starts on the button line, as drawn:
-//   +- +- [now]         [edit]              [delete] [esc]
-//     16:25 <-- Shiitake: Some text of Shiitake to us.
-// "the word cancel isnt clear"
-const AT = { now: 6, edit: 20, delete: 40, esc: 49 }
-// "[now], this means to me kind fo same thing as [delete] two stage, press once, you get [NOW] green, and press another time, it actually get's released"
-const nowOf = (releasing: boolean) => (releasing ? '[NOW]' : '[now]')
-const deleteOf = (deleting: boolean) => (deleting ? '[DELETE]' : '[delete]')
+// What a press comes to: what to post to ag's hooks, if anything, and the
+// state after it.
+type Pressed = { post?: Record<string, string>; next: State }
+
+// Which message, and whether this row is its buttons or its line.
+type Row = { line: number; buttons: boolean }
+
 // How far the message line stands in under its buttons.
 const UNDER = 2
+// Where the arrow stands on a message line at rest, and how wide it is.
+const ARROW = 6
+const ARROW_WIDE = 4
 
 // The time moved by minutes, around the clock.
 function moved(due: string, minutes: number): string {
@@ -37,111 +39,126 @@ function moved(due: string, minutes: number): string {
   return `${String(Math.floor(all / 60)).padStart(2, '0')}:${String(all % 60).padStart(2, '0')}`
 }
 
+// Each row of the region: the message clicked in has its buttons above it.
+function rowsOf(lines: Line[], open?: number): Row[] {
+  const rows: Row[] = []
+  lines.forEach((_, i) => {
+    if (open === i) rows.push({ line: i, buttons: true })
+    rows.push({ line: i, buttons: false })
+  })
+  return rows
+}
+
+// A press on a message's own line: on its arrow, or anywhere else on it.
+// "the arrow you can also click on, one to see thebutton change into XXXX and again to cancel"
+function onLine(state: State, at: number, x: number, line: Line): Pressed {
+  const left = state.open === at ? UNDER : 0
+  if (x >= left + ARROW && x < left + ARROW + ARROW_WIDE) {
+    if (state.armed === at) return { post: { act: 'cancel', to: line.to, id: line.id }, next: {} }
+    return { next: { ...state, armed: at } }
+  }
+  return { next: state.open === at ? state : { open: at } }
+}
+
+// Where each button starts on the button line, as drawn:
+//   +- +- [now]         [edit]              [delete] [esc]
+//     16:25 <-- Shiitake: Some text of Shiitake to us.
+// "the word cancel isnt clear"
+const AT = { now: 6, edit: 20, delete: 40, esc: 49 }
+// "[now], this means to me kind fo same thing as [delete] two stage, press once, you get [NOW] green, and press another time, it actually get's released"
+const nowOf = (releasing: boolean) => (releasing ? '[NOW]' : '[now]')
+const deleteOf = (deleting: boolean) => (deleting ? '[DELETE]' : '[delete]')
+
+// The +- pairs: hours first, then minutes, each up then down.
+const NUDGE: Record<number, number> = { 0: 60, 1: -60, 3: 5, 4: -5 }
+
+// A press on the buttons of the message clicked in.
+function onButtons(state: State, x: number, line: Line, lines: Line[]): Pressed {
+  const nudge = NUDGE[x]
+  if (nudge !== undefined) {
+    const until = moved(state.due ?? line.due, nudge)
+    return { post: { act: 'hold', to: line.to, until }, next: { ...state, due: until } }
+  }
+  if (x >= AT.now && x < AT.now + 5) {
+    if (state.releasing) return { post: { act: 'release', to: line.to }, next: {} }
+    return { next: { ...state, releasing: true, deleting: false } }
+  }
+  if (x >= AT.edit && x < AT.edit + 6) {
+    const whole = lines.filter(l => l.way === line.way && l.to === line.to).map(l => l.says).join('\n')
+    return { next: { ...state, typing: whole } }
+  }
+  // "and there should be a more explicit abort, that is two stage abort"
+  if (x >= AT.delete && x < AT.delete + 8) {
+    if (state.deleting) return { post: { act: 'cancel', to: line.to, id: line.id }, next: {} }
+    return { next: { ...state, deleting: true, releasing: false } }
+  }
+  // "cancel should get us out of the clicked-in,"
+  if (x >= AT.esc && x < AT.esc + 5) return { next: {} }
+  return { next: state }
+}
+
+// A key while editing what the message clicked in says.
+function onKey(state: State, key: string, line: Line): Pressed {
+  const typing = state.typing ?? ''
+  if (key === 'return') return { post: { act: 'release', to: line.to, says: typing }, next: {} }
+  if (key === 'backspace') return { next: { ...state, typing: typing.slice(0, -1) } }
+  if (key.length === 1) return { next: { ...state, typing: typing + key } }
+  return { next: state }
+}
+
 const Ag: ClientModule<Lines, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   const state: State = surface.state ?? {}
-  const set = (next: State) => surface.setState(next)
-
-  // Which message and which of its lines each row of the region is.
-  const rows: { line: number; buttons: boolean }[] = []
-  props.lines.forEach((_, i) => {
-    if (state.open === i) rows.push({ line: i, buttons: true })
-    rows.push({ line: i, buttons: false })
-  })
+  const rows = rowsOf(props.lines, state.open)
+  const apply = (pressed: Pressed) => {
+    if (pressed.post) surface.post(pressed.post)
+    surface.setState(pressed.next)
+  }
 
   surface.onPointer((e: ClientPointerEvent) => {
     if (e.type !== 'down') return
     const row = rows[e.y]
     const line = row ? props.lines[row.line] : undefined
     if (!row || !line) return
-    if (!row.buttons) {
-      // "the arrow you can also click on, one to see thebutton change into XXXX and again to cancel"
-      const left = state.open === row.line ? UNDER : 0
-      if (e.x >= left + 6 && e.x < left + 10) {
-        if (state.armed === row.line) {
-          surface.post({ act: 'cancel', to: line.to, id: line.id })
-          return set({})
-        }
-        return set({ ...state, armed: row.line })
-      }
-      if (state.open !== row.line) set({ open: row.line })
-      return
-    }
-    const at = AT
-    const due = state.due ?? line.due
-    const hold = (next: string) => {
-      surface.post({ act: 'hold', to: line.to, until: next })
-      set({ ...state, due: next })
-    }
-    if (e.x === 0) return hold(moved(due, 60))
-    if (e.x === 1) return hold(moved(due, -60))
-    if (e.x === 3) return hold(moved(due, 5))
-    if (e.x === 4) return hold(moved(due, -5))
-    if (e.x >= at.now && e.x < at.now + 5) {
-      if (state.releasing) {
-        surface.post({ act: 'release', to: line.to })
-        return set({})
-      }
-      return set({ ...state, releasing: true, deleting: false })
-    }
-    if (e.x >= at.edit && e.x < at.edit + 6) {
-      const whole = props.lines.filter(l => l.way === line.way && l.to === line.to).map(l => l.says).join('\n')
-      return set({ ...state, typing: whole })
-    }
-    // "and there should be a more explicit abort, that is two stage abort"
-    if (e.x >= at.delete && e.x < at.delete + 8) {
-      if (state.deleting) {
-        surface.post({ act: 'cancel', to: line.to, id: line.id })
-        return set({})
-      }
-      return set({ ...state, deleting: true, releasing: false })
-    }
-    // "cancel should get us out of the clicked-in,"
-    if (e.x >= at.esc && e.x < at.esc + 5) return set({})
+    apply(row.buttons ? onButtons(state, e.x, line, props.lines) : onLine(state, row.line, e.x, line))
   })
 
   surface.onKey((e: ClientKeyEvent) => {
     if (state.open === undefined || state.typing === undefined) return
     const line = props.lines[state.open]
-    if (!line) return set({})
-    if (e.key === 'return') {
-      surface.post({ act: 'release', to: line.to, says: state.typing })
-      return set({})
-    }
-    if (e.key === 'backspace') return set({ ...state, typing: state.typing.slice(0, -1) })
-    if (e.key.length === 1) return set({ ...state, typing: state.typing + e.key })
+    apply(line ? onKey(state, e.key, line) : { next: {} })
   })
+
+  const buttonsOf = (at: number) => (
+    <Box key={`b${at}`} flexDirection="row">
+      <Text>{'+- +- '}</Text>
+      <Text color={state.releasing ? 'green' : undefined} bold={!!state.releasing}>{nowOf(!!state.releasing)}</Text>
+      <Text>{' '.repeat(AT.edit - AT.now - 5) + '[edit]' + ' '.repeat(AT.delete - AT.edit - 6)}</Text>
+      <Text color={state.deleting ? 'red' : undefined} bold={!!state.deleting}>{deleteOf(!!state.deleting)}</Text>
+      <Text>{' [esc]'}</Text>
+    </Box>
+  )
+
+  const lineOf = (at: number, line: Line) => {
+    const open = state.open === at
+    const editing = open && state.typing !== undefined
+    const armed = state.armed === at
+    return (
+      <Box key={`l${at}`} flexDirection="row">
+        {open ? <Text>{' '.repeat(UNDER)}</Text> : null}
+        <Text>{open && state.due ? state.due : line.due}</Text>
+        <Text> </Text>
+        <Text color={armed ? 'red' : undefined}>{armed ? 'XXXX' : line.way === 'in' ? '<-- ' : '--> '}</Text>
+        <Text bold>{line.who}</Text>
+        <Text>: </Text>
+        <Text dimColor={!editing} wrap="truncate">{editing ? `${state.typing}_` : line.says}</Text>
+      </Box>
+    )
+  }
 
   return (
     <Box flexDirection="column">
-      {rows.map(row => {
-        const line = props.lines[row.line] as Line
-        if (row.buttons) {
-          return (
-            <Box key={`b${row.line}`} flexDirection="row">
-              <Text>{'+- +- '}</Text>
-              <Text color={state.releasing ? 'green' : undefined} bold={!!state.releasing}>{nowOf(!!state.releasing)}</Text>
-              <Text>{' '.repeat(AT.edit - AT.now - 5) + '[edit]' + ' '.repeat(AT.delete - AT.edit - 6)}</Text>
-              <Text color={state.deleting ? 'red' : undefined} bold={!!state.deleting}>{deleteOf(!!state.deleting)}</Text>
-              <Text>{' [esc]'}</Text>
-            </Box>
-          )
-        }
-        const open = state.open === row.line
-        const due = open && state.due ? state.due : line.due
-        const says = open && state.typing !== undefined ? `${state.typing}_` : line.says
-        return (
-          <Box key={`l${row.line}`} flexDirection="row">
-            {open ? <Text>{' '.repeat(UNDER)}</Text> : null}
-            <Text>{due}</Text>
-            <Text> </Text>
-            <Text color={state.armed === row.line ? 'red' : undefined}>{state.armed === row.line ? 'XXXX' : line.way === 'in' ? '<-- ' : '--> '}</Text>
-            <Text bold>{line.who}</Text>
-            <Text>: </Text>
-            <Text dimColor={!(open && state.typing !== undefined)} wrap="truncate">{says}</Text>
-          </Box>
-        )
-      })}
+      {rows.map(row => (row.buttons ? buttonsOf(row.line) : lineOf(row.line, props.lines[row.line] as Line)))}
     </Box>
   )
 }
