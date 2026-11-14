@@ -2,27 +2,33 @@ import type { ClientModule, ClientPointerEvent, ClientKeyEvent } from 'claude-co
 
 import type { Line } from '../types'
 
-// One line a message, drawn and pressed here: the time, the arrow, who, and
-// what is said. What a press means is posted to ag's hooks, which ask ground.
+// One line a message, drawn and pressed here. At rest a message is its line:
+//   16:25 <-- Shiitake: Some text of Shiitake to us.
+// Clicked in, its buttons stand on a line above it:
+//   +- +- [now]         [edit]              [cancel]
+// What a press means is posted to ag's hooks, which ask ground.
 
 export type Lines = { lines: Line[] }
 
-type Part = 'time' | 'arrow' | 'says'
-type Typing = { line: number; part: 'time' | 'says'; text: string }
 type State = {
-  armed?: { line: number; part: Part }
-  hover?: { line: number; part: Part }
-  typing?: Typing
+  open?: number // the message clicked in
+  due?: string // the time it is held to, as moved by +-, before it is asked
+  typing?: string // what is typed in place of what is said, while editing
 }
 
-const TIME = 5 // HH:MM
-const ARROW = 4 // "<-- ", "--> ", "XXXX"
+// Where each button starts on the button line, as drawn:
+//   +- +- [now]         [edit]              [cancel]
+//     16:25 <-- Shiitake: Some text of Shiitake to us.
+const AT = { now: 6, edit: 20, cancel: 40 }
+const BUTTONS = '+- +- [now]'.padEnd(AT.edit) + '[edit]'.padEnd(AT.cancel - AT.edit) + '[cancel]'
+// How far the message line stands in under its buttons.
+const UNDER = 2
 
-function partAt(line: Line, x: number): Part | null {
-  if (x < TIME) return 'time'
-  if (x > TIME && x <= TIME + ARROW) return 'arrow'
-  if (x > TIME + ARROW + line.who.length + 1) return 'says'
-  return null
+// The time moved by minutes, around the clock.
+function moved(due: string, minutes: number): string {
+  const [h, m] = due.split(':').map(Number)
+  const all = (((h ?? 0) * 60 + (m ?? 0) + minutes) % 1440 + 1440) % 1440
+  return `${String(Math.floor(all / 60)).padStart(2, '0')}:${String(all % 60).padStart(2, '0')}`
 }
 
 const Ag: ClientModule<Lines, State> = (props, surface) => {
@@ -30,69 +36,75 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
   const state: State = surface.state ?? {}
   const set = (next: State) => surface.setState(next)
 
+  // Which message and which of its lines each row of the region is.
+  const rows: { line: number; buttons: boolean }[] = []
+  props.lines.forEach((_, i) => {
+    if (state.open === i) rows.push({ line: i, buttons: true })
+    rows.push({ line: i, buttons: false })
+  })
+
   surface.onPointer((e: ClientPointerEvent) => {
-    const line = props.lines[e.y]
-    const part = line ? partAt(line, e.x) : null
-    if (e.type === 'move' || e.type === 'enter') {
-      const was = state.hover
-      if (was?.line !== e.y || was?.part !== part) set({ ...state, hover: part && line ? { line: e.y, part } : undefined })
+    if (e.type !== 'down') return
+    const row = rows[e.y]
+    const line = row ? props.lines[row.line] : undefined
+    if (!row || !line) return
+    if (!row.buttons) {
+      if (state.open !== row.line) set({ open: row.line })
       return
     }
-    if (e.type === 'leave') {
-      if (state.hover) set({ ...state, hover: undefined })
-      return
+    const at = AT
+    const due = state.due ?? line.due
+    const hold = (next: string) => {
+      surface.post({ act: 'hold', to: line.to, until: next })
+      set({ ...state, due: next })
     }
-    if (e.type !== 'down' || !line || !part) return
-    if (part === 'time' && e.button === 'right') {
-      set({ typing: { line: e.y, part: 'time', text: '' } })
-      return
+    if (e.x === 0) return hold(moved(due, 60))
+    if (e.x === 1) return hold(moved(due, -60))
+    if (e.x === 3) return hold(moved(due, 5))
+    if (e.x === 4) return hold(moved(due, -5))
+    if (e.x >= at.now && e.x < at.now + 5) {
+      surface.post({ act: 'release', to: line.to })
+      return set({})
     }
-    if (part === 'says') {
-      set({ typing: { line: e.y, part: 'says', text: props.lines.filter(l => l.way === line.way && l.to === line.to).map(l => l.says).join('\n') } })
-      return
+    if (e.x >= at.edit && e.x < at.edit + 6) {
+      const whole = props.lines.filter(l => l.way === line.way && l.to === line.to).map(l => l.says).join('\n')
+      return set({ ...state, typing: whole })
     }
-    const armed = state.armed
-    if (armed && armed.line === e.y && armed.part === part) {
-      if (part === 'time') surface.post({ act: 'release', to: line.to })
-      if (part === 'arrow') surface.post({ act: 'cancel', to: line.to, id: line.id })
-      set({})
-      return
+    if (e.x >= at.cancel && e.x < at.cancel + 8) {
+      surface.post({ act: 'cancel', to: line.to, id: line.id })
+      return set({})
     }
-    set({ armed: { line: e.y, part } })
   })
 
   surface.onKey((e: ClientKeyEvent) => {
-    const typing = state.typing
-    if (!typing) return
-    const line = props.lines[typing.line]
+    if (state.open === undefined || state.typing === undefined) return
+    const line = props.lines[state.open]
     if (!line) return set({})
     if (e.key === 'return') {
-      if (typing.part === 'time') surface.post({ act: 'hold', to: line.to, until: typing.text })
-      else surface.post({ act: 'release', to: line.to, says: typing.text })
+      surface.post({ act: 'release', to: line.to, says: state.typing })
       return set({})
     }
-    if (e.key === 'backspace') return set({ typing: { ...typing, text: typing.text.slice(0, -1) } })
-    if (e.key.length === 1) return set({ typing: { ...typing, text: typing.text + e.key } })
+    if (e.key === 'backspace') return set({ ...state, typing: state.typing.slice(0, -1) })
+    if (e.key.length === 1) return set({ ...state, typing: state.typing + e.key })
   })
-
-  const lit = (i: number, part: Part) => state.hover?.line === i && state.hover.part === part
 
   return (
     <Box flexDirection="column">
-      {props.lines.map((line, i) => {
-        const typing = state.typing?.line === i ? state.typing : undefined
-        const armedHere = state.armed?.line === i ? state.armed.part : undefined
-        const time = typing?.part === 'time' ? (typing.text + '_').padEnd(TIME).slice(0, TIME) : armedHere === 'time' ? 'now  ' : line.due
-        const arrow = armedHere === 'arrow' ? 'XXXX' : line.way === 'in' ? '<-- ' : '--> '
-        const says = typing?.part === 'says' ? typing.text + '_' : `"${line.says}"`
+      {rows.map(row => {
+        const line = props.lines[row.line] as Line
+        if (row.buttons) return <Text key={`b${row.line}`}>{BUTTONS}</Text>
+        const open = state.open === row.line
+        const due = open && state.due ? state.due : line.due
+        const says = open && state.typing !== undefined ? `${state.typing}_` : line.says
         return (
-          <Box key={`l${i}`} flexDirection="row">
-            <Text inverse={lit(i, 'time') || typing?.part === 'time'} color={armedHere === 'time' ? 'yellow' : undefined}>{time}</Text>
+          <Box key={`l${row.line}`} flexDirection="row">
+            {open ? <Text>{' '.repeat(UNDER)}</Text> : null}
+            <Text>{due}</Text>
             <Text> </Text>
-            <Text inverse={lit(i, 'arrow')} color={armedHere === 'arrow' ? 'red' : undefined}>{arrow}</Text>
+            <Text>{line.way === 'in' ? '<-- ' : '--> '}</Text>
             <Text bold>{line.who}</Text>
             <Text>: </Text>
-            <Text dimColor={typing?.part !== 'says'} inverse={lit(i, 'says')} wrap="truncate">{says}</Text>
+            <Text dimColor={!(open && state.typing !== undefined)} wrap="truncate">{says}</Text>
           </Box>
         )
       })}
