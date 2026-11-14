@@ -1,14 +1,14 @@
 module mycelia_test;
 
-// CTFE tests — failure shows as a compile error.
+// 「[Opus 5.5] CTFE tests — failure shows as a compile error.」
 
 // "so, why would the part that asks the node, not be able to be its own tiny binary"
-// mycelia asks the node and keeps the row it learned; ground_tmux draws what
-// is kept and asks nothing.
+// 「[Opus 5.5] mycelia asks the node and keeps the row it learned; ground_tmux draws what」
+// 「[Opus 5.5] is kept and asks nothing.」
 import mycelia : keptPathInto, keptOf, keptInto, silentInto, SILENT;
 import tmux : RED, PLAIN;
 
-// Where the row is kept, under home.
+// 「[Opus 5.5] Where the row is kept, under home.」
 char[128] keptPath(const(char)[] home)() {
     char[128] buf = '.';
     keptPathInto(home, buf[]);
@@ -21,7 +21,7 @@ static assert(keptPath!"/h"()[0 .. kept.length] == kept);
 static assert(keptPath!"/h/"()[0 .. kept.length] == kept, "a home ending in / is the same home");
 static assert(keptPathInto("", new char[128]) == 0, "no home is nowhere to keep it");
 
-// What is kept: when mycelia last asked, and the row it drew from the answer.
+// 「[Opus 5.5] What is kept: when mycelia last asked, and the row it drew from the answer.」
 static assert(keptInto(1000, "#[fg=colour34]QNTX#[default]", new char[64]) == "1000\n#[fg=colour34]QNTX#[default]".length);
 static assert(keptOf("1000\n#[fg=colour34]QNTX#[default]").at == 1000);
 static assert(keptOf("1000\n#[fg=colour34]QNTX#[default]").line == "#[fg=colour34]QNTX#[default]");
@@ -29,8 +29,8 @@ static assert(keptOf("1000\n").line == "", "a pass that drew nothing kept an emp
 static assert(keptOf("").at == 0, "nothing kept is no pass");
 static assert(keptOf("x\nrow").at == 0, "a stamp that is not a number is no pass");
 
-// A row kept longer ago than mycelia's passes go is a mycelia that stopped
-// asking. That is said, and the row it last kept is not drawn as if current.
+// 「[Opus 5.5] A row kept longer ago than mycelia's passes go is a mycelia that stopped」
+// 「[Opus 5.5] asking. That is said, and the row it last kept is not drawn as if current.」
 char[96] silent(long since)() {
     char[96] buf = '.';
     silentInto(since, buf[]);
@@ -48,8 +48,8 @@ static assert(silent!(-1)()[0 .. never.length] == never);
 
 // "for knowing what is incoming"
 // "and also what is outbound,"
-// What is collected for each agent (QNTX server/collected.go), kept as the
-// node answered it, beside the row.
+// 「[Opus 5.5] What is collected for each agent (QNTX server/collected.go), kept as the」
+// 「[Opus 5.5] node answered it, beside the row.」
 import mycelia : collectedPathInto, COLLECTED, refusedInto;
 import qntx : State;
 
@@ -66,8 +66,8 @@ static assert(collectedPathInto("/h", new char[128]) == collected.length);
 static assert(collectedPath!"/h"()[0 .. collected.length] == collected);
 static assert(collectedPathInto("", new char[128]) == 0);
 
-// What the node did not answer is kept in its place, in words: the reader
-// says it, and never draws an old answer as the current one.
+// 「[Opus 5.5] What the node did not answer is kept in its place, in words: the reader」
+// 「[Opus 5.5] says it, and never draws an old answer as the current one.」
 char[64] refused(State s, int status)() {
     char[64] buf = '.';
     refusedInto(s, status, buf[]);
@@ -81,15 +81,15 @@ enum timedOut = "QNTX timeout";
 static assert(refused!(State.timeout, 0)()[0 .. timedOut.length] == timedOut);
 enum noKey = "QNTX key";
 static assert(refused!(State.noKey, 0)()[0 .. noKey.length] == noKey);
-// The node answered 200 with more than mycelia holds: not a 200 to draw as a
-// refusal, and not the node failing. Said as what it is.
+// 「[Opus 5.5] The node answered 200 with more than mycelia holds: not a 200 to draw as a」
+// 「[Opus 5.5] refusal, and not the node failing. Said as what it is.」
 enum tooLarge = "QNTX answered 200 with more than mycelia holds";
 static assert(refusedInto(State.malformedBody, 200, new char[64]) == tooLarge.length);
 static assert(refused!(State.malformedBody, 200)()[0 .. tooLarge.length] == tooLarge);
 
 // "mycelia connect needs to also be a thing"
-// The key mycelia asks with is the one a person says yes to at the node, so
-// mycelia is what connects it. With no verb it asks, pass after pass.
+// 「[Opus 5.5] The key mycelia asks with is the one a person says yes to at the node, so」
+// 「[Opus 5.5] mycelia is what connects it. With no verb it asks, pass after pass.」
 import mycelia : verbOf, Verb;
 
 static assert(verbOf(null) == Verb.ask);
@@ -97,10 +97,10 @@ static assert(verbOf("connect") == Verb.connect);
 static assert(verbOf("conect") == Verb.unknown, "a verb mycelia does not know is said, not run as the loop");
 
 // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-// A press is the person's, made in the session the person holds (QNTX
-// ADR-060). mycelia is a door onto the node, as the app is: the passkey is
-// done at home, the node sends the browser back to mycelia://door with a
-// ticket, and mycelia collects the session with it.
+// 「[Opus 5.5] A press is the person's, made in the session the person holds (QNTX」
+// 「[Opus 5.5] ADR-060). mycelia is a door onto the node, as the app is: the passkey is」
+// 「[Opus 5.5] done at home, the node sends the browser back to mycelia://door with a」
+// 「[Opus 5.5] ticket, and mycelia collects the session with it.」
 import mycelia : DOOR, homeUrlInto, ticketOf, resultUrlInto, sessionSaidPathInto;
 
 static assert(DOOR == "mycelia://door");
@@ -116,8 +116,8 @@ static assert(homeUrlInto("https://api.q.sbvh.nl", new char[256]) == home.length
 static assert(homeUrl!"https://api.q.sbvh.nl"()[0 .. home.length] == home);
 static assert(homeUrlInto("", new char[256]) == 0, "no node is nowhere to go home to");
 
-// The node sends the browser back as door?home=<ticket>; a ticket is
-// base64url, so it is taken as it stands.
+// 「[Opus 5.5] The node sends the browser back as door?home=<ticket>; a ticket is」
+// 「[Opus 5.5] base64url, so it is taken as it stands.」
 static assert(ticketOf("mycelia://door?home=AbC-_9") == "AbC-_9");
 static assert(ticketOf("mycelia://door?home=AbC-_9&other=x") == "AbC-_9");
 static assert(ticketOf("mycelia://door?x=1&home=AbC") == "AbC");
@@ -134,8 +134,8 @@ enum result = "https://api.q.sbvh.nl/auth/door/home/result?home=AbC-_9&door=myce
 static assert(resultUrlInto("https://api.q.sbvh.nl", "AbC-_9", new char[256]) == result.length);
 static assert(resultUrl!("https://api.q.sbvh.nl", "AbC-_9")()[0 .. result.length] == result);
 
-// What mycelia says of the session it collected, or why it did not: written
-// down beside the row, never the session itself, for mycelia connect to say.
+// 「[Opus 5.5] What mycelia says of the session it collected, or why it did not: written」
+// 「[Opus 5.5] down beside the row, never the session itself, for mycelia connect to say.」
 char[128] sessionSaidPath(const(char)[] home)() {
     char[128] buf = '.';
     sessionSaidPathInto(home, buf[]);
@@ -147,9 +147,9 @@ static assert(sessionSaidPathInto("/h", new char[128]) == said.length);
 static assert(sessionSaidPath!"/h"()[0 .. said.length] == said);
 static assert(sessionSaidPathInto("", new char[128]) == 0);
 
-// What a press asks mycelia to make in the person's session: a path and a
-// body, on two lines and the rest. Only what a person does with what is
-// collected is made there; anything else asked of the socket is refused.
+// 「[Opus 5.5] What a press asks mycelia to make in the person's session: a path and a」
+// 「[Opus 5.5] body, on two lines and the rest. Only what a person does with what is」
+// 「[Opus 5.5] collected is made there; anything else asked of the socket is refused.」
 import mycelia : pressOf, pressAllowed, SOCKET;
 
 static assert(SOCKET == ".local/state/ug/mycelia.sock");

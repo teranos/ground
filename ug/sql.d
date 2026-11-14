@@ -353,13 +353,13 @@ enum NEWS_SQL = "INSERT OR IGNORE INTO attestations (id, subjects, predicates, c
     ~ "VALUES (?1, '[\"ci\"]', ?2, ?3, '[\"ug\"]', strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'ug', ?4)";
 
 // What goes between the quotes of a JSON string.
-// The most an item on the row says that is kept: a room's wake, waiting for an
-// agent, was 130 KiB, and a message cut at 1 KiB reached Tether ending at
-// point 4 of 4.
+// 「[Opus 5.5] The most an item on the row says that is kept: a room's wake, waiting for an」
+// 「[Opus 5.5] agent, was 130 KiB, and a message cut at 1 KiB reached Tether ending at」
+// 「[Opus 5.5] point 4 of 4.」
 enum NEWS_BYTES = 1 << 20;
 
-// The attributes an item is kept with: what it says, as JSON, whole. 0 when it
-// does not fit in dest, which is not made rather than kept cut and unclosed.
+// 「[Opus 5.5] The attributes an item is kept with: what it says, as JSON, whole. 0 when it」
+// 「[Opus 5.5] does not fit in dest, which is not made rather than kept cut and unclosed.」
 size_t newsAttrsInto(const(char)[] detail, char[] dest) {
     enum open = `{"detail":"`;
     enum close = `","after":0}`;
@@ -369,8 +369,8 @@ size_t newsAttrsInto(const(char)[] detail, char[] dest) {
     auto room = dest.length - close.length;
     if (room < a) return 0;
     auto end = putJsonInto(detail, dest[0 .. room], a);
-    // putJsonInto stops where the next byte would not fit: a detail that
-    // stopped short is one that did not fit.
+    // 「[Opus 5.5] putJsonInto stops where the next byte would not fit: a detail that」
+    // 「[Opus 5.5] stopped short is one that did not fit.」
     size_t wrote = 0;
     foreach (c; detail) {
         if (c < 0x20 && c != '\n' && c != '\r' && c != '\t') continue;
@@ -441,7 +441,7 @@ bool leaveNews(const(char)[] home, const(char)[] id, const(char)[] session,
     __gshared char[512] ctx = void;
     auto ctxLen = newsContextsInto(session, repo, ctx[]);
 
-    // Escaped, a byte is at most two.
+    // 「[Opus 5.5] Escaped, a byte is at most two.」
     __gshared char[NEWS_BYTES * 2 + 32] attrs = void;
     auto a = newsAttrsInto(detail, attrs[]);
     if (a == 0) return false;

@@ -65,8 +65,8 @@ static assert(built!"/Users/x"()[want.length] == 0);
 static assert(dbPathInto("", new char[128]) == 0);
 
 // "Their message came through cut off at point 4."
-// What the row's item says is kept whole, however long: the attributes hold
-// all of it and end as JSON, or are not made, never cut.
+// 「[Opus 5.5] What the row's item says is kept whole, however long: the attributes hold」
+// 「[Opus 5.5] all of it and end as JSON, or are not made, never cut.」
 import sql : newsAttrsInto, NEWS_BYTES;
 
 static assert(NEWS_BYTES >= 1 << 20, "an item as long as a room's wake is kept whole");
@@ -79,8 +79,8 @@ char[64] attrsOf(const(char)[] detail)() {
 enum shortAttrs = `{"detail":"a \"b\"\nc","after":0}`;
 static assert(newsAttrsInto("a \"b\"\nc", new char[64]) == shortAttrs.length);
 static assert(attrsOf!("a \"b\"\nc")()[0 .. shortAttrs.length] == shortAttrs);
-// 5000 bytes said is 5000 bytes kept, with the closing after it.
+// 「[Opus 5.5] 5000 bytes said is 5000 bytes kept, with the closing after it.」
 enum long_ = 5000;
 static assert(newsAttrsInto(new char[long_].idup, new char[long_ + 64]) > long_);
-// What does not fit is not made, rather than kept cut and unclosed.
+// 「[Opus 5.5] What does not fit is not made, rather than kept cut and unclosed.」
 static assert(newsAttrsInto(new char[long_].idup, new char[100]) == 0);

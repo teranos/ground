@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-// What `ground collected json` answers for a session with one message in and
-// one out, as ground draws it on this clock.
+// 「[Opus 5.5] What `ground collected json` answers for a session with one message in and」
+// 「[Opus 5.5] one out, as ground draws it on this clock.」
 const ANSWER = JSON.stringify({
   incoming: [{ to: 'Mycelia', did: 'did:key:z6MkMe', due: '15:40', items: [
     { id: '871588189c2ca9c4', from: 'Shiitake', says: 'hello', at: '09:40' },
@@ -86,7 +86,7 @@ test('a message clicked in shows its buttons; esc closes them, delete twice dele
   await ui.pointer({ type: 'down', x: 41, y: 0, button: 'left' })
   expect(ran).toContainEqual(['ground', 'collected', 'cancel', 'did:key:z6MkMe', '871588189c2ca9c4'])
   ran.length = 0
-  // The arrow at rest: once is XXXX, twice dismisses that one message.
+  // 「[Opus 5.5] The arrow at rest: once is XXXX, twice dismisses that one message.」
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^XXXX$/ }))?.text).toBe('XXXX')
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })

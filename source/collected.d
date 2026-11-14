@@ -3,10 +3,10 @@ module collected;
 // "for knowing what is incoming"
 // "and also what is outbound,"
 //
-// What agents said to an agent waits at the node until it is delivered or a
-// person releases it (QNTX server/collected.go). mycelia keeps the node's
-// answer under ~/.local/state/ug/collected; this reads it for the session it
-// runs in, by the DID of the session's own key.
+// 「[Opus 5.5] What agents said to an agent waits at the node until it is delivered or a」
+// 「[Opus 5.5] person releases it (QNTX server/collected.go). mycelia keeps the node's」
+// 「[Opus 5.5] answer under ~/.local/state/ug/collected; this reads it for the session it」
+// 「[Opus 5.5] runs in, by the DID of the session's own key.」
 
 import zbuf : ZBuf;
 
@@ -21,15 +21,15 @@ ground collected hold Mycelia 18:00
 ground collected cancel Mycelia 6f1c2a9d3b4e5f60
 EOS";
 
-// How old an answer may be before mycelia is taken to have stopped asking: as
-// ground_tmux takes it (ug/mycelia.d SILENT).
+// 「[Opus 5.5] How old an answer may be before mycelia is taken to have stopped asking: as」
+// 「[Opus 5.5] ground_tmux takes it (ug/mycelia.d SILENT).」
 enum SILENT = 60;
 
-// What is kept for did, said into out_, one line a message: when it is due
-// on the clock offset seconds from UTC, <-- for what comes in and --> for
-// what goes out, who said it or is to hear it, and what it says. Nothing
-// waiting either way says nothing. 0 when it is the node's answer, 1 when it
-// is what kept mycelia from one.
+// 「[Opus 5.5] What is kept for did, said into out_, one line a message: when it is due」
+// 「[Opus 5.5] on the clock offset seconds from UTC, <-- for what comes in and --> for」
+// 「[Opus 5.5] what goes out, who said it or is to hear it, and what it says. Nothing」
+// 「[Opus 5.5] waiting either way says nothing. 0 when it is the node's answer, 1 when it」
+// 「[Opus 5.5] is what kept mycelia from one.」
 // "18:37 <-- Shiitake: \"the things Shiitake said to us\""
 // "we dont need three lines for 1 message"
 int collectedFor(const(char)[] kept, const(char)[] did, long now, long offset, ref ZBuf out_) {
@@ -76,7 +76,7 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, long offset, r
     }
 
     auto n = json_object_array_length(all);
-    // What comes in: what waits for did.
+    // 「[Opus 5.5] What comes in: what waits for did.」
     foreach (k; 0 .. n) {
         auto one = json_object_array_get_idx(all, k);
         if (text(jsonField(one, "did")) != did) continue;
@@ -87,7 +87,7 @@ int collectedFor(const(char)[] kept, const(char)[] did, long now, long offset, r
             line(text(jsonField(one, "due")), " <-- ", text(jsonField(said, "from")), text(jsonField(said, "says")));
         }
     }
-    // What goes out: what did said that waits for another.
+    // 「[Opus 5.5] What goes out: what did said that waits for another.」
     foreach (k; 0 .. n) {
         auto one = json_object_array_get_idx(all, k);
         auto waiting = jsonField(one, "waiting");
@@ -112,9 +112,9 @@ enum NO_SESSION = `ground collected: CLAUDE_CODE_SESSION_ID is not set, so this 
 enum NO_KEY = `ground collected: this session has no key of its own, so no DID to read for: ground name gives it one` ~ "\n\0";
 enum NO_HOME = `ground collected: HOME names no home to read what mycelia kept from` ~ "\n\0";
 
-// ground collected: what mycelia kept, for the session this runs in; `json`
-// as the data ag draws; a sigil of the collected signum asked of the node as
-// the person, by mycelia in the person's session.
+// 「[Opus 5.5] ground collected: what mycelia kept, for the session this runs in; `json`」
+// 「[Opus 5.5] as the data ag draws; a sigil of the collected signum asked of the node as」
+// 「[Opus 5.5] the person, by mycelia in the person's session.」
 int handleCollected(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fopen, fread, fclose;
     import core.stdc.stdlib : getenv;
@@ -167,7 +167,7 @@ int handleCollected(int argc, const(char)** argv) {
     path.put(home[0 .. hn]);
     path.put("/.local/state/ug/collected");
 
-    // As large as mycelia keeps (ug/probe.d BODY_BYTES), and its stamp.
+    // 「[Opus 5.5] As large as mycelia keeps (ug/probe.d BODY_BYTES), and its stamp.」
     __gshared char[(4 << 20) + 32] kept;
     size_t got = 0;
     auto f = fopen(path.ptr(), "rb");
@@ -189,8 +189,8 @@ int handleCollected(int argc, const(char)** argv) {
     return rc;
 }
 
-// One sigil of the collected signum, asked of the node as the person: by
-// mycelia, in the session it holds.
+// 「[Opus 5.5] One sigil of the collected signum, asked of the node as the person: by」
+// 「[Opus 5.5] mycelia, in the session it holds.」
 private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long now, long offset) {
     import core.stdc.stdio : stderr, fputs;
 
@@ -227,9 +227,9 @@ private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long n
     bodyOf(pairs[0 .. np], body_);
 
     // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-    // Made by mycelia in the person's session, which it holds after one
-    // touch: any key, ground's own or one the person said yes to, is an
-    // agent's to the node, and is refused (QNTX itsOwnDID).
+    // 「[Opus 5.5] Made by mycelia in the person's session, which it holds after one」
+    // 「[Opus 5.5] touch: any key, ground's own or one the person said yes to, is an」
+    // 「[Opus 5.5] agent's to the node, and is refused (QNTX itsOwnDID).」
     __gshared ZBuf path, asked;
     path.reset();
     path.put("/api/collected/");
@@ -255,7 +255,7 @@ private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long n
     return 1;
 }
 
-// A press as mycelia's socket takes it: the path, a newline, the body.
+// 「[Opus 5.5] A press as mycelia's socket takes it: the path, a newline, the body.」
 void pressFor(const(char)[] path, const(char)[] body_, ref ZBuf out_) {
     out_.reset();
     out_.put(path);
@@ -268,8 +268,8 @@ struct Answer {
     const(char)[] body_;
 }
 
-// mycelia's answer: the node's status on the first line, 0 when the node was
-// not asked, and its body or why after.
+// 「[Opus 5.5] mycelia's answer: the node's status on the first line, 0 when the node was」
+// 「[Opus 5.5] not asked, and its body or why after.」
 Answer answerOf(const(char)[] said) {
     int status = 0;
     size_t i = 0;
@@ -278,8 +278,8 @@ Answer answerOf(const(char)[] said) {
     return Answer(status, said[i + 1 .. $]);
 }
 
-// Asks mycelia over its socket, its answer into said; empty when it answered,
-// else why it could not be asked.
+// 「[Opus 5.5] Asks mycelia over its socket, its answer into said; empty when it answered,」
+// 「[Opus 5.5] else why it could not be asked.」
 private const(char)[] toMycelia(const(char)[] asked, ref ZBuf said) {
     import core.stdc.stdlib : getenv;
     import core.sys.posix.sys.socket : socket, connect, shutdown, AF_UNIX, SOCK_STREAM, SHUT_WR, sockaddr;
@@ -314,10 +314,10 @@ private const(char)[] toMycelia(const(char)[] asked, ref ZBuf said) {
     return null;
 }
 
-// --- What ag draws, and what its buttons ask ---
+// 「[Opus 5.5] --- What ag draws, and what its buttons ask ---」
 
-// Seconds since the epoch of an RFC3339 instant as the node writes it, in
-// UTC; -1 for what is not one.
+// 「[Opus 5.5] Seconds since the epoch of an RFC3339 instant as the node writes it, in」
+// 「[Opus 5.5] UTC; -1 for what is not one.」
 long epochOf(const(char)[] t) {
     if (t.length < 19 || t[4] != '-' || t[7] != '-' || t[10] != 'T' || t[13] != ':' || t[16] != ':') return -1;
     long num(size_t from, size_t n) {
@@ -330,7 +330,7 @@ long epochOf(const(char)[] t) {
     }
     long y = num(0, 4), m = num(5, 2), d = num(8, 2), hh = num(11, 2), mm = num(14, 2), ss = num(17, 2);
     if (y < 0 || m < 1 || m > 12 || d < 1 || hh < 0 || mm < 0 || ss < 0) return -1;
-    // Days from the civil date, Howard Hinnant's algorithm, as ug/tmux.d reads them.
+    // 「[Opus 5.5] Days from the civil date, Howard Hinnant's algorithm, as ug/tmux.d reads them.」
     y -= m <= 2 ? 1 : 0;
     long era = (y >= 0 ? y : y - 399) / 400;
     long yoe = y - era * 400;
@@ -344,8 +344,8 @@ private void put2(ref ZBuf out_, long v) {
     out_.putChar(cast(char)('0' + v % 10));
 }
 
-// The instant on the clock offset seconds from UTC, as hours and minutes;
-// empty for what is not an instant.
+// 「[Opus 5.5] The instant on the clock offset seconds from UTC, as hours and minutes;」
+// 「[Opus 5.5] empty for what is not an instant.」
 const(char)[] clockOf(const(char)[] t, long offset) {
     __gshared ZBuf clock;
     clock.reset();
@@ -372,10 +372,10 @@ private void putString(ref ZBuf out_, const(char)[] s) {
     out_.putChar('"');
 }
 
-// What is kept for did, as the data ag draws: what comes in, by the agent it
-// waits for, and what did said that goes out, each item with its id; times on
-// the clock offset seconds from UTC. 1, with what went wrong as error, when
-// what is kept is no answer of the node's.
+// 「[Opus 5.5] What is kept for did, as the data ag draws: what comes in, by the agent it」
+// 「[Opus 5.5] waits for, and what did said that goes out, each item with its id; times on」
+// 「[Opus 5.5] the clock offset seconds from UTC. 1, with what went wrong as error, when」
+// 「[Opus 5.5] what is kept is no answer of the node's.」
 int collectedJson(const(char)[] kept, const(char)[] did, long now, long offset, ref ZBuf out_) {
     import libjsonc : json_object, json_type, json_object_get_type, json_object_array_length,
         json_object_array_get_idx, json_object_get_string, json_object_get_string_len,
@@ -390,7 +390,7 @@ int collectedJson(const(char)[] kept, const(char)[] did, long now, long offset, 
         putString(out_, s);
         out_.put("}");
     }
-    // What is no answer is said as collectedFor says it.
+    // 「[Opus 5.5] What is no answer is said as collectedFor says it.」
     if (collectedFor(kept, did, now, offset, why) != 0) { error(why.slice()); return 1; }
     size_t i = 0;
     while (kept[i] != '\n') i++;
@@ -461,8 +461,8 @@ int collectedJson(const(char)[] kept, const(char)[] did, long now, long offset, 
     return 0;
 }
 
-// The next moment a clock offset seconds from UTC reads hhmm ("HH:MM") at or
-// after now, as RFC3339 in UTC; false for what is no such time.
+// 「[Opus 5.5] The next moment a clock offset seconds from UTC reads hhmm ("HH:MM") at or」
+// 「[Opus 5.5] after now, as RFC3339 in UTC; false for what is no such time.」
 bool untilOf(const(char)[] hhmm, long now, long offset, ref ZBuf out_) {
     out_.reset();
     if (hhmm.length != 5 || hhmm[2] != ':') return false;
@@ -475,7 +475,7 @@ bool untilOf(const(char)[] hhmm, long now, long offset, ref ZBuf out_) {
     auto at = local - ((local % 86400) + 86400) % 86400 + h * 3600 + m * 60;
     if (at <= local) at += 86400;
     auto utc = at - offset;
-    // The civil date of a day count, Howard Hinnant's algorithm.
+    // 「[Opus 5.5] The civil date of a day count, Howard Hinnant's algorithm.」
     long z = (utc >= 0 ? utc : utc - 86399) / 86400 + 719468;
     long era = (z >= 0 ? z : z - 146096) / 146097;
     long doe = z - era * 146097;
@@ -496,7 +496,7 @@ bool untilOf(const(char)[] hhmm, long now, long offset, ref ZBuf out_) {
     return true;
 }
 
-// A sigil's parameters, name then value, as the JSON object the node reads.
+// 「[Opus 5.5] A sigil's parameters, name then value, as the JSON object the node reads.」
 void bodyOf(const(char)[][] pairs, ref ZBuf out_) {
     out_.reset();
     out_.putChar('{');

@@ -60,9 +60,9 @@ size_t urlInto(const(char)[] host_, const(char)[] path, char[] dest) {
     return o;
 }
 
-// The most a node's answer may be. What is collected for agents carries what
-// a room woke them with, whole: two GitHub wakes in the Node Room were 260 KiB
-// waiting for one agent, past the 256 KiB this was, and none of it was kept.
+// 「[Opus 5.5] The most a node's answer may be. What is collected for agents carries what」
+// 「[Opus 5.5] a room woke them with, whole: two GitHub wakes in the Node Room were 260 KiB」
+// 「[Opus 5.5] waiting for one agent, past the 256 KiB this was, and none of it was kept.」
 enum BODY_BYTES = 4 << 20;
 
 // One request, made in this process, signed with the key kept under home.

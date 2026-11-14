@@ -12,7 +12,7 @@ extern (C) int main(int argc, char** argv) {
     if (h !is null) while (h[hl] != 0) hl++;
     auto home = h[0 .. hl];
 
-    // What tmux runs on a click, with the clicked range's name.
+    // 「[Opus 5.5] What tmux runs on a click, with the clicked range's name.」
     if (argc >= 2 && argv[1] !is null) {
         size_t al = 0;
         while (argv[1][al] != 0) al++;

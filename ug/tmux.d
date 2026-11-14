@@ -254,11 +254,11 @@ void clearFocus(const(char)[] home) {
     remove(&path[0]);
 }
 
-// `ground_tmux click <name>`: what tmux runs when a name on the row is
-// clicked. On the node's row, a plugin's name turns the row into that
-// plugin's row; on a plugin's row, any click turns it back. Nothing is asked
-// here: mycelia asks for the focused row on its next pass, and drops a focus
-// the node holds no plugin under (404).
+// 「[Opus 5.5] `ground_tmux click <name>`: what tmux runs when a name on the row is」
+// 「[Opus 5.5] clicked. On the node's row, a plugin's name turns the row into that」
+// 「[Opus 5.5] plugin's row; on a plugin's row, any click turns it back. Nothing is asked」
+// 「[Opus 5.5] here: mycelia asks for the focused row on its next pass, and drops a focus」
+// 「[Opus 5.5] the node holds no plugin under (404).」
 int clickMain(const(char)[] home, const(char)[] name) {
     import core.stdc.stdlib : system;
 
@@ -271,9 +271,9 @@ int clickMain(const(char)[] home, const(char)[] name) {
     return 0;
 }
 
-// The whole of ground_tmux: one line on stdout and nothing else. It reads no
-// stdin, because tmux has no session to tell it about, and it asks the node
-// nothing: the row is what mycelia kept.
+// 「[Opus 5.5] The whole of ground_tmux: one line on stdout and nothing else. It reads no」
+// 「[Opus 5.5] stdin, because tmux has no session to tell it about, and it asks the node」
+// 「[Opus 5.5] nothing: the row is what mycelia kept.」
 int tmuxMain(const(char)[] home, long now) {
     import core.stdc.stdio : stdout, fwrite, fputs;
     import mycelia : readKept, silentInto, SILENT;

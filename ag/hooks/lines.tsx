@@ -2,11 +2,11 @@ import type { ClientModule, ClientPointerEvent, ClientKeyEvent } from 'claude-co
 
 import type { Line } from '../types'
 
-// One line a message, drawn and pressed here. At rest a message is its line:
-//   16:25 <-- Shiitake: Some text of Shiitake to us.
-// Clicked in, its buttons stand on a line above it:
-//   +- +- [now]         [edit]              [delete] [esc]
-// What a press means is posted to ag's hooks, which ask ground.
+// 「[Opus 5.5] One line a message, drawn and pressed here. At rest a message is its line:」
+//   「[Opus 5.5] 16:25 <-- Shiitake: Some text of Shiitake to us.」
+// 「[Opus 5.5] Clicked in, its buttons stand on a line above it:」
+//   「[Opus 5.5] +- +- [now]         [edit]              [delete] [esc]」
+// 「[Opus 5.5] What a press means is posted to ag's hooks, which ask ground.」
 
 export type Lines = { lines: Line[] }
 
@@ -19,27 +19,27 @@ type State = {
   typing?: string // what is typed in place of what is said, while editing
 }
 
-// What a press comes to: what to post to ag's hooks, if anything, and the
-// state after it.
+// 「[Opus 5.5] What a press comes to: what to post to ag's hooks, if anything, and the」
+// 「[Opus 5.5] state after it.」
 type Pressed = { post?: Record<string, string>; next: State }
 
-// Which message, and whether this row is its buttons or its line.
+// 「[Opus 5.5] Which message, and whether this row is its buttons or its line.」
 type Row = { line: number; buttons: boolean }
 
-// How far the message line stands in under its buttons.
+// 「[Opus 5.5] How far the message line stands in under its buttons.」
 const UNDER = 2
-// Where the arrow stands on a message line at rest, and how wide it is.
+// 「[Opus 5.5] Where the arrow stands on a message line at rest, and how wide it is.」
 const ARROW = 6
 const ARROW_WIDE = 4
 
-// The time moved by minutes, around the clock.
+// 「[Opus 5.5] The time moved by minutes, around the clock.」
 function moved(due: string, minutes: number): string {
   const [h, m] = due.split(':').map(Number)
   const all = (((h ?? 0) * 60 + (m ?? 0) + minutes) % 1440 + 1440) % 1440
   return `${String(Math.floor(all / 60)).padStart(2, '0')}:${String(all % 60).padStart(2, '0')}`
 }
 
-// Each row of the region: the message clicked in has its buttons above it.
+// 「[Opus 5.5] Each row of the region: the message clicked in has its buttons above it.」
 function rowsOf(lines: Line[], open?: number): Row[] {
   const rows: Row[] = []
   lines.forEach((_, i) => {
@@ -49,7 +49,7 @@ function rowsOf(lines: Line[], open?: number): Row[] {
   return rows
 }
 
-// A press on a message's own line: on its arrow, or anywhere else on it.
+// 「[Opus 5.5] A press on a message's own line: on its arrow, or anywhere else on it.」
 // "the arrow you can also click on, one to see thebutton change into XXXX and again to cancel"
 function onLine(state: State, at: number, x: number, line: Line): Pressed {
   const left = state.open === at ? UNDER : 0
@@ -60,19 +60,19 @@ function onLine(state: State, at: number, x: number, line: Line): Pressed {
   return { next: state.open === at ? state : { open: at } }
 }
 
-// Where each button starts on the button line, as drawn:
-//   +- +- [now]         [edit]              [delete] [esc]
-//     16:25 <-- Shiitake: Some text of Shiitake to us.
+// 「[Opus 5.5] Where each button starts on the button line, as drawn:」
+//   「[Opus 5.5] +- +- [now]         [edit]              [delete] [esc]」
+//     「[Opus 5.5] 16:25 <-- Shiitake: Some text of Shiitake to us.」
 // "the word cancel isnt clear"
 const AT = { now: 6, edit: 20, delete: 40, esc: 49 }
 // "[now], this means to me kind fo same thing as [delete] two stage, press once, you get [NOW] green, and press another time, it actually get's released"
 const nowOf = (releasing: boolean) => (releasing ? '[NOW]' : '[now]')
 const deleteOf = (deleting: boolean) => (deleting ? '[DELETE]' : '[delete]')
 
-// The +- pairs: hours first, then minutes, each up then down.
+// 「[Opus 5.5] The +- pairs: hours first, then minutes, each up then down.」
 const NUDGE: Record<number, number> = { 0: 60, 1: -60, 3: 5, 4: -5 }
 
-// A press on the buttons of the message clicked in.
+// 「[Opus 5.5] A press on the buttons of the message clicked in.」
 function onButtons(state: State, x: number, line: Line, lines: Line[]): Pressed {
   const nudge = NUDGE[x]
   if (nudge !== undefined) {
@@ -97,7 +97,7 @@ function onButtons(state: State, x: number, line: Line, lines: Line[]): Pressed 
   return { next: state }
 }
 
-// A key while editing what the message clicked in says.
+// 「[Opus 5.5] A key while editing what the message clicked in says.」
 function onKey(state: State, key: string, line: Line): Pressed {
   const typing = state.typing ?? ''
   if (key === 'return') return { post: { act: 'release', to: line.to, says: typing }, next: {} }

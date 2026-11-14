@@ -3,17 +3,17 @@ import type { Register, EngineInterface } from 'claude-code'
 
 import type { Line, Said } from '../types'
 
-// ag: above ground. What comes in for this session and what it said that goes
-// out, as mycelia kept them; `ground collected json` reads them by the DID of
-// the session's own key. Each message is one line, drawn and pressed by the
-// Client in ./lines.tsx; what a press means, ground asks the node as the person.
-// Nothing waiting draws nothing; what went wrong is drawn as it was said.
+// 「[Opus 5.5] ag: above ground. What comes in for this session and what it said that goes」
+// 「[Opus 5.5] out, as mycelia kept them; `ground collected json` reads them by the DID of」
+// 「[Opus 5.5] the session's own key. Each message is one line, drawn and pressed by the」
+// 「[Opus 5.5] Client in ./lines.tsx; what a press means, ground asks the node as the person.」
+// 「[Opus 5.5] Nothing waiting draws nothing; what went wrong is drawn as it was said.」
 const said = atom({ plugin: 'ag', key: 'said' } as const, null)
-// What the last press came to when the node did not do it: drawn red under
-// the lines until the next press.
+// 「[Opus 5.5] What the last press came to when the node did not do it: drawn red under」
+// 「[Opus 5.5] the lines until the next press.」
 const refused = atom({ plugin: 'ag', key: 'refused' } as const, null)
 
-// Every press and what it came to, written where it can be read from outside.
+// 「[Opus 5.5] Every press and what it came to, written where it can be read from outside.」
 const PRESSES = '/Users/s.b.vanhouten/.local/state/ug/ag-presses'
 
 const EVERY_MS = 5000
@@ -33,7 +33,7 @@ function linesOf(a: Answer): Line[] {
   return lines
 }
 
-// What `ground collected json` says for the session now, kept for the band.
+// 「[Opus 5.5] What `ground collected json` says for the session now, kept for the band.」
 async function ask($: EngineInterface, sessionId: string) {
   let now: Said
   try {
@@ -53,10 +53,10 @@ async function ask($: EngineInterface, sessionId: string) {
   await update($, said, () => now)
 }
 
-// What a press posted, as the press it is.
+// 「[Opus 5.5] What a press posted, as the press it is.」
 type Press = { act: string; to: string; id?: string; until?: string; says?: string }
 
-// The ground command a press is: what is pressed, on whom, and what it carries.
+// 「[Opus 5.5] The ground command a press is: what is pressed, on whom, and what it carries.」
 function argvOf(d: Press): string[] {
   const argv = ['ground', 'collected', d.act, d.to]
   if (d.act === 'cancel' && d.id) argv.push(d.id)
@@ -65,8 +65,8 @@ function argvOf(d: Press): string[] {
   return argv
 }
 
-// A press, asked of the node by ground as the person: what the node refused
-// is kept for the band, and every press is written down.
+// 「[Opus 5.5] A press, asked of the node by ground as the person: what the node refused」
+// 「[Opus 5.5] is kept for the band, and every press is written down.」
 async function press($: EngineInterface, d: Press) {
   const argv = argvOf(d)
   const r = await $.process.run(argv, { timeoutMs: 60000 })
