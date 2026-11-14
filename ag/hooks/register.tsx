@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, EngineInterface } from 'claude-code'
 
-import type { Fork, Line, Said } from '../types'
+import type { Forks, Line, Said } from '../types'
 
 // ag: above ground. What comes in for this session and what it said that goes
 // out, as mycelia kept them; `ground collected json` reads them by the DID of
@@ -55,12 +55,15 @@ async function ask($: EngineInterface, sessionId: string) {
     now = { ok: false, text: `ground collected json did not run: ${String(err)}`, lines: [] }
   }
   await update($, said, () => now)
-  let branched: Fork[] = []
+  let branched: Forks = { name: '', forks: [] }
   try {
     const r = await $.process.run(['ground', 'forks', 'json'], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs: 10000 })
-    if (r.exitCode === 0) branched = (JSON.parse(r.stdout || '{}') as { forks?: Fork[] }).forks ?? []
+    if (r.exitCode === 0) {
+      const f = JSON.parse(r.stdout || '{}') as Partial<Forks>
+      branched = { name: f.name ?? '', forks: f.forks ?? [] }
+    }
   } catch {
-    branched = []
+    branched = { name: '', forks: [] }
   }
   await update($, forks, () => branched)
 }
@@ -121,13 +124,13 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const now = await read($, said)
     const why = await read($, refused)
-    const branched = (await read($, forks)) ?? []
-    if (now === null || (now.ok && now.lines.length === 0 && branched.length === 0 && why === null)) return next(e)
+    const branched = (await read($, forks)) ?? { name: '', forks: [] }
+    if (now === null || (now.ok && now.lines.length === 0 && branched.forks.length === 0 && why === null)) return next(e)
     const { Box, Text, Client } = $.ui.resolve(e)
     if (!now.ok) return <Box><Text color="red">{now.text}</Text></Box>
     return (
       <Box flexDirection="column">
-        <Client key="lines" module="./lines.tsx" props={{ lines: now.lines, forks: branched }} />
+        <Client key="lines" module="./lines.tsx" props={{ lines: now.lines, forks: branched.forks, name: branched.name }} />
         {why === null ? null : <Text color="red">{why}</Text>}
       </Box>
     )

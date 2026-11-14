@@ -10,7 +10,7 @@ import type { Fork, Line } from '../types'
 
 // The sessions that branched from this one stand above the messages, a row
 // each; a click on one gives it this session's name (ground forks give).
-export type Lines = { lines: Line[]; forks?: Fork[] }
+export type Lines = { lines: Line[]; forks?: Fork[]; name?: string }
 
 type State = {
   open?: number // the message clicked in
@@ -113,6 +113,18 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
   const state: State = surface.state ?? {}
   const forks = props.forks ?? []
   const rows = rowsOf(props.lines, state.open)
+  // "yes,"
+  // ⑂ Mycelia stays with  ● this session   ○ mycelia on k
+  // The name is on the filled one; a click on another moves it there.
+  const lead = `⑂ ${props.name || 'the name'} stays with  `
+  const here = '● this session'
+  const choices: { session: string; label: string; from: number; to: number }[] = []
+  let x = lead.length + here.length
+  for (const f of forks) {
+    const label = `○ ${f.title || f.name || f.session.slice(0, 8)}`
+    choices.push({ session: f.session, label, from: x + 3, to: x + 3 + label.length })
+    x += 3 + label.length
+  }
   const apply = (pressed: Pressed) => {
     if (pressed.post) surface.post(pressed.post)
     surface.setState(pressed.next)
@@ -120,9 +132,12 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
 
   surface.onPointer((e: ClientPointerEvent) => {
     if (e.type !== 'down') return
-    const fork = forks[e.y]
-    if (fork) return apply({ post: { act: 'give', to: fork.session }, next: state })
-    const row = rows[e.y - forks.length]
+    if (forks.length > 0 && e.y === 0) {
+      const at = choices.find(c => e.x >= c.from && e.x < c.to)
+      if (at) apply({ post: { act: 'give', to: at.session }, next: state })
+      return
+    }
+    const row = rows[e.y - (forks.length > 0 ? 1 : 0)]
     const line = row ? props.lines[row.line] : undefined
     if (!row || !line) return
     apply(row.buttons ? onButtons(state, e.x, line, props.lines) : onLine(state, row.line, e.x, line))
@@ -163,14 +178,15 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
 
   return (
     <Box flexDirection="column">
-      {forks.map(fork => (
-        <Box key={`f${fork.session}`} flexDirection="row">
-          <Text>{'⑂ '}</Text>
-          <Text bold>{fork.name || fork.session.slice(0, 8)}</Text>
-          <Text dimColor>{` (${fork.session}) branched from this session  `}</Text>
-          <Text color="cyan">[give it this session's name]</Text>
+      {forks.length > 0 ? (
+        <Box key="forks" flexDirection="row">
+          <Text>{lead}</Text>
+          <Text bold>{here}</Text>
+          {choices.map(c => (
+            <Text key={c.session} dimColor>{'   ' + c.label}</Text>
+          ))}
         </Box>
-      ))}
+      ) : null}
       {rows.map(row => (row.buttons ? buttonsOf(row.line) : lineOf(row.line, props.lines[row.line] as Line)))}
     </Box>
   )

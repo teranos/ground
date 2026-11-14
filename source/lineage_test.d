@@ -30,3 +30,14 @@ unittest {
     assert(lineOf(STRANGER, PARENT) == Line.none, "a transcript the parent never held came from elsewhere");
     assert(lineOf("", PARENT) == Line.none);
 }
+
+// "yes,"
+// A branch is shown by the title Claude Code gives it, past its ⑂: what the
+// person asked the fork to do.
+unittest {
+    enum T = `{"type":"agent-name","agentName":"Granite name setup ⑂ mycelia on k","sessionId":"x"}` ~ "\n"
+        ~ `{"type":"user","uuid":"aaaaaaaa-0000-0000-0000-000000000001"}` ~ "\n";
+    assert(titleOf(T) == "mycelia on k");
+    assert(titleOf(`{"type":"agent-name","agentName":"Slate","sessionId":"x"}`) == "Slate", "a title with no ⑂ is all of it");
+    assert(titleOf(`{"type":"user"}`).length == 0);
+}

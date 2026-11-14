@@ -40,6 +40,33 @@ const(char)[] lastUuid(const(char)[] text) {
     return found;
 }
 
+// The title Claude Code gave a session last, past its ⑂ when it has one: what
+// the person asked a fork to do. Empty for none.
+const(char)[] titleOf(const(char)[] text) {
+    enum key = `"agentName":"`;
+    enum fork = "⑂ ";
+    const(char)[] found = text[0 .. 0];
+    size_t i = 0;
+    while (i + key.length < text.length) {
+        if (text[i] == '"' && text[i .. i + key.length] == key) {
+            auto start = i + key.length;
+            auto end = start;
+            while (end < text.length && text[end] != '"') {
+                if (text[end] == '\\') end++;
+                end++;
+            }
+            if (end > text.length) end = text.length;
+            found = text[start .. end];
+            i = end;
+        } else i++;
+    }
+    foreach (j; 0 .. found.length) {
+        if (j + fork.length <= found.length && found[j .. j + fork.length] == fork)
+            return found[j + fork.length .. $];
+    }
+    return found;
+}
+
 private bool holds(const(char)[] text, const(char)[] needle) {
     if (needle.length == 0 || needle.length > text.length) return false;
     foreach (i; 0 .. text.length - needle.length + 1)
@@ -216,6 +243,9 @@ void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf s
     text.put(from);
     text.put("\n");
     writeWhole(at.ptr(), text.slice());
+    // Where it is said, for the title it is shown by (titleOf).
+    fileInto(at, sessionId, "transcript");
+    writeWhole(at.ptr(), transcriptPath);
 
     if (line == Line.branches) {
         said.put("This session branched from ");
@@ -286,7 +316,12 @@ int handleForks(int argc, const(char)** argv) {
     bool json = verb == "json";
     __gshared ZBuf out_;
     out_.reset();
-    if (json) out_.put(`{"forks":[`);
+    if (json) {
+        char[256] ownBuf;
+        out_.put(`{"name":"`);
+        foreach (c; lineFrom(self, "name", ownBuf[])) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
+        out_.put(`","forks":[`);
+    }
     bool first = true;
     eachBranch(self, (const(char)[] id) {
         char[256] nameBuf;
@@ -297,6 +332,8 @@ int handleForks(int argc, const(char)** argv) {
             out_.put(id);
             out_.put(`","name":"`);
             foreach (c; name) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
+            out_.put(`","title":"`);
+            foreach (c; titleOfSession(id)) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
             out_.put(`"}`);
         } else {
             out_.put(id);
@@ -308,6 +345,24 @@ int handleForks(int argc, const(char)** argv) {
     if (json) out_.put("]}\n");
     fputs(out_.ptr(), stdout);
     return 0;
+}
+
+// The title of a session kept here, read from the transcript it was forked
+// with; empty when none is kept.
+private const(char)[] titleOfSession(const(char)[] id) {
+    import core.stdc.stdlib : free;
+    char[1024] pathBuf;
+    auto path = lineFrom(id, "transcript", pathBuf[]);
+    if (path.length == 0 || path.length + 1 >= pathBuf.length) return "";
+    pathBuf[path.length] = 0;
+    auto text = readWhole(pathBuf.ptr);
+    if (text is null) return "";
+    scope (exit) free(text.ptr);
+    __gshared char[256] title;
+    auto t = titleOf(text);
+    size_t n = 0;
+    foreach (c; t) if (n < title.length) title[n++] = c;
+    return title[0 .. n];
 }
 
 // This session's key and name go to the session that branched, and that
