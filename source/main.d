@@ -40,7 +40,7 @@ extern (C) int main(int argc, const(char)** argv) {
         }
         if (cmd == "collected") {
             import collected : handleCollected;
-            return handleCollected();
+            return handleCollected(argc, argv);
         }
         if (cmd == "disagreements") {
             import disagree : handleDisagreements;
