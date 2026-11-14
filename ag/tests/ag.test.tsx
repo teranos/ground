@@ -36,7 +36,7 @@ test('each message goes to the Client as a line: when, which way, who, what is s
   expect(lines?.props.props).toEqual({ lines: [
     { way: 'in', to: 'did:key:z6MkMe', due: '15:40', who: 'Shiitake', says: 'hello', id: '871588189c2ca9c4' },
     { way: 'out', to: 'did:key:z6MkOther', due: '16:00', who: 'Shiitake', says: 'Mycelia here', id: 'a2adff460cd772b0' },
-  ], forks: [], name: '' })
+  ], forks: [], name: '', here: true })
   expect(ran[0]).toEqual(['ground', 'collected', 'json'])
   await ui.unmount()
 })
@@ -119,7 +119,7 @@ test('a session that branched from this one stands as a row, and a click gives i
   on('process.run', (_, e) => {
     ran.push([...e.argv])
     const stdout = e.argv[1] === 'forks'
-      ? '{"name":"Mycelia","forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":"","title":"mycelia on k"}]}'
+      ? '{"name":"Mycelia","here":true,"forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":"","title":"mycelia on k","holds":false}]}'
       : e.argv[2] === 'json' ? '{"incoming":[],"outbound":[]}' : ''
     return { value: { exitCode: 0, stdout, stderr: '' } }
   })
@@ -134,7 +134,7 @@ test('a session that branched from this one stands as a row, and a click gives i
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
   const lines = await ui.find({ type: 'Client', key: 'lines' })
-  expect(lines?.props.props).toEqual({ lines: [], name: 'Mycelia', forks: [{ session: 'fa8a1589-576c-4ecb-84c8-f7d0f357b448', name: '', title: 'mycelia on k' }] })
+  expect(lines?.props.props).toEqual({ lines: [], name: 'Mycelia', here: true, forks: [{ session: 'fa8a1589-576c-4ecb-84c8-f7d0f357b448', name: '', title: 'mycelia on k', holds: false }] })
   expect((await ui.find({ in: 'lines', type: 'Text', text: /stays with/ }))?.text).toBe('⑂ Mycelia stays with  ')
   expect((await ui.find({ in: 'lines', type: 'Text', text: /● this session/ }))?.props.bold).toBe(true)
   expect((await ui.find({ in: 'lines', type: 'Text', text: /○ mycelia on k/ }))?.text).toBe('   ○ mycelia on k')
@@ -145,6 +145,30 @@ test('a session that branched from this one stands as a row, and a click gives i
   expect(ran).toContainEqual(['ground', 'forks', 'give', 'fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
   // "and it gets the name and is the active session at the same time"
   expect(resumed).toEqual(['resume fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
+  await ui.unmount()
+})
+
+// "i dont thin that ux is good"
+test('a branch running in the background is not given the name; what Claude Code said stands', async ($, on) => {
+  const ran: string[][] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'sid' }))
+  on('clock.every', () => ({ value: {} }))
+  on('clock.now', () => ({ value: 0 }))
+  on('fs.write', () => ({ value: {} }))
+  on('process.run', (_, e) => {
+    ran.push([...e.argv])
+    const stdout = e.argv[1] === 'forks'
+      ? '{"name":"Mycelia","here":true,"forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":"","title":"mycelia on k","holds":false}]}'
+      : e.argv[2] === 'json' ? '{"incoming":[],"outbound":[]}' : ''
+    return { value: { exitCode: 0, stdout, stderr: '' } }
+  })
+  on('command.run', () => ({ text: '"Granite name setup ⑂ mycelia on k" is running in the background (fa8a1589). Run `claude attach fa8a1589` to open it.' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.pointer({ type: 'down', x: 42, y: 0, button: 'left' })
+  expect(ran.some(argv => argv[1] === 'forks' && argv[2] === 'give')).toBe(false)
+  expect((await ui.find({ type: 'Text', text: /the name stays here/ }))?.text).toContain('claude attach fa8a1589')
   await ui.unmount()
 })
 

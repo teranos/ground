@@ -55,15 +55,15 @@ async function ask($: EngineInterface, sessionId: string) {
     now = { ok: false, text: `ground collected json did not run: ${String(err)}`, lines: [] }
   }
   await update($, said, () => now)
-  let branched: Forks = { name: '', forks: [] }
+  let branched: Forks = { name: '', here: true, forks: [] }
   try {
     const r = await $.process.run(['ground', 'forks', 'json'], { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs: 10000 })
     if (r.exitCode === 0) {
       const f = JSON.parse(r.stdout || '{}') as Partial<Forks>
-      branched = { name: f.name ?? '', forks: f.forks ?? [] }
+      branched = { name: f.name ?? '', here: f.here ?? true, forks: f.forks ?? [] }
     }
   } catch {
-    branched = { name: '', forks: [] }
+    branched = { name: '', here: true, forks: [] }
   }
   await update($, forks, () => branched)
 }
@@ -106,16 +106,27 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     const d = e.data as Partial<Press>
     if (!d.act || !d.to) return next(e)
-    const gave = await press($, d as Press, sessionId)
     // "and it gets the name and is the active session at the same time"
-    // The branch given the name is the session the person is in from now on:
-    // /resume, as if they typed it. What refuses it is said under the rows.
-    if (d.act === 'give' && gave) {
+    // The switch goes first, and the name follows only a session the person
+    // can be in: one running in the background is opened elsewhere, and what
+    // Claude Code said of it stands under the rows. Taking the name back to
+    // this session switches nothing.
+    if (d.act === 'give') {
+      let said = ''
       try {
-        await $.command.run({ command: 'resume', args: d.to })
+        said = (await $.command.run({ command: 'resume', args: d.to })).text ?? ''
       } catch (err) {
-        await update($, refused, () => `/resume ${d.to} was not run: ${String(err)}`)
+        said = `/resume ${d.to} was not run: ${String(err)}`
       }
+      if (said.includes('running in the background') || said.includes('was not run')) {
+        await update($, refused, () => `the name stays here: ${said}`)
+      } else {
+        await press($, d as Press, sessionId)
+      }
+    } else if (d.act === 'take') {
+      await press($, { ...d, act: 'give' } as Press, sessionId)
+    } else {
+      await press($, d as Press, sessionId)
     }
     await ask($, sessionId)
     return next(e)
@@ -124,13 +135,13 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const now = await read($, said)
     const why = await read($, refused)
-    const branched = (await read($, forks)) ?? { name: '', forks: [] }
+    const branched = (await read($, forks)) ?? { name: '', here: true, forks: [] }
     if (now === null || (now.ok && now.lines.length === 0 && branched.forks.length === 0 && why === null)) return next(e)
     const { Box, Text, Client } = $.ui.resolve(e)
     if (!now.ok) return <Box><Text color="red">{now.text}</Text></Box>
     return (
       <Box flexDirection="column">
-        <Client key="lines" module="./lines.tsx" props={{ lines: now.lines, forks: branched.forks, name: branched.name }} />
+        <Client key="lines" module="./lines.tsx" props={{ lines: now.lines, forks: branched.forks, name: branched.name, here: branched.here }} />
         {why === null ? null : <Text color="red">{why}</Text>}
       </Box>
     )

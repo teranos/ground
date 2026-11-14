@@ -278,17 +278,16 @@ void forkStart(const(char)[] sessionId, const(char)[] transcriptPath, ref ZBuf s
     said.put(", with its key and name");
 }
 
-// The sessions that branched from where this one came from, or from this one,
-// and did not go on as it.
-private void eachBranch(const(char)[] sessionId, scope void delegate(const(char)[] id) each) {
+// The sessions that came from where this one came from, or from this one:
+// the branches, and the one that holds the name when this one does not.
+private void eachSibling(const(char)[] sessionId, scope void delegate(const(char)[] id) each) {
     char[64] fromBuf;
     auto from = lineFrom(sessionId, "from", fromBuf[]);
     eachSession((const(char)[] id) {
         if (id == sessionId) return;
-        char[64] theirsBuf, goesBuf;
+        char[64] theirsBuf;
         auto theirs = lineFrom(id, "from", theirsBuf[]);
         if (theirs.length == 0 || (theirs != sessionId && theirs != from)) return;
-        if (lineFrom(id, "continues", goesBuf[]).length > 0) return;
         each(id);
     });
 }
@@ -317,13 +316,20 @@ int handleForks(int argc, const(char)** argv) {
     __gshared ZBuf out_;
     out_.reset();
     if (json) {
-        char[256] ownBuf;
+        // The name, wherever of these it is held, and whether here.
+        char[256] ownBuf, heldBuf;
+        auto own = lineFrom(self, "name", ownBuf[]);
+        auto held = own;
+        if (held.length == 0) eachSibling(self, (const(char)[] id) {
+            auto theirs = lineFrom(id, "name", heldBuf[]);
+            if (theirs.length > 0) held = theirs;
+        });
         out_.put(`{"name":"`);
-        foreach (c; lineFrom(self, "name", ownBuf[])) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
-        out_.put(`","forks":[`);
+        foreach (c; held) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
+        out_.put(own.length > 0 ? `","here":true,"forks":[` : `","here":false,"forks":[`);
     }
     bool first = true;
-    eachBranch(self, (const(char)[] id) {
+    eachSibling(self, (const(char)[] id) {
         char[256] nameBuf;
         auto name = lineFrom(id, "name", nameBuf[]);
         if (json) {
@@ -334,7 +340,7 @@ int handleForks(int argc, const(char)** argv) {
             foreach (c; name) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
             out_.put(`","title":"`);
             foreach (c; titleOfSession(id)) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
-            out_.put(`"}`);
+            out_.put(name.length > 0 ? `","holds":true}` : `","holds":false}`);
         } else {
             out_.put(id);
             if (name.length > 0) { out_.put(" "); out_.put(name); }
@@ -365,55 +371,49 @@ private const(char)[] titleOfSession(const(char)[] id) {
     return title[0 .. n];
 }
 
-// This session's key and name go to the session that branched, and that
-// one's key comes here: it is who this one was, at the node, from now on.
+// This session and one that came from the same place trade keys, names and
+// which goes on: the name goes to the one that did not hold it, either way.
 private int give(const(char)[] self, const(char)[] to) {
     import core.stdc.stdio : stdout, stderr, fputs, rename;
-    bool branch = false;
-    eachBranch(self, (const(char)[] id) { if (id == to) branch = true; });
-    if (!branch) {
-        fputs("ground forks give: that is no session that branched from this one\n", stderr);
+    bool sibling = false;
+    eachSibling(self, (const(char)[] id) { if (id == to) sibling = true; });
+    if (!sibling) {
+        fputs("ground forks give: that is no session that came from where this one did\n", stderr);
         return 1;
     }
-    __gshared ZBuf mine, theirs, held;
-    fileInto(mine, self, "key");
-    fileInto(theirs, to, "key");
-    fileInto(held, self, "key.giving");
-    if (!exists(mine.ptr())) {
-        fputs("ground forks give: this session holds no key to give\n", stderr);
+    // One file of each, traded through a third name; one missing is moved.
+    bool trade(const(char)[] file) {
+        __gshared ZBuf mine, theirs, held;
+        fileInto(mine, self, file);
+        fileInto(theirs, to, file);
+        fileInto(held, self, "giving");
+        bool m = exists(mine.ptr()), t = exists(theirs.ptr());
+        if (m && rename(mine.ptr(), held.ptr()) != 0) return false;
+        if (t && rename(theirs.ptr(), mine.ptr()) != 0) {
+            if (m) rename(held.ptr(), mine.ptr());
+            return false;
+        }
+        if (m && rename(held.ptr(), theirs.ptr()) != 0) return false;
+        return true;
+    }
+    if (!trade("key")) {
+        fputs("ground forks give: the keys were not traded; whatever moved is at giving\n", stderr);
         return 1;
     }
-    if (rename(mine.ptr(), held.ptr()) != 0) {
-        fputs("ground forks give: this session's key could not be moved\n", stderr);
-        return 1;
-    }
-    if (exists(theirs.ptr()) && rename(theirs.ptr(), mine.ptr()) != 0) {
-        rename(held.ptr(), mine.ptr());
-        fputs("ground forks give: that session's key could not be moved\n", stderr);
-        return 1;
-    }
-    if (rename(held.ptr(), theirs.ptr()) != 0) {
-        fputs("ground forks give: the key could not be put in that session's place; it is at key.giving\n", stderr);
-        return 1;
-    }
-    // The name goes with the key, and so does going on.
-    fileInto(mine, self, "name");
-    fileInto(theirs, to, "name");
-    fileInto(held, self, "name.giving");
-    bool had = exists(theirs.ptr());
-    if (had) rename(theirs.ptr(), held.ptr());
-    if (exists(mine.ptr())) rename(mine.ptr(), theirs.ptr());
-    if (had) rename(held.ptr(), mine.ptr());
-    fileInto(mine, self, "continues");
-    fileInto(theirs, to, "continues");
-    if (exists(mine.ptr())) rename(mine.ptr(), theirs.ptr());
+    trade("name");
+    trade("continues");
     char[256] nameBuf;
-    auto name = lineFrom(to, "name", nameBuf[]);
+    auto there = lineFrom(to, "name", nameBuf[]);
     __gshared ZBuf line;
     line.reset();
-    line.put(to);
-    line.put(" holds ");
-    line.put(name.length > 0 ? name : "this session's key");
+    if (there.length > 0) {
+        line.put(to);
+        line.put(" holds ");
+        line.put(there);
+    } else {
+        line.put("this session holds ");
+        line.put(lineFrom(self, "name", nameBuf[]));
+    }
     line.put(" now\n");
     fputs(line.ptr(), stdout);
     return 0;

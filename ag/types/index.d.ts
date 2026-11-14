@@ -16,10 +16,10 @@ export type Said = { ok: boolean; text: string; lines: Line[] }
 
 // A session that branched from this one, as `ground forks json` says it: its
 // id, and the name it holds, empty for none.
-export type Fork = { session: string; name: string; title: string }
+export type Fork = { session: string; name: string; title: string; holds: boolean }
 
 // This session's own name, and the sessions that branched from it.
-export type Forks = { name: string; forks: Fork[] }
+export type Forks = { name: string; here: boolean; forks: Fork[] }
 
 declare module 'claude-code' {
   interface PluginState {
