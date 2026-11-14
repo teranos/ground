@@ -211,17 +211,32 @@ const(char)[] newsPass(const(char)[] home) {
 
         // What sky speaks: the conclusion, where, and the run to open.
         // Decoded once here, because leaveNews encodes it again for the row.
+        // As long as the store keeps (ug/sql.d NEWS_BYTES): a message cut at
+        // 1 KiB here reached Tether ending at point 4 of 4. One longer still
+        // is said to be, with where it is whole, and is never cut quietly.
         import json : jsonUnescapeInto;
-        __gshared char[1024] detail = void;
+        import sql : NEWS_BYTES;
+        __gshared char[NEWS_BYTES] detail = void;
         size_t d = 0;
-        void put(const(char)[] s) { foreach (c; s) if (d < detail.length) detail[d++] = c; }
-        void putDecoded(const(char)[] raw) { d += jsonUnescapeInto(raw, detail[d .. $]); }
+        bool full = false;
+        void put(const(char)[] s) { foreach (c; s) { if (d < detail.length) detail[d++] = c; else full = true; } }
+        void putDecoded(const(char)[] raw) {
+            if (raw.length > detail.length - d) full = true;
+            d += jsonUnescapeInto(raw, detail[d .. $]);
+        }
         auto name = jsonString(obj, "name");
         auto note = jsonString(obj, "note");
         if (name is null) put("news"); else putDecoded(name);
         if (note !is null && note.length > 0) { put(": "); putDecoded(note); }
         auto url = jsonString(whole.body_, "url");
         if (url !is null && url.length > 0) { put(" "); putDecoded(url); }
+        if (full) {
+            d = 0;
+            full = false;
+            put("this item is longer than mycelia keeps, and is whole at ");
+            put(path[0 .. p]);
+            put(" on the node");
+        }
 
         // A null slice is empty: no session names the project, no repo is none.
         leaveNews(home, id, session, repo, detail[0 .. d]);
