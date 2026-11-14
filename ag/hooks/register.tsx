@@ -86,6 +86,7 @@ async function press($: EngineInterface, d: Press, sessionId: string) {
   const why = r.exitCode === 0 ? null : (r.stderr || r.stdout).trim() || `${argv.join(' ')} exited ${r.exitCode}`
   await update($, refused, () => why)
   await $.fs.write(PRESSES, JSON.stringify({ at: await $.clock.now(), argv, exitCode: r.exitCode, stderr: r.stderr }) + '\n')
+  return r.exitCode === 0
 }
 
 export const register: Register = on => {
@@ -102,7 +103,17 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     const d = e.data as Partial<Press>
     if (!d.act || !d.to) return next(e)
-    await press($, d as Press, sessionId)
+    const gave = await press($, d as Press, sessionId)
+    // "and it gets the name and is the active session at the same time"
+    // The branch given the name is the session the person is in from now on:
+    // /resume, as if they typed it. What refuses it is said under the rows.
+    if (d.act === 'give' && gave) {
+      try {
+        await $.command.run({ command: 'resume', args: d.to })
+      } catch (err) {
+        await update($, refused, () => `/resume ${d.to} was not run: ${String(err)}`)
+      }
+    }
     await ask($, sessionId)
     return next(e)
   })

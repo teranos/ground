@@ -123,6 +123,13 @@ test('a session that branched from this one stands as a row, and a click gives i
       : e.argv[2] === 'json' ? '{"incoming":[],"outbound":[]}' : ''
     return { value: { exitCode: 0, stdout, stderr: '' } }
   })
+  on('clock.now', () => ({ value: 0 }))
+  on('fs.write', () => ({ value: {} }))
+  const resumed: string[] = []
+  on('command.run', (_, e) => {
+    resumed.push(`${e.command} ${e.args}`)
+    return { text: '' }
+  })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
@@ -131,6 +138,8 @@ test('a session that branched from this one stands as a row, and a click gives i
   expect((await ui.find({ in: 'lines', type: 'Text', text: /fa8a1589/ }))?.text).toContain('fa8a1589')
   await ui.pointer({ type: 'down', x: 2, y: 0, button: 'left' })
   expect(ran).toContainEqual(['ground', 'forks', 'give', 'fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
+  // "and it gets the name and is the active session at the same time"
+  expect(resumed).toEqual(['resume fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
   await ui.unmount()
 })
 
