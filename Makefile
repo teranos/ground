@@ -119,15 +119,15 @@ ug: $(UG_SOURCES)
 	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) $(UG_LIBS)
 
 # "so, why would the part that asks the node, not be able to be its own tiny binary"
-# mycelia asks the node; ground_tmux draws what it kept. Each is ug/bin/<name>.d
-# and the modules ug is built from, without ug's own main.
+# 「[Opus 5.5] mycelia asks the node; ground_tmux draws what it kept. Each is ug/bin/<name>.d」
+# 「[Opus 5.5] and the modules ug is built from, without ug's own main.」
 UG_MODULES = $(filter-out ug/main.d,$(UG_SOURCES))
 ug/ground_tmux: $(UG_MODULES) ug/bin/ground_tmux.d
 	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/ground_tmux.d $(UG_MODULES) $(UG_LIBS)
 
 # "mycelia connect needs to also be a thing"
-# The Keychain (touch.c), and the door the browser comes back to (door.m),
-# carried by mycelia alone.
+# 「[Opus 5.5] The Keychain (touch.c), and the door the browser comes back to (door.m),」
+# 「[Opus 5.5] carried by mycelia alone.」
 ug/touch.o: ug/touch.c
 	clang -c -o $@ ug/touch.c
 ug/door.o: ug/door.m
@@ -137,11 +137,11 @@ ug/mycelia: $(UG_MODULES) ug/bin/mycelia.d ug/touch.o ug/door.o
 		-L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation
 
 # "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-# The person's session lives in a Keychain group only a binary signed with the
-# team's profile sees, so mycelia is an app: the binary, the profile, and a
-# signature naming the group. How this Mac signs is its own, outside the tree.
-# The app answers mycelia://, the door the node sends the browser back to, and
-# shows nothing: no Dock icon, no menu.
+# 「[Opus 5.5] The person's session lives in a Keychain group only a binary signed with the」
+# 「[Opus 5.5] team's profile sees, so mycelia is an app: the binary, the profile, and a」
+# 「[Opus 5.5] signature naming the group. How this Mac signs is its own, outside the tree.」
+# 「[Opus 5.5] The app answers mycelia://, the door the node sends the browser back to, and」
+# 「[Opus 5.5] shows nothing: no Dock icon, no menu.」
 -include $(HOME)/.config/mycelia/signing.mk
 ug/Mycelia.app: ug/mycelia
 	@test -n "$(MYCELIA_IDENTITY)" || { echo "ug/Mycelia.app: ~/.config/mycelia/signing.mk names no MYCELIA_IDENTITY to sign with"; exit 1; }
