@@ -134,7 +134,7 @@ ug/door.o: ug/door.m
 	clang -c -fobjc-arc -o $@ ug/door.m
 ug/mycelia: $(UG_MODULES) ug/bin/mycelia.d ug/touch.o ug/door.o
 	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) ug/touch.o ug/door.o $(UG_LIBS) \
-		-L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation
+		-L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation -L-framework -LLocalAuthentication
 
 # "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
 # The person's session lives in a Keychain group only a binary signed with the

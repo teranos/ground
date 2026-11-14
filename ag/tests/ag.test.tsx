@@ -16,7 +16,23 @@ const BAND = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-function engine(on: Parameters<Parameters<typeof test>[1]>[1], ran: string[][], answer = ANSWER) {
+// What mycelia was asked over its socket, as [path, secret, body]; a fake
+// mycelia that pairs once and does every press.
+type Asked = [string, string, string]
+function mycelia(on: Parameters<Parameters<typeof test>[1]>[1], asked: Asked[]) {
+  on('clock.now', () => ({ value: 0 }))
+  on('fs.write', () => ({ value: {} }))
+  on('http.fetch', (_, e) => {
+    const path = e.url.replace('http://mycelia', '')
+    const headers = (e.init?.headers ?? {}) as Record<string, string>
+    asked.push([path, headers['X-Ag-Secret'] ?? '', String(e.init?.body ?? '')])
+    const text = path === '/pair' ? '200\n' + 'a'.repeat(64) : '200\n{}'
+    return { value: { status: 200, ok: true, headers: {}, text } }
+  })
+}
+
+function engine(on: Parameters<Parameters<typeof test>[1]>[1], ran: string[][], answer = ANSWER, asked: Asked[] = []) {
+  mycelia(on, asked)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'sid' }))
   on('clock.every', () => ({ value: {} }))
@@ -41,9 +57,11 @@ test('each message goes to the Client as a line: when, which way, who, what is s
   await ui.unmount()
 })
 
-test('what a press posts, ground asks the node', async ($, on) => {
+// "yes, build that"
+test('a press is asked of mycelia directly, with the secret the first one paired with a finger', async ($, on) => {
   const ran: string[][] = []
-  engine(on, ran)
+  const asked: Asked[] = []
+  engine(on, ran, ANSWER, asked)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
@@ -51,10 +69,14 @@ test('what a press posts, ground asks the node', async ($, on) => {
   await ui.post({ act: 'release', to: 'did:key:z6MkMe' }, { in: 'lines' })
   await ui.post({ act: 'hold', to: 'did:key:z6MkMe', until: '17:40' }, { in: 'lines' })
   await ui.post({ act: 'release', to: 'did:key:z6MkMe', says: 'hello, edited' }, { in: 'lines' })
-  expect(ran).toContainEqual(['ground', 'collected', 'cancel', 'did:key:z6MkMe', '871588189c2ca9c4'])
-  expect(ran).toContainEqual(['ground', 'collected', 'release', 'did:key:z6MkMe'])
-  expect(ran).toContainEqual(['ground', 'collected', 'hold', 'did:key:z6MkMe', '17:40'])
-  expect(ran).toContainEqual(['ground', 'collected', 'release', 'did:key:z6MkMe', 'hello, edited'])
+  expect(asked[0]).toEqual(['/pair', '', ''])
+  expect(asked.filter(a => a[0] === '/pair').length).toBe(1)
+  expect(asked).toContainEqual(['/api/collected/cancel', 'a'.repeat(64), '{"to":"did:key:z6MkMe","id":"871588189c2ca9c4"}'])
+  expect(asked).toContainEqual(['/api/collected/release', 'a'.repeat(64), '{"to":"did:key:z6MkMe"}'])
+  expect(asked.find(a => a[0] === '/api/collected/hold')?.[2]).toMatch(/"until":"\d{4}-\d\d-\d\dT\d\d:40:00Z"/)
+  expect(asked).toContainEqual(['/api/collected/release', 'a'.repeat(64), '{"to":"did:key:z6MkMe","says":"hello, edited"}'])
+  // No press goes through ground collected, which any agent can run.
+  expect(ran.some(argv => argv[1] === 'collected' && argv[2] !== 'json')).toBe(false)
   await ui.unmount()
 })
 
@@ -62,7 +84,8 @@ test('what a press posts, ground asks the node', async ($, on) => {
 // "  16:25 <-- Shiitake: Some text of Shiitake to us."
 test('a message clicked in shows its buttons; esc closes them, delete twice deletes it, and so does the arrow twice', async ($, on) => {
   const ran: string[][] = []
-  engine(on, ran)
+  const asked: Asked[] = []
+  engine(on, ran, ANSWER, asked)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
@@ -77,36 +100,37 @@ test('a message clicked in shows its buttons; esc closes them, delete twice dele
   // "the word cancel isnt clear"
   await ui.pointer({ type: 'down', x: 50, y: 0, button: 'left' })
   expect(await ui.find({ in: 'lines', type: 'Text', text: /\[esc\]/ })).toBeUndefined()
-  expect(ran.some(argv => argv[2] === 'cancel')).toBe(false)
+  expect(asked.some(a => a[0] === '/api/collected/cancel')).toBe(false)
   // "and there should be a more explicit abort, that is two stage abort"
   await ui.pointer({ type: 'down', x: 10, y: 0, button: 'left' })
   await ui.pointer({ type: 'down', x: 41, y: 0, button: 'left' })
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^\[DELETE\]$/ }))?.props.color).toBe('red')
-  expect(ran.some(argv => argv[2] === 'cancel')).toBe(false)
+  expect(asked.some(a => a[0] === '/api/collected/cancel')).toBe(false)
   await ui.pointer({ type: 'down', x: 41, y: 0, button: 'left' })
-  expect(ran).toContainEqual(['ground', 'collected', 'cancel', 'did:key:z6MkMe', '871588189c2ca9c4'])
-  ran.length = 0
+  expect(asked).toContainEqual(['/api/collected/cancel', 'a'.repeat(64), '{"to":"did:key:z6MkMe","id":"871588189c2ca9c4"}'])
+  asked.length = 0
   // The arrow at rest: once is XXXX, twice dismisses that one message.
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^XXXX$/ }))?.text).toBe('XXXX')
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
-  expect(ran).toContainEqual(['ground', 'collected', 'cancel', 'did:key:z6MkMe', '871588189c2ca9c4'])
+  expect(asked).toContainEqual(['/api/collected/cancel', 'a'.repeat(64), '{"to":"did:key:z6MkMe","id":"871588189c2ca9c4"}'])
   await ui.unmount()
 })
 
 // "[now], this means to me kind fo same thing as [delete] two stage, press once, you get [NOW] green, and press another time, it actually get's released"
 test('now is pressed twice: once it is [NOW] green, and the second releases', async ($, on) => {
   const ran: string[][] = []
-  engine(on, ran)
+  const asked: Asked[] = []
+  engine(on, ran, ANSWER, asked)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
   await ui.pointer({ type: 'down', x: 10, y: 0, button: 'left' })
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^\[NOW\]$/ }))?.props.color).toBe('green')
-  expect(ran.some(argv => argv[2] === 'release')).toBe(false)
+  expect(asked.some(a => a[0] === '/api/collected/release')).toBe(false)
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
-  expect(ran).toContainEqual(['ground', 'collected', 'release', 'did:key:z6MkMe'])
+  expect(asked).toContainEqual(['/api/collected/release', 'a'.repeat(64), '{"to":"did:key:z6MkMe"}'])
   await ui.unmount()
 })
 

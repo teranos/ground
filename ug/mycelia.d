@@ -464,6 +464,61 @@ bool pressAllowed(const(char)[] path) {
     return false;
 }
 
+// "yes, build that"
+// A press is a click in ag, asked over the socket as HTTP with the secret ag
+// was given when the person paired it, once, with a finger. What the request
+// carries, read without the GC: method and path, the secret, the body.
+struct Request {
+    bool http;
+    const(char)[] path;
+    const(char)[] secret;
+    const(char)[] body_;
+}
+
+private bool sameFolded(const(char)[] a, const(char)[] b) {
+    if (a.length != b.length) return false;
+    foreach (i; 0 .. a.length) {
+        char x = a[i], y = b[i];
+        if (x >= 'A' && x <= 'Z') x = cast(char)(x + 32);
+        if (y >= 'A' && y <= 'Z') y = cast(char)(y + 32);
+        if (x != y) return false;
+    }
+    return true;
+}
+
+Request requestOf(const(char)[] asked) {
+    Request r;
+    enum post = "POST ";
+    if (asked.length < post.length || asked[0 .. post.length] != post) return r;
+    size_t end = post.length;
+    while (end < asked.length && asked[end] != ' ' && asked[end] != '\r' && asked[end] != '\n') end++;
+    r.path = asked[post.length .. end];
+    // The headers, a line each, to the empty line; the body after it.
+    size_t at = end;
+    while (at < asked.length && asked[at] != '\n') at++;
+    at++;
+    while (at < asked.length) {
+        size_t eol = at;
+        while (eol < asked.length && asked[eol] != '\n') eol++;
+        auto line = asked[at .. eol];
+        if (line.length > 0 && line[$ - 1] == '\r') line = line[0 .. $ - 1];
+        at = eol + 1;
+        if (line.length == 0) {
+            r.http = true;
+            r.body_ = at <= asked.length ? asked[at .. $] : asked[$ .. $];
+            return r;
+        }
+        size_t colon = 0;
+        while (colon < line.length && line[colon] != ':') colon++;
+        if (colon < line.length && sameFolded(line[0 .. colon], "x-ag-secret")) {
+            auto v = line[colon + 1 .. $];
+            while (v.length > 0 && v[0] == ' ') v = v[1 .. $];
+            r.secret = v;
+        }
+    }
+    return r;
+}
+
 // What makes a press in the person's session, and what collects the session
 // at the door: given by the binary that holds the session, so only mycelia's
 // own carries the Keychain. Each writes the answer to say into reply: the
@@ -498,10 +553,50 @@ private int listenAt(const(char)[] home) {
     return fd;
 }
 
+// The secrets ag was given when the person paired it, each with a finger:
+// held while mycelia runs, never written anywhere.
+__gshared char[64][16] paired;
+__gshared size_t pairedCount;
+
+void keepSecret(const(char)[] secret) {
+    if (secret.length != 64) return;
+    auto at = pairedCount < paired.length ? pairedCount++ : 0;
+    foreach (i, c; secret) paired[at][i] = c;
+}
+
+bool heldSecret(const(char)[] secret) {
+    if (secret.length != 64) return false;
+    foreach (i; 0 .. pairedCount) if (paired[i][] == secret) return true;
+    return false;
+}
+
+// Asks the person, with a finger, to pair ag; answers "200" and the secret,
+// or "0" and why.
+alias Pairs = int function(ref ZBuf reply);
+
+// How many bytes an HTTP request holds in all, once its headers are read; 0
+// while they are not.
+private size_t wholeOf(const(char)[] got) {
+    foreach (i; 0 .. got.length) {
+        if (i + 4 > got.length || got[i .. i + 4] != "\r\n\r\n") continue;
+        size_t length = 0;
+        enum key = "content-length:";
+        foreach (j; 0 .. i) {
+            if (j + key.length > i || !sameFolded(got[j .. j + key.length], key)) continue;
+            auto k = j + key.length;
+            while (k < i && got[k] == ' ') k++;
+            while (k < i && got[k] >= '0' && got[k] <= '9') length = length * 10 + (got[k++] - '0');
+            break;
+        }
+        return i + 4 + length;
+    }
+    return 0;
+}
+
 // Waits up to seconds for presses, answering each as it comes.
-private void waitPresses(int fd, int seconds, Presses presses, Doors doors) {
+private void waitPresses(int fd, int seconds, Presses presses, Doors doors, Pairs pairs) {
     import core.sys.posix.poll : poll, pollfd, POLLIN;
-    import core.sys.posix.sys.socket : accept, shutdown, SHUT_WR;
+    import core.sys.posix.sys.socket : accept;
     import core.sys.posix.unistd : read, write, close, sleep;
     import core.stdc.time : time;
     if (fd < 0) { sleep(seconds); return; }
@@ -521,20 +616,44 @@ private void waitPresses(int fd, int seconds, Presses presses, Doors doors) {
             auto got = read(c, &asked[n], asked.length - n);
             if (got <= 0) break;
             n += got;
+            // HTTP is read to its length: its caller waits for the answer.
+            auto whole = n >= 5 && asked[0 .. 5] == "POST " ? wholeOf(asked[0 .. n]) : 0;
+            if (whole > 0 && n >= whole) break;
         }
         __gshared ZBuf reply;
         reply.reset();
+        auto req = requestOf(asked[0 .. n]);
+        if (req.http) {
+            if (req.path == "/pair") {
+                if (pairs is null) reply.put("0\nthis mycelia pairs nothing");
+                else pairs(reply);
+            } else if (!heldSecret(req.secret)) {
+                reply.put("401\nthis is no click in ag paired with the person's finger");
+            } else if (!pressAllowed(req.path)) {
+                reply.put("0\nmycelia makes in the person's session only what a person does with what is collected, and this asked for ");
+                reply.put(req.path);
+            } else if (presses is null) {
+                reply.put("0\nthis mycelia holds no person's session");
+            } else {
+                presses(req.path, req.body_, reply);
+            }
+            __gshared ZBuf head;
+            head.reset();
+            head.put("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: ");
+            head.putUint(reply.len);
+            head.put("\r\n\r\n");
+            write(c, head.ptr(), head.len);
+            write(c, reply.ptr(), reply.len);
+            close(c);
+            continue;
+        }
         auto press = pressOf(asked[0 .. n]);
         if (press.path == DOOR_PATH) {
             if (doors is null) reply.put("0\nthis mycelia is no door");
             else doors(press.body_, reply);
-        } else if (!pressAllowed(press.path)) {
-            reply.put("0\nmycelia makes in the person's session only what a person does with what is collected, and this asked for ");
-            reply.put(press.path.length > 0 ? press.path : "nothing");
-        } else if (presses is null) {
-            reply.put("0\nthis mycelia holds no person's session");
         } else {
-            presses(press.path, press.body_, reply);
+            // "BUT AG WOULD KNOW, RIGHT ?"
+            reply.put("0\na press is a click in ag, and this was asked of mycelia's socket by something else");
         }
         write(c, reply.ptr(), reply.len);
         close(c);
@@ -542,7 +661,7 @@ private void waitPresses(int fd, int seconds, Presses presses, Doors doors) {
 }
 
 // The whole of mycelia: a pass, kept, then a wait for presses, until it is stopped.
-int myceliaMain(const(char)[] home, Presses presses = null, Doors doors = null) {
+int myceliaMain(const(char)[] home, Presses presses = null, Doors doors = null, Pairs pairs = null) {
     import core.stdc.time : time;
     auto fd = listenAt(home);
     while (true) {
@@ -551,6 +670,6 @@ int myceliaMain(const(char)[] home, Presses presses = null, Doors doors = null) 
         auto n = passInto(home, now, line[]);
         keep(home, now, line[0 .. n]);
         collectedPass(home, now);
-        waitPresses(fd, PASS, presses, doors);
+        waitPresses(fd, PASS, presses, doors, pairs);
     }
 }

@@ -12,6 +12,9 @@ extern (C) void touch_said(int st, char* out_, int cap);
 extern (C) int touch_forget_seed();
 // The url the system opened Mycelia.app with (ug/door.m).
 extern (C) int door_url(char* out_, int cap, double seconds);
+// The person's own confirmation, by Touch ID or the Mac's password (ug/door.m).
+extern (C) int touch_ask(const(char)* reason, char* why, int cap);
+extern (C) void arc4random_buf(void* buf, size_t n);
 
 // The person's session, once a touch has taken it out of the Keychain or the
 // door has just collected it: held until mycelia stops, which a reboot or a
@@ -79,6 +82,31 @@ int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
 }
 
 __gshared const(char)[] homeHeld;
+
+// ag asks to press for the person: the person confirms it here, once, with
+// a finger, and ag is given a secret it keeps in memory alone (mycelia.d
+// keepSecret). What asks and is not confirmed is given nothing.
+int pair(ref zbuf.ZBuf reply) {
+    import mycelia : keepSecret;
+    char[256] why = 0;
+    auto st = touch_ask("let ag in Claude Code press for you, until mycelia restarts\0".ptr, why.ptr, why.length);
+    if (st != 0) {
+        size_t w = 0;
+        while (why[w] != 0) w++;
+        reply.put("0\nthe person did not confirm pairing ag: ");
+        reply.put(why[0 .. w]);
+        return 1;
+    }
+    ubyte[32] raw;
+    arc4random_buf(raw.ptr, raw.length);
+    char[64] secret;
+    enum hex = "0123456789abcdef";
+    foreach (i, b; raw) { secret[i * 2] = hex[b >> 4]; secret[i * 2 + 1] = hex[b & 15]; }
+    keepSecret(secret[]);
+    reply.put("200\n");
+    reply.put(secret[]);
+    return 0;
+}
 
 // What mycelia says of the session, beside the row: the moment, then the words.
 void sessionSaid(const(char)[] words) {
@@ -282,7 +310,7 @@ extern (C) int main(int argc, char** argv) {
                     st == 0 ? "removed from the Keychain".ptr : "not removed from the Keychain".ptr,
                     st, cast(int) saidOf(st).length, saidOf(st).ptr);
             }
-            return myceliaMain(h[0 .. hl], &press, &door);
+            return myceliaMain(h[0 .. hl], &press, &door, &pair);
     }
 }
 

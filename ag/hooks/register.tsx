@@ -68,22 +68,89 @@ async function ask($: EngineInterface, sessionId: string) {
   await update($, forks, () => branched)
 }
 
+// "BUT AG WOULD KNOW, RIGHT ?"
+// A press on what is collected is the person's click, and only ag sees it:
+// ag asks mycelia directly over its socket, carrying the secret it was given
+// when the person paired it with a finger. That secret lives here, in memory,
+// and nowhere an agent reads.
+const SOCKET = '/Users/s.b.vanhouten/.local/state/ug/mycelia.sock'
+let secret = ''
+
+// The person's finger, once: mycelia asks for it and gives ag its secret.
+// Null when paired, else why not.
+async function pair($: EngineInterface): Promise<string | null> {
+  const r = await $.http.fetch('http://mycelia/pair', { method: 'POST', socketPath: SOCKET, body: '' })
+  const [status, ...rest] = r.text.split('\n')
+  if (status === '200') {
+    secret = rest.join('\n').trim()
+    return null
+  }
+  return rest.join('\n') || r.text
+}
+
+// The next time this clock reads HH:MM, as the node takes it: RFC3339 in UTC.
+function untilOf(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const at = new Date()
+  at.setHours(h ?? 0, m ?? 0, 0, 0)
+  if (at.getTime() <= Date.now()) at.setDate(at.getDate() + 1)
+  return at.toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+// The node's path and body for a press, as ground collected asked them.
+function askOf(d: Press): [string, Record<string, string>] {
+  const body: Record<string, string> = { to: d.to }
+  if (d.act === 'cancel' && d.id) body.id = d.id
+  if (d.act === 'hold' && d.until) body.until = untilOf(d.until)
+  if (d.act === 'release' && d.says !== undefined) body.says = d.says
+  return [`/api/collected/${d.act}`, body]
+}
+
+// A press at mycelia: null when the node did it, else why not. A secret
+// mycelia no longer holds (it restarted) is paired again, once.
+async function atMycelia($: EngineInterface, d: Press): Promise<string | null> {
+  const [path, body] = askOf(d)
+  for (let tries = 0; tries < 2; tries++) {
+    if (!secret) {
+      const why = await pair($)
+      if (why) return why
+    }
+    const r = await $.http.fetch(`http://mycelia${path}`, {
+      method: 'POST',
+      socketPath: SOCKET,
+      headers: { 'X-Ag-Secret': secret, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const [status, ...rest] = r.text.split('\n')
+    if (status === '401') { secret = ''; continue }
+    if (status === '200') return null
+    return `${path} ${status === '0' ? 'was not asked' : `answered ${status}`}: ${rest.join('\n')}`
+  }
+  return `${path}: ag was not paired with your finger`
+}
+
 // What a press posted, as the press it is.
 type Press = { act: string; to: string; id?: string; until?: string; says?: string }
 
 // The ground command a press is: what is pressed, on whom, and what it carries.
 function argvOf(d: Press): string[] {
-  if (d.act === 'give') return ['ground', 'forks', 'give', d.to]
-  const argv = ['ground', 'collected', d.act, d.to]
-  if (d.act === 'cancel' && d.id) argv.push(d.id)
-  if (d.act === 'hold' && d.until) argv.push(d.until)
-  if (d.act === 'release' && d.says !== undefined) argv.push(d.says)
-  return argv
+  return ['ground', 'forks', 'give', d.to]
 }
 
 // A press, asked of the node by ground as the person: what the node refused
 // is kept for the band, and every press is written down.
 async function press($: EngineInterface, d: Press, sessionId: string) {
+  if (d.act !== 'give') {
+    let why: string | null
+    try {
+      why = await atMycelia($, d)
+    } catch (err) {
+      why = `mycelia was not reached at ${SOCKET}: ${String(err)}`
+    }
+    await update($, refused, () => why)
+    await $.fs.write(PRESSES, JSON.stringify({ at: await $.clock.now(), press: d, refused: why }) + '\n')
+    return why === null
+  }
   const argv = argvOf(d)
   const r = await $.process.run(argv, { env: { CLAUDE_CODE_SESSION_ID: sessionId }, timeoutMs: 60000 })
   const why = r.exitCode === 0 ? null : (r.stderr || r.stdout).trim() || `${argv.join(' ')} exited ${r.exitCode}`
