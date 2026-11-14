@@ -13,8 +13,8 @@ const said = atom({ plugin: 'ag', key: 'said' } as const, null)
 // the lines until the next press.
 const refused = atom({ plugin: 'ag', key: 'refused' } as const, null)
 // "maybe i want that session to inherit the name and not you"
-// The sessions that branched from this one, as ground recorded them at the
-// fork: each stands as a row, and a click on it gives it this session's name.
+// 「[Opus 5.5] The sessions that branched from this one, as ground recorded them at the」
+// 「[Opus 5.5] fork: each stands as a row, and a click on it gives it this session's name.」
 const forks = atom({ plugin: 'ag', key: 'forks' } as const, null)
 
 // Every press and what it came to, written where it can be read from outside.
@@ -69,15 +69,15 @@ async function ask($: EngineInterface, sessionId: string) {
 }
 
 // "BUT AG WOULD KNOW, RIGHT ?"
-// A press on what is collected is the person's click, and only ag sees it:
-// ag asks mycelia directly over its socket, carrying the secret it was given
-// when the person paired it with a finger. That secret lives here, in memory,
-// and nowhere an agent reads.
+// 「[Opus 5.5] A press on what is collected is the person's click, and only ag sees it:」
+// 「[Opus 5.5] ag asks mycelia directly over its socket, carrying the secret it was given」
+// 「[Opus 5.5] when the person paired it with a finger. That secret lives here, in memory,」
+// 「[Opus 5.5] and nowhere an agent reads.」
 const SOCKET = '/Users/s.b.vanhouten/.local/state/ug/mycelia.sock'
 let secret = ''
 
-// The person's finger, once: mycelia asks for it and gives ag its secret.
-// Null when paired, else why not.
+// 「[Opus 5.5] The person's finger, once: mycelia asks for it and gives ag its secret.」
+// 「[Opus 5.5] Null when paired, else why not.」
 async function pair($: EngineInterface): Promise<string | null> {
   const r = await $.http.fetch('http://mycelia/pair', { method: 'POST', socketPath: SOCKET, body: '' })
   const [status, ...rest] = r.text.split('\n')
@@ -88,7 +88,7 @@ async function pair($: EngineInterface): Promise<string | null> {
   return rest.join('\n') || r.text
 }
 
-// The next time this clock reads HH:MM, as the node takes it: RFC3339 in UTC.
+// 「[Opus 5.5] The next time this clock reads HH:MM, as the node takes it: RFC3339 in UTC.」
 function untilOf(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number)
   const at = new Date()
@@ -97,7 +97,7 @@ function untilOf(hhmm: string): string {
   return at.toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
-// The node's path and body for a press, as ground collected asked them.
+// 「[Opus 5.5] The node's path and body for a press, as ground collected asked them.」
 function askOf(d: Press): [string, Record<string, string>] {
   const body: Record<string, string> = { to: d.to }
   if (d.act === 'cancel' && d.id) body.id = d.id
@@ -106,8 +106,8 @@ function askOf(d: Press): [string, Record<string, string>] {
   return [`/api/collected/${d.act}`, body]
 }
 
-// A press at mycelia: null when the node did it, else why not. A secret
-// mycelia no longer holds (it restarted) is paired again, once.
+// 「[Opus 5.5] A press at mycelia: null when the node did it, else why not. A secret」
+// 「[Opus 5.5] mycelia no longer holds (it restarted) is paired again, once.」
 async function atMycelia($: EngineInterface, d: Press): Promise<string | null> {
   const [path, body] = askOf(d)
   for (let tries = 0; tries < 2; tries++) {
@@ -174,14 +174,14 @@ export const register: Register = on => {
     const d = e.data as Partial<Press>
     if (!d.act || !d.to) return next(e)
     // "and it gets the name and is the active session at the same time"
-    // The switch goes first, and the name follows only a session the person
-    // can be in: one running in the background is opened elsewhere, and what
-    // Claude Code said of it stands under the rows. Taking the name back to
-    // this session switches nothing.
+    // 「[Opus 5.5] The switch goes first, and the name follows only a session the person」
+    // 「[Opus 5.5] can be in: one running in the background is opened elsewhere, and what」
+    // 「[Opus 5.5] Claude Code said of it stands under the rows. Taking the name back to」
+    // 「[Opus 5.5] this session switches nothing.」
     if (d.act === 'open') {
       // "I PRESSED IT, I AM HUMAN, THE INTENT IT FOR IT TO HAVE IT"
-      // The click is the decision: the name goes. Only the switch waits, on
-      // a session open in another window, and how to get there is said.
+      // 「[Opus 5.5] The click is the decision: the name goes. Only the switch waits, on」
+      // 「[Opus 5.5] a session open in another window, and how to get there is said.」
       const gave = await press($, { ...d, act: 'give' } as Press, sessionId)
       if (gave) await update($, refused, () => `the name is that session's now; it is open in another window: \`claude attach ${d.to.slice(0, 8)}\``)
     } else if (d.act === 'give') {
