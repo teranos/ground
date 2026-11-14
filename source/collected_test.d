@@ -11,7 +11,7 @@ import zbuf : ZBuf;
 enum ME = "did:key:z6MkMe";
 enum OTHER = "did:key:z6MkOther";
 
-// What mycelia kept: the moment it asked, then the node's answer.
+// 「[Opus 5.5] What mycelia kept: the moment it asked, then the node's answer.」
 enum KEPT = "1000\n" ~ `{"collected":[`
     ~ `{"to":"Mycelia","did":"` ~ ME ~ `","due":"2026-11-14T04:00:00Z","waiting":[`
     ~ `{"from":"Shiitake","says":"the build on k is red","at":"2026-11-13T22:00:00Z","from_did":"` ~ OTHER ~ `"}]},`
@@ -20,8 +20,8 @@ enum KEPT = "1000\n" ~ `{"collected":[`
 
 // "18:37 <-- Shiitake: \"the things Shiitake said to us\""
 // "we dont need three lines for 1 message"
-// One line a message: when it is due on this clock, which way it goes, who
-// said it or is to hear it, and what it says.
+// 「[Opus 5.5] One line a message: when it is due on this clock, which way it goes, who」
+// 「[Opus 5.5] said it or is to hear it, and what it says.」
 unittest {
     ZBuf said;
     assert(collectedFor(KEPT, ME, 1010, 3600, said) == 0, said.slice());
@@ -30,7 +30,7 @@ unittest {
         ~ "05:01 --> Shiitake: \"Mycelia here\"\n", said.slice());
 }
 
-// The other side of the same list.
+// 「[Opus 5.5] The other side of the same list.」
 unittest {
     ZBuf said;
     assert(collectedFor(KEPT, OTHER, 1010, 3600, said) == 0, said.slice());
@@ -40,36 +40,36 @@ unittest {
 }
 
 // "why is absence made into presence of nothing ?"
-// A side with nothing waiting is not said; with neither, nothing is.
+// 「[Opus 5.5] A side with nothing waiting is not said; with neither, nothing is.」
 unittest {
     ZBuf said;
     assert(collectedFor("1000\n{\"collected\":[]}", ME, 1010, 3600, said) == 0);
     assert(said.slice().length == 0, said.slice());
 }
 
-// What mycelia could not ask is kept in the answer's place, and said as that.
+// 「[Opus 5.5] What mycelia could not ask is kept in the answer's place, and said as that.」
 unittest {
     ZBuf said;
     assert(collectedFor("1000\nQNTX 502", ME, 1010, 3600, said) == 1);
     assert(said.slice() == "mycelia could not ask the node: QNTX 502\n", said.slice());
 }
 
-// An answer older than mycelia's passes is not drawn as current.
+// 「[Opus 5.5] An answer older than mycelia's passes is not drawn as current.」
 unittest {
     ZBuf said;
     assert(collectedFor(KEPT, ME, 1000 + 61, 3600, said) == 1);
     assert(said.slice() == "mycelia last asked the node 61s ago: what it kept is not current\n", said.slice());
 }
 
-// Nothing kept is a mycelia that never asked.
+// 「[Opus 5.5] Nothing kept is a mycelia that never asked.」
 unittest {
     ZBuf said;
     assert(collectedFor("", ME, 1010, 3600, said) == 1);
     assert(said.slice() == "mycelia has kept nothing: it has not asked the node\n", said.slice());
 }
 
-// Times are drawn on the clock of the machine: an RFC3339 instant, as the
-// node writes it, at an offset from UTC, as hours and minutes.
+// 「[Opus 5.5] Times are drawn on the clock of the machine: an RFC3339 instant, as the」
+// 「[Opus 5.5] node writes it, at an offset from UTC, as hours and minutes.」
 unittest {
     assert(clockOf("2026-11-14T04:01:37Z", 3600) == "05:01");
     assert(clockOf("2026-11-13T23:30:00Z", 3600) == "00:30", "past midnight on the clock");
@@ -77,8 +77,8 @@ unittest {
     assert(clockOf("not a time", 3600) == "");
 }
 
-// What ag draws, as data: what comes in and what goes out, each item with
-// what the node names it by.
+// 「[Opus 5.5] What ag draws, as data: what comes in and what goes out, each item with」
+// 「[Opus 5.5] what the node names it by.」
 unittest {
     ZBuf said;
     assert(collectedJson(KEPT, ME, 1010, 3600, said) == 0, said.slice());
@@ -89,24 +89,24 @@ unittest {
         said.slice());
 }
 
-// What kept mycelia from an answer is the error ag draws.
+// 「[Opus 5.5] What kept mycelia from an answer is the error ag draws.」
 unittest {
     ZBuf said;
     assert(collectedJson("1000\nQNTX 502", ME, 1010, 3600, said) == 1);
     assert(said.slice() == `{"error":"mycelia could not ask the node: QNTX 502"}`, said.slice());
 }
 
-// Nothing waiting either way is two empty lists, which ag draws as nothing.
+// 「[Opus 5.5] Nothing waiting either way is two empty lists, which ag draws as nothing.」
 unittest {
     ZBuf said;
     assert(collectedJson("1000\n{\"collected\":[]}", ME, 1010, 3600, said) == 0);
     assert(said.slice() == `{"incoming":[],"outbound":[]}`, said.slice());
 }
 
-// A time on the clock to hold until is the next such moment, as the node
-// takes it: RFC3339, in UTC.
+// 「[Opus 5.5] A time on the clock to hold until is the next such moment, as the node」
+// 「[Opus 5.5] takes it: RFC3339, in UTC.」
 unittest {
-    // 2026-11-14T08:23:00Z is 09:23 on a clock an hour ahead.
+    // 「[Opus 5.5] 2026-11-14T08:23:00Z is 09:23 on a clock an hour ahead.」
     enum now = 1794644580;
     ZBuf until;
     assert(untilOf("10:00", now, 3600, until));
@@ -117,19 +117,19 @@ unittest {
     assert(!untilOf("9", now, 3600, until));
 }
 
-// What a button asks the node: the sigil's parameters as a JSON object.
+// 「[Opus 5.5] What a button asks the node: the sigil's parameters as a JSON object.」
 unittest {
     ZBuf body;
-    // A static array: -betterC has no GC to build a literal on.
+    // 「[Opus 5.5] A static array: -betterC has no GC to build a literal on.」
     const(char)[][4] pairs = ["to", "did:key:z6MkMe", "says", "a \"quoted\" line\nand another"];
     bodyOf(pairs[], body);
     assert(body.slice() == `{"to":"did:key:z6MkMe","says":"a \"quoted\" line\nand another"}`, body.slice());
 }
 
 // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-// A press is mycelia's to make in the person's session: asked of it as the path on one
-// line and the body after, and answered as the node's status on one line and
-// its body after.
+// 「[Opus 5.5] A press is mycelia's to make in the person's session: asked of it as the path on one」
+// 「[Opus 5.5] line and the body after, and answered as the node's status on one line and」
+// 「[Opus 5.5] its body after.」
 unittest {
     ZBuf asked;
     pressFor("/api/collected/cancel", `{"to":"a","id":"b"}`, asked);
