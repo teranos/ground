@@ -132,8 +132,8 @@ ug/touch.o: ug/touch.c
 	clang -c -o $@ ug/touch.c
 ug/door.o: ug/door.m
 	clang -c -fobjc-arc -o $@ ug/door.m
-# A machine with no Keychain and no door, as k: mycelia asks the node and keeps
-# what it learns there, and a press made on it says it is the Mac's to make.
+# 「[Opus 5.5] A machine with no Keychain and no door, as k: mycelia asks the node and keeps」
+# 「[Opus 5.5] what it learns there, and a press made on it says it is the Mac's to make.」
 ug/touch_none.o: ug/touch_none.c
 	$(CC) -c -o $@ ug/touch_none.c
 ifeq ($(shell uname -s),Darwin)
