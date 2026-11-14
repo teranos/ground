@@ -123,3 +123,21 @@ unittest {
     bodyOf(["to", "did:key:z6MkMe", "says", "a \"quoted\" line\nand another"], body);
     assert(body.slice() == `{"to":"did:key:z6MkMe","says":"a \"quoted\" line\nand another"}`, body.slice());
 }
+
+// "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+// A press is mycelia's to sign as the person: asked of it as the path on one
+// line and the body after, and answered as the node's status on one line and
+// its body after.
+unittest {
+    ZBuf asked;
+    pressFor("/api/collected/cancel", `{"to":"a","id":"b"}`, asked);
+    assert(asked.slice() == "/api/collected/cancel\n{\"to\":\"a\",\"id\":\"b\"}", asked.slice());
+
+    auto ok = answerOf("200\n{\"collected\":[]}");
+    assert(ok.status == 200 && ok.body_ == `{"collected":[]}`);
+    auto refused = answerOf("403\n{\"error\":\"no\"}");
+    assert(refused.status == 403 && refused.body_ == `{"error":"no"}`);
+    auto unasked = answerOf("0\nthe person's key was not taken out of the Keychain: User canceled");
+    assert(unasked.status == 0 && unasked.body_ == "the person's key was not taken out of the Keychain: User canceled");
+    assert(answerOf("").status == 0 && answerOf("").body_.length == 0, "no answer is no status");
+}

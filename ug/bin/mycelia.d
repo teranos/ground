@@ -2,6 +2,8 @@ module bin.mycelia;
 
 // "so, why would the part that asks the node, not be able to be its own tiny binary"
 import mycelia : myceliaMain, verbOf, Verb, personPathInto;
+static import signed;
+static import zbuf;
 
 // The Keychain, behind Touch ID (ug/touch.c).
 extern (C) int touch_keep(const(ubyte)* seed, int n);
@@ -75,6 +77,50 @@ int connectMain(const(char)[] home) {
     return loginFor(host(), key, "the Keychain, behind Touch ID", "you, through mycelia", &say);
 }
 
+// The person's key, once a touch has taken it out of the Keychain: held from
+// the first press until mycelia stops, which a reboot or a restart is.
+// "next reboot i expect to have to put my finger again."
+__gshared signed.Key held;
+
+// A press, signed as the person and asked of the node: the node's status on
+// the first line of reply, its body after; 0 and why when it was not asked.
+int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
+    import signed : keyOf, SEED_BYTES;
+    import http : httpPostInto, ToNode;
+    import probe : host;
+    if (!held.held) {
+        ubyte[SEED_BYTES] seed;
+        int n = 0;
+        auto st = touch_take(seed.ptr, seed.length, "mycelia: trust your presses until this Mac restarts\0".ptr, &n);
+        if (st != 0 || n != SEED_BYTES) {
+            char[256] why = 0;
+            touch_said(st, why.ptr, why.length);
+            size_t w = 0;
+            while (why[w] != 0) w++;
+            reply.put("0\nthe person's key was not taken out of the Keychain: ");
+            reply.put(why[0 .. w]);
+            return 1;
+        }
+        held = keyOf(seed[]);
+        seed[] = 0;
+    }
+    __gshared zbuf.ZBuf url;
+    url.reset();
+    url.put(host());
+    url.put(path);
+    __gshared char[65536] answer = void;
+    auto r = httpPostInto(url.slice(), body_, ToNode(null, &held), answer[], 60);
+    reply.putUint(cast(ulong) r.status);
+    reply.put("\n");
+    if (r.status > 0) reply.put(answer[0 .. r.len]);
+    else {
+        reply.put(url.slice());
+        reply.put(" was not reached: ");
+        reply.put(r.why());
+    }
+    return 0;
+}
+
 extern (C) int main(int argc, char** argv) {
     import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fputs, stderr;
@@ -95,7 +141,7 @@ extern (C) int main(int argc, char** argv) {
             fputs(USAGE.ptr, stderr);
             return 2;
         case Verb.ask:
-            return myceliaMain(h[0 .. hl]);
+            return myceliaMain(h[0 .. hl], &press);
     }
 }
 

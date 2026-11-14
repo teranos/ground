@@ -192,8 +192,6 @@ int handleCollected(int argc, const(char)** argv) {
 // in to, as the person: signed with ~/.qntx/key.
 private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long now, long offset) {
     import core.stdc.stdio : stderr, fputs;
-    import http : httpPostInto, ToNode;
-    import nodeconfig : nodeHere;
 
     void no(const(char)[] why) {
         __gshared ZBuf line;
@@ -227,30 +225,91 @@ private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long n
     }
     bodyOf(pairs[0 .. np], body_);
 
-    auto here = nodeHere();
-    if (here.sandUrl.length == 0) { no(here.why().length > 0 ? here.why() : `no node to ask`); return 1; }
-    __gshared ZBuf url;
-    url.reset();
-    url.put(here.sandUrl);
-    url.put("/api/collected/");
-    url.put(verb);
-    __gshared char[262144] reply;
-    auto r = httpPostInto(url.slice(), body_.slice(), ToNode(), reply[], 60);
-    if (r.status == 200) return 0;
+    // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+    // Signed as the person by mycelia, which holds the person's key after one
+    // touch: ground's own key is an agent's to the node, and is refused.
+    __gshared ZBuf path, asked;
+    path.reset();
+    path.put("/api/collected/");
+    path.put(verb);
+    pressFor(path.slice(), body_.slice(), asked);
+    __gshared ZBuf said;
+    auto reached = toMycelia(asked.slice(), said);
+    if (reached.length > 0) { no(reached); return 1; }
+    auto answer = answerOf(said.slice());
+    if (answer.status == 200) return 0;
     __gshared ZBuf why;
     why.reset();
-    why.put(url.slice());
-    if (r.status > 0) {
+    why.put(path.slice());
+    if (answer.status > 0) {
         why.put(` answered `);
-        why.putUint(r.status);
+        why.putUint(cast(ulong) answer.status);
         why.put(`: `);
-        why.put(reply[0 .. r.len]);
     } else {
-        why.put(` was not reached: `);
-        why.put(r.why());
+        why.put(` was not asked: `);
     }
+    why.put(answer.body_);
     no(why.slice());
     return 1;
+}
+
+// A press as mycelia's socket takes it: the path, a newline, the body.
+void pressFor(const(char)[] path, const(char)[] body_, ref ZBuf out_) {
+    out_.reset();
+    out_.put(path);
+    out_.put("\n");
+    out_.put(body_);
+}
+
+struct Answer {
+    int status;
+    const(char)[] body_;
+}
+
+// mycelia's answer: the node's status on the first line, 0 when the node was
+// not asked, and its body or why after.
+Answer answerOf(const(char)[] said) {
+    int status = 0;
+    size_t i = 0;
+    while (i < said.length && said[i] >= '0' && said[i] <= '9') status = status * 10 + (said[i++] - '0');
+    if (i >= said.length || said[i] != '\n') return Answer(0, said[0 .. 0]);
+    return Answer(status, said[i + 1 .. $]);
+}
+
+// Asks mycelia over its socket, its answer into said; empty when it answered,
+// else why it could not be asked.
+private const(char)[] toMycelia(const(char)[] asked, ref ZBuf said) {
+    import core.stdc.stdlib : getenv;
+    import core.sys.posix.sys.socket : socket, connect, shutdown, AF_UNIX, SOCK_STREAM, SHUT_WR, sockaddr;
+    import core.sys.posix.sys.un : sockaddr_un;
+    import core.sys.posix.unistd : read, write, close;
+    said.reset();
+    auto home = getenv("HOME\0".ptr);
+    if (home is null) return `HOME names no home to find mycelia's socket in`;
+    __gshared char[104] path = 0;
+    size_t o = 0;
+    for (size_t i = 0; home[i] != 0 && o < 60; i++) path[o++] = home[i];
+    foreach (c; "/.local/state/ug/mycelia.sock") path[o++] = c;
+    path[o] = 0;
+    auto fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return `no socket could be made to ask mycelia`;
+    scope (exit) close(fd);
+    sockaddr_un at;
+    at.sun_family = AF_UNIX;
+    foreach (i; 0 .. o + 1) at.sun_path[i] = cast(byte) path[i];
+    if (connect(fd, cast(sockaddr*) &at, cast(uint) sockaddr_un.sizeof) != 0)
+        return `mycelia is not listening at ~/.local/state/ug/mycelia.sock, so nothing signs as the person`;
+    if (write(fd, asked.ptr, asked.length) != asked.length) return `the press was not handed to mycelia whole`;
+    shutdown(fd, SHUT_WR);
+    __gshared char[65536] got = void;
+    size_t n = 0;
+    while (n < got.length) {
+        auto r = read(fd, &got[n], got.length - n);
+        if (r <= 0) break;
+        n += r;
+    }
+    said.put(got[0 .. n]);
+    return null;
 }
 
 // --- What ag draws, and what its buttons ask ---

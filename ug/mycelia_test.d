@@ -106,3 +106,24 @@ enum person = "/h/.local/state/ug/person";
 static assert(personPathInto("/h", new char[128]) == person.length);
 static assert(personPath!"/h"()[0 .. person.length] == person);
 static assert(personPathInto("", new char[128]) == 0);
+
+// What a press asks mycelia to sign as the person: a path and a body, on two
+// lines and the rest. Only what a person does with what is collected is
+// signed; anything else asked of the socket is refused.
+import mycelia : pressOf, pressAllowed, SOCKET;
+
+static assert(SOCKET == ".local/state/ug/mycelia.sock");
+static assert(pressOf("/api/collected/cancel\n{\"to\":\"a\",\"id\":\"b\"}").path == "/api/collected/cancel");
+static assert(pressOf("/api/collected/cancel\n{\"to\":\"a\",\"id\":\"b\"}").body_ == "{\"to\":\"a\",\"id\":\"b\"}");
+static assert(pressOf("/api/collected/release\n{\"says\":\"one\\ntwo\"}").body_ == "{\"says\":\"one\\ntwo\"}");
+static assert(pressOf("no line").path.length == 0, "a request with no line is no press");
+
+static assert(pressAllowed("/api/collected/release"));
+static assert(pressAllowed("/api/collected/hold"));
+static assert(pressAllowed("/api/collected/later"));
+static assert(pressAllowed("/api/collected/cancel"));
+static assert(pressAllowed("/api/collected/edit"));
+static assert(!pressAllowed("/api/collected"), "listing is mycelia's own, signed by ground's key");
+static assert(!pressAllowed("/auth/admit"), "the person's key admits nobody through the socket");
+static assert(!pressAllowed("/api/collected/release/../../auth/admit"));
+static assert(!pressAllowed("/api/collected/releasex"));

@@ -362,16 +362,114 @@ Verb verbOf(const(char)[] verb) {
     return Verb.unknown;
 }
 
-// The whole of mycelia: a pass, kept, then a wait, until it is stopped.
-int myceliaMain(const(char)[] home) {
+// What a press asks mycelia to sign as the person, over a socket only the
+// person's user opens: the path on the first line, the body after it. Only
+// what a person does with what is collected is signed; mycelia asks the node
+// for the rest with ground's own key.
+enum SOCKET = ".local/state/ug/mycelia.sock";
+
+struct Press {
+    const(char)[] path;
+    const(char)[] body_;
+}
+
+Press pressOf(const(char)[] asked) {
+    foreach (i, c; asked)
+        if (c == '\n') return Press(asked[0 .. i], asked[i + 1 .. $]);
+    return Press(asked[0 .. 0], asked[0 .. 0]);
+}
+
+bool pressAllowed(const(char)[] path) {
+    foreach (sigil; ["release", "hold", "later", "cancel", "edit"]) {
+        enum prefix = "/api/collected/";
+        if (path.length == prefix.length + sigil.length && path[0 .. prefix.length] == prefix
+            && path[prefix.length .. $] == sigil) return true;
+    }
+    return false;
+}
+
+// What signs a press as the person: given by the binary that holds the key,
+// so only mycelia's own carries the Keychain. It writes the answer to say into
+// reply: the node's status on the first line, its body after.
+import zbuf : ZBuf;
+alias Presses = int function(const(char)[] path, const(char)[] body_, ref ZBuf reply);
+
+// The socket, made owner-only. -1 when it could not be.
+private int listenAt(const(char)[] home) {
+    import core.sys.posix.sys.socket : socket, bind, listen, AF_UNIX, SOCK_STREAM, sockaddr;
+    import core.sys.posix.sys.un : sockaddr_un;
+    import core.sys.posix.unistd : unlink, close;
+    import core.sys.posix.sys.stat : chmod;
+    __gshared char[104] path = 0;
+    if (home.length + SOCKET.length + 2 > path.length) return -1;
+    size_t o = 0;
+    foreach (c; home) path[o++] = c;
+    if (path[o - 1] != '/') path[o++] = '/';
+    foreach (c; SOCKET) path[o++] = c;
+    path[o] = 0;
+    unlink(&path[0]);
+    auto fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    sockaddr_un at;
+    at.sun_family = AF_UNIX;
+    foreach (i; 0 .. o + 1) at.sun_path[i] = cast(byte) path[i];
+    if (bind(fd, cast(sockaddr*) &at, cast(uint) sockaddr_un.sizeof) != 0 || chmod(&path[0], 384) != 0 || listen(fd, 4) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+// Waits up to seconds for presses, answering each as it comes.
+private void waitPresses(int fd, int seconds, Presses presses) {
+    import core.sys.posix.poll : poll, pollfd, POLLIN;
+    import core.sys.posix.sys.socket : accept, shutdown, SHUT_WR;
+    import core.sys.posix.unistd : read, write, close, sleep;
     import core.stdc.time : time;
-    import core.sys.posix.unistd : sleep;
+    if (fd < 0) { sleep(seconds); return; }
+    auto until = time(null) + seconds;
+    while (true) {
+        auto left = until - time(null);
+        if (left <= 0) return;
+        pollfd p;
+        p.fd = fd;
+        p.events = POLLIN;
+        if (poll(&p, 1, cast(int) left * 1000) <= 0) continue;
+        auto c = accept(fd, null, null);
+        if (c < 0) continue;
+        __gshared char[65536] asked = void;
+        size_t n = 0;
+        while (n < asked.length) {
+            auto got = read(c, &asked[n], asked.length - n);
+            if (got <= 0) break;
+            n += got;
+        }
+        __gshared ZBuf reply;
+        reply.reset();
+        auto press = pressOf(asked[0 .. n]);
+        if (!pressAllowed(press.path)) {
+            reply.put("0\nmycelia signs as the person only what a person does with what is collected, and this asked for ");
+            reply.put(press.path.length > 0 ? press.path : "nothing");
+        } else if (presses is null) {
+            reply.put("0\nthis mycelia holds no person's key");
+        } else {
+            presses(press.path, press.body_, reply);
+        }
+        write(c, reply.ptr(), reply.len);
+        close(c);
+    }
+}
+
+// The whole of mycelia: a pass, kept, then a wait for presses, until it is stopped.
+int myceliaMain(const(char)[] home, Presses presses = null) {
+    import core.stdc.time : time;
+    auto fd = listenAt(home);
     while (true) {
         auto now = cast(long) time(null);
         __gshared char[8192] line = void;
         auto n = passInto(home, now, line[]);
         keep(home, now, line[0 .. n]);
         collectedPass(home, now);
-        sleep(PASS);
+        waitPresses(fd, PASS, presses);
     }
 }
