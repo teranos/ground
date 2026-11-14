@@ -2,22 +2,22 @@ module mycelia;
 
 // "so, why would the part that asks the node, not be able to be its own tiny binary"
 //
-// mycelia is the one process on a machine that asks the node. Each pass it
-// asks for the node's row and its news, draws the row as tmux reads it, and
-// keeps that under home with the moment it asked; ground_tmux draws what is
-// kept and asks nothing. The news goes into ground's store, where sky hands
-// it to the session.
+// 「[Opus 5.5] mycelia is the one process on a machine that asks the node. Each pass it」
+// 「[Opus 5.5] asks for the node's row and its news, draws the row as tmux reads it, and」
+// 「[Opus 5.5] keeps that under home with the moment it asked; ground_tmux draws what is」
+// 「[Opus 5.5] kept and asks nothing. The news goes into ground's store, where sky hands」
+// 「[Opus 5.5] it to the session.」
 
 import tmux : RED, PLAIN;
 import qntx : State;
 
-// How long between passes, and how old a kept row may be before mycelia is
-// taken to have stopped: a pass that waits out every fetch's MAX_TIME is
-// still well inside it.
+// 「[Opus 5.5] How long between passes, and how old a kept row may be before mycelia is」
+// 「[Opus 5.5] taken to have stopped: a pass that waits out every fetch's MAX_TIME is」
+// 「[Opus 5.5] still well inside it.」
 enum PASS = 5;
 enum SILENT = 60;
 
-// Where the row is kept. ug's state lives beside it.
+// 「[Opus 5.5] Where the row is kept. ug's state lives beside it.」
 enum KEPT = ".local/state/ug/mycelia";
 
 size_t keptPathInto(const(char)[] home, char[] dest) {
@@ -30,7 +30,7 @@ size_t keptPathInto(const(char)[] home, char[] dest) {
     return o;
 }
 
-// The moment it asked, a newline, and the row.
+// 「[Opus 5.5] The moment it asked, a newline, and the row.」
 size_t keptInto(long at, const(char)[] line, char[] dest) {
     size_t o = 0;
     char[24] d = 0;
@@ -49,7 +49,7 @@ struct Kept {
     const(char)[] line;
 }
 
-// A stamp that is not a number is no pass.
+// 「[Opus 5.5] A stamp that is not a number is no pass.」
 Kept keptOf(const(char)[] text) {
     long v = 0;
     size_t i = 0;
@@ -61,7 +61,7 @@ Kept keptOf(const(char)[] text) {
     return Kept(v, text[i + 1 .. $]);
 }
 
-// mycelia has kept nothing for this long, or has never kept anything (-1).
+// 「[Opus 5.5] mycelia has kept nothing for this long, or has never kept anything (-1).」
 size_t silentInto(long since, char[] dest) {
     size_t o = 0;
     void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
@@ -90,7 +90,7 @@ size_t silentInto(long since, char[] dest) {
     return o;
 }
 
-// The row as this pass learned it from the node.
+// 「[Opus 5.5] The row as this pass learned it from the node.」
 size_t passInto(const(char)[] home, long now, char[] dest) {
     import probe : fetch;
     import qntx : State, standing;
@@ -103,7 +103,7 @@ size_t passInto(const(char)[] home, long now, char[] dest) {
     auto rp = rowPathInto(focus, "tmux", rowPath[]);
     auto answer = fetch(home, rowPath[0 .. rp]);
 
-    // A plugin the node no longer holds is not a row to keep asking for.
+    // 「[Opus 5.5] A plugin the node no longer holds is not a row to keep asking for.」
     if (focus !is null && answer.status == 404) {
         clearFocus(home);
         focus = null;
@@ -112,23 +112,23 @@ size_t passInto(const(char)[] home, long now, char[] dest) {
 
     size_t n = 0;
     if (answer.state == State.ok) {
-        // What is kept stands in for the node's row through a short silence,
-        // so a plugin's row is not what gets kept.
+        // 「[Opus 5.5] What is kept stands in for the node's row through a short silence,」
+        // 「[Opus 5.5] so a plugin's row is not what gets kept.」
         if (focus is null) keepAnswer(home, now, answer.body_);
         n = oneLineInto(answer.body_, dest);
-        // The node answered, so it can be asked what it left for this token,
-        // and each deploy is drawn on its plugin's name.
+        // 「[Opus 5.5] The node answered, so it can be asked what it left for this token,」
+        // 「[Opus 5.5] and each deploy is drawn on its plugin's name.」
         auto json = newsPass(home);
         __gshared char[8192] over = void;
         auto on = deploysOverInto(dest[0 .. n], json, now, over[]);
         foreach (i; 0 .. on) if (i < dest.length) dest[i] = over[i];
         n = on < dest.length ? on : dest.length;
     } else if (answer.status > 0) {
-        // The node answered and the answer was a refusal. That is not silence,
-        // and it must not wait out the quiet window pretending it might pass.
+        // 「[Opus 5.5] The node answered and the answer was a refusal. That is not silence,」
+        // 「[Opus 5.5] and it must not wait out the quiet window pretending it might pass.」
         n = statusInto(answer.status, dest);
     } else if (standing(answer.state)) {
-        // Nothing was sent, and nothing about waiting will change that.
+        // 「[Opus 5.5] Nothing was sent, and nothing about waiting will change that.」
         n = stateInto(answer.state, dest);
     } else {
         auto seen = lastAnswer(home);
@@ -143,11 +143,11 @@ size_t passInto(const(char)[] home, long now, char[] dest) {
     return n;
 }
 
-// What the node left for this token, written into ground's store once each so
-// sky carries it to the session. The row is asked for as items rather than as
-// the spelled line, because an id does not survive being drawn. An item that
-// is already in the store costs one SELECT; a new one costs one more ask, for
-// the whole of it, which is where the session it is for is named.
+// 「[Opus 5.5] What the node left for this token, written into ground's store once each so」
+// 「[Opus 5.5] sky carries it to the session. The row is asked for as items rather than as」
+// 「[Opus 5.5] the spelled line, because an id does not survive being drawn. An item that」
+// 「[Opus 5.5] is already in the store costs one SELECT; a new one costs one more ask, for」
+// 「[Opus 5.5] the whole of it, which is where the session it is for is named.」
 const(char)[] newsPass(const(char)[] home) {
     import probe : fetch;
     import qntx : State;
@@ -156,16 +156,16 @@ const(char)[] newsPass(const(char)[] home) {
     import statusline : nextObject, itemsAt;
     import tmux : isJson;
 
-    // Asked for as the row's own token. The node files news under the person
-    // a token speaks for, so what the ground token's push earned is found by
-    // this one; the ground token itself cannot read the row.
+    // 「[Opus 5.5] Asked for as the row's own token. The node files news under the person」
+    // 「[Opus 5.5] a token speaks for, so what the ground token's push earned is found by」
+    // 「[Opus 5.5] this one; the ground token itself cannot read the row.」
     auto answer = fetch(home, "/am/statusline?format=json");
     if (answer.state != State.ok || !isJson(answer.body_)) return null;
 
-    // fetch answers out of one static buffer, and the ask for an item's
-    // detail below is a second fetch: it overwrote the items while they were
-    // being walked, and two rows went into the store with ids cut from the
-    // middle of a detail body. The items are copied out first.
+    // 「[Opus 5.5] fetch answers out of one static buffer, and the ask for an item's」
+    // 「[Opus 5.5] detail below is a second fetch: it overwrote the items while they were」
+    // 「[Opus 5.5] being walked, and two rows went into the store with ids cut from the」
+    // 「[Opus 5.5] middle of a detail body. The items are copied out first.」
     __gshared char[65536] items = void;
     size_t n = 0;
     foreach (c; answer.body_) { if (n >= items.length) break; items[n++] = c; }
@@ -197,9 +197,9 @@ const(char)[] newsPass(const(char)[] home) {
         auto repo = jsonString(whole.body_, "repo");
 
         // "AGENTS CAN TALK TO EACH OTHER BY THEIR NAME"
-        // What is said to a name is the session's that keeps the name. No
-        // session here keeps it: it is another machine's, and is left on the
-        // row for that machine's mycelia.
+        // 「[Opus 5.5] What is said to a name is the session's that keeps the name. No」
+        // 「[Opus 5.5] session here keeps it: it is another machine's, and is left on the」
+        // 「[Opus 5.5] row for that machine's mycelia.」
         auto to = jsonString(whole.body_, "to");
         __gshared char[128] keeper = void;
         if ((session is null || session.length == 0) && to !is null && to.length > 0) {
@@ -209,11 +209,11 @@ const(char)[] newsPass(const(char)[] home) {
             session = keeper[0 .. kept];
         }
 
-        // What sky speaks: the conclusion, where, and the run to open.
-        // Decoded once here, because leaveNews encodes it again for the row.
-        // As long as the store keeps (ug/sql.d NEWS_BYTES): a message cut at
-        // 1 KiB here reached Tether ending at point 4 of 4. One longer still
-        // is said to be, with where it is whole, and is never cut quietly.
+        // 「[Opus 5.5] What sky speaks: the conclusion, where, and the run to open.」
+        // 「[Opus 5.5] Decoded once here, because leaveNews encodes it again for the row.」
+        // 「[Opus 5.5] As long as the store keeps (ug/sql.d NEWS_BYTES): a message cut at」
+        // 「[Opus 5.5] 1 KiB here reached Tether ending at point 4 of 4. One longer still」
+        // 「[Opus 5.5] is said to be, with where it is whole, and is never cut quietly.」
         import json : jsonUnescapeInto;
         import sql : NEWS_BYTES;
         __gshared char[NEWS_BYTES] detail = void;
@@ -238,7 +238,7 @@ const(char)[] newsPass(const(char)[] home) {
             put(" on the node");
         }
 
-        // A null slice is empty: no session names the project, no repo is none.
+        // 「[Opus 5.5] A null slice is empty: no session names the project, no repo is none.」
         leaveNews(home, id, session, repo, detail[0 .. d]);
     }
     return body_;
@@ -246,10 +246,10 @@ const(char)[] newsPass(const(char)[] home) {
 
 // "for knowing what is incoming"
 // "and also what is outbound,"
-// What agents said to an agent waits at the node until it is delivered or a
-// person releases it (QNTX server/collected.go). mycelia keeps the node's
-// answer whole, beside the row; who it is for and who said it are the
-// reader's to pick out by DID.
+// 「[Opus 5.5] What agents said to an agent waits at the node until it is delivered or a」
+// 「[Opus 5.5] person releases it (QNTX server/collected.go). mycelia keeps the node's」
+// 「[Opus 5.5] answer whole, beside the row; who it is for and who said it are the」
+// 「[Opus 5.5] reader's to pick out by DID.」
 enum COLLECTED = "/api/collected";
 enum COLLECTED_KEPT = ".local/state/ug/collected";
 
@@ -263,15 +263,15 @@ size_t collectedPathInto(const(char)[] home, char[] dest) {
     return o;
 }
 
-// What the node did not answer, in words: the status it chose, else the step
-// that failed.
+// 「[Opus 5.5] What the node did not answer, in words: the status it chose, else the step」
+// 「[Opus 5.5] that failed.」
 size_t refusedInto(State s, int status, char[] dest) {
     import qntx : word;
     size_t o = 0;
     void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
     put("QNTX ");
-    // The node answered, with more than fetch holds: fetch keeps none of a
-    // body cut short, and the status alone read as a 200 refused.
+    // 「[Opus 5.5] The node answered, with more than fetch holds: fetch keeps none of a」
+    // 「[Opus 5.5] body cut short, and the status alone read as a 200 refused.」
     if (s == State.malformedBody && status == 200) {
         put("answered 200 with more than mycelia holds");
         return o;
@@ -288,8 +288,8 @@ size_t refusedInto(State s, int status, char[] dest) {
     return o;
 }
 
-// The node's answer when it gave one, else what went wrong, kept with the
-// moment it was asked.
+// 「[Opus 5.5] The node's answer when it gave one, else what went wrong, kept with the」
+// 「[Opus 5.5] moment it was asked.」
 void collectedPass(const(char)[] home, long now) {
     import probe : fetch;
     __gshared char[512] path = void;
@@ -304,14 +304,14 @@ void collectedPass(const(char)[] home, long now) {
     keepAt(path[0 .. n], now, why[0 .. w]);
 }
 
-// Written beside and moved over, so ground_tmux never reads half a row.
+// 「[Opus 5.5] Written beside and moved over, so ground_tmux never reads half a row.」
 void keep(const(char)[] home, long now, const(char)[] line) {
     __gshared char[512] path = void;
     auto n = keptPathInto(home, path[]);
     keepAt(path[0 .. n], now, line);
 }
 
-// The moment and the text at path, written beside it and moved over.
+// 「[Opus 5.5] The moment and the text at path, written beside it and moved over.」
 void keepAt(const(char)[] at, long now, const(char)[] text_) {
     import core.stdc.stdio : fopen, fwrite, fclose, rename;
     import core.sys.posix.sys.stat : mkdir;
@@ -333,7 +333,7 @@ void keepAt(const(char)[] at, long now, const(char)[] text_) {
     foreach (i, c; ".new") beside[n + i] = c;
     beside[n + 4] = 0;
 
-    // As large as the most fetch answers with, and the stamp before it.
+    // 「[Opus 5.5] As large as the most fetch answers with, and the stamp before it.」
     import probe : BODY_BYTES;
     __gshared char[BODY_BYTES + 32] text = void;
     auto t = keptInto(now, text_, text[]);
@@ -344,7 +344,7 @@ void keepAt(const(char)[] at, long now, const(char)[] text_) {
     rename(&beside[0], &path[0]);
 }
 
-// What ground_tmux reads. Nothing kept is a Kept at 0.
+// 「[Opus 5.5] What ground_tmux reads. Nothing kept is a Kept at 0.」
 Kept readKept(const(char)[] home) {
     import core.stdc.stdio : fopen, fread, fclose;
     __gshared char[512] path = void;
@@ -358,9 +358,9 @@ Kept readKept(const(char)[] home) {
 }
 
 // "mycelia connect needs to also be a thing"
-// With no verb mycelia asks the node, pass after pass. connect sends the
-// person home for the passkey, and the mycelia that is running collects the
-// session the node sends back.
+// 「[Opus 5.5] With no verb mycelia asks the node, pass after pass. connect sends the」
+// 「[Opus 5.5] person home for the passkey, and the mycelia that is running collects the」
+// 「[Opus 5.5] session the node sends back.」
 enum Verb { ask, connect, unknown }
 
 Verb verbOf(const(char)[] verb) {
@@ -370,16 +370,16 @@ Verb verbOf(const(char)[] verb) {
 }
 
 // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-// A press is the person's, made in the session the person holds (QNTX
-// ADR-060); a key the person said yes to is an agent's, by design (QNTX
-// itsOwnDID). mycelia is a door onto the node, as the app is, named in the
-// node's am.toml rp_origins: the passkey is done at home, the node sends the
-// browser back here with a ticket, and the ticket buys the session once
-// (QNTX server/auth/homeward.go).
+// 「[Opus 5.5] A press is the person's, made in the session the person holds (QNTX」
+// 「[Opus 5.5] ADR-060); a key the person said yes to is an agent's, by design (QNTX」
+// 「[Opus 5.5] itsOwnDID). mycelia is a door onto the node, as the app is, named in the」
+// 「[Opus 5.5] node's am.toml rp_origins: the passkey is done at home, the node sends the」
+// 「[Opus 5.5] browser back here with a ticket, and the ticket buys the session once」
+// 「[Opus 5.5] (QNTX server/auth/homeward.go).」
 enum DOOR = "mycelia://door";
 private enum DOOR_QUERY = "door=mycelia%3A%2F%2Fdoor";
 
-// Where the browser goes for the passkey. 0 when no node is named.
+// 「[Opus 5.5] Where the browser goes for the passkey. 0 when no node is named.」
 size_t homeUrlInto(const(char)[] host, char[] dest) {
     if (host.length == 0) return 0;
     size_t o = 0;
@@ -391,9 +391,9 @@ size_t homeUrlInto(const(char)[] host, char[] dest) {
     return o;
 }
 
-// The ticket the node sent the browser back with: door?home=<ticket>. A
-// ticket is base64url, so it stands as it is. Empty for anything that is not
-// mycelia's door or carries none.
+// 「[Opus 5.5] The ticket the node sent the browser back with: door?home=<ticket>. A」
+// 「[Opus 5.5] ticket is base64url, so it stands as it is. Empty for anything that is not」
+// 「[Opus 5.5] mycelia's door or carries none.」
 const(char)[] ticketOf(const(char)[] url) {
     if (url.length <= DOOR.length || url[0 .. DOOR.length] != DOOR || url[DOOR.length] != '?')
         return url[0 .. 0];
@@ -409,7 +409,7 @@ const(char)[] ticketOf(const(char)[] url) {
     return url[0 .. 0];
 }
 
-// Where the ticket is spent for the session, naming the door it was for.
+// 「[Opus 5.5] Where the ticket is spent for the session, naming the door it was for.」
 size_t resultUrlInto(const(char)[] host, const(char)[] ticket, char[] dest) {
     size_t o = 0;
     void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
@@ -422,8 +422,8 @@ size_t resultUrlInto(const(char)[] host, const(char)[] ticket, char[] dest) {
     return o;
 }
 
-// What mycelia says of the session it collected, or why it did not: the
-// moment and the words, never the session, which is in the Keychain alone.
+// 「[Opus 5.5] What mycelia says of the session it collected, or why it did not: the」
+// 「[Opus 5.5] moment and the words, never the session, which is in the Keychain alone.」
 enum SESSION_SAID = ".local/state/ug/session";
 
 size_t sessionSaidPathInto(const(char)[] home, char[] dest) {
@@ -436,11 +436,11 @@ size_t sessionSaidPathInto(const(char)[] home, char[] dest) {
     return o;
 }
 
-// What a press asks mycelia to make in the person's session, over a socket
-// only the person's user opens: the path on the first line, the body after
-// it. Only what a person does with what is collected is made there; mycelia
-// asks the node for the rest with ground's own key. The browser coming back to
-// the door is handed over the same socket, as `door` and the url.
+// 「[Opus 5.5] What a press asks mycelia to make in the person's session, over a socket」
+// 「[Opus 5.5] only the person's user opens: the path on the first line, the body after」
+// 「[Opus 5.5] it. Only what a person does with what is collected is made there; mycelia」
+// 「[Opus 5.5] asks the node for the rest with ground's own key. The browser coming back to」
+// 「[Opus 5.5] the door is handed over the same socket, as `door` and the url.」
 enum SOCKET = ".local/state/ug/mycelia.sock";
 enum DOOR_PATH = "door";
 
@@ -464,15 +464,15 @@ bool pressAllowed(const(char)[] path) {
     return false;
 }
 
-// What makes a press in the person's session, and what collects the session
-// at the door: given by the binary that holds the session, so only mycelia's
-// own carries the Keychain. Each writes the answer to say into reply: the
-// node's status on the first line, its body after.
+// 「[Opus 5.5] What makes a press in the person's session, and what collects the session」
+// 「[Opus 5.5] at the door: given by the binary that holds the session, so only mycelia's」
+// 「[Opus 5.5] own carries the Keychain. Each writes the answer to say into reply: the」
+// 「[Opus 5.5] node's status on the first line, its body after.」
 import zbuf : ZBuf;
 alias Presses = int function(const(char)[] path, const(char)[] body_, ref ZBuf reply);
 alias Doors = int function(const(char)[] url, ref ZBuf reply);
 
-// The socket, made owner-only. -1 when it could not be.
+// 「[Opus 5.5] The socket, made owner-only. -1 when it could not be.」
 private int listenAt(const(char)[] home) {
     import core.sys.posix.sys.socket : socket, bind, listen, AF_UNIX, SOCK_STREAM, sockaddr;
     import core.sys.posix.sys.un : sockaddr_un;
@@ -498,7 +498,7 @@ private int listenAt(const(char)[] home) {
     return fd;
 }
 
-// Waits up to seconds for presses, answering each as it comes.
+// 「[Opus 5.5] Waits up to seconds for presses, answering each as it comes.」
 private void waitPresses(int fd, int seconds, Presses presses, Doors doors) {
     import core.sys.posix.poll : poll, pollfd, POLLIN;
     import core.sys.posix.sys.socket : accept, shutdown, SHUT_WR;
@@ -541,7 +541,7 @@ private void waitPresses(int fd, int seconds, Presses presses, Doors doors) {
     }
 }
 
-// The whole of mycelia: a pass, kept, then a wait for presses, until it is stopped.
+// 「[Opus 5.5] The whole of mycelia: a pass, kept, then a wait for presses, until it is stopped.」
 int myceliaMain(const(char)[] home, Presses presses = null, Doors doors = null) {
     import core.stdc.time : time;
     auto fd = listenAt(home);
