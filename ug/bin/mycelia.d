@@ -12,7 +12,7 @@ extern (C) void touch_said(int st, char* out_, int cap);
 extern (C) int touch_forget_seed();
 // The url the system opened Mycelia.app with (ug/door.m).
 extern (C) int door_url(char* out_, int cap, double seconds);
-// The person's own confirmation, by Touch ID or the Mac's password (ug/door.m).
+// 「[Opus 5.5] The person's own confirmation, by Touch ID or the Mac's password (ug/door.m).」
 extern (C) int touch_ask(const(char)* reason, char* why, int cap);
 extern (C) void arc4random_buf(void* buf, size_t n);
 
@@ -83,9 +83,9 @@ int press(const(char)[] path, const(char)[] body_, ref zbuf.ZBuf reply) {
 
 __gshared const(char)[] homeHeld;
 
-// ag asks to press for the person: the person confirms it here, once, with
-// a finger, and ag is given a secret it keeps in memory alone (mycelia.d
-// keepSecret). What asks and is not confirmed is given nothing.
+// 「[Opus 5.5] ag asks to press for the person: the person confirms it here, once, with」
+// 「[Opus 5.5] a finger, and ag is given a secret it keeps in memory alone (mycelia.d」
+// 「[Opus 5.5] keepSecret). What asks and is not confirmed is given nothing.」
 int pair(ref zbuf.ZBuf reply) {
     import mycelia : keepSecret;
     char[256] why = 0;
