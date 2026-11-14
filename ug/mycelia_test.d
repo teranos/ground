@@ -92,24 +92,59 @@ static assert(verbOf("connect") == Verb.connect);
 static assert(verbOf("conect") == Verb.unknown, "a verb mycelia does not know is said, not run as the loop");
 
 // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-// The person's key lives in the Keychain; its DID is written down beside the
-// row, so who the person is is known without a touch.
-import mycelia : personPathInto;
+// A press is the person's, made in the session the person holds (QNTX
+// ADR-060). mycelia is a door onto the node, as the app is: the passkey is
+// done at home, the node sends the browser back to mycelia://door with a
+// ticket, and mycelia collects the session with it.
+import mycelia : DOOR, homeUrlInto, ticketOf, resultUrlInto, sessionSaidPathInto;
 
-char[128] personPath(const(char)[] home)() {
-    char[128] buf = '.';
-    personPathInto(home, buf[]);
+static assert(DOOR == "mycelia://door");
+
+char[256] homeUrl(const(char)[] host)() {
+    char[256] buf = '.';
+    homeUrlInto(host, buf[]);
     return buf;
 }
 
-enum person = "/h/.local/state/ug/person";
-static assert(personPathInto("/h", new char[128]) == person.length);
-static assert(personPath!"/h"()[0 .. person.length] == person);
-static assert(personPathInto("", new char[128]) == 0);
+enum home = "https://api.q.sbvh.nl/auth/door/home?door=mycelia%3A%2F%2Fdoor";
+static assert(homeUrlInto("https://api.q.sbvh.nl", new char[256]) == home.length);
+static assert(homeUrl!"https://api.q.sbvh.nl"()[0 .. home.length] == home);
+static assert(homeUrlInto("", new char[256]) == 0, "no node is nowhere to go home to");
 
-// What a press asks mycelia to sign as the person: a path and a body, on two
-// lines and the rest. Only what a person does with what is collected is
-// signed; anything else asked of the socket is refused.
+// The node sends the browser back as door?home=<ticket>; a ticket is
+// base64url, so it is taken as it stands.
+static assert(ticketOf("mycelia://door?home=AbC-_9") == "AbC-_9");
+static assert(ticketOf("mycelia://door?home=AbC-_9&other=x") == "AbC-_9");
+static assert(ticketOf("mycelia://door?x=1&home=AbC") == "AbC");
+static assert(ticketOf("mycelia://door").length == 0, "no ticket is nothing to collect");
+static assert(ticketOf("qntx://door?home=AbC").length == 0, "another door's ticket is not mycelia's");
+
+char[256] resultUrl(const(char)[] host, const(char)[] ticket)() {
+    char[256] buf = '.';
+    resultUrlInto(host, ticket, buf[]);
+    return buf;
+}
+
+enum result = "https://api.q.sbvh.nl/auth/door/home/result?home=AbC-_9&door=mycelia%3A%2F%2Fdoor";
+static assert(resultUrlInto("https://api.q.sbvh.nl", "AbC-_9", new char[256]) == result.length);
+static assert(resultUrl!("https://api.q.sbvh.nl", "AbC-_9")()[0 .. result.length] == result);
+
+// What mycelia says of the session it collected, or why it did not: written
+// down beside the row, never the session itself, for mycelia connect to say.
+char[128] sessionSaidPath(const(char)[] home)() {
+    char[128] buf = '.';
+    sessionSaidPathInto(home, buf[]);
+    return buf;
+}
+
+enum said = "/h/.local/state/ug/session";
+static assert(sessionSaidPathInto("/h", new char[128]) == said.length);
+static assert(sessionSaidPath!"/h"()[0 .. said.length] == said);
+static assert(sessionSaidPathInto("", new char[128]) == 0);
+
+// What a press asks mycelia to make in the person's session: a path and a
+// body, on two lines and the rest. Only what a person does with what is
+// collected is made there; anything else asked of the socket is refused.
 import mycelia : pressOf, pressAllowed, SOCKET;
 
 static assert(SOCKET == ".local/state/ug/mycelia.sock");
@@ -124,6 +159,7 @@ static assert(pressAllowed("/api/collected/later"));
 static assert(pressAllowed("/api/collected/cancel"));
 static assert(pressAllowed("/api/collected/edit"));
 static assert(!pressAllowed("/api/collected"), "listing is mycelia's own, signed by ground's key");
-static assert(!pressAllowed("/auth/admit"), "the person's key admits nobody through the socket");
+static assert(!pressAllowed("/auth/admit"), "the person's session admits nobody through the socket");
+static assert(!pressAllowed("/auth/tokens"), "the person's session mints nothing through the socket");
 static assert(!pressAllowed("/api/collected/release/../../auth/admit"));
 static assert(!pressAllowed("/api/collected/releasex"));

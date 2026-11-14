@@ -41,20 +41,29 @@ is the same for ag, which draws it above the prompt.
 "next reboot i expect to have to put my finger again."
 
 What a person does with what waits (release, hold, later, cancel, edit) is the
-person's to say, and the node refuses it from any key an agent on the machine
-can read. So the person has a key of their own, kept where only mycelia sees
-it:
+person's to say. The node takes it from a session made with the passkey, and
+refuses it from any key, ground's own or one the person said yes to: a key is
+an agent's (QNTX `itsOwnDID`, ADR-060). So mycelia is a door onto the node, as
+the app is, and holds the person's session:
 
-- `mycelia connect` makes it, keeps the seed in the Keychain behind Touch ID,
-  writes its DID to `~/.local/state/ug/person`, and signs it in to the node.
+- `mycelia://door` is named in the node's `auth.rp_origins`.
+- `mycelia connect` opens the browser at the node's `/auth/door/home`, where
+  the passkey is done. The node sends the browser back to `mycelia://door`
+  with a ticket; the system starts `Mycelia.app` for it, which hands the url
+  to the mycelia that is running. That one spends the ticket at
+  `/auth/door/home/result` for the session, keeps it in the Keychain behind
+  Touch ID, and says what happened in `~/.local/state/ug/session`, which
+  `mycelia connect` reads back. The session lasts as long as the node's
+  `session_expiry_hours`.
 - A press is handed to mycelia over `~/.local/state/ug/mycelia.sock`, which
   only the person's user opens. On the first press since it started, mycelia
-  takes the seed out, with a touch, and holds it until it stops. It signs
-  only what a person does with what is collected.
+  takes the session out, with a touch, and holds it until it stops. It makes
+  only what a person does with what is collected in it, as a bearer.
 
 "i want to get past it"
 
 Only a binary signed with the team's profile and its Keychain group sees the
-seed, so mycelia is built as `Mycelia.app` and signed: `make ug/Mycelia.app`,
+session, so mycelia is built as `Mycelia.app` and signed: `make ug/Mycelia.app`,
 with how this machine signs in `~/.config/mycelia/signing.mk`, outside the
-repository. `~/.local/bin/mycelia` points into it.
+repository. `~/.local/bin/mycelia` points into it, and `make install-ug`
+registers the app for `mycelia://`.

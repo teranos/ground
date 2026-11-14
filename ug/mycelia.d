@@ -335,25 +335,10 @@ Kept readKept(const(char)[] home) {
     return keptOf(buf[0 .. n]);
 }
 
-// "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-// The person's key lives in the Keychain, behind Touch ID (ug/touch.c); its
-// DID is written down here, so who the person is is known without a touch.
-enum PERSON = ".local/state/ug/person";
-
-size_t personPathInto(const(char)[] home, char[] dest) {
-    if (home.length == 0 || home.length + PERSON.length + 2 > dest.length) return 0;
-    size_t o = 0;
-    foreach (c; home) dest[o++] = c;
-    if (dest[o - 1] != '/') dest[o++] = '/';
-    foreach (c; PERSON) dest[o++] = c;
-    if (o < dest.length) dest[o] = 0;
-    return o;
-}
-
 // "mycelia connect needs to also be a thing"
-// With no verb mycelia asks the node, pass after pass. connect signs the key
-// it asks with in to the node, as `ground_code login` does for an ACP client:
-// the same device flow (source/code/login.d), against the node mycelia asks.
+// With no verb mycelia asks the node, pass after pass. connect sends the
+// person home for the passkey, and the mycelia that is running collects the
+// session the node sends back.
 enum Verb { ask, connect, unknown }
 
 Verb verbOf(const(char)[] verb) {
@@ -362,11 +347,80 @@ Verb verbOf(const(char)[] verb) {
     return Verb.unknown;
 }
 
-// What a press asks mycelia to sign as the person, over a socket only the
-// person's user opens: the path on the first line, the body after it. Only
-// what a person does with what is collected is signed; mycelia asks the node
-// for the rest with ground's own key.
+// "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
+// A press is the person's, made in the session the person holds (QNTX
+// ADR-060); a key the person said yes to is an agent's, by design (QNTX
+// itsOwnDID). mycelia is a door onto the node, as the app is, named in the
+// node's am.toml rp_origins: the passkey is done at home, the node sends the
+// browser back here with a ticket, and the ticket buys the session once
+// (QNTX server/auth/homeward.go).
+enum DOOR = "mycelia://door";
+private enum DOOR_QUERY = "door=mycelia%3A%2F%2Fdoor";
+
+// Where the browser goes for the passkey. 0 when no node is named.
+size_t homeUrlInto(const(char)[] host, char[] dest) {
+    if (host.length == 0) return 0;
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    put(host);
+    put("/auth/door/home?");
+    put(DOOR_QUERY);
+    if (o < dest.length) dest[o] = 0;
+    return o;
+}
+
+// The ticket the node sent the browser back with: door?home=<ticket>. A
+// ticket is base64url, so it stands as it is. Empty for anything that is not
+// mycelia's door or carries none.
+const(char)[] ticketOf(const(char)[] url) {
+    if (url.length <= DOOR.length || url[0 .. DOOR.length] != DOOR || url[DOOR.length] != '?')
+        return url[0 .. 0];
+    auto query = url[DOOR.length + 1 .. $];
+    size_t at = 0;
+    while (at < query.length) {
+        size_t end = at;
+        while (end < query.length && query[end] != '&') end++;
+        enum key = "home=";
+        if (end - at > key.length && query[at .. at + key.length] == key) return query[at + key.length .. end];
+        at = end + 1;
+    }
+    return url[0 .. 0];
+}
+
+// Where the ticket is spent for the session, naming the door it was for.
+size_t resultUrlInto(const(char)[] host, const(char)[] ticket, char[] dest) {
+    size_t o = 0;
+    void put(const(char)[] t) { foreach (c; t) if (o < dest.length) dest[o++] = c; }
+    put(host);
+    put("/auth/door/home/result?home=");
+    put(ticket);
+    put("&");
+    put(DOOR_QUERY);
+    if (o < dest.length) dest[o] = 0;
+    return o;
+}
+
+// What mycelia says of the session it collected, or why it did not: the
+// moment and the words, never the session, which is in the Keychain alone.
+enum SESSION_SAID = ".local/state/ug/session";
+
+size_t sessionSaidPathInto(const(char)[] home, char[] dest) {
+    if (home.length == 0 || home.length + SESSION_SAID.length + 2 > dest.length) return 0;
+    size_t o = 0;
+    foreach (c; home) dest[o++] = c;
+    if (dest[o - 1] != '/') dest[o++] = '/';
+    foreach (c; SESSION_SAID) dest[o++] = c;
+    if (o < dest.length) dest[o] = 0;
+    return o;
+}
+
+// What a press asks mycelia to make in the person's session, over a socket
+// only the person's user opens: the path on the first line, the body after
+// it. Only what a person does with what is collected is made there; mycelia
+// asks the node for the rest with ground's own key. The browser coming back to
+// the door is handed over the same socket, as `door` and the url.
 enum SOCKET = ".local/state/ug/mycelia.sock";
+enum DOOR_PATH = "door";
 
 struct Press {
     const(char)[] path;
@@ -388,11 +442,13 @@ bool pressAllowed(const(char)[] path) {
     return false;
 }
 
-// What signs a press as the person: given by the binary that holds the key,
-// so only mycelia's own carries the Keychain. It writes the answer to say into
-// reply: the node's status on the first line, its body after.
+// What makes a press in the person's session, and what collects the session
+// at the door: given by the binary that holds the session, so only mycelia's
+// own carries the Keychain. Each writes the answer to say into reply: the
+// node's status on the first line, its body after.
 import zbuf : ZBuf;
 alias Presses = int function(const(char)[] path, const(char)[] body_, ref ZBuf reply);
+alias Doors = int function(const(char)[] url, ref ZBuf reply);
 
 // The socket, made owner-only. -1 when it could not be.
 private int listenAt(const(char)[] home) {
@@ -421,7 +477,7 @@ private int listenAt(const(char)[] home) {
 }
 
 // Waits up to seconds for presses, answering each as it comes.
-private void waitPresses(int fd, int seconds, Presses presses) {
+private void waitPresses(int fd, int seconds, Presses presses, Doors doors) {
     import core.sys.posix.poll : poll, pollfd, POLLIN;
     import core.sys.posix.sys.socket : accept, shutdown, SHUT_WR;
     import core.sys.posix.unistd : read, write, close, sleep;
@@ -447,11 +503,14 @@ private void waitPresses(int fd, int seconds, Presses presses) {
         __gshared ZBuf reply;
         reply.reset();
         auto press = pressOf(asked[0 .. n]);
-        if (!pressAllowed(press.path)) {
-            reply.put("0\nmycelia signs as the person only what a person does with what is collected, and this asked for ");
+        if (press.path == DOOR_PATH) {
+            if (doors is null) reply.put("0\nthis mycelia is no door");
+            else doors(press.body_, reply);
+        } else if (!pressAllowed(press.path)) {
+            reply.put("0\nmycelia makes in the person's session only what a person does with what is collected, and this asked for ");
             reply.put(press.path.length > 0 ? press.path : "nothing");
         } else if (presses is null) {
-            reply.put("0\nthis mycelia holds no person's key");
+            reply.put("0\nthis mycelia holds no person's session");
         } else {
             presses(press.path, press.body_, reply);
         }
@@ -461,7 +520,7 @@ private void waitPresses(int fd, int seconds, Presses presses) {
 }
 
 // The whole of mycelia: a pass, kept, then a wait for presses, until it is stopped.
-int myceliaMain(const(char)[] home, Presses presses = null) {
+int myceliaMain(const(char)[] home, Presses presses = null, Doors doors = null) {
     import core.stdc.time : time;
     auto fd = listenAt(home);
     while (true) {
@@ -470,6 +529,6 @@ int myceliaMain(const(char)[] home, Presses presses = null) {
         auto n = passInto(home, now, line[]);
         keep(home, now, line[0 .. n]);
         collectedPass(home, now);
-        waitPresses(fd, PASS, presses);
+        waitPresses(fd, PASS, presses, doors);
     }
 }

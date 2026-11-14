@@ -15,7 +15,7 @@ enum BOOK_COMMAND = q"EOS
 ground collected
 # the same, as the data ag draws above the prompt:
 ground collected json
-# what a person does with what waits for an agent, signed with ~/.qntx/key:
+# what a person does with what waits for an agent, made by mycelia in the person's session:
 ground collected release Mycelia
 ground collected hold Mycelia 18:00
 ground collected cancel Mycelia 6f1c2a9d3b4e5f60
@@ -114,7 +114,7 @@ enum NO_HOME = `ground collected: HOME names no home to read what mycelia kept f
 
 // ground collected: what mycelia kept, for the session this runs in; `json`
 // as the data ag draws; a sigil of the collected signum asked of the node as
-// the person, signed with ~/.qntx/key.
+// the person, by mycelia in the person's session.
 int handleCollected(int argc, const(char)** argv) {
     import core.stdc.stdio : stdout, stderr, fputs, fopen, fread, fclose;
     import core.stdc.stdlib : getenv;
@@ -188,8 +188,8 @@ int handleCollected(int argc, const(char)** argv) {
     return rc;
 }
 
-// One sigil of the collected signum, asked of the node this ground is signed
-// in to, as the person: signed with ~/.qntx/key.
+// One sigil of the collected signum, asked of the node as the person: by
+// mycelia, in the session it holds.
 private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long now, long offset) {
     import core.stdc.stdio : stderr, fputs;
 
@@ -226,8 +226,9 @@ private int ask(const(char)[] verb, const(char)[] to, const(char)[] more, long n
     bodyOf(pairs[0 .. np], body_);
 
     // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-    // Signed as the person by mycelia, which holds the person's key after one
-    // touch: ground's own key is an agent's to the node, and is refused.
+    // Made by mycelia in the person's session, which it holds after one
+    // touch: any key, ground's own or one the person said yes to, is an
+    // agent's to the node, and is refused (QNTX itsOwnDID).
     __gshared ZBuf path, asked;
     path.reset();
     path.put("/api/collected/");
@@ -298,7 +299,7 @@ private const(char)[] toMycelia(const(char)[] asked, ref ZBuf said) {
     at.sun_family = AF_UNIX;
     foreach (i; 0 .. o + 1) at.sun_path[i] = cast(byte) path[i];
     if (connect(fd, cast(sockaddr*) &at, cast(uint) sockaddr_un.sizeof) != 0)
-        return `mycelia is not listening at ~/.local/state/ug/mycelia.sock, so nothing signs as the person`;
+        return `mycelia is not listening at ~/.local/state/ug/mycelia.sock, so nothing presses as the person`;
     if (write(fd, asked.ptr, asked.length) != asked.length) return `the press was not handed to mycelia whole`;
     shutdown(fd, SHUT_WR);
     __gshared char[65536] got = void;
