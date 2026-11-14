@@ -36,7 +36,7 @@ test('each message goes to the Client as a line: when, which way, who, what is s
   expect(lines?.props.props).toEqual({ lines: [
     { way: 'in', to: 'did:key:z6MkMe', due: '15:40', who: 'Shiitake', says: 'hello', id: '871588189c2ca9c4' },
     { way: 'out', to: 'did:key:z6MkOther', due: '16:00', who: 'Shiitake', says: 'Mycelia here', id: 'a2adff460cd772b0' },
-  ] })
+  ], forks: [] })
   expect(ran[0]).toEqual(['ground', 'collected', 'json'])
   await ui.unmount()
 })
@@ -107,6 +107,30 @@ test('now is pressed twice: once it is [NOW] green, and the second releases', as
   expect(ran.some(argv => argv[2] === 'release')).toBe(false)
   await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
   expect(ran).toContainEqual(['ground', 'collected', 'release', 'did:key:z6MkMe'])
+  await ui.unmount()
+})
+
+// "while its forking, you see it right there, at that moment, who to let keep the name, if you dont do anything, nothing happens, otherwise you click the other session, and it gets the name and is the active session at the same time."
+test('a session that branched from this one stands as a row, and a click gives it the name', async ($, on) => {
+  const ran: string[][] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'sid' }))
+  on('clock.every', () => ({ value: {} }))
+  on('process.run', (_, e) => {
+    ran.push([...e.argv])
+    const stdout = e.argv[1] === 'forks'
+      ? '{"forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":""}]}'
+      : e.argv[2] === 'json' ? '{"incoming":[],"outbound":[]}' : ''
+    return { value: { exitCode: 0, stdout, stderr: '' } }
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  const lines = await ui.find({ type: 'Client', key: 'lines' })
+  expect(lines?.props.props).toEqual({ lines: [], forks: [{ session: 'fa8a1589-576c-4ecb-84c8-f7d0f357b448', name: '' }] })
+  expect((await ui.find({ in: 'lines', type: 'Text', text: /fa8a1589/ }))?.text).toContain('fa8a1589')
+  await ui.pointer({ type: 'down', x: 2, y: 0, button: 'left' })
+  expect(ran).toContainEqual(['ground', 'forks', 'give', 'fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
   await ui.unmount()
 })
 

@@ -14,8 +14,12 @@ export type Line = {
 // holds, or, when it is no answer of the node's, what went wrong (ok false).
 export type Said = { ok: boolean; text: string; lines: Line[] }
 
+// A session that branched from this one, as `ground forks json` says it: its
+// id, and the name it holds, empty for none.
+export type Fork = { session: string; name: string }
+
 declare module 'claude-code' {
   interface PluginState {
-    ag: { said: Said | null; refused: string | null }
+    ag: { said: Said | null; refused: string | null; forks: Fork[] | null }
   }
 }

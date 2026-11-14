@@ -1,6 +1,6 @@
 import type { ClientModule, ClientPointerEvent, ClientKeyEvent } from 'claude-code'
 
-import type { Line } from '../types'
+import type { Fork, Line } from '../types'
 
 // One line a message, drawn and pressed here. At rest a message is its line:
 //   16:25 <-- Shiitake: Some text of Shiitake to us.
@@ -8,7 +8,9 @@ import type { Line } from '../types'
 //   +- +- [now]         [edit]              [delete] [esc]
 // What a press means is posted to ag's hooks, which ask ground.
 
-export type Lines = { lines: Line[] }
+// The sessions that branched from this one stand above the messages, a row
+// each; a click on one gives it this session's name (ground forks give).
+export type Lines = { lines: Line[]; forks?: Fork[] }
 
 type State = {
   open?: number // the message clicked in
@@ -109,6 +111,7 @@ function onKey(state: State, key: string, line: Line): Pressed {
 const Ag: ClientModule<Lines, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   const state: State = surface.state ?? {}
+  const forks = props.forks ?? []
   const rows = rowsOf(props.lines, state.open)
   const apply = (pressed: Pressed) => {
     if (pressed.post) surface.post(pressed.post)
@@ -117,7 +120,9 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
 
   surface.onPointer((e: ClientPointerEvent) => {
     if (e.type !== 'down') return
-    const row = rows[e.y]
+    const fork = forks[e.y]
+    if (fork) return apply({ post: { act: 'give', to: fork.session }, next: state })
+    const row = rows[e.y - forks.length]
     const line = row ? props.lines[row.line] : undefined
     if (!row || !line) return
     apply(row.buttons ? onButtons(state, e.x, line, props.lines) : onLine(state, row.line, e.x, line))
@@ -158,6 +163,14 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
 
   return (
     <Box flexDirection="column">
+      {forks.map(fork => (
+        <Box key={`f${fork.session}`} flexDirection="row">
+          <Text>{'⑂ '}</Text>
+          <Text bold>{fork.name || fork.session.slice(0, 8)}</Text>
+          <Text dimColor>{` (${fork.session}) branched from this session  `}</Text>
+          <Text color="cyan">[give it this session's name]</Text>
+        </Box>
+      ))}
       {rows.map(row => (row.buttons ? buttonsOf(row.line) : lineOf(row.line, props.lines[row.line] as Line)))}
     </Box>
   )

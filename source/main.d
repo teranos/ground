@@ -14,6 +14,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import attest : handleAttest;
             return handleAttest();
         }
+        if (cmd == "forks") {
+            import lineage : handleForks;
+            return handleForks(argc, argv);
+        }
         if (cmd == "name") {
             import naming : handleName;
             return handleName(argc, argv);
