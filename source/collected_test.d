@@ -120,7 +120,9 @@ unittest {
 // What a button asks the node: the sigil's parameters as a JSON object.
 unittest {
     ZBuf body;
-    bodyOf(["to", "did:key:z6MkMe", "says", "a \"quoted\" line\nand another"], body);
+    // A static array: -betterC has no GC to build a literal on.
+    const(char)[][4] pairs = ["to", "did:key:z6MkMe", "says", "a \"quoted\" line\nand another"];
+    bodyOf(pairs[], body);
     assert(body.slice() == `{"to":"did:key:z6MkMe","says":"a \"quoted\" line\nand another"}`, body.slice());
 }
 

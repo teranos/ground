@@ -464,7 +464,8 @@ int collectedJson(const(char)[] kept, const(char)[] did, long now, long offset, 
 bool untilOf(const(char)[] hhmm, long now, long offset, ref ZBuf out_) {
     out_.reset();
     if (hhmm.length != 5 || hhmm[2] != ':') return false;
-    foreach (j; [0, 1, 3, 4]) if (hhmm[j] < '0' || hhmm[j] > '9') return false;
+    static immutable size_t[4] digits = [0, 1, 3, 4];
+    foreach (j; digits) if (hhmm[j] < '0' || hhmm[j] > '9') return false;
     long h = (hhmm[0] - '0') * 10 + (hhmm[1] - '0');
     long m = (hhmm[3] - '0') * 10 + (hhmm[4] - '0');
     if (h > 23 || m > 59) return false;
