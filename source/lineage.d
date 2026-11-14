@@ -170,7 +170,10 @@ private long mtimeOf(const(char)* path) {
     import core.sys.posix.sys.stat : stat, stat_t;
     stat_t st;
     if (stat(path, &st) != 0) return -1;
-    return cast(long) st.st_mtime;
+    // The field itself: on Linux st_mtime is a druntime function, which a
+    // -betterC binary has nothing to link against.
+    version (OSX) return cast(long) st.st_mtimespec.tv_sec;
+    else return cast(long) st.st_mtim.tv_sec;
 }
 
 // The whole of a file, in memory the caller frees; null when it does not read.
