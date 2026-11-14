@@ -41,3 +41,13 @@ unittest {
     assert(titleOf(`{"type":"agent-name","agentName":"Slate","sessionId":"x"}`) == "Slate", "a title with no ⑂ is all of it");
     assert(titleOf(`{"type":"user"}`).length == 0);
 }
+
+// "i dont thin that ux is good"
+// A branch alive in another window cannot be switched to here: Claude Code
+// keeps a file for each live session, its pid and its session id.
+unittest {
+    enum FILE = `{"pid":62251,"sessionId":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","cwd":"/x","kind":"bg"}`;
+    assert(pidFor(FILE, "fa8a1589-576c-4ecb-84c8-f7d0f357b448") == 62251);
+    assert(pidFor(FILE, "573b42a2-ba1d-41b1-9bf8-52750e6e8cfc") == 0, "another session's file says nothing of this one");
+    assert(pidFor(`{"sessionId":"fa8a1589-576c-4ecb-84c8-f7d0f357b448"}`, "fa8a1589-576c-4ecb-84c8-f7d0f357b448") == 0, "no pid is no process");
+}

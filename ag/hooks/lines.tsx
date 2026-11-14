@@ -142,7 +142,10 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
         return
       }
       const at = choices.find(c => !c.holds && here && e.x >= c.from && e.x < c.to)
-      if (at) apply({ post: { act: 'give', to: at.session }, next: state })
+      // A branch alive in another window cannot become this one: the name
+      // stays, and how to open it is said.
+      const running = at && forks.find(f => f.session === at.session)?.running
+      if (at) apply({ post: { act: running ? 'open' : 'give', to: at.session }, next: state })
       return
     }
     const row = rows[e.y - (forks.length > 0 ? 1 : 0)]

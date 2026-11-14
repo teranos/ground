@@ -183,7 +183,7 @@ test('a branch running in the background is not given the name; what Claude Code
   on('process.run', (_, e) => {
     ran.push([...e.argv])
     const stdout = e.argv[1] === 'forks'
-      ? '{"name":"Mycelia","here":true,"forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":"","title":"mycelia on k","holds":false}]}'
+      ? '{"name":"Mycelia","here":true,"forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":"","title":"mycelia on k","holds":false,"running":true}]}'
       : e.argv[2] === 'json' ? '{"incoming":[],"outbound":[]}' : ''
     return { value: { exitCode: 0, stdout, stderr: '' } }
   })

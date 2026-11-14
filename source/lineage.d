@@ -83,6 +83,62 @@ Line lineOf(const(char)[] own, const(char)[] parent) {
     return holds(own, lastUuid(parent)) ? Line.continues : Line.branches;
 }
 
+// The pid of the process a Claude Code session file names for sessionId; 0
+// when the file is another session's, or names no pid.
+long pidFor(const(char)[] file, const(char)[] sessionId) {
+    enum sid = `"sessionId":"`;
+    enum pid = `"pid":`;
+    bool ours = false;
+    long found = 0;
+    foreach (i; 0 .. file.length) {
+        if (i + sid.length + sessionId.length < file.length && file[i .. i + sid.length] == sid
+            && file[i + sid.length .. i + sid.length + sessionId.length] == sessionId
+            && file[i + sid.length + sessionId.length] == '"') ours = true;
+        if (i + pid.length < file.length && file[i .. i + pid.length] == pid) {
+            auto j = i + pid.length;
+            long v = 0;
+            while (j < file.length && file[j] >= '0' && file[j] <= '9') v = v * 10 + (file[j++] - '0');
+            found = v;
+        }
+    }
+    return ours ? found : 0;
+}
+
+// Whether a session is alive in some window: Claude Code keeps a file for
+// each live session under ~/.claude/sessions, and its pid answers. One alive
+// cannot be resumed into another window.
+bool running(const(char)[] sessionId) {
+    import core.sys.posix.dirent : opendir, readdir, closedir;
+    import core.sys.posix.signal : kill;
+    import core.stdc.stdlib : getenv, free;
+    auto home = getenv("HOME\0".ptr);
+    if (home is null) return false;
+    size_t hn = 0;
+    while (home[hn] != 0) hn++;
+    __gshared ZBuf dir, file;
+    dir.reset();
+    dir.put(home[0 .. hn]);
+    dir.put("/.claude/sessions/");
+    auto d = opendir(dir.ptr());
+    if (d is null) return false;
+    scope (exit) closedir(d);
+    for (auto e = readdir(d); e !is null; e = readdir(d)) {
+        size_t n = 0;
+        while (e.d_name[n] != 0) n++;
+        auto name = cast(const(char)[]) e.d_name[0 .. n];
+        if (n < 6 || name[n - 5 .. n] != ".json") continue;
+        file.reset();
+        file.put(dir.slice());
+        file.put(name);
+        auto text = readWhole(file.ptr());
+        if (text is null) continue;
+        auto pid = pidFor(text, sessionId);
+        free(text.ptr);
+        if (pid > 0 && kill(cast(int) pid, 0) == 0) return true;
+    }
+    return false;
+}
+
 // --- Where sessions are kept: ~/.qntx/sessions/<id>/ ---
 
 private bool sessionsDirInto(ref ZBuf out_) {
@@ -340,7 +396,8 @@ int handleForks(int argc, const(char)** argv) {
             foreach (c; name) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
             out_.put(`","title":"`);
             foreach (c; titleOfSession(id)) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
-            out_.put(name.length > 0 ? `","holds":true}` : `","holds":false}`);
+            out_.put(name.length > 0 ? `","holds":true` : `","holds":false`);
+            out_.put(running(id) ? `,"running":true}` : `,"running":false}`);
         } else {
             out_.put(id);
             if (name.length > 0) { out_.put(" "); out_.put(name); }

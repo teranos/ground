@@ -178,7 +178,9 @@ export const register: Register = on => {
     // can be in: one running in the background is opened elsewhere, and what
     // Claude Code said of it stands under the rows. Taking the name back to
     // this session switches nothing.
-    if (d.act === 'give') {
+    if (d.act === 'open') {
+      await update($, refused, () => `the name stays here: that session is open in another window; \`claude attach ${d.to.slice(0, 8)}\` opens it`)
+    } else if (d.act === 'give') {
       let said = ''
       try {
         said = (await $.command.run({ command: 'resume', args: d.to })).text ?? ''
