@@ -1,10 +1,10 @@
-// The person's session at the node, kept in the Keychain behind Touch ID.
+// 「[Opus 5.5] The person's session at the node, kept in the Keychain behind Touch ID.」
 //
 // "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
 //
-// Only a binary signed with the team's profile and its Keychain group sees the
-// item (an unsigned one is refused -34018, and finds nothing), and taking the
-// session out asks for a touch. What mycelia takes out it holds until it stops.
+// 「[Opus 5.5] Only a binary signed with the team's profile and its Keychain group sees the」
+// 「[Opus 5.5] item (an unsigned one is refused -34018, and finds nothing), and taking the」
+// 「[Opus 5.5] session out asks for a touch. What mycelia takes out it holds until it stops.」
 
 #include <Security/Security.h>
 #include <string.h>
@@ -18,13 +18,13 @@ static CFMutableDictionaryRef session(void) {
     return q;
 }
 
-// Keeps the session on this device, in place of the one kept before: a new
-// passkey at home is a new session. The OSStatus.
+// 「[Opus 5.5] Keeps the session on this device, in place of the one kept before: a new」
+// 「[Opus 5.5] passkey at home is a new session. The OSStatus.」
 //
 // "next reboot i expect to have to put my finger again."
-// Readable once the Mac is unlocked after it starts, and not before: the
-// finger at the login is the touch, once a boot. A touch asked of every
-// mycelia that starts was asked again at every install and restart.
+// 「[Opus 5.5] Readable once the Mac is unlocked after it starts, and not before: the」
+// 「[Opus 5.5] finger at the login is the touch, once a boot. A touch asked of every」
+// 「[Opus 5.5] mycelia that starts was asked again at every install and restart.」
 int touch_keep(const unsigned char *held, int n) {
     CFMutableDictionaryRef gone = session();
     OSStatus st = SecItemDelete(gone);
@@ -41,8 +41,8 @@ int touch_keep(const unsigned char *held, int n) {
     return st;
 }
 
-// Takes the session out into out, asking for a touch with prompt. The
-// OSStatus; the bytes taken in *n.
+// 「[Opus 5.5] Takes the session out into out, asking for a touch with prompt. The」
+// 「[Opus 5.5] OSStatus; the bytes taken in *n.」
 int touch_take(unsigned char *out, int cap, const char *prompt, int *n) {
     *n = 0;
     CFMutableDictionaryRef q = session();
@@ -62,9 +62,9 @@ int touch_take(unsigned char *out, int cap, const char *prompt, int *n) {
     return st;
 }
 
-// Removes the person's seed kept before presses were made in the session
-// (account "person"), which nothing reads since. Only this signed binary
-// reaches the item. The OSStatus; errSecItemNotFound is nothing left to remove.
+// 「[Opus 5.5] Removes the person's seed kept before presses were made in the session」
+// 「[Opus 5.5] (account "person"), which nothing reads since. Only this signed binary」
+// 「[Opus 5.5] reaches the item. The OSStatus; errSecItemNotFound is nothing left to remove.」
 int touch_forget_seed(void) {
     CFMutableDictionaryRef q = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFDictionarySetValue(q, kSecClass, kSecClassGenericPassword);
@@ -76,7 +76,7 @@ int touch_forget_seed(void) {
     return st;
 }
 
-// What an OSStatus says, in Apple's words, into out.
+// 「[Opus 5.5] What an OSStatus says, in Apple's words, into out.」
 void touch_said(int st, char *out, int cap) {
     out[0] = 0;
     CFStringRef m = SecCopyErrorMessageString(st, NULL);
