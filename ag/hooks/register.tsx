@@ -9,6 +9,12 @@ import type { Line, Said } from '../types'
 // Client in ./lines.tsx; what a press means, ground asks the node as the person.
 // Nothing waiting draws nothing; what went wrong is drawn as it was said.
 const said = atom({ plugin: 'ag', key: 'said' } as const, null)
+// What the last press came to when the node did not do it: drawn red under
+// the lines until the next press.
+const refused = atom({ plugin: 'ag', key: 'refused' } as const, null)
+
+// Every press and what it came to, written where it can be read from outside.
+const PRESSES = '/Users/s.b.vanhouten/.local/state/ug/ag-presses'
 
 const EVERY_MS = 5000
 
@@ -67,19 +73,23 @@ export const register: Register = on => {
     if (d.act === 'hold' && d.until) argv.push(d.until)
     if (d.act === 'release' && d.says !== undefined) argv.push(d.says)
     const r = await $.process.run(argv, { timeoutMs: 60000 })
-    if (r.exitCode !== 0) $.ui.toast((r.stderr || r.stdout).trim() || `${argv.join(' ')} exited ${r.exitCode}`)
+    const why = r.exitCode === 0 ? null : (r.stderr || r.stdout).trim() || `${argv.join(' ')} exited ${r.exitCode}`
+    await update($, refused, () => why)
+    await $.fs.write(PRESSES, JSON.stringify({ at: await $.clock.now(), argv, exitCode: r.exitCode, stderr: r.stderr }) + '\n')
     await ask($, sessionId)
     return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const now = await read($, said)
-    if (now === null || (now.ok && now.lines.length === 0)) return next(e)
+    const why = await read($, refused)
+    if (now === null || (now.ok && now.lines.length === 0 && why === null)) return next(e)
     const { Box, Text, Client } = $.ui.resolve(e)
     if (!now.ok) return <Box><Text color="red">{now.text}</Text></Box>
     return (
       <Box flexDirection="column">
         <Client key="lines" module="./lines.tsx" props={{ lines: now.lines }} />
+        {why === null ? null : <Text color="red">{why}</Text>}
       </Box>
     )
   })

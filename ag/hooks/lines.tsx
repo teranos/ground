@@ -12,15 +12,19 @@ export type Lines = { lines: Line[] }
 
 type State = {
   open?: number // the message clicked in
+  armed?: number // the message whose arrow was pressed once: XXXX
+  deleting?: boolean // [delete] pressed once on the message clicked in: [DELETE]
   due?: string // the time it is held to, as moved by +-, before it is asked
   typing?: string // what is typed in place of what is said, while editing
 }
 
 // Where each button starts on the button line, as drawn:
-//   +- +- [now]         [edit]              [cancel]
+//   +- +- [now]         [edit]              [delete] [esc]
 //     16:25 <-- Shiitake: Some text of Shiitake to us.
-const AT = { now: 6, edit: 20, cancel: 40 }
-const BUTTONS = '+- +- [now]'.padEnd(AT.edit) + '[edit]'.padEnd(AT.cancel - AT.edit) + '[cancel]'
+// "the word cancel isnt clear"
+const AT = { now: 6, edit: 20, delete: 40, esc: 49 }
+const buttonsOf = (deleting: boolean) =>
+  '+- +- [now]'.padEnd(AT.edit) + '[edit]'.padEnd(AT.delete - AT.edit) + (deleting ? '[DELETE]' : '[delete]') + ' [esc]'
 // How far the message line stands in under its buttons.
 const UNDER = 2
 
@@ -49,6 +53,15 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
     const line = row ? props.lines[row.line] : undefined
     if (!row || !line) return
     if (!row.buttons) {
+      // "the arrow you can also click on, one to see thebutton change into XXXX and again to cancel"
+      const left = state.open === row.line ? UNDER : 0
+      if (e.x >= left + 6 && e.x < left + 10) {
+        if (state.armed === row.line) {
+          surface.post({ act: 'cancel', to: line.to, id: line.id })
+          return set({})
+        }
+        return set({ ...state, armed: row.line })
+      }
       if (state.open !== row.line) set({ open: row.line })
       return
     }
@@ -70,10 +83,16 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
       const whole = props.lines.filter(l => l.way === line.way && l.to === line.to).map(l => l.says).join('\n')
       return set({ ...state, typing: whole })
     }
-    if (e.x >= at.cancel && e.x < at.cancel + 8) {
-      surface.post({ act: 'cancel', to: line.to, id: line.id })
-      return set({})
+    // "and there should be a more explicit abort, that is two stage abort"
+    if (e.x >= at.delete && e.x < at.delete + 8) {
+      if (state.deleting) {
+        surface.post({ act: 'cancel', to: line.to, id: line.id })
+        return set({})
+      }
+      return set({ ...state, deleting: true })
     }
+    // "cancel should get us out of the clicked-in,"
+    if (e.x >= at.esc && e.x < at.esc + 5) return set({})
   })
 
   surface.onKey((e: ClientKeyEvent) => {
@@ -92,7 +111,16 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
     <Box flexDirection="column">
       {rows.map(row => {
         const line = props.lines[row.line] as Line
-        if (row.buttons) return <Text key={`b${row.line}`}>{BUTTONS}</Text>
+        if (row.buttons) {
+          const all = buttonsOf(!!state.deleting)
+          return (
+            <Box key={`b${row.line}`} flexDirection="row">
+              <Text>{all.slice(0, AT.delete)}</Text>
+              <Text color={state.deleting ? 'red' : undefined} bold={!!state.deleting}>{all.slice(AT.delete, AT.delete + 8)}</Text>
+              <Text>{all.slice(AT.delete + 8)}</Text>
+            </Box>
+          )
+        }
         const open = state.open === row.line
         const due = open && state.due ? state.due : line.due
         const says = open && state.typing !== undefined ? `${state.typing}_` : line.says
@@ -101,7 +129,7 @@ const Ag: ClientModule<Lines, State> = (props, surface) => {
             {open ? <Text>{' '.repeat(UNDER)}</Text> : null}
             <Text>{due}</Text>
             <Text> </Text>
-            <Text>{line.way === 'in' ? '<-- ' : '--> '}</Text>
+            <Text color={state.armed === row.line ? 'red' : undefined}>{state.armed === row.line ? 'XXXX' : line.way === 'in' ? '<-- ' : '--> '}</Text>
             <Text bold>{line.who}</Text>
             <Text>: </Text>
             <Text dimColor={!(open && state.typing !== undefined)} wrap="truncate">{says}</Text>

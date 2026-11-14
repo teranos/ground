@@ -60,7 +60,7 @@ test('what a press posts, ground asks the node', async ($, on) => {
 
 // "+- +- [now]         [edit]              [cancel]"
 // "  16:25 <-- Shiitake: Some text of Shiitake to us."
-test('a message clicked in shows its buttons, and its cancel cancels that one', async ($, on) => {
+test('a message clicked in shows its buttons; esc closes them, delete twice deletes it, and so does the arrow twice', async ($, on) => {
   const ran: string[][] = []
   engine(on, ran)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -69,11 +69,27 @@ test('a message clicked in shows its buttons, and its cancel cancels that one', 
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^15:40$/ }))?.text).toBe('15:40')
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^Shiitake$/ }))?.props.bold).toBe(true)
   expect((await ui.find({ in: 'lines', type: 'Text', text: /^hello$/ }))?.props.dimColor).toBe(true)
-  expect(await ui.find({ in: 'lines', type: 'Text', text: /\[cancel\]/ })).toBeUndefined()
+  expect(await ui.find({ in: 'lines', type: 'Text', text: /\[esc\]/ })).toBeUndefined()
 
   await ui.pointer({ type: 'down', x: 10, y: 0, button: 'left' })
-  expect((await ui.find({ in: 'lines', type: 'Text', text: /\[cancel\]/ }))?.text).toBe('+- +- [now]         [edit]              [cancel]')
+  expect((await ui.find({ in: 'lines', type: 'Text', text: /^\[delete\]$/ }))?.text).toBe('[delete]')
+  expect((await ui.find({ in: 'lines', type: 'Text', text: /\[esc\]/ }))?.text).toBe(' [esc]')
+  // "the word cancel isnt clear"
+  await ui.pointer({ type: 'down', x: 50, y: 0, button: 'left' })
+  expect(await ui.find({ in: 'lines', type: 'Text', text: /\[esc\]/ })).toBeUndefined()
+  expect(ran.some(argv => argv[2] === 'cancel')).toBe(false)
+  // "and there should be a more explicit abort, that is two stage abort"
+  await ui.pointer({ type: 'down', x: 10, y: 0, button: 'left' })
   await ui.pointer({ type: 'down', x: 41, y: 0, button: 'left' })
+  expect((await ui.find({ in: 'lines', type: 'Text', text: /^\[DELETE\]$/ }))?.props.color).toBe('red')
+  expect(ran.some(argv => argv[2] === 'cancel')).toBe(false)
+  await ui.pointer({ type: 'down', x: 41, y: 0, button: 'left' })
+  expect(ran).toContainEqual(['ground', 'collected', 'cancel', 'did:key:z6MkMe', '871588189c2ca9c4'])
+  ran.length = 0
+  // The arrow at rest: once is XXXX, twice dismisses that one message.
+  await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
+  expect((await ui.find({ in: 'lines', type: 'Text', text: /^XXXX$/ }))?.text).toBe('XXXX')
+  await ui.pointer({ type: 'down', x: 7, y: 0, button: 'left' })
   expect(ran).toContainEqual(['ground', 'collected', 'cancel', 'did:key:z6MkMe', '871588189c2ca9c4'])
   await ui.unmount()
 })

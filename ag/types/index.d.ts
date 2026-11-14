@@ -16,6 +16,6 @@ export type Said = { ok: boolean; text: string; lines: Line[] }
 
 declare module 'claude-code' {
   interface PluginState {
-    ag: { said: Said | null }
+    ag: { said: Said | null; refused: string | null }
   }
 }
