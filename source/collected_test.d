@@ -54,11 +54,14 @@ unittest {
     assert(said.slice() == "mycelia could not ask the node: QNTX 502\n", said.slice());
 }
 
-// An answer older than mycelia's passes is not drawn as current.
+// mycelia asks for what is collected once every five minutes (ug/mycelia.d
+// COLLECTED_EVERY): an answer that old is current. One older than that and a
+// pass is not drawn as current.
 unittest {
     ZBuf said;
-    assert(collectedFor(KEPT, ME, 1000 + 61, 3600, said) == 1);
-    assert(said.slice() == "mycelia last asked the node 61s ago: what it kept is not current\n", said.slice());
+    assert(collectedFor(KEPT, ME, 1000 + 299, 3600, said) == 0, said.slice());
+    assert(collectedFor(KEPT, ME, 1000 + 361, 3600, said) == 1);
+    assert(said.slice() == "mycelia last asked the node 361s ago: what it kept is not current\n", said.slice());
 }
 
 // Nothing kept is a mycelia that never asked.
