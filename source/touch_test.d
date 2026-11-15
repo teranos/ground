@@ -34,7 +34,12 @@ private void toolEvent(ref ZBuf payload, string event, string tool, string key, 
 unittest {
     Touched t;
     assert(touched(HERE, t), "this file is in a repository with an origin");
-    assert(t.repo() == "teranos/ground", t.repo());
+    // The checkout's own origin: the repository moves, the test stays.
+    import git : originOf;
+    char[256] own;
+    auto origin = originOf(TOP);
+    foreach (i, c; origin) own[i] = c;
+    assert(origin.length > 0 && t.repo() == own[0 .. origin.length], t.repo());
     assert(t.path() == "source/touch_test.d", t.path());
     assert(t.commit().length == 40, t.commit());
     foreach (c; t.commit()) assert((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'), t.commit());
@@ -55,7 +60,14 @@ unittest {
     toolEvent(payload, "PreToolUse", "Read", "file_path", HERE);
     putTouched(contexts, "PreToolUse", TOP, payload.slice());
     auto said = contexts.slice();
-    assert(indexOf(said, `","file:teranos/ground@`) >= 0, said);
+    {
+        import git : originOf;
+        ZBuf want;
+        want.put(`","file:`);
+        want.put(originOf(TOP));
+        want.put("@");
+        assert(indexOf(said, want.slice()) >= 0, said);
+    }
     assert(indexOf(said, `:source/touch_test.d`) >= 0, said);
 }
 

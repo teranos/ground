@@ -139,6 +139,17 @@ bool running(const(char)[] sessionId) {
     return false;
 }
 
+// "if the forked session hasnt been active for a while, i dont want to see this line linger anymore."
+// How long a stopped branch stands as a row after it was last written to.
+enum QUIET = 600;
+
+// Whether a branch stands as a row: while it runs, or while its transcript
+// was written to within QUIET seconds. lastWritten is -1 for none.
+bool shown(bool isRunning, long lastWritten, long now) {
+    if (isRunning) return true;
+    return lastWritten >= 0 && now - lastWritten <= QUIET;
+}
+
 // --- Where sessions are kept: ~/.qntx/sessions/<id>/ ---
 
 private bool sessionsDirInto(ref ZBuf out_) {
@@ -388,7 +399,11 @@ int handleForks(int argc, const(char)** argv) {
         out_.put(own.length > 0 ? `","here":true,"forks":[` : `","here":false,"forks":[`);
     }
     bool first = true;
+    import core.stdc.time : time;
+    auto now = cast(long) time(null);
     eachSibling(self, (const(char)[] id) {
+        auto alive = running(id);
+        if (!shown(alive, lastWritten(id), now)) return;
         char[256] nameBuf;
         auto name = lineFrom(id, "name", nameBuf[]);
         if (json) {
@@ -400,7 +415,7 @@ int handleForks(int argc, const(char)** argv) {
             out_.put(`","title":"`);
             foreach (c; titleOfSession(id)) if (c != '"' && c != '\\') { char[1] one = [c]; out_.put(one[]); }
             out_.put(name.length > 0 ? `","holds":true` : `","holds":false`);
-            out_.put(running(id) ? `,"running":true}` : `,"running":false}`);
+            out_.put(alive ? `,"running":true}` : `,"running":false}`);
         } else {
             out_.put(id);
             if (name.length > 0) { out_.put(" "); out_.put(name); }
@@ -411,6 +426,15 @@ int handleForks(int argc, const(char)** argv) {
     if (json) out_.put("]}\n");
     fputs(out_.ptr(), stdout);
     return 0;
+}
+
+// When a session kept here last wrote its transcript; -1 when none is kept.
+private long lastWritten(const(char)[] id) {
+    char[1024] pathBuf;
+    auto path = lineFrom(id, "transcript", pathBuf[]);
+    if (path.length == 0 || path.length + 1 >= pathBuf.length) return -1;
+    pathBuf[path.length] = 0;
+    return mtimeOf(pathBuf.ptr);
 }
 
 // The title of a session kept here, read from the transcript it was forked

@@ -51,3 +51,14 @@ unittest {
     assert(pidFor(FILE, "573b42a2-ba1d-41b1-9bf8-52750e6e8cfc") == 0, "another session's file says nothing of this one");
     assert(pidFor(`{"sessionId":"fa8a1589-576c-4ecb-84c8-f7d0f357b448"}`, "fa8a1589-576c-4ecb-84c8-f7d0f357b448") == 0, "no pid is no process");
 }
+
+// "if the forked session hasnt been active for a while, i dont want to see this line linger anymore."
+// A branch stands as a row while it runs, or while it was written to within
+// QUIET seconds; after that it is gone from the row.
+unittest {
+    enum now = 100_000L;
+    assert(shown(true, now - 10 * QUIET, now), "a branch that runs stands");
+    assert(shown(false, now - QUIET + 1, now), "one stopped a moment ago stands");
+    assert(!shown(false, now - QUIET - 1, now), "one quiet for longer is gone");
+    assert(!shown(false, -1, now), "one whose transcript is not there is gone");
+}
