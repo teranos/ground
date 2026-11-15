@@ -70,8 +70,8 @@ unittest {
     assert(pidFor(`{"sessionId":"fa8a1589-576c-4ecb-84c8-f7d0f357b448"}`, "fa8a1589-576c-4ecb-84c8-f7d0f357b448") == 0, "no pid is no process");
 }
 
-// A title is set whole or not at all: one cut where it no longer fits can end
-// inside an escape, and the hook's answer is then no JSON.
+// 「[Opus 5.5] A title is set whole or not at all: one cut where it no longer fits can end」
+// 「[Opus 5.5] inside an escape, and the hook's answer is then no JSON.」
 unittest {
     char[8] buf;
     assert(wholeInto(`ab\"cd`, buf[]) == `ab\"cd`);
