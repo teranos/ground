@@ -288,6 +288,17 @@ size_t refusedInto(State s, int status, char[] dest) {
     return o;
 }
 
+// "k is down because of it, we burnt through data budget"
+// The node's answer for what is collected is the whole of it, every message
+// waiting: 2,662,310 bytes on 2026-11-15, asked every pass, was about 1.9 GB
+// an hour. It is asked once every COLLECTED_EVERY seconds, and right after a
+// press, so ag shows what the person just did.
+enum COLLECTED_EVERY = 300;
+
+bool collectedDue(long last, long now, bool pressed) {
+    return pressed || last <= 0 || now - last >= COLLECTED_EVERY;
+}
+
 // The node's answer when it gave one, else what went wrong, kept with the
 // moment it was asked.
 void collectedPass(const(char)[] home, long now) {
@@ -593,17 +604,19 @@ private size_t wholeOf(const(char)[] got) {
     return 0;
 }
 
-// Waits up to seconds for presses, answering each as it comes.
-private void waitPresses(int fd, int seconds, Presses presses, Doors doors, Pairs pairs) {
+// Waits up to seconds for presses, answering each as it comes. True when a
+// press was made in the person's session.
+private bool waitPresses(int fd, int seconds, Presses presses, Doors doors, Pairs pairs) {
     import core.sys.posix.poll : poll, pollfd, POLLIN;
     import core.sys.posix.sys.socket : accept;
     import core.sys.posix.unistd : read, write, close, sleep;
     import core.stdc.time : time;
-    if (fd < 0) { sleep(seconds); return; }
+    if (fd < 0) { sleep(seconds); return false; }
     auto until = time(null) + seconds;
+    bool pressed = false;
     while (true) {
         auto left = until - time(null);
-        if (left <= 0) return;
+        if (left <= 0) return pressed;
         pollfd p;
         p.fd = fd;
         p.events = POLLIN;
@@ -636,6 +649,7 @@ private void waitPresses(int fd, int seconds, Presses presses, Doors doors, Pair
                 reply.put("0\nthis mycelia holds no person's session");
             } else {
                 presses(req.path, req.body_, reply);
+                pressed = true;
             }
             __gshared ZBuf head;
             head.reset();
@@ -664,12 +678,17 @@ private void waitPresses(int fd, int seconds, Presses presses, Doors doors, Pair
 int myceliaMain(const(char)[] home, Presses presses = null, Doors doors = null, Pairs pairs = null) {
     import core.stdc.time : time;
     auto fd = listenAt(home);
+    long collectedAt = 0;
+    bool pressed = false;
     while (true) {
         auto now = cast(long) time(null);
         __gshared char[8192] line = void;
         auto n = passInto(home, now, line[]);
         keep(home, now, line[0 .. n]);
-        collectedPass(home, now);
-        waitPresses(fd, PASS, presses, doors, pairs);
+        if (collectedDue(collectedAt, now, pressed)) {
+            collectedPass(home, now);
+            collectedAt = now;
+        }
+        pressed = waitPresses(fd, PASS, presses, doors, pairs);
     }
 }
