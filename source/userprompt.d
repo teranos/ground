@@ -152,7 +152,18 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
 
     if (db !is null) sqlite3_close(db);
 
-    if (!any) return 0;
+    // "ok, so say i want it, to cohere, using their exposed api"
+    // What Claude Code titles this session is the name it holds (lineage.d).
+    const(char)[] title;
+    {
+        import parse : extractTranscriptPath;
+        import lineage : sessionTitleFor;
+        __gshared char[512] cur = 0;
+        auto current = extractJsonString(input, `"session_title"`, &cur[0], cur.length);
+        title = sessionTitleFor(sessionId, current is null ? "" : current, extractTranscriptPath(input));
+    }
+
+    if (!any && title.length == 0) return 0;
 
     fputs(`{`, stdout);
     // The switch is said to the person who said the words, not only to the model.
@@ -162,9 +173,20 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         writeJsonString(sw[0 .. swLen]);
         fputs(`",`, stdout);
     }
-    fputs(`"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"`, stdout);
-    fwrite(&ctx.data[0], 1, ctx.len, stdout);
-    fputs(`"}}`, stdout);
+    fputs(`"hookSpecificOutput":{"hookEventName":"UserPromptSubmit"`, stdout);
+    if (any) {
+        fputs(`,"additionalContext":"`, stdout);
+        fwrite(&ctx.data[0], 1, ctx.len, stdout);
+        fputs(`"`, stdout);
+    }
+    // A name is letters, and Claude Code's own title is read as it wrote it
+    // in JSON: either stands in a JSON string as it is.
+    if (title.length > 0) {
+        fputs(`,"sessionTitle":"`, stdout);
+        fwrite(title.ptr, 1, title.length, stdout);
+        fputs(`"`, stdout);
+    }
+    fputs(`}}`, stdout);
     fputs("\n", stdout);
 
     return 0;

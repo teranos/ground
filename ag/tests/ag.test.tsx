@@ -16,6 +16,9 @@ const BAND = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
+// How long the way to a branch that took the name is said.
+const HINT_MS = 10000
+
 // What mycelia was asked over its socket, as [path, secret, body]; a fake
 // mycelia that pairs once and does every press.
 type Asked = [string, string, string]
@@ -193,6 +196,39 @@ test('a branch running in another window is given the name on a click, and how t
   await ui.pointer({ type: 'down', x: 42, y: 0, button: 'left' })
   expect(ran).toContainEqual(['ground', 'forks', 'give', 'fa8a1589-576c-4ecb-84c8-f7d0f357b448'])
   expect((await ui.find({ type: 'Text', text: /the name is that session's now/ }))?.text).toContain('claude attach fa8a1589')
+  await ui.unmount()
+})
+
+// "i dont like that it lingers though"
+test('how to open the branch that took the name is said for a while, then goes', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'sid' }))
+  on('clock.every', () => ({ value: {} }))
+  on('clock.now', () => ({ value: 0 }))
+  on('fs.write', () => ({ value: {} }))
+  on('process.run', (_, e) => {
+    const stdout = e.argv[1] === 'forks'
+      ? '{"name":"Mycelia","here":true,"forks":[{"session":"fa8a1589-576c-4ecb-84c8-f7d0f357b448","name":"","title":"mycelia on k","holds":false,"running":true}]}'
+      : e.argv[2] === 'json' ? '{"incoming":[],"outbound":[]}' : ''
+    return { value: { exitCode: 0, stdout, stderr: '' } }
+  })
+  const waits: number[] = []
+  let elapse = () => {}
+  on('clock.after', (_, e) => {
+    waits.push(e.ms)
+    return new Promise(done => { elapse = () => done({ value: {} }) })
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.pointer({ type: 'down', x: 42, y: 0, button: 'left' })
+  const hint = await ui.find({ type: 'Text', text: /the name is that session's now/ })
+  expect(hint?.text).toContain('claude attach fa8a1589')
+  // A hint, not a refusal: it is not drawn red.
+  expect(hint?.props.color).not.toBe('red')
+  expect(waits).toEqual([HINT_MS])
+  elapse()
+  await ui.find({ type: 'Text', text: /mycelia on k/ })
+  expect(await ui.find({ type: 'Text', text: /the name is that session's now/ })).toBeUndefined()
   await ui.unmount()
 })
 

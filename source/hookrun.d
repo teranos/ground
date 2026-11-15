@@ -23,7 +23,8 @@ module hookrun;
 //   permissionDecisionReason — (PreToolUse) shown to user (allow/ask) or Claude (deny)
 //   updatedInput             — (PreToolUse) replaces tool input before execution
 //   additionalContext        — (UserPromptSubmit required, PostToolUse optional) injected into context
-//   sessionTitle             — (UserPromptSubmit) sets session title, same as /rename
+//   sessionTitle             — (UserPromptSubmit, SessionStart) sets session title, same as /rename;
+//                              ground sets it to the name the session holds (lineage.retitle)
 //
 // TODO: output fields ground doesn't emit yet:
 //   suppressOutput  — could silence verbose hooks (e.g. build-timing)
@@ -393,7 +394,10 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         auto source = extractSource(input);
         import parse : extractTranscriptPath;
         import sessionstart : handleSessionStart;
-        return handleSessionStart(source, cwd, sessionId, extractTranscriptPath(input));
+        import parse : extractJsonString;
+        __gshared char[512] titleBuf = 0;
+        return handleSessionStart(source, cwd, sessionId, extractTranscriptPath(input),
+                                  extractJsonString(input, `"session_title"`, &titleBuf[0], titleBuf.length));
     }
 
     // The only event that reaches the person and costs nothing: exit 2 shows

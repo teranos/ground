@@ -33,13 +33,31 @@ unittest {
 
 // "yes,"
 // A branch is shown by the title Claude Code gives it, past its ⑂: what the
-// person asked the fork to do.
+// person asked the fork to do. Claude Code's own title, not the session's name:
+// ground titles a session by its name, and that is written as agentName.
 unittest {
-    enum T = `{"type":"agent-name","agentName":"Granite name setup ⑂ mycelia on k","sessionId":"x"}` ~ "\n"
+    enum T = `{"type":"ai-title","aiTitle":"Granite name setup ⑂ mycelia on k","sessionId":"x"}` ~ "\n"
+        ~ `{"type":"agent-name","agentName":"Mycelia","sessionId":"x"}` ~ "\n"
         ~ `{"type":"user","uuid":"aaaaaaaa-0000-0000-0000-000000000001"}` ~ "\n";
     assert(titleOf(T) == "mycelia on k");
-    assert(titleOf(`{"type":"agent-name","agentName":"Slate","sessionId":"x"}`) == "Slate", "a title with no ⑂ is all of it");
+    assert(aiTitleOf(T) == "Granite name setup ⑂ mycelia on k");
+    assert(titleOf(`{"type":"ai-title","aiTitle":"Slate","sessionId":"x"}`) == "Slate", "a title with no ⑂ is all of it");
     assert(titleOf(`{"type":"user"}`).length == 0);
+}
+
+// "ok, so say i want it, to cohere, using their exposed api"
+// What Claude Code titles a session is the name it holds. One that gave its
+// name away is titled by what Claude Code called it, so two sessions are
+// never shown by one name. Nothing is said when the title already is that,
+// and a title the person gave a session holding no name stays.
+unittest {
+    assert(retitle("Mycelia", "Granite name setup", false, "") == "Mycelia");
+    assert(retitle("Mycelia", "", false, "") == "Mycelia", "a session with no title yet takes its name");
+    assert(retitle("Mycelia", "Mycelia", false, "").length == 0, "already its name");
+    assert(retitle("", "Mycelia", true, "Granite name setup") == "Granite name setup", "a name given away is no title here");
+    assert(retitle("", "Granite name setup", false, "Granite name setup").length == 0);
+    assert(retitle("", "Rename by hand", false, "Granite name setup").length == 0, "the person's title stays");
+    assert(retitle("", "Mycelia", true, "").length == 0, "with no title of Claude Code's, nothing is set");
 }
 
 // "i dont thin that ux is good"

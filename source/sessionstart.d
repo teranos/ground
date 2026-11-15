@@ -106,13 +106,10 @@ void attestTypes() {
 // TODO: extract and attest `model` field — track which model worked on what
 // TODO: extract `agent_type` field — adjust controls for agent vs interactive sessions
 // TODO: use `source` field — "startup", "resume", "clear", "compact" — fire different controls per source
-// TODO (CC .152): set hookSpecificOutput.sessionTitle so terminal chrome shows
-//   e.g. "teranos/ground [main]" instead of the default. cwdTail + branch already
-//   available here — one extra JSON emit on startup/resume.
 // TODO (CC .152): reloadSkills: true on SessionStart when a control has just
 //   installed skills into the skills dir — makes them usable in the same session.
 int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] sessionId,
-                       const(char)[] transcriptPath = null) {
+                       const(char)[] transcriptPath = null, const(char)[] sessionTitle = null) {
     import hookrun : usecNow;
     auto t0 = usecNow();
 
@@ -510,12 +507,27 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         }
     }
 
+    // "ok, so say i want it, to cohere, using their exposed api"
+    // What Claude Code titles this session is the name it holds, once it holds
+    // one (lineage.d).
+    const(char)[] title;
+    if (sessionId !is null) {
+        import lineage : sessionTitleFor;
+        title = sessionTitleFor(sessionId, sessionTitle is null ? "" : sessionTitle, transcriptPath is null ? "" : transcriptPath);
+    }
+
     if (any) {
         import parse : writeJsonString;
         fputs(`{"systemMessage":"`, stdout);
         writeJsonString(startLine.slice());
         fputs(`","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
         fwrite(&ctx.data[0], 1, ctx.len, stdout);
+        // A name is letters, and Claude Code's own title is read as it wrote
+        // it in JSON: either stands in a JSON string as it is.
+        if (title.length > 0) {
+            fputs(`","sessionTitle":"`, stdout);
+            fwrite(title.ptr, 1, title.length, stdout);
+        }
         fputs(`"}}` ~ "\n", stdout);
         emitSessionProfile();
         return 0;
