@@ -16,7 +16,7 @@ const BAND = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-// How long the way to a branch that took the name is said.
+// 「[Opus 5.5] How long the way to a branch that took the name is said.」
 const HINT_MS = 10000
 
 // What mycelia was asked over its socket, as [path, secret, body]; a fake
@@ -223,7 +223,7 @@ test('how to open the branch that took the name is said for a while, then goes',
   await ui.pointer({ type: 'down', x: 42, y: 0, button: 'left' })
   const hint = await ui.find({ type: 'Text', text: /the name is that session's now/ })
   expect(hint?.text).toContain('claude attach fa8a1589')
-  // A hint, not a refusal: it is not drawn red.
+  // 「[Opus 5.5] A hint, not a refusal: it is not drawn red.」
   expect(hint?.props.color).not.toBe('red')
   expect(waits).toEqual([HINT_MS])
   elapse()
