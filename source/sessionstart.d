@@ -508,8 +508,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
     }
 
     // "ok, so say i want it, to cohere, using their exposed api"
-    // What Claude Code titles this session is the name it holds, once it holds
-    // one (lineage.d).
+    // 「[Opus 5.5] What Claude Code titles this session is the name it holds, once it holds」
+    // 「[Opus 5.5] one (lineage.d).」
     const(char)[] title;
     if (sessionId !is null) {
         import lineage : sessionTitleFor;
@@ -522,8 +522,8 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
         writeJsonString(startLine.slice());
         fputs(`","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"`, stdout);
         fwrite(&ctx.data[0], 1, ctx.len, stdout);
-        // A name is letters, and Claude Code's own title is read as it wrote
-        // it in JSON: either stands in a JSON string as it is.
+        // 「[Opus 5.5] A name is letters, and Claude Code's own title is read as it wrote」
+        // 「[Opus 5.5] it in JSON: either stands in a JSON string as it is.」
         if (title.length > 0) {
             fputs(`","sessionTitle":"`, stdout);
             fwrite(title.ptr, 1, title.length, stdout);
