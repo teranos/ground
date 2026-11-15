@@ -40,7 +40,7 @@ const(char)[] lastUuid(const(char)[] text) {
     return found;
 }
 
-// The last of a transcript's string fields named key; empty for none.
+// 「[Opus 5.5] The last of a transcript's string fields named key; empty for none.」
 private const(char)[] lastField(const(char)[] text, const(char)[] key) {
     const(char)[] found = text[0 .. 0];
     size_t i = 0;
@@ -60,14 +60,14 @@ private const(char)[] lastField(const(char)[] text, const(char)[] key) {
     return found;
 }
 
-// The title Claude Code gave a session last, as it wrote it. Its own, not the
-// title ground sets: that one is the session's name, written as agentName.
+// 「[Opus 5.5] The title Claude Code gave a session last, as it wrote it. Its own, not the」
+// 「[Opus 5.5] title ground sets: that one is the session's name, written as agentName.」
 const(char)[] aiTitleOf(const(char)[] text) {
     return lastField(text, `"aiTitle":"`);
 }
 
-// That title past its ⑂ when it has one: what the person asked a fork to do.
-// Empty for none.
+// 「[Opus 5.5] That title past its ⑂ when it has one: what the person asked a fork to do.」
+// 「[Opus 5.5] Empty for none.」
 const(char)[] titleOf(const(char)[] text) {
     enum fork = "⑂ ";
     auto found = aiTitleOf(text);
@@ -79,9 +79,9 @@ const(char)[] titleOf(const(char)[] text) {
 }
 
 // "ok, so say i want it, to cohere, using their exposed api"
-// The title Claude Code is to show for a session, given the name it holds, the
-// title it has, whether that title is a name another of its line holds, and
-// Claude Code's own title for it; empty when it is to stay as it is.
+// 「[Opus 5.5] The title Claude Code is to show for a session, given the name it holds, the」
+// 「[Opus 5.5] title it has, whether that title is a name another of its line holds, and」
+// 「[Opus 5.5] Claude Code's own title for it; empty when it is to stay as it is.」
 const(char)[] retitle(const(char)[] name, const(char)[] current, bool givenAway, const(char)[] aiTitle) {
     if (name.length > 0) return name == current ? name[0 .. 0] : name;
     if (givenAway && aiTitle.length > 0 && aiTitle != current) return aiTitle;
@@ -452,8 +452,8 @@ private const(char)[] titleOfSession(const(char)[] id) {
     return title[0 .. n];
 }
 
-// The title Claude Code is to show for sessionId, whose title is current and
-// whose transcript is at transcriptPath (retitle); empty when it stays.
+// 「[Opus 5.5] The title Claude Code is to show for sessionId, whose title is current and」
+// 「[Opus 5.5] whose transcript is at transcriptPath (retitle); empty when it stays.」
 const(char)[] sessionTitleFor(const(char)[] sessionId, const(char)[] current, const(char)[] transcriptPath) {
     import core.stdc.stdlib : free;
     __gshared char[256] title;
