@@ -475,10 +475,15 @@ const(char)[] sessionTitleFor(const(char)[] sessionId, const(char)[] current, co
         if (text !is null) ai = aiTitleOf(text);
     }
     scope (exit) if (text !is null) free(text.ptr);
-    auto t = retitle(name, current, givenAway, ai);
-    size_t n = 0;
-    foreach (c; t) if (n < title.length) title[n++] = c;
-    return title[0 .. n];
+    return wholeInto(retitle(name, current, givenAway, ai), title[]);
+}
+
+// t copied into buf whole; empty when it does not fit. A title is read as its
+// transcript wrote it in JSON, and one cut short can end inside an escape.
+const(char)[] wholeInto(const(char)[] t, char[] buf) {
+    if (t.length > buf.length) return buf[0 .. 0];
+    foreach (i, c; t) buf[i] = c;
+    return buf[0 .. t.length];
 }
 
 // This session and one that came from the same place trade keys, names and

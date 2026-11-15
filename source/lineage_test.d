@@ -69,3 +69,13 @@ unittest {
     assert(pidFor(FILE, "573b42a2-ba1d-41b1-9bf8-52750e6e8cfc") == 0, "another session's file says nothing of this one");
     assert(pidFor(`{"sessionId":"fa8a1589-576c-4ecb-84c8-f7d0f357b448"}`, "fa8a1589-576c-4ecb-84c8-f7d0f357b448") == 0, "no pid is no process");
 }
+
+// A title is set whole or not at all: one cut where it no longer fits can end
+// inside an escape, and the hook's answer is then no JSON.
+unittest {
+    char[8] buf;
+    assert(wholeInto(`ab\"cd`, buf[]) == `ab\"cd`);
+    assert(wholeInto(`abcdef\"`, buf[]) == `abcdef\"`, "all 8 fit");
+    assert(wholeInto(`abcdefg\"`, buf[]).length == 0, "cut at 8 it would end in a lone backslash");
+    assert(wholeInto("", buf[]).length == 0);
+}
