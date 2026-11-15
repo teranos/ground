@@ -478,8 +478,8 @@ const(char)[] sessionTitleFor(const(char)[] sessionId, const(char)[] current, co
     return wholeInto(retitle(name, current, givenAway, ai), title[]);
 }
 
-// t copied into buf whole; empty when it does not fit. A title is read as its
-// transcript wrote it in JSON, and one cut short can end inside an escape.
+// 「[Opus 5.5] t copied into buf whole; empty when it does not fit. A title is read as its」
+// 「[Opus 5.5] transcript wrote it in JSON, and one cut short can end inside an escape.」
 const(char)[] wholeInto(const(char)[] t, char[] buf) {
     if (t.length > buf.length) return buf[0 .. 0];
     foreach (i, c; t) buf[i] = c;
