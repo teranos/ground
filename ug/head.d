@@ -31,6 +31,10 @@ void statushead(const(char)[] input, time_t now) {
 
     h.branch = branchOf(readHead(h.cwd));
     h.model = jsonString(input, "display_name");
+    {
+        import usage : modelIn;
+        h.effort = modelIn(input).effort;
+    }
     h.percent = jsonNumber(input, "used_percentage");
     h.counts = countPorcelain(readPorcelain(h.cwd));
 

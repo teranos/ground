@@ -6,9 +6,19 @@ import clock : clockInto;
 import path : pathInto;
 import status : statusInto, Counts;
 
-// Unconditional in both captures, at the same offset, with no space before it
-// and one after.
-enum FLAME = "🔥 ";
+// "Why dont i always see it, what effort we are on? like in the statusline?"
+// Where the flame stood, the effort the turn runs at: no space before it and
+// one after. A model that takes no effort draws none.
+const(char)[] effortGlyph(const(char)[] level) {
+    switch (level) {
+        case "low":    return "🔫";
+        case "medium": return "✨";
+        case "high":   return "🔥";
+        case "xhigh":  return "❤️‍🔥";
+        case "max":    return "💥";
+        default:       return "";
+    }
+}
 
 enum BLUE    = "\033[34m";
 enum MAGENTA = "\033[35m";
@@ -30,6 +40,8 @@ struct Head {
     const(char)[] branch;
     const(char)[] model;
     const(char)[] style;
+    // effort.level as Claude Code hands it; empty for a model that takes none.
+    const(char)[] effort;
     Counts counts;
     int percent = -1;
 }
@@ -48,7 +60,11 @@ size_t rowOneInto(int hour, int minute, Head h, char[] dest) {
         foreach (c; s) if (o < dest.length) dest[o++] = c;
     }
 
-    put(FLAME);
+    auto glyph = effortGlyph(h.effort);
+    if (glyph.length > 0) {
+        put(glyph);
+        put(" ");
+    }
 
     // The repository is the last element of the working directory: `grove` in
     // one capture, `ground` in the other, both blue.

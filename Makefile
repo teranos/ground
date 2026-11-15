@@ -251,6 +251,7 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/qntx.d ug/json.d ug/qntx_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/probe.d ug/qntx.d ug/json.d source/http.d source/zbuf.d ug/probe_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug ug/row.d ug/clock.d ug/path.d ug/status.d ug/row_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/mycelia.d ug/tmux.d ug/statusline.d ug/json.d ug/mycelia_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
