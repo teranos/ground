@@ -153,7 +153,7 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     if (db !is null) sqlite3_close(db);
 
     // "ok, so say i want it, to cohere, using their exposed api"
-    // What Claude Code titles this session is the name it holds (lineage.d).
+    // 「[Opus 5.5] What Claude Code titles this session is the name it holds (lineage.d).」
     const(char)[] title;
     {
         import parse : extractTranscriptPath;
@@ -179,8 +179,8 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
         fwrite(&ctx.data[0], 1, ctx.len, stdout);
         fputs(`"`, stdout);
     }
-    // A name is letters, and Claude Code's own title is read as it wrote it
-    // in JSON: either stands in a JSON string as it is.
+    // 「[Opus 5.5] A name is letters, and Claude Code's own title is read as it wrote it」
+    // 「[Opus 5.5] in JSON: either stands in a JSON string as it is.」
     if (title.length > 0) {
         fputs(`,"sessionTitle":"`, stdout);
         fwrite(title.ptr, 1, title.length, stdout);
