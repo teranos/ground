@@ -40,11 +40,8 @@ const(char)[] lastUuid(const(char)[] text) {
     return found;
 }
 
-// The title Claude Code gave a session last, past its ⑂ when it has one: what
-// the person asked a fork to do. Empty for none.
-const(char)[] titleOf(const(char)[] text) {
-    enum key = `"agentName":"`;
-    enum fork = "⑂ ";
+// 「[Opus 5.5] The last of a transcript's string fields named key; empty for none.」
+private const(char)[] lastField(const(char)[] text, const(char)[] key) {
     const(char)[] found = text[0 .. 0];
     size_t i = 0;
     while (i + key.length < text.length) {
@@ -60,11 +57,35 @@ const(char)[] titleOf(const(char)[] text) {
             i = end;
         } else i++;
     }
+    return found;
+}
+
+// 「[Opus 5.5] The title Claude Code gave a session last, as it wrote it. Its own, not the」
+// 「[Opus 5.5] title ground sets: that one is the session's name, written as agentName.」
+const(char)[] aiTitleOf(const(char)[] text) {
+    return lastField(text, `"aiTitle":"`);
+}
+
+// 「[Opus 5.5] That title past its ⑂ when it has one: what the person asked a fork to do.」
+// 「[Opus 5.5] Empty for none.」
+const(char)[] titleOf(const(char)[] text) {
+    enum fork = "⑂ ";
+    auto found = aiTitleOf(text);
     foreach (j; 0 .. found.length) {
         if (j + fork.length <= found.length && found[j .. j + fork.length] == fork)
             return found[j + fork.length .. $];
     }
     return found;
+}
+
+// "ok, so say i want it, to cohere, using their exposed api"
+// 「[Opus 5.5] The title Claude Code is to show for a session, given the name it holds, the」
+// 「[Opus 5.5] title it has, whether that title is a name another of its line holds, and」
+// 「[Opus 5.5] Claude Code's own title for it; empty when it is to stay as it is.」
+const(char)[] retitle(const(char)[] name, const(char)[] current, bool givenAway, const(char)[] aiTitle) {
+    if (name.length > 0) return name == current ? name[0 .. 0] : name;
+    if (givenAway && aiTitle.length > 0 && aiTitle != current) return aiTitle;
+    return name[0 .. 0];
 }
 
 private bool holds(const(char)[] text, const(char)[] needle) {
@@ -429,6 +450,40 @@ private const(char)[] titleOfSession(const(char)[] id) {
     size_t n = 0;
     foreach (c; t) if (n < title.length) title[n++] = c;
     return title[0 .. n];
+}
+
+// 「[Opus 5.5] The title Claude Code is to show for sessionId, whose title is current and」
+// 「[Opus 5.5] whose transcript is at transcriptPath (retitle); empty when it stays.」
+const(char)[] sessionTitleFor(const(char)[] sessionId, const(char)[] current, const(char)[] transcriptPath) {
+    import core.stdc.stdlib : free;
+    __gshared char[256] title;
+    char[256] nameBuf;
+    auto name = lineFrom(sessionId, "name", nameBuf[]);
+    bool givenAway = false;
+    if (name.length == 0 && current.length > 0)
+        eachSibling(sessionId, (const(char)[] id) {
+            char[256] theirs;
+            if (lineFrom(id, "name", theirs[]) == current) givenAway = true;
+        });
+    const(char)[] ai = "";
+    __gshared ZBuf at;
+    char[] text;
+    if (givenAway && transcriptPath.length > 0) {
+        at.reset();
+        at.put(transcriptPath);
+        text = readWhole(at.ptr());
+        if (text !is null) ai = aiTitleOf(text);
+    }
+    scope (exit) if (text !is null) free(text.ptr);
+    return wholeInto(retitle(name, current, givenAway, ai), title[]);
+}
+
+// 「[Opus 5.5] t copied into buf whole; empty when it does not fit. A title is read as its」
+// 「[Opus 5.5] transcript wrote it in JSON, and one cut short can end inside an escape.」
+const(char)[] wholeInto(const(char)[] t, char[] buf) {
+    if (t.length > buf.length) return buf[0 .. 0];
+    foreach (i, c; t) buf[i] = c;
+    return buf[0 .. t.length];
 }
 
 // This session and one that came from the same place trade keys, names and

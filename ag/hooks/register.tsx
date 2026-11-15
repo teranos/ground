@@ -12,6 +12,11 @@ const said = atom({ plugin: 'ag', key: 'said' } as const, null)
 // What the last press came to when the node did not do it: drawn red under
 // the lines until the next press.
 const refused = atom({ plugin: 'ag', key: 'refused' } as const, null)
+// "i dont like that it lingers though"
+// 「[Opus 5.5] Where to find a branch that took the name: said under the rows for」
+// 「[Opus 5.5] HINT_MS, then gone. It is no refusal, and is not drawn as one.」
+const hint = atom({ plugin: 'ag', key: 'hint' } as const, null)
+const HINT_MS = 10000
 // "maybe i want that session to inherit the name and not you"
 // The sessions that branched from this one, as ground recorded them at the
 // fork: each stands as a row, and a click on it gives it this session's name.
@@ -183,7 +188,11 @@ export const register: Register = on => {
       // The click is the decision: the name goes. Only the switch waits, on
       // a session open in another window, and how to get there is said.
       const gave = await press($, { ...d, act: 'give' } as Press, sessionId)
-      if (gave) await update($, refused, () => `the name is that session's now; it is open in another window: \`claude attach ${d.to.slice(0, 8)}\``)
+      if (gave) {
+        const said = `the name is that session's now; it is open in another window: \`claude attach ${d.to.slice(0, 8)}\``
+        await update($, hint, () => said)
+        $.clock.after(HINT_MS, () => update($, hint, now => (now === said ? null : now)))
+      }
     } else if (d.act === 'give') {
       let said = ''
       try {
@@ -208,14 +217,16 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const now = await read($, said)
     const why = await read($, refused)
+    const way = await read($, hint)
     const branched = (await read($, forks)) ?? { name: '', here: true, forks: [] }
-    if (now === null || (now.ok && now.lines.length === 0 && branched.forks.length === 0 && why === null)) return next(e)
+    if (now === null || (now.ok && now.lines.length === 0 && branched.forks.length === 0 && why === null && way === null)) return next(e)
     const { Box, Text, Client } = $.ui.resolve(e)
     if (!now.ok) return <Box><Text color="red">{now.text}</Text></Box>
     return (
       <Box flexDirection="column">
         <Client key="lines" module="./lines.tsx" props={{ lines: now.lines, forks: branched.forks, name: branched.name, here: branched.here }} />
         {why === null ? null : <Text color="red">{why}</Text>}
+        {way === null ? null : <Text dimColor>{way}</Text>}
       </Box>
     )
   })
