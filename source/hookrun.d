@@ -23,8 +23,8 @@ module hookrun;
 //   permissionDecisionReason — (PreToolUse) shown to user (allow/ask) or Claude (deny)
 //   updatedInput             — (PreToolUse) replaces tool input before execution
 //   additionalContext        — (UserPromptSubmit required, PostToolUse optional) injected into context
-//   sessionTitle             — (UserPromptSubmit, SessionStart) sets session title, same as /rename;
-//                              ground sets it to the name the session holds (lineage.retitle)
+//   「[Opus 5.5] sessionTitle             — (UserPromptSubmit, SessionStart) sets session title, same as /rename;」
+//                              「[Opus 5.5] ground sets it to the name the session holds (lineage.retitle)」
 //
 // TODO: output fields ground doesn't emit yet:
 //   suppressOutput  — could silence verbose hooks (e.g. build-timing)
