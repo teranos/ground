@@ -13,8 +13,8 @@ const said = atom({ plugin: 'ag', key: 'said' } as const, null)
 // the lines until the next press.
 const refused = atom({ plugin: 'ag', key: 'refused' } as const, null)
 // "i dont like that it lingers though"
-// Where to find a branch that took the name: said under the rows for
-// HINT_MS, then gone. It is no refusal, and is not drawn as one.
+// 「[Opus 5.5] Where to find a branch that took the name: said under the rows for」
+// 「[Opus 5.5] HINT_MS, then gone. It is no refusal, and is not drawn as one.」
 const hint = atom({ plugin: 'ag', key: 'hint' } as const, null)
 const HINT_MS = 10000
 // "maybe i want that session to inherit the name and not you"
