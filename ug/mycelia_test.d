@@ -184,3 +184,14 @@ static assert(requestOf("POST /pair HTTP/1.1\r\nHost: mycelia\r\n\r\n").path == 
 static assert(requestOf("POST /pair HTTP/1.1\r\nHost: mycelia\r\n\r\n").secret.length == 0, "pairing carries no secret");
 static assert(!requestOf("/api/collected/cancel\n{}").http, "the old way of asking is no click");
 static assert(requestOf("POST /x HTTP/1.1\r\nx-ag-secret: lower\r\n\r\n").secret == "lower", "a header's name is any case");
+
+// "k is down because of it, we burnt through data budget"
+// The node's answer for what is collected was 2,662,310 bytes, asked every
+// five-second pass: about 1.9 GB an hour. It is asked once COLLECTED_EVERY,
+// and once right after a press, so ag shows what the person just did.
+import mycelia : collectedDue, COLLECTED_EVERY;
+static assert(collectedDue(0, 1000, false), "never asked is due");
+static assert(!collectedDue(1000, 1000 + COLLECTED_EVERY - 1, false), "asked within the interval is not");
+static assert(collectedDue(1000, 1000 + COLLECTED_EVERY, false));
+static assert(collectedDue(1000, 1001, true), "a press makes it due");
+static assert(COLLECTED_EVERY >= 300);
