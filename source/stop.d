@@ -240,7 +240,9 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
         import matcher : contains;
         import controls : stopScopes;
         import hooks : scopeMatches;
-        if (lastMsg !is null) {
+        // "i need to be able to say gates off"
+        import gates : gatesOff;
+        if (lastMsg !is null && !gatesOff(sessionId)) {
             foreach (ref sc; stopScopes) {
                 if (!scopeMatches(sc, cwd))
                     continue;
@@ -361,7 +363,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
 
     // Deliver-based Stop controls — no trigger, main only, compaction-window dedup
     {
-        if (branch == "main" || branch == "master") {
+        import gates : gatesOff;
+        if ((branch == "main" || branch == "master") && !gatesOff(sessionId)) {
             import controls : stopScopes;
             import hooks : scopeMatches;
 

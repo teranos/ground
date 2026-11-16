@@ -58,6 +58,20 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     auto prompt = extractPrompt(input);
     if (prompt is null) return 0;
 
+    // "can we make it somethng like a slahs command so its not spending a turn?"
+    // The prompt is already in the store, which is where gates are read from;
+    // blocking it erases it, so no model turn is spent on it.
+    {
+        import gates : isGatesOff, isGatesOn;
+        if (isGatesOff(prompt) || isGatesOn(prompt)) {
+            fputs(isGatesOff(prompt)
+                ? `{"decision":"block","reason":"gates off: no ground control gates this session until gates on"}`.ptr
+                : `{"decision":"block","reason":"gates on: ground's controls gate this session again"}`.ptr, stdout);
+            fputs("\n", stdout);
+            return 0;
+        }
+    }
+
     auto db = openDb();
 
     // "I dont know how to explain how serious this defect is"
