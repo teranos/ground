@@ -54,8 +54,8 @@ unittest {
     assert(said.slice() == "mycelia could not ask the node: QNTX 502\n", said.slice());
 }
 
-// mycelia asks for what is collected once every five minutes (ug/mycelia.d
-// COLLECTED_EVERY): an answer that old is current. One older than that and a
+// mycelia asks for what is collected once every five minutes (Ground-Institute/mycelia
+// mycelia.d COLLECTED_EVERY): an answer that old is current. One older than that and a
 // pass is not drawn as current.
 unittest {
     ZBuf said;
