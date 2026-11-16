@@ -1260,6 +1260,13 @@ void attestEventAt(
         idBuf.put(idTag);
     }
 
+    // A file the tool had whole in hand leaves its fingerprint on the row (fingerprint.d).
+    {
+        import fingerprint : withFingerprint;
+        __gshared ZBuf fingerprinted;
+        payload = withFingerprint(eventName, payload, fingerprinted);
+    }
+
     // Validate payload is valid JSON — truncated payloads (>64KB) break json_extract indexes
     if (payload.length > 0 && !jsonValid(db, payload)) {
         import core.stdc.stdio : stderr, fputs;
