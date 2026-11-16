@@ -276,7 +276,7 @@ int clickMain(const(char)[] home, const(char)[] name) {
 // nothing: the row is what mycelia kept.
 int tmuxMain(const(char)[] home, long now) {
     import core.stdc.stdio : stdout, fwrite, fputs;
-    import mycelia : readKept, silentInto, SILENT;
+    import kept : readKept, silentInto, SILENT;
 
     __gshared char[8192] line = void;
     size_t n;

@@ -108,7 +108,7 @@ build: wind
 UG_SOURCES = ug/main.d ug/input.d ug/head.d ug/report.d \
              ug/clock.d ug/row.d ug/json.d ug/git.d ug/status.d \
              ug/sql.d ug/perf.d ug/qntx.d ug/probe.d ug/path.d ug/statusline.d \
-             ug/tmux.d ug/mycelia.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
+             ug/tmux.d ug/kept.d ug/named.d ug/usage.d ug/fable.d source/sessionmodel.d source/libgit2.d source/costgate.d \
              source/http.d source/zbuf.d source/token.d source/signed.d
 
 # ground owns the schema and every row ug reads. ug writes one thing: the usage
@@ -119,60 +119,12 @@ ug: $(UG_SOURCES)
 	ldc2 -betterC -of=ug/ug -I=ug -I=source $(UG_SOURCES) $(UG_LIBS)
 
 # "so, why would the part that asks the node, not be able to be its own tiny binary"
-# mycelia asks the node; ground_tmux draws what it kept. Each is ug/bin/<name>.d
+# mycelia asks the node, from its own repository (Ground-Institute/mycelia);
+# ground_tmux draws what it kept (ug/kept.d). ground_tmux is ug/bin/ground_tmux.d
 # and the modules ug is built from, without ug's own main.
 UG_MODULES = $(filter-out ug/main.d,$(UG_SOURCES))
 ug/ground_tmux: $(UG_MODULES) ug/bin/ground_tmux.d
 	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/ground_tmux.d $(UG_MODULES) $(UG_LIBS)
-
-# "mycelia connect needs to also be a thing"
-# The Keychain (touch.c), and the door the browser comes back to (door.m),
-# carried by mycelia alone.
-ug/touch.o: ug/touch.c
-	clang -c -o $@ ug/touch.c
-ug/door.o: ug/door.m
-	clang -c -fobjc-arc -o $@ ug/door.m
-# A machine with no Keychain and no door, as k: mycelia asks the node and keeps
-# what it learns there, and a press made on it says it is the Mac's to make.
-ug/touch_none.o: ug/touch_none.c
-	$(CC) -c -o $@ ug/touch_none.c
-ifeq ($(shell uname -s),Darwin)
-MYCELIA_OWN = ug/touch.o ug/door.o
-MYCELIA_LIBS = -L-framework -LSecurity -L-framework -LCoreFoundation -L-framework -LAppKit -L-framework -LFoundation -L-framework -LLocalAuthentication
-else
-MYCELIA_OWN = ug/touch_none.o
-MYCELIA_LIBS =
-endif
-ug/mycelia: $(UG_MODULES) ug/bin/mycelia.d $(MYCELIA_OWN)
-	ldc2 -betterC -of=$@ -I=ug -I=source ug/bin/mycelia.d $(UG_MODULES) $(MYCELIA_OWN) $(UG_LIBS) $(MYCELIA_LIBS)
-
-# "kept. kept bro, i want to put my finger on, and then not have to thing about it anymore"
-# The person's session lives in a Keychain group only a binary signed with the
-# team's profile sees, so mycelia is an app: the binary, the profile, and a
-# signature naming the group. How this Mac signs is its own, outside the tree.
-# The app answers mycelia://, the door the node sends the browser back to, and
-# shows nothing: no Dock icon, no menu.
--include $(HOME)/.config/mycelia/signing.mk
-ug/Mycelia.app: ug/mycelia
-	@test -n "$(MYCELIA_IDENTITY)" || { echo "ug/Mycelia.app: ~/.config/mycelia/signing.mk names no MYCELIA_IDENTITY to sign with"; exit 1; }
-	rm -rf $@ && mkdir -p $@/Contents/MacOS
-	cp ug/mycelia $@/Contents/MacOS/mycelia
-	cp "$(MYCELIA_PROFILE)" $@/Contents/embedded.provisionprofile
-	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
-		'<key>CFBundleIdentifier</key><string>$(MYCELIA_BUNDLE)</string>' \
-		'<key>CFBundleExecutable</key><string>mycelia</string>' \
-		'<key>CFBundlePackageType</key><string>APPL</string>' \
-		'<key>LSUIElement</key><true/>' \
-		'<key>CFBundleURLTypes</key><array><dict>' \
-		'<key>CFBundleURLName</key><string>$(MYCELIA_BUNDLE).door</string>' \
-		'<key>CFBundleURLSchemes</key><array><string>mycelia</string></array>' \
-		'</dict></array>' '</dict></plist>' > $@/Contents/Info.plist
-	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
-		'<key>com.apple.application-identifier</key><string>$(MYCELIA_TEAM).$(MYCELIA_BUNDLE)</string>' \
-		'<key>com.apple.developer.team-identifier</key><string>$(MYCELIA_TEAM)</string>' \
-		'<key>keychain-access-groups</key><array><string>$(MYCELIA_TEAM).$(MYCELIA_BUNDLE)</string></array>' \
-		'</dict></plist>' > ug/mycelia.entitlements
-	codesign -f -s $(MYCELIA_IDENTITY) --entitlements ug/mycelia.entitlements $@
 
 # "make test should be the fast version"
 # "and ci does slower shit"
@@ -253,7 +205,7 @@ test-ug:
 	ldc2 -c -betterC -od=/tmp -I=ug ug/path.d ug/path_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug ug/row.d ug/clock.d ug/path.d ug/status.d ug/row_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/tmux.d ug/statusline.d ug/json.d ug/tmux_test.d
-	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/mycelia.d ug/tmux.d ug/statusline.d ug/json.d ug/mycelia_test.d
+	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/kept.d ug/tmux.d ug/statusline.d ug/json.d ug/kept_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/usage.d source/sessionmodel.d ug/usage_test.d
 	ldc2 -c -betterC -od=/tmp -I=ug -I=source ug/fable.d ug/json.d ug/statusline.d ug/probe.d ug/qntx.d source/http.d source/zbuf.d ug/fable_test.d
 	ldc2 -betterC -of=/tmp/ug-close-test -I=ug ug/sql.d ug/close_test.d -L-lsqlite3
@@ -274,13 +226,9 @@ test-ug-live: build ug
 # onto an existing file keeps its inode. On 2026-09-14, arm64 macOS: the ground
 # cp wrote over the running one was SIGKILLed on every launch, codesign said
 # valid, and the same bytes copied to a new inode ran.
-install-ug: ug ug/Mycelia.app ug/ground_tmux
-	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/mycelia
+install-ug: ug ug/ground_tmux
+	mkdir -p $(PREFIX)/bin
 	for b in ug ground_tmux; do cp ug/$$b $(PREFIX)/bin/$$b.new && mv -f $(PREFIX)/bin/$$b.new $(PREFIX)/bin/$$b; done
-	rm -rf $(PREFIX)/lib/mycelia/Mycelia.app.new && cp -R ug/Mycelia.app $(PREFIX)/lib/mycelia/Mycelia.app.new
-	rm -rf $(PREFIX)/lib/mycelia/Mycelia.app && mv $(PREFIX)/lib/mycelia/Mycelia.app.new $(PREFIX)/lib/mycelia/Mycelia.app
-	ln -sfn ../lib/mycelia/Mycelia.app/Contents/MacOS/mycelia $(PREFIX)/bin/mycelia
-	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f $(PREFIX)/lib/mycelia/Mycelia.app
 
 # "make ground aget fix it"
 # 「[Opus 5.5] A tree without controls/local folds no project, and its sand in place of the machine's is the floor:」
