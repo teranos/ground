@@ -22,9 +22,9 @@ ground collected cancel Mycelia 6f1c2a9d3b4e5f60
 EOS";
 
 // How old an answer may be before mycelia is taken to have stopped asking:
-// mycelia asks once every five minutes (ug/mycelia.d COLLECTED_EVERY), and an
-// answer is current through that and one minute more, as ground_tmux allows a
-// row (ug/mycelia.d SILENT).
+// mycelia asks once every five minutes (Ground-Institute/mycelia
+// mycelia.d COLLECTED_EVERY), and an answer is current through that and one
+// minute more, as ground_tmux allows a row (ug/kept.d SILENT).
 enum SILENT = 300 + 60;
 
 // What is kept for did, said into out_, one line a message: when it is due

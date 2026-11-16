@@ -20,6 +20,7 @@ static assert(!gatesOffIn(["gates on", "gates off"]), "the latest one said decid
 static assert(gatesOffIn(["gates off", "gates on"]));
 
 // "can we make it somethng like a slahs command so its not spending a turn?"
+// book: gates-isGatesOff
 // The slash form is the same words, and either is answered by ground alone.
 static assert(isGatesOff("/gates off"));
 static assert(isGatesOn("/gates on"));

@@ -13,6 +13,13 @@ ground shovel session ses90l3m
 # post the pbt's attestations to their backends (make install does):
 ground attest
 
+# the sessions that branched from the one this ground runs in, by their id:
+ground forks
+# the same, as the data ag draws:
+ground forks json
+# this session's key and name go to one of them, and its key comes here:
+ground forks give fa8a1589-576c-4ecb-84c8-f7d0f357b448
+
 # the session this ground runs in takes a name at its node, by its own key;
 # a name another agent holds is refused, and so is what the node holds to be no name:
 ground name Alder
@@ -30,6 +37,18 @@ ground heard Slate 01a1d0c3-0922-759f-a495-a1e92e3a6851
 # say by hand that this session received what a Task said to its name; sky
 # says so itself as it hands the words over:
 ground received 01a1d0c3-0922-759f-a495-a1e92e3a6851
+
+# bring this session's memory in step with its Memory Store at its node, both ways:
+ground memory
+
+# what waits for this session, and what it said that waits for another, as mycelia kept them:
+ground collected
+# the same, as the data ag draws above the prompt:
+ground collected json
+# what a person does with what waits for an agent, made by mycelia in the person's session:
+ground collected release Mycelia
+ground collected hold Mycelia 18:00
+ground collected cancel Mycelia 6f1c2a9d3b4e5f60
 
 # where a rule in Claude Code's settings JSON says other than ground says:
 ground disagreements
