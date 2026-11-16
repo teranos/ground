@@ -100,7 +100,7 @@ struct Owner {
 immutable Owner[] owners = [
     Owner("scope",       ["matcher", "scratchdir", "audience", "public", "rewrite_scope", "git", "fmt"]),
     Owner("control",     ["hooks", "strop", "exec", "posttooluse", "messagedisplay", "control_handlers",
-                          "playbill"]),
+                          "playbill", "gates"]),
     Owner("parity",      ["parity"]),
     Owner("ctfe",        ["ctfe"]),
     Owner("code",        ["code", "prompt"]),

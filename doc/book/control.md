@@ -91,6 +91,9 @@ The pbt names the word; the session's model as ug wrote it is matched on it.
 
 ## exec-floorOnly
 
+## gates-isGatesOff
+`/gates off` is the same words as `gates off`, answered by ground without spending a turn: no PreToolUse control denies or asks, and no Stop control holds, until `gates on`.
+
 ## messagedisplay-spoken
 
 ## messagedisplay-CI_GUTTER
