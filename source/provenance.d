@@ -156,17 +156,20 @@ unittest {
     assert(standsAlone(`/// "a"`, Span(true, 5, 6), "//"));
     assert(!standsAlone(`/// x "a"`, Span(true, 7, 8), "//"));
 
+    // The span crosses newlines; only its two edges are the line question.
+    assert(standsAlone("\"a\nb\"", Span(true, 1, 4)));
+    assert(!standsAlone("pre \"a\nb\"", Span(true, 5, 8)));
+    assert(!standsAlone("\"a\nb\" post", Span(true, 1, 4)));
+}
+
+unittest {
     // "can we make ground a little bit more lenient"
+    // book: provenance-standsAlone
     // `//!` is Rust's comment on the module it sits in: a comment too, so a
     // quote on its own `//!` line stands alone.
     assert(standsAlone(`//! "a"`, Span(true, 5, 6), "//"));
     assert(!standsAlone(`//! x "a"`, Span(true, 7, 8), "//"));
     assert(!standsAlone(`//! "a"`, Span(true, 5, 6), "#"));
-
-    // The span crosses newlines; only its two edges are the line question.
-    assert(standsAlone("\"a\nb\"", Span(true, 1, 4)));
-    assert(!standsAlone("pre \"a\nb\"", Span(true, 5, 8)));
-    assert(!standsAlone("\"a\nb\" post", Span(true, 1, 4)));
 }
 
 // What opens a comment, per language. A union of every marker is not a table:
