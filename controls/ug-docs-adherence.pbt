@@ -50,12 +50,20 @@ scope {
   control {
     name: "quotes-stand-alone"
     check_handler: "quoteStandsAlone"
+    # "the rule is for semantically weaker models like Opus"
+    handler_params {
+      unless_model: "fable"
+    }
     msg: "A quoted span shares its line with other text."
   }
 
   control {
     name: "quotes-keep-chronology"
     check_handler: "quoteChronology"
+    # "the rule is for semantically weaker models like Opus"
+    handler_params {
+      unless_model: "fable"
+    }
     msg: "Quoted spans appear in a different order than they were said."
   }
 }

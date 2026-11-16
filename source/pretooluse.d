@@ -993,9 +993,14 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 }
             }
 
+            // "i need to be able to say gates off"
+            import gates : gatesOff;
+            auto lifted = gatesOff(sessionId);
+
             foreach (idx; 0 .. results.count) {
                 auto m = results.matches[idx];
                 auto c = m.control;
+                if (lifted) continue;
                 {
                     import control_handlers : sparedByModel, sparedByAgent;
                     if (sparedByModel(sessionModel, *c)) continue;
@@ -1410,11 +1415,36 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         const(char)[] toolInput;
         bool toolInputExtracted = false;
 
+        // "i need to be able to say gates off"
+        import gates : gatesOff;
+        auto lifted = gatesOff(sessionId);
+
+        // The session's model, for a control unless_model spares: file
+        // controls were never asked it, so `unless_model: "fable"` on a quote
+        // gate held Fable all the same.
+        const(char)[] fileModel;
+        {
+            import db : modelOf;
+            __gshared char[128] fileModelBuf = 0;
+            if (db !is null) {
+                auto held = modelOf(db, sessionId).model();
+                auto n = held.length < fileModelBuf.length ? held.length : fileModelBuf.length;
+                fileModelBuf[0 .. n] = held[0 .. n];
+                fileModel = fileModelBuf[0 .. n];
+            }
+        }
+
         foreach (ref sc; allScopes) {
+            if (lifted) break;
             if (!scopeMatches(sc, cwd)) continue;
             if (sc.cmdCount > 0) continue; // scope-level cmd scopes only apply to Bash commands
             foreach (ref c; sc.controls) {
                 if (c.cmd.len > 0) continue; // command controls handled above
+                {
+                    import control_handlers : sparedByModel, sparedByAgent;
+                    if (sparedByModel(fileModel, c)) continue;
+                    if (sparedByAgent(codexAsks ? "codex" : "claude", c)) continue;
+                }
 
                 // Set when a check could not evaluate its condition; replaces the
                 // authored msg so the user reads what was measured, not a guess.
