@@ -24,6 +24,9 @@ A sand that names no node: the floor's, or a sand built without a qntx block. Th
 ## provenance-onProseLine
 A string inside code that was commented out is code's, not a quote.
 
+## provenance-standsAlone
+Rust's `//!` is a comment as `//` is, so a quote alone on a `//!` line stands alone.
+
 ## sessiontrail-sqlite3_open
 Decay keeps the path at the top of the attributes; the session stays in contexts. Read by the index on the path, not by a walk of every row. 2026-09-01T12:00:00Z, after "before" and ahead of the rest. The model and effort in force at the session's last edit of the file, not the ones it switched to after. A session ground never recorded a model for is named by its id alone.
 
