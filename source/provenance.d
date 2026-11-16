@@ -103,9 +103,11 @@ private bool isWs(char c) {
 // True when the span's own two lines carry nothing but the quote. A comment
 // marker is where the line begins, so it is the one prefix that is not company.
 // `///` opens the same comment `//` does, and press reads both as prose. A
-// quote that cannot stand on a `///` line cannot reach the book.
+// quote that cannot stand on a `///` line cannot reach the book. `//!` is
+// Rust's comment on the module it sits in, a comment as much.
 bool isDdoc(const(char)[] prefix, const(char)[] marker) {
     if (marker != "//" || prefix.length < 3) return false;
+    if (prefix == "//!") return true;
     foreach (c; prefix) if (c != '/') return false;
     return true;
 }
@@ -153,6 +155,13 @@ unittest {
     // that cannot stand on a `///` line cannot reach the book at all.
     assert(standsAlone(`/// "a"`, Span(true, 5, 6), "//"));
     assert(!standsAlone(`/// x "a"`, Span(true, 7, 8), "//"));
+
+    // "can we make ground a little bit more lenient"
+    // `//!` is Rust's comment on the module it sits in: a comment too, so a
+    // quote on its own `//!` line stands alone.
+    assert(standsAlone(`//! "a"`, Span(true, 5, 6), "//"));
+    assert(!standsAlone(`//! x "a"`, Span(true, 7, 8), "//"));
+    assert(!standsAlone(`//! "a"`, Span(true, 5, 6), "#"));
 
     // The span crosses newlines; only its two edges are the line question.
     assert(standsAlone("\"a\nb\"", Span(true, 1, 4)));
