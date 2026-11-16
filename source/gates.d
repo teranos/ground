@@ -26,8 +26,14 @@ private bool sameFolded(const(char)[] a, const(char)[] b) {
     return true;
 }
 
-bool isGatesOff(const(char)[] prompt) { return sameFolded(trimmed(prompt), "gates off"); }
-bool isGatesOn(const(char)[] prompt) { return sameFolded(trimmed(prompt), "gates on"); }
+// The words alone, or the slash command of the same words.
+private const(char)[] said(const(char)[] prompt) {
+    auto t = trimmed(prompt);
+    return t.length > 0 && t[0] == '/' ? t[1 .. $] : t;
+}
+
+bool isGatesOff(const(char)[] prompt) { return sameFolded(said(prompt), "gates off"); }
+bool isGatesOn(const(char)[] prompt) { return sameFolded(said(prompt), "gates on"); }
 
 // Prompts newest first: the first `gates off` or `gates on` met decides.
 bool gatesOffIn(const(char[])[] prompts) {
@@ -57,7 +63,7 @@ bool gatesOff(const(char)[] sessionId) {
     enum sql = "SELECT json_extract(attributes, '$.prompt') FROM attestations "
         ~ "WHERE json_extract(predicates, '$[0]') IN ('UserPromptSubmit','QueuedPromptSubmit') "
         ~ "AND json_extract(contexts, '$[0]') = ?1 "
-        ~ "AND lower(trim(json_extract(attributes, '$.prompt'), ' ' || char(10) || char(13) || char(9))) IN ('gates off','gates on') "
+        ~ "AND lower(trim(json_extract(attributes, '$.prompt'), ' ' || char(10) || char(13) || char(9))) IN ('gates off','gates on','/gates off','/gates on') "
         ~ "ORDER BY rowid DESC LIMIT 1\0";
 
     bool off = false;
