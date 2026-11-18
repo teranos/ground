@@ -511,6 +511,40 @@ bool overridden(sqlite3* db, long id, long reading, long now) {
     return close_(db, id, reading, now, "person");
 }
 
+// 「[Opus 5.5] "this is also a bug": a pin let go because a person set the key closed,」
+// 「[Opus 5.5] and the next pass found no pin and took the key again, over the person's」
+// 「[Opus 5.5] medium, at the very next reading. What a person set holds for the rest of」
+// 「[Opus 5.5] the window: whether the model's latest pin was ended by a person, in a」
+// 「[Opus 5.5] window that has not fallen since.」
+bool handHolds(sqlite3* db, const(char)[] model) {
+    enum sql = "SELECT released_at, released_by, hand_ended_at FROM effort_pin WHERE model = ?1 "
+        ~ "ORDER BY id DESC LIMIT 1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    scope (exit) sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt, 1, model.ptr, cast(int) model.length, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW) return false;
+    if (sqlite3_column_int64(stmt, 0) == 0 || sqlite3_column_int64(stmt, 2) != 0) return false;
+    import core.stdc.string : strlen;
+    auto by = cast(const(char)*) sqlite3_column_text(stmt, 1);
+    return by !is null && by[0 .. strlen(by)] == "person";
+}
+
+// 「[Opus 5.5] The window fell: what the person set no longer holds ground off, and ground」
+// 「[Opus 5.5] may take the key the next time the window climbs. The key itself is left as」
+// 「[Opus 5.5] the person set it.」
+bool handEnds(sqlite3* db, const(char)[] model, long now) {
+    enum sql = "UPDATE effort_pin SET hand_ended_at = ?1 WHERE model = ?2 AND released_by = 'person' "
+        ~ "AND released_at != 0 AND hand_ended_at = 0\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return false;
+    sqlite3_bind_int64(stmt, 1, now);
+    sqlite3_bind_text(stmt, 2, model.ptr, cast(int) model.length, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return sqlite3_changes(db) > 0;
+}
+
 // ---- what one look decides ----
 
 enum Move {
@@ -524,13 +558,14 @@ enum Move {
 // The whole decision, with no file and no store in it, so it can be read in
 // one sitting and asserted on without either.
 //   held   — is there an open pin for this model
+//   hand   — does a key a person set still hold this window (handHolds)
 //   wanted — what the window asks for now, "" for nothing
 //   wrote  — what the pin put in the key
 //   now_   — what the key holds this moment
 //   before — what the key held when the pin took it
-Move decide(bool held, const(char)[] wanted, const(char)[] wrote,
+Move decide(bool held, bool hand, const(char)[] wanted, const(char)[] wrote,
             const(char)[] now_, const(char)[] before) {
-    if (!held) return wanted.length == 0 ? Move.nothing : Move.take;
+    if (!held) return (wanted.length == 0 || hand) ? Move.nothing : Move.take;
     // "setting it manuall should override any setting ground puts" — a key
     // that no longer says what ground wrote is a key ground no longer owns,
     // and that is true whether the window has fallen or not.
@@ -680,7 +715,13 @@ private void onePass(sqlite3* db, const(char)[] model, const(char)[] window,
     if (n == 0) return;
     auto standing = modelEffortIn(file[0 .. n], model);
 
-    final switch (decide(p.open, wanted, p.wrote(), standing, p.before())) {
+    auto hand = !p.open && handHolds(db, model);
+    if (hand && wanted.length == 0) {
+        handEnds(db, model, now);
+        hand = false;
+    }
+
+    final switch (decide(p.open, hand, wanted, p.wrote(), standing, p.before())) {
         case Move.nothing:
             return;
 

@@ -78,28 +78,93 @@ unittest {
 // --- what one look decides, before anything is written ---
 
 // No pin and a reading that asks for nothing: nothing happens.
-static assert(decide(false, "", "", "", "high") == Move.nothing);
+static assert(decide(false, false, "", "", "", "high") == Move.nothing);
 
 // No pin and a reading that asks: take the key.
-static assert(decide(false, "medium", "", "", "high") == Move.take);
+static assert(decide(false, false, "medium", "", "", "high") == Move.take);
 
 // Holding the key, and the reading still asks for what is written: nothing.
-static assert(decide(true, "medium", "medium", "medium", "high") == Move.nothing);
+static assert(decide(true, false, "medium", "medium", "medium", "high") == Move.nothing);
 
 // Holding the key, and the reading now asks for less room: move it.
-static assert(decide(true, "low", "medium", "medium", "high") == Move.move);
+static assert(decide(true, false, "low", "medium", "medium", "high") == Move.move);
 
 // Holding the key, and the window has fallen: give it back.
-static assert(decide(true, "", "medium", "medium", "high") == Move.give);
+static assert(decide(true, false, "", "medium", "medium", "high") == Move.give);
 
 // "setting it manuall should override any setting ground puts"
 // book: effort_pass-decide
-static assert(decide(true, "low", "medium", "high", "high") == Move.letGo);
-static assert(decide(true, "", "medium", "high", "high") == Move.letGo);
-static assert(decide(true, "medium", "medium", "xhigh", "high") == Move.letGo);
+static assert(decide(true, false, "low", "medium", "high", "high") == Move.letGo);
+static assert(decide(true, false, "", "medium", "high", "high") == Move.letGo);
+static assert(decide(true, false, "medium", "medium", "xhigh", "high") == Move.letGo);
 
 // A key emptied by hand is still a person's doing.
-static assert(decide(true, "low", "medium", "", "high") == Move.letGo);
+static assert(decide(true, false, "low", "medium", "", "high") == Move.letGo);
+
+// 「[Opus 5.5] "overwriting the medium you set by hand. it should not do this"」
+// 「[Opus 5.5] No pin, and what a person set holds this window: the window asking is not」
+// 「[Opus 5.5] enough to take the key back.」
+static assert(decide(false, true, "low", "", "medium", "") == Move.nothing);
+static assert(decide(false, true, "medium", "", "high", "") == Move.nothing);
+
+// 「[Opus 5.5] The person sets medium at 95%; the week climbs to 97%; ground leaves it.」
+// 「[Opus 5.5] The week resets; the next time it climbs, ground may take the key again.」
+unittest {
+    import core.stdc.stdio : snprintf, fopen, fputs, fclose, fread;
+    import core.sys.posix.stdlib : setenv;
+    import core.sys.posix.unistd : getpid;
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK, mkdir, recordModel;
+    import effort : effortPass, handHolds, modelEffortIn;
+    char[256] home = 0;
+    snprintf(home.ptr, home.length, "/tmp/ground-effort-hand-%d", getpid());
+    mkdir(home.ptr, 448);
+    char[256] dir = 0;
+    snprintf(dir.ptr, dir.length, "/tmp/ground-effort-hand-%d/.claude", getpid());
+    mkdir(dir.ptr, 448);
+    char[256] file = 0;
+    snprintf(file.ptr, file.length, "/tmp/ground-effort-hand-%d/.claude/settings.json", getpid());
+    void write(const(char)* text) {
+        auto f = fopen(file.ptr, "w");
+        assert(f !is null);
+        fputs(text, f);
+        fclose(f);
+    }
+    const(char)[] effortNow() {
+        __gshared char[4096] buf = 0;
+        auto f = fopen(file.ptr, "r");
+        assert(f !is null);
+        auto n = fread(buf.ptr, 1, buf.length, f);
+        fclose(f);
+        return modelEffortIn(buf[0 .. n], "claude-opus-5-5");
+    }
+    write(`{"modelSettings": {}}`);
+    setenv("HOME", home.ptr, 1);
+
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+    assert(recordModel(db, "s-1", "claude-opus-5-5", "high", 1000));
+
+    effortPass(db, 950, -1, 2000);
+    assert(effortNow() == "low", "the week at 95% pins low");
+
+    write(`{"modelSettings": {"claude-opus-5-5": {"effortLevel": "medium"}}}`);
+    effortPass(db, 950, -1, 3000);
+    assert(!openPin(db, "claude-opus-5-5").open, "a person set medium: ground lets go");
+    assert(handHolds(db, "claude-opus-5-5"));
+
+    effortPass(db, 970, -1, 4000);
+    assert(effortNow() == "medium", "the week climbs to 97% and the person's medium stands");
+    assert(!openPin(db, "claude-opus-5-5").open, "and ground holds no pin");
+
+    effortPass(db, 120, -1, 5000);
+    assert(!handHolds(db, "claude-opus-5-5"), "the week reset: the person's setting no longer holds ground off");
+    assert(effortNow() == "medium", "and the key stays as the person set it");
+
+    effortPass(db, 950, -1, 6000);
+    assert(effortNow() == "low", "the next week past its limit pins again");
+}
 
 // "the hardcoded list is BS"
 // The pass governs the models sessions ran, read from session_model: a Fable

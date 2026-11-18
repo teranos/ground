@@ -665,6 +665,9 @@ bool applySchema(sqlite3* db) {
     ensureColumn(db, "effort_pin", "model", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(db, "effort_pin", "wrote", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(db, "effort_pin", "released_by", "TEXT NOT NULL DEFAULT ''");
+    // 「[Opus 5.5] A key a person set stands for the rest of the window: when the window」
+    // 「[Opus 5.5] fell, the pin it ended says so, and ground may take the key again.」
+    ensureColumn(db, "effort_pin", "hand_ended_at", "INTEGER NOT NULL DEFAULT 0");
 
     // "needs to be instrumented"
     // One row per long-lived ground process, watcher or driver: when it started,
