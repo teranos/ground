@@ -134,6 +134,12 @@ size_t ingestTranscript(sqlite3* db, const(char)[] path, const(char)[] sessionId
     }
     if (start >= n) return 0;
 
+    // 「[Opus 5.5] The same tail holds each CLAUDE.md the session was given partway」
+    // 「[Opus 5.5] through (policy.d).」
+    {
+        import policy : keepNestedFrom;
+        keepNestedFrom(db, buf[start .. n], sessionId);
+    }
     return ingestQueued(db, buf[start .. n], sessionId, cwd);
 }
 
