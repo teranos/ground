@@ -63,6 +63,8 @@ __gshared bool codexAsks;
 // What the file controls said of a file the Bash call writes, short of a
 // deny: carried on whatever the call is answered with.
 __gshared const(char)[] shellWriteSaid;
+// 「[Opus 5.5] Where a clone or worktree aimed at the scratchpad was put instead (scratchclone.d).」
+__gshared const(char)[] scratchCloneSaid;
 
 // While an apply_patch is answered a file at a time, each file's answer is
 // kept here, and the patch gets one answer for all of them.
@@ -313,10 +315,11 @@ void writeResponse(const(char)[] command, const(char)[] context, const(char)[] d
 {
     __gshared char[262144] out_ = "";
     __gshared Buf said;
-    if (shellWriteSaid.length > 0 || scrubSaid.length > 0) {
+    if (shellWriteSaid.length > 0 || scrubSaid.length > 0 || scratchCloneSaid.length > 0) {
         said = Buf.init;
         if (scrubSaid.length > 0) said.put(scrubSaid);
         if (shellWriteSaid.length > 0) { if (said.len > 0) said.put(" | "); said.put(shellWriteSaid); }
+        if (scratchCloneSaid.length > 0) { if (said.len > 0) said.put(" | "); said.put(scratchCloneSaid); }
         if (context.length > 0) { said.put(" | "); said.put(context); }
         context = said.slice();
     }
@@ -931,6 +934,38 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
 
         tBinary = usecNow();
 
+        // "LISTEN TO ME, I WANT TO BAN GIT CLONES IN SCRATCHPADS"
+        // 「[Opus 5.5] Moved before anything else reads the command, so the controls meet it」
+        // 「[Opus 5.5] where it will run. scratchclone.d holds the why.」
+        scratchCloneSaid = null;
+        if (toolName == "Bash") {
+            import scratchclone : outOfScratch, toldOf, takenOnDisk, repoHome, Moved, claudeTmpRoot;
+            import matcher : shellHome;
+            import core.stdc.stdlib : getenv;
+            __gshared char[4096] rootBuf = 0;
+            __gshared char[262144] movedCmd = 0;
+            __gshared Moved mv;
+            __gshared char[4096] told = 0;
+            auto rn = claudeTmpRoot(rootBuf[]);
+            auto job = getenv("CLAUDE_JOB_DIR\0".ptr);
+            size_t jl = 0;
+            if (job !is null) while (job[jl] != 0) jl++;
+            // 「[Opus 5.5] Claude Code hands every hook CLAUDE_PROJECT_DIR, the session's own」
+            // 「[Opus 5.5] directory (the sky's env, 2026-11-18); cwd is where the shell stands.」
+            auto pd = getenv("CLAUDE_PROJECT_DIR\0".ptr);
+            size_t pl = 0;
+            if (pd !is null) while (pd[pl] != 0) pl++;
+            auto workDir = pl > 0 ? pd[0 .. pl] : cwd;
+            mv = outOfScratch!(takenOnDisk, repoHome)(command, cwd, workDir, shellHome(), rootBuf[0 .. rn],
+                job is null ? "" : job[0 .. jl], movedCmd[]);
+            if (mv.moved) {
+                command = movedCmd[0 .. mv.len];
+                scratchCloneSaid = told[0 .. toldOf(mv, told[])];
+                import fired : noteFiredNow;
+                noteFiredNow(sessionId, "PreToolUse", "rewrite", "clone-out-of-scratch", "rewrite", cwd);
+            }
+        }
+
         // "i will be able to trace back to the exact conversation, even years back"
         bool provenanced = false;
         {
@@ -1254,7 +1289,7 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
             return 0;
         }
         // The commit with its sessions is the command, whoever else spoke.
-        if (provenanced || shellWriteSaid.length > 0 || commandScrubbed) writeResponse(command, "", "");
+        if (provenanced || shellWriteSaid.length > 0 || commandScrubbed || scratchCloneSaid.length > 0) writeResponse(command, "", "");
         return 0;
     }
 
