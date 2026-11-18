@@ -651,6 +651,18 @@ bool applySchema(sqlite3* db) {
     enum idxSessionModel = "CREATE INDEX IF NOT EXISTS idx_session_model ON session_model(session, id)\0";
     sqlite3_exec(db, idxSessionModel.ptr, null, null, null);
 
+    // "Which policy a session ran under." "this is something i want"
+    // 「[Opus 5.5] Each CLAUDE.md a session was given, by the hash of its text, a row each」
+    // 「[Opus 5.5] time that changes for the session; and each text once (policy.d).」
+    enum sessionPolicySchema = "CREATE TABLE IF NOT EXISTS session_policy (id INTEGER PRIMARY KEY, "
+        ~ "session TEXT NOT NULL, path TEXT NOT NULL, hash TEXT NOT NULL, since INTEGER NOT NULL)\0";
+    sqlite3_exec(db, sessionPolicySchema.ptr, null, null, null);
+    enum idxSessionPolicy = "CREATE INDEX IF NOT EXISTS idx_session_policy ON session_policy(session, path, id)\0";
+    sqlite3_exec(db, idxSessionPolicy.ptr, null, null, null);
+    enum policyTextSchema = "CREATE TABLE IF NOT EXISTS policy_text (hash TEXT PRIMARY KEY, "
+        ~ "text TEXT NOT NULL, first_at INTEGER NOT NULL, first_path TEXT NOT NULL)\0";
+    sqlite3_exec(db, policyTextSchema.ptr, null, null, null);
+
     // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
     // The pin the sky holds on effortLevel: what the setting was before, the
     // reading that pinned it, and when it was let go, with the reading then.

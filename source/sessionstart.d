@@ -159,6 +159,22 @@ int handleSessionStart(const(char)[] source, const(char)[] cwd, const(char)[] se
                 sqlite3_step(stmt);
                 sqlite3_finalize(stmt);
             }
+            // "Which policy a session ran under." "this is something i want"
+            {
+                import policy : keepPoliciesAt;
+                import core.stdc.stdlib : getenv;
+                import core.stdc.time : time;
+                auto home = getenv("HOME\0".ptr);
+                size_t hl = 0;
+                if (home !is null) while (home[hl] != 0) hl++;
+                // 「[Opus 5.5] Where the session itself works, as Claude Code tells every hook;」
+                // 「[Opus 5.5] cwd when it does not.」
+                auto pd = getenv("CLAUDE_PROJECT_DIR\0".ptr);
+                size_t pl = 0;
+                if (pd !is null) while (pd[pl] != 0) pl++;
+                keepPoliciesAt(db, sessionId, home is null ? "" : home[0 .. hl],
+                               pl > 0 ? pd[0 .. pl] : cwd, cast(long) time(null));
+            }
             sqlite3_close(db);
         }
     }
