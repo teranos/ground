@@ -304,8 +304,8 @@ int nameSession(const(char)[] node, const(char)* keyAt, const(char)[] wanted, co
 }
 
 // What Claude Code calls the session whose process is pid: `name` in
-// $CLAUDE_CONFIG_DIR/sessions/<pid>.json, else ~/.claude/sessions/<pid>.json,
-// where Claude Code keeps it. Null when there is none.
+// 「[Opus 5.5] $CLAUDE_CONFIG_DIR/sessions/<pid>.json, else ~/.claude/sessions/<pid>.json,」
+// 「[Opus 5.5] where Claude Code keeps it. Null when there is none.」
 const(char)[] harnessName(int pid, char[] buf) {
     import core.stdc.stdlib : getenv;
     import core.stdc.stdio : fopen, fread, fclose;
