@@ -86,7 +86,7 @@ If you are developing ground, `make install-parity` also installs `ground_parity
 
 ## How it works
 
-`ground_hook` runs as a Claude Code hook across all events. The contract it answers is the pinned agent binaries' own: `ground_parity` shows how much of each version's ground covers. Every event is attested with its full payload, and goes to QNTX without its tool payloads. Actions for command controls:
+`ground_hook` runs as a Claude Code hook across all events. The contract it answers is the pinned agent binaries' own: `ground_parity` shows how much of each version's ground covers. Every event is attested with its full payload, and goes to QNTX without its tool payloads. Every line of the session's transcript, and of each subagent's, is kept as written, whatever its type: what no hook carries, a slash command or a mode change, is in the store too. Actions for command controls:
 
 - **arg** — insert missing arguments after the matched command
 - **omit** — strip unwanted flags from the command
