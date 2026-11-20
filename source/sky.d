@@ -445,6 +445,14 @@ int handleSky(int argc, const(char)** argv) {
     // session it was spawned for is then watched by the one holding the tree,
     // or by nobody, and the record is how that is told apart later.
     auto holder = claimTree(cwd, myPid, sessionId, stopEvent);
+    // "A SESSION THATS SENDING TO ANOTHER SESSION BY NAME IS TOLD ABOUT THE MESSAGE BEING RECEIVED OR NOT"
+    // The tree's courier hands its own session what is addressed to it, and
+    // no other: a second session in the tree was handed nothing, ever (Vision,
+    // 2026-11-19: the tree held by another session's courier since 13:23, and
+    // what was said to Vision by name never reached it). Refused the tree, a
+    // courier still carries its own session's messages, and nothing else.
+    if (holder != 0 && handsAlone(sessionId.length > 0))
+        return handSession(cwd, sessionId, tree, myPid, myPpid, stopEvent, holder);
     if (holder != 0) {
         if (!refusalSaid(stopEvent)) return 0;
         auto rdb = openDb();
@@ -805,6 +813,124 @@ int handleSky(int argc, const(char)** argv) {
         }
 
         sleep(nextSleep);
+    }
+}
+
+// Whether a courier refused the tree carries its own session's messages: only
+// one that knows its session, since what is addressed to it is found by it.
+bool handsAlone(bool sessionKnown) {
+    return sessionKnown;
+}
+
+unittest {
+    assert(handsAlone(true), "refused the tree, a courier still hands its session what is addressed to it");
+    assert(!handsAlone(false), "a courier that knows no session has nobody to hand anything to");
+}
+
+enum SESSION_FILE = "sky-session-";
+
+// 0 when this process now carries its session's messages; the pid of the
+// live courier that already does otherwise. A Stop's courier replaces its
+// own session's, as claimTree does.
+int claimSessionCourier(const(char)[] sessionId, int myPid, bool stopEvent) {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, SESSION_FILE, sessionId, ".pid") == 0) return 0;
+    auto rf = fopen(&pathBuf[0], "r");
+    if (rf !is null) {
+        char[16] pidBuf = 0;
+        auto n = fread(&pidBuf[0], 1, 15, rf);
+        fclose(rf);
+        auto held = parsePid(pidBuf[0 .. n]);
+        if (held > 0 && held != myPid && kill(held, 0) == 0) {
+            if (!stopEvent) return held;
+            kill(held, 15); // SIGTERM: a Stop's courier replaces its own session's
+        }
+    }
+    auto wf = fopen(&pathBuf[0], "w");
+    if (wf is null) return 0;
+    fprintf(wf, "%d\n", myPid);
+    fclose(wf);
+    return 0;
+}
+
+void releaseSessionCourier(const(char)[] sessionId) {
+    __gshared char[512] pathBuf = 0;
+    if (buildGroundPath(pathBuf, SESSION_FILE, sessionId, ".pid") == 0) return;
+    remove(&pathBuf[0]);
+}
+
+// A session's own courier, in a tree another session's courier holds: every
+// pass it hands the session what is addressed to it, as the tree's courier
+// hands its own (receipted first, then said, then exit 2, which wakes the
+// session). It ships, streams and carries nothing else: that is the tree's.
+int handSession(const(char)[] cwd, const(char)[] sessionId, const(char)[] tree,
+                int myPid, int myPpid, bool stopEvent, int treeHolder) {
+    import core.stdc.time : time;
+    import lifecycle : processStarted, processSeen;
+    import immediate : MESSAGE_CAP, spoken;
+    enum mark = "delivered:";
+
+    auto courier = claimSessionCourier(sessionId, myPid, stopEvent);
+    if (courier != 0) return 0;
+
+    long record = 0;
+    auto startedAt = cast(long) time(null);
+    {
+        auto rdb = openDb();
+        if (rdb !is null) {
+            record = processStarted(rdb, KIND, myPid, myPpid, sessionId, tree, startedAt);
+            __gshared ZBuf why;
+            why.reset();
+            why.put("carries its session's messages alone: the tree is watched by pid ");
+            why.putUint(cast(ulong) treeHolder);
+            lifecycleNote(rdb, sessionId, "info", why.slice(), tree, myPid, 0, 0, startedAt);
+            sqlite3_close(rdb);
+        }
+    }
+
+    __gshared char[4 * MESSAGE_CAP] batchBuf = "";
+    long polls = 0;
+    while (true) {
+        auto db = openDb();
+        if (db !is null) {
+            polls++;
+            processSeen(db, record, cast(long) time(null));
+            size_t batchLen = 0;
+            bool stuck = false;
+            while (true) {
+                auto imm = readImmediateMessage(db, cwd, sessionId, mark);
+                if (imm.message is null) break;
+                if (!spoken(imm.name)) {
+                    if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) { stuck = true; break; }
+                    continue;
+                }
+                if (!batchFits(batchLen, batchBuf.length, imm.message.length)) break;
+                if (!receipt(db, imm.msgId, imm.projectContext, sessionId, mark)) { stuck = true; break; }
+                if (batchLen > 0) batchBuf[batchLen++] = '\n';
+                foreach (c; "ground: ") batchBuf[batchLen++] = c;
+                foreach (c; imm.message) batchBuf[batchLen++] = c;
+            }
+            if (batchLen > 0) {
+                long delivered = 1;
+                foreach (c; batchBuf[0 .. batchLen]) if (c == '\n') delivered++;
+                ending(db, record, sessionId, tree, myPid, "delivered its session's messages and exited 2",
+                       delivered, polls, startedAt, "info");
+                sqlite3_close(db);
+                releaseSessionCourier(sessionId);
+                fwrite(&batchBuf[0], 1, batchLen, stderr);
+                fputs("\n", stderr);
+                return 2;
+            }
+            if (stuck) {
+                ending(db, record, sessionId, tree, myPid, "stuck: a receipt would not land",
+                       0, polls, startedAt, "warn");
+                sqlite3_close(db);
+                releaseSessionCourier(sessionId);
+                return 1;
+            }
+            sqlite3_close(db);
+        }
+        sleep(PASS_SEC);
     }
 }
 
