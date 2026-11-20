@@ -80,12 +80,12 @@ bool spoken(const(char)[] name) {
 // The detail and the gate are read by sqlite, which reads JSON however it was
 // spaced and unescapes the detail. A scan for the bytes of the key passed over
 // any row spaced otherwise.
-enum PENDING_SQL = "SELECT a.id, a.predicates, a.attributes, a.contexts, json_extract(a.attributes, '$.detail'), COALESCE(json_extract(a.attributes, '$.after'), 0) FROM attestations a INDEXED BY idx_attestations_pred_session WHERE json_extract(a.predicates, '$[0]') >= 'immediate:' AND json_extract(a.predicates, '$[0]') < 'immediate;' AND json_extract(a.contexts, '$[0]') IN (SELECT value FROM json_each(?3)) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
+enum PENDING_SQL = "SELECT a.id, a.predicates, a.attributes, a.contexts, json_extract(a.attributes, '$.detail'), COALESCE(json_extract(a.attributes, '$.after'), 0) FROM attestations a INDEXED BY idx_attestations_pred_session WHERE json_extract(a.predicates, '$[0]') >= ?5 AND json_extract(a.predicates, '$[0]') < ?6 AND COALESCE(json_extract(a.attributes, '$.delivery'), 'immediate') = ?4 AND json_extract(a.contexts, '$[0]') IN (SELECT value FROM json_each(?3)) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates, '$[0]') = ?2 || a.id AND d.contexts LIKE ?1) ORDER BY a.timestamp ASC\0";
 
 // ?3 is every address this reader answers to: session:<id>, then project:<p>
 // for cwd and each tail of it that starts after a '/'.
 void bindPending(sqlite3_stmt* stmt, const(char)[] cwd, const(char)[] sessionId,
-                 const(char)[] mark) {
+                 const(char)[] mark, const(char)[] delivery = "immediate") {
     __gshared ZBuf sessPattern;
     sessPattern.reset();
     sessPattern.put(`%session:`);
@@ -113,18 +113,23 @@ void bindPending(sqlite3_stmt* stmt, const(char)[] cwd, const(char)[] sessionId,
     // wakes nobody, so neither reader may consume the other's copy.
     sqlite3_bind_text(stmt, 2, mark.ptr, cast(int) mark.length, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, addrs.ptr(), cast(int) addrs.len, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, delivery.ptr, cast(int) delivery.length, SQLITE_TRANSIENT);
+    auto lower = delivery == "next_user_prompt" ? "prompt:" : "immediate:";
+    auto upper = delivery == "next_user_prompt" ? "prompt;" : "immediate;";
+    sqlite3_bind_text(stmt, 5, lower.ptr, cast(int) lower.length, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, upper.ptr, cast(int) upper.length, SQLITE_TRANSIENT);
 }
 
 // Read a pending immediate message matching this session OR (for
 // external writers like QNTX that don't know sessions) this cwd's project.
 ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] sessionId,
-                                  const(char)[] mark = "delivered:") {
+                                  const(char)[] mark = "delivered:", const(char)[] delivery = "immediate") {
     auto now = cast(long) time(null);
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, PENDING_SQL.ptr, -1, &stmt, null) != SQLITE_OK)
         return ImmediateMsg(null, null, null, null, null, null, null, null, 0);
-    bindPending(stmt, cwd, sessionId, mark);
+    bindPending(stmt, cwd, sessionId, mark, delivery);
 
     // 「[Opus 5.5] As wide as the id the writer builds (a ZBuf): one cut here named no row, so its receipt」
     // 「[Opus 5.5] matched nothing and the row was read and delivered again until the batch was full.」
@@ -182,9 +187,10 @@ ImmediateMsg readImmediateMessage(sqlite3* db, const(char)[] cwd, const(char)[] 
         while (predText[predLen] != 0) predLen++;
         auto preds = (cast(const(char)*) predText)[0 .. predLen];
 
-        auto dIdx = indexOf(preds, "immediate:");
+        auto prefix = delivery == "next_user_prompt" ? "prompt:" : "immediate:";
+        auto dIdx = indexOf(preds, prefix);
         if (dIdx < 0) continue;
-        size_t nameStart = cast(size_t) dIdx + 10; // skip "immediate:"
+        size_t nameStart = cast(size_t) dIdx + prefix.length;
         size_t nameEnd = nameStart;
         while (nameEnd < predLen && preds[nameEnd] != '"') nameEnd++;
         if (nameEnd == nameStart) continue;
@@ -762,14 +768,14 @@ bool writeNote(sqlite3* db,
                const(char)[] sessionId,
                const(char)[] key,
                const(char)[] detail,
-               int delaySec = 0) {
+               int delaySec = 0, const(char)[] delivery = "immediate") {
     import db : formatTimestamp, versionString, SQLITE_BUSY, SQLITE_DONE;
 
     if (sessionId.length == 0) return false;
 
     __gshared ZBuf idBuf;
     idBuf.reset();
-    idBuf.put("immediate:note:");
+    idBuf.put(delivery == "next_user_prompt" ? "immediate:prompt-note:" : "immediate:note:");
     idBuf.put(sessionId);
     idBuf.put(":");
     idBuf.put(key);
@@ -787,7 +793,9 @@ bool writeNote(sqlite3* db,
         while (after > 0 && n < d.length) { d[n++] = cast(char)('0' + after % 10); after /= 10; }
         foreach_reverse (i; 0 .. n) attrBuf.putChar(d[i]);
     }
-    attrBuf.put(`}`);
+    attrBuf.put(`,"delivery":"`);
+    putJsonString(attrBuf, delivery);
+    attrBuf.put(`"}`);
 
     __gshared ZBuf ctxBuf;
     ctxBuf.reset();
@@ -802,7 +810,8 @@ bool writeNote(sqlite3* db,
 
     auto ts = formatTimestamp();
 
-    enum sql = "INSERT OR REPLACE INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+    enum insertTail = " INTO attestations (id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)\0";
+    auto sql = delivery == "next_user_prompt" ? "INSERT OR IGNORE" ~ insertTail : "INSERT OR REPLACE" ~ insertTail;
 
     foreach (attempt; 0 .. 10) {
         sqlite3_stmt* stmt;
@@ -812,7 +821,8 @@ bool writeNote(sqlite3* db,
 
         sqlite3_bind_text(stmt, 1, idBuf.ptr(), cast(int) idBuf.len, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, `["immediate:note"]`.ptr, 18, SQLITE_TRANSIENT);
+        auto predicate = delivery == "next_user_prompt" ? `["prompt:note"]` : `["immediate:note"]`;
+        sqlite3_bind_text(stmt, 3, predicate.ptr, cast(int) predicate.length, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 4, ctxBuf.ptr(), cast(int) ctxBuf.len, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 5, `["ground"]`.ptr, 10, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 6, ts.ptr, cast(int) ts.length, SQLITE_TRANSIENT);
@@ -1360,7 +1370,7 @@ long countPendingImmediateForSession(sqlite3* db, const(char)[] sessionId) {
     // is deliberately holding, and Stop declares a healthy pipeline dead for
     // the whole push→CI-gate window. Rows with no `after` yield NULL here and
     // are excluded — same verdict the reader reaches by skipping them.
-    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') >= 'immediate:' AND json_extract(a.predicates,'$[0]') < 'immediate;' AND a.contexts LIKE ?1 AND json_extract(a.attributes,'$.after') <= CAST(strftime('%s','now') AS INTEGER) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1)\0";
+    enum sql = "SELECT COUNT(*) FROM attestations a WHERE json_extract(a.predicates,'$[0]') >= 'immediate:' AND json_extract(a.predicates,'$[0]') < 'immediate;' AND COALESCE(json_extract(a.attributes,'$.delivery'), 'immediate') = 'immediate' AND a.contexts LIKE ?1 AND json_extract(a.attributes,'$.after') <= CAST(strftime('%s','now') AS INTEGER) AND NOT EXISTS (SELECT 1 FROM attestations d WHERE json_extract(d.predicates,'$[0]') = 'delivered:' || a.id AND d.contexts LIKE ?1)\0";
 
     __gshared ZBuf pattern;
     pattern.reset();
@@ -1939,4 +1949,24 @@ unittest {
            "open-gate row must still be counted as backlog");
 
     sqlite3_close(testDb);
+}
+
+unittest {
+    import db : sqlite3_open, sqlite3_close;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope(exit) sqlite3_close(db);
+    assert(writeNote(db, "prompt-owner", "reminder", "background \"context\"\nnext", 0, "next_user_prompt"));
+    assert(readImmediateMessage(db, "/tmp", "prompt-owner").message is null);
+    assert(countPendingImmediateForSession(db, "prompt-owner") == 0);
+    assert(readImmediateMessage(db, "/tmp", "other", "delivered:", "next_user_prompt").message is null);
+    auto msg = readImmediateMessage(db, "/tmp", "prompt-owner", "delivered:", "next_user_prompt");
+    assert(msg.message == "background \"context\"\nnext");
+    assert(markImmediateDelivered(db, msg.msgId, msg.projectContext, "prompt-owner"));
+    assert(readImmediateMessage(db, "/tmp", "prompt-owner", "delivered:", "next_user_prompt").message is null);
+    assert(writeNote(db, "prompt-owner", "reminder", "do not replay", 0, "next_user_prompt"));
+    assert(readImmediateMessage(db, "/tmp", "prompt-owner", "delivered:", "next_user_prompt").message is null);
+    assert(writeNote(db, "prompt-owner", "urgent", "wake now"));
+    assert(readImmediateMessage(db, "/tmp", "prompt-owner").message == "wake now");
 }
