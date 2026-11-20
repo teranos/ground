@@ -98,8 +98,8 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
             auto apart = fork();
             if (apart == 0) {
                 const(char)[] why;
-                // News the node no longer holds was no Task waiting to be
-                // received, or one that ended: it is not asked for again.
+                // 「[Fable 5.2] News the node no longer holds was no Task waiting to be」
+                // 「[Fable 5.2] received, or one that ended: it is not asked for again.」
                 bool gone = false;
                 foreach (attempt; 0 .. 6) {
                     why = toldTheNode(sessionId, msgId[NEWS_ROW.length .. $]);
@@ -110,9 +110,9 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
                 }
                 if (why.length > 0 && !gone)
                     toSentry("sky.received", "what was handed to the session was not said to the node as received", 1, sessionId, why);
-                // Written down in ground's own store, said or not: k handed a
-                // session its words three times, no receipt reached the node,
-                // and nothing on k said whether one was ever sent.
+                // 「[Fable 5.2] Written down in ground's own store, said or not: k handed a」
+                // 「[Fable 5.2] session its words three times, no receipt reached the node,」
+                // 「[Fable 5.2] and nothing on k said whether one was ever sent.」
                 {
                     import db : openDb, sqlite3_close;
                     auto own = openDb();
