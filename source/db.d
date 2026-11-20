@@ -134,6 +134,7 @@ extern (C) {
     int sqlite3_bind_text(sqlite3_stmt* stmt, int idx, const(char)* text, int n, void function(void*) destructor);
     int sqlite3_step(sqlite3_stmt* stmt);
     int sqlite3_finalize(sqlite3_stmt* stmt);
+    int sqlite3_reset(sqlite3_stmt* stmt);
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
     long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
@@ -773,6 +774,16 @@ bool applySchema(sqlite3* db) {
     // 「[Opus 5.5] transcript's tail on every prompt (queued.d).」
     enum idxQueuedPrompt = "CREATE INDEX IF NOT EXISTS idx_attestations_queued_prompt ON attestations(json_extract(contexts, '$[0]'), json_extract(attributes, '$.prompt')) WHERE json_extract(predicates, '$[0]') = 'QueuedPromptSubmit'\0";
     sqlite3_exec(db, idxQueuedPrompt.ptr, null, null, null);
+
+    // "where the principle is we get all of it."
+    // Every line of a transcript, as written, at its byte offset in the file;
+    // end is where the next line starts, so the walk resumes at MAX(end) (transcript.d).
+    enum transcriptLineSchema = "CREATE TABLE IF NOT EXISTS transcript_line (id INTEGER PRIMARY KEY, "
+        ~ "path TEXT NOT NULL, offset INTEGER NOT NULL, end INTEGER NOT NULL, "
+        ~ "session TEXT NOT NULL, line TEXT NOT NULL, UNIQUE (path, offset))\0";
+    sqlite3_exec(db, transcriptLineSchema.ptr, null, null, null);
+    enum idxTranscriptSession = "CREATE INDEX IF NOT EXISTS idx_transcript_line_session ON transcript_line(session, offset)\0";
+    sqlite3_exec(db, idxTranscriptSession.ptr, null, null, null);
 
     return true;
 }

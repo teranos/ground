@@ -308,6 +308,12 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
         outer.store.openUs = tWrite - tOpen;
         if (db !is null) {
             attestEvent(db, eventName, cwd, sessionId, input);
+            // "where the principle is we get all of it."
+            // What no hook carries is in the transcript: every line of it is kept.
+            {
+                import transcript : keepFromHook;
+                keepFromHook(db, input, sessionId);
+            }
             // codex runs no statusline for ug to read its model from.
             {
                 import parse : codexModel;
