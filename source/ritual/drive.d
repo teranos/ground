@@ -2,7 +2,7 @@ module ritual.drive;
 
 // BOOK_GLOSSARY **Driver**: The loop that keeps a performance moving, one per performance, forked when it starts.
 
-import ritual.position : RitualState;
+import ritual.position : RitualState, Position;
 import ritual.resolve : flatten;
 import ritual.run : advance, briefing, opensRite, movesWalk;
 import ritual.store : readPositionAt;
@@ -86,25 +86,56 @@ private enum OUTCOME_CEILING_SEC = 2 * 3600 + 600;
 // name ground gave it and left the verdict on the status line; ug wrote that
 // down as news under the dispatch row's id. An outcome is written onto the
 // row so the block can close. Nothing here asks github.
-private size_t resolveOwed(DB)(DB db, const(char)[] perfId, long now) {
+size_t resolveOwed(DB)(DB db, const Position p, long now) {
     import immediate : DispatchRow, owedDispatches, resolveDispatch, parkImmediate, dispatchOutcome;
 
     __gshared DispatchRow[8] rows;
-    auto n = owedDispatches(db, perfId, now, rows[]);
+    auto n = owedDispatches(db, p.id, now, rows[]);
     size_t found = 0;
     foreach (ref row; rows[0 .. n]) {
         auto outcome = dispatchOutcome(db, row.id);
+        if (outcome is null && now - row.pushTime > OUTCOME_CEILING_SEC)
+            outcome = "no outcome came back from the node for this run";
         if (outcome !is null) {
-            if (resolveDispatch(db, row.id, outcome)) found++;
-            continue;
-        }
-        if (now - row.pushTime > OUTCOME_CEILING_SEC) {
-            if (resolveDispatch(db, row.id, "no outcome came back from the node for this run")) found++;
+            if (resolveDispatch(db, row.id, outcome)) {
+                found++;
+                tellFailed(db, p, row.token(), outcome);
+            }
             continue;
         }
         parkImmediate(db, row.id, now + OUTCOME_LOOK_SEC);
     }
     return found;
+}
+
+// "failure needs to prop to parent immediately when i happens"
+// A run went well when the node's news of it opens on its conclusion, success: the node
+// writes `run: <conclusion> <token> <url>`. Anything else is a failure, a run nobody found
+// included, and the parent hears it the moment the driver does, whatever the rite's to:
+// says. The agent dispatched it, and hears it too.
+bool runWent(const(char)[] outcome) {
+    enum went = "run: success ";
+    return outcome.length >= went.length && outcome[0 .. went.length] == went;
+}
+
+private void tellFailed(DB)(DB db, const Position p, const(char)[] token, const(char)[] outcome) {
+    import ritual.delivery : deliver, PARENT;
+    import zbuf : ZBuf;
+    if (runWent(outcome)) return;
+    size_t colon = token.length;
+    foreach_reverse (i, c; token) if (c == ':') { colon = i; break; }
+    auto rite = colon < token.length ? token[colon + 1 .. $] : token;
+    __gshared ZBuf key, line;
+    key.reset();
+    key.put("run-failed:");
+    key.put(token);
+    line.reset();
+    line.put(p.ritual);
+    line.put(" ");
+    line.put(rite);
+    line.put(" failed: ");
+    line.put(outcome);
+    cast(void) deliver(db, p, PARENT, key.slice(), line.slice(), "");
 }
 
 // The ending, in the word sentry is told. Live is not one.
@@ -416,7 +447,7 @@ int handleDrive(int argc, const(char)** argv) {
 
         // The runs this performance sent, asked after by the process that is
         // waiting on them, rather than by a watcher that may not be there.
-        cast(void) resolveOwed(db, found.p.id, cast(long) time(null));
+        cast(void) resolveOwed(db, found.p, cast(long) time(null));
 
         // "One nix shell held across a ritual's rites, re-entered only when flake.nix or flake.lock changed."
         import ritual.shell : hold;
