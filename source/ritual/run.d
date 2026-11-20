@@ -77,8 +77,8 @@ bool retakes(const Position mine, const Position now) {
     return now.current == mine.current && now.state == RitualState.Live;
 }
 
-// Whether a verdict briefs the agent on the rite it holds on, and whether it tells of a walk that
-// moved: only one that landed. One that did not is about a row that is no longer there.
+// 「[Opus 5.5] Whether a verdict briefs the agent on the rite it holds on, and whether it tells of a walk that」
+// 「[Opus 5.5] moved: only one that landed. One that did not is about a row that is no longer there.」
 bool opensRite(const ref Advanced res) {
     return res.applied && res.verdict == Verdict.Hold;
 }
