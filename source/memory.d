@@ -6,12 +6,12 @@ module memory;
 // "Sessions on l and k,"
 // "i care about these"
 //
-// A session's memory is its harness's own store, on the machine the session
-// runs on. Its node holds a Memory Store by the session's name (QNTX #1704,
-// ADR-055), a folder of the person's vault. Ground carries between the two,
-// and keeps each memory as it last stood on either side: what changed at the
-// node goes into the harness's store, what changed in the harness goes to the
-// node. Changed on both, the node's stands: it is where the person writes.
+// 「[Fable 5.2] A session's memory is its harness's own store, on the machine the session」
+// 「[Fable 5.2] runs on. Its node holds a Memory Store by the session's name (QNTX #1704,」
+// 「[Fable 5.2] ADR-055), a folder of the person's vault. Ground carries between the two,」
+// 「[Fable 5.2] and keeps each memory as it last stood on either side: what changed at the」
+// 「[Fable 5.2] node goes into the harness's store, what changed in the harness goes to the」
+// 「[Fable 5.2] node. Changed on both, the node's stands: it is where the person writes.」
 
 import zbuf : ZBuf;
 import code.reply : Reply, putEscaped;
@@ -21,15 +21,15 @@ enum BOOK_COMMAND = q"EOS
 ground memory
 EOS";
 
-// The most one memory says, and the most a node's answer about one is.
+// 「[Fable 5.2] The most one memory says, and the most a node's answer about one is.」
 enum MEMORY_MOST = 262_144;
 enum ANSWER_MOST = 2 * MEMORY_MOST + 4096;
 
-// What is done with one memory.
+// 「[Fable 5.2] What is done with one memory.」
 enum Carry { none, toHarness, toNode }
 
-// Where one memory goes: by how it stands in the harness and at the node now,
-// and how ground last kept it of each.
+// 「[Fable 5.2] Where one memory goes: by how it stands in the harness and at the node now,」
+// 「[Fable 5.2] and how ground last kept it of each.」
 Carry carried(bool inHarness, const(char)[] harness, bool wasInHarness, const(char)[] harnessWas,
               bool atNode, const(char)[] node, bool wasAtNode, const(char)[] nodeWas) {
     if (atNode != wasAtNode || (atNode && node != nodeWas)) return Carry.toHarness;
@@ -37,7 +37,7 @@ Carry carried(bool inHarness, const(char)[] harness, bool wasInHarness, const(ch
     return Carry.none;
 }
 
-// A name as one segment of a path in an address.
+// 「[Fable 5.2] A name as one segment of a path in an address.」
 void putSegment(ref ZBuf url, const(char)[] name) {
     enum hex = "0123456789ABCDEF";
     foreach (c; name) {
@@ -50,15 +50,15 @@ void putSegment(ref ZBuf url, const(char)[] name) {
     }
 }
 
-// Whether name is one memory's own: a note's name, with no path in it and
-// nothing that starts with a dot.
+// 「[Fable 5.2] Whether name is one memory's own: a note's name, with no path in it and」
+// 「[Fable 5.2] nothing that starts with a dot.」
 bool aMemoryName(const(char)[] name) {
     if (name.length == 0 || name.length > 200 || name[0] == '.') return false;
     foreach (c; name) if (c == '/' || c == '\\' || c == 0) return false;
     return true;
 }
 
-// The names kept so far, one after another with a 0 between.
+// 「[Fable 5.2] The names kept so far, one after another with a 0 between.」
 struct Names {
     char[32_768] data = 0;
     size_t len;
@@ -75,7 +75,7 @@ struct Names {
         return false;
     }
 
-    // Kept whether or not it is there already. False when no room is left.
+    // 「[Fable 5.2] Kept whether or not it is there already. False when no room is left.」
     bool append(const(char)[] name) {
         if (len + name.length + 1 > data.length) return false;
         foreach (c; name) data[len++] = c;
@@ -84,12 +84,12 @@ struct Names {
         return true;
     }
 
-    // Kept once. False when no room is left.
+    // 「[Fable 5.2] Kept once. False when no room is left.」
     bool add(const(char)[] name) {
         return has(name) || append(name);
     }
 
-    // The name that starts at `at`, which is moved past it; null at the end.
+    // 「[Fable 5.2] The name that starts at `at`, which is moved past it; null at the end.」
     const(char)[] next(ref size_t at) {
         if (at >= len) return null;
         size_t end = at;
@@ -100,8 +100,8 @@ struct Names {
     }
 }
 
-// The names of the memories a node's list answers with, and for each when it
-// was last written there, in the same order.
+// 「[Fable 5.2] The names of the memories a node's list answers with, and for each when it」
+// 「[Fable 5.2] was last written there, in the same order.」
 size_t listed(const(char)[] answer, ref Names names, ref Names written) {
     import matcher : indexOf;
     import parse : extractJsonString, extractJsonStringAt;
@@ -118,13 +118,13 @@ size_t listed(const(char)[] answer, ref Names names, ref Names written) {
         auto name = extractJsonStringAt(answer, cast(ptrdiff_t)(pos + cast(size_t) at), key, nameBuf.ptr, nameBuf.length);
         pos += cast(size_t) at + key.length;
         if (name is null || !aMemoryName(name) || names.has(name)) continue;
-        // Its stamp is in the same object: before the next name.
+        // 「[Fable 5.2] Its stamp is in the same object: before the next name.」
         auto rest = answer[pos .. $];
         auto nextName = indexOf(rest, key);
         auto own = nextName < 0 ? rest : rest[0 .. cast(size_t) nextName];
         char[64] atBuf = 0;
         auto stamp = extractJsonString(own, `"modified"`, atBuf.ptr, atBuf.length);
-        // A stamp is found by its place, so a missing one is kept as none.
+        // 「[Fable 5.2] A stamp is found by its place, so a missing one is kept as none.」
         if (stamp is null || stamp.length == 0) stamp = "-";
         if (!names.append(name) || !written.append(stamp)) break;
         found++;
@@ -137,8 +137,8 @@ private extern(C) nothrow @nogc {
     int unlink(const(char)* path);
 }
 
-// What the file at path says, into buf: its length, or -1 when it is not there
-// or is more than buf holds.
+// 「[Fable 5.2] What the file at path says, into buf: its length, or -1 when it is not there」
+// 「[Fable 5.2] or is more than buf holds.」
 ptrdiff_t fileSays(const(char)* path, char[] buf) {
     import core.stdc.stdio : fopen, fread, fclose, fgetc, EOF;
     auto f = fopen(path, "rb");
@@ -149,7 +149,7 @@ ptrdiff_t fileSays(const(char)* path, char[] buf) {
     return more ? -1 : cast(ptrdiff_t) got;
 }
 
-// Every folder on the way to path is made.
+// 「[Fable 5.2] Every folder on the way to path is made.」
 void makeFoldersTo(const(char)[] path) {
     import db : mkdir;
     char[4096] at = 0;
@@ -163,8 +163,8 @@ void makeFoldersTo(const(char)[] path) {
     }
 }
 
-// The file at path says said, or is gone when it is to say nothing. False when
-// it could not be written.
+// 「[Fable 5.2] The file at path says said, or is gone when it is to say nothing. False when」
+// 「[Fable 5.2] it could not be written.」
 bool fileIs(ref ZBuf path, bool says, const(char)[] said) {
     import core.stdc.stdio : fopen, fwrite, fclose;
     if (!says) {
@@ -178,7 +178,7 @@ bool fileIs(ref ZBuf path, bool says, const(char)[] said) {
     return fclose(f) == 0 && wrote == said.length;
 }
 
-// Where Claude Code keeps things: CLAUDE_CONFIG_DIR, or ~/.claude.
+// 「[Fable 5.2] Where Claude Code keeps things: CLAUDE_CONFIG_DIR, or ~/.claude.」
 bool configDir(ref ZBuf dir) {
     import core.stdc.stdlib : getenv;
     dir.reset();
@@ -197,8 +197,8 @@ bool configDir(ref ZBuf dir) {
     return true;
 }
 
-// The folder Claude Code keeps the session's memory in: the memory folder of
-// the project that holds the session's transcript. False when no project does.
+// 「[Fable 5.2] The folder Claude Code keeps the session's memory in: the memory folder of」
+// 「[Fable 5.2] the project that holds the session's transcript. False when no project does.」
 bool memoryFolderOf(const(char)[] config, const(char)[] sessionId, ref ZBuf folder) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     ZBuf projects;
@@ -230,7 +230,7 @@ bool memoryFolderOf(const(char)[] config, const(char)[] sessionId, ref ZBuf fold
     return false;
 }
 
-// The memories in a folder, by name: each note directly in it.
+// 「[Fable 5.2] The memories in a folder, by name: each note directly in it.」
 void memoriesIn(const(char)* folder, ref Names names) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     auto dir = opendir(folder);
@@ -247,15 +247,15 @@ void memoriesIn(const(char)* folder, ref Names names) {
     }
 }
 
-// What a pass carried, and why it carried less than everything.
+// 「[Fable 5.2] What a pass carried, and why it carried less than everything.」
 struct Carried {
     size_t toHarness;
     size_t toNode;
     ZBuf why;
     bool ok;
-    // Nothing is this session's to carry: it holds no name, no project keeps
-    // its memory, or its node keeps none. Said by `ground memory`, and no
-    // failure of the carrying.
+    // 「[Fable 5.2] Nothing is this session's to carry: it holds no name, no project keeps」
+    // 「[Fable 5.2] its memory, or its node keeps none. Said by `ground memory`, and no」
+    // 「[Fable 5.2] failure of the carrying.」
     bool nothingToCarry;
 }
 
@@ -267,11 +267,11 @@ private void noteAt(ref ZBuf path, const(char)[] folder, const(char)[] name, con
     path.put(ext);
 }
 
-// One memory, brought in step between a harness's folder and what a node says
-// of it, through what ground kept of each. atNode is whether the node holds
-// it, and nodeSays what it says there. toNode is called for what the harness
-// changed, and answers what the node keeps of it and when it wrote it; null
-// when the node did not take it.
+// 「[Fable 5.2] One memory, brought in step between a harness's folder and what a node says」
+// 「[Fable 5.2] of it, through what ground kept of each. atNode is whether the node holds」
+// 「[Fable 5.2] it, and nodeSays what it says there. toNode is called for what the harness」
+// 「[Fable 5.2] changed, and answers what the node keeps of it and when it wrote it; null」
+// 「[Fable 5.2] when the node did not take it.」
 Carry inStep(const(char)[] harness, const(char)[] heldHarness, const(char)[] heldNode, const(char)[] name,
              bool atNode, const(char)[] nodeSays, const(char)[] stamp,
              scope bool delegate(bool says, const(char)[] said, ref const(char)[] kept, ref const(char)[] at) toNode) {
@@ -313,12 +313,12 @@ Carry inStep(const(char)[] harness, const(char)[] heldHarness, const(char)[] hel
     return Carry.none;
 }
 
-// One pass: every memory of the session, brought in step with its Memory Store
-// at the node. A node that keeps no memory, or a session with no name there,
-// carries nothing, and says so.
+// 「[Fable 5.2] One pass: every memory of the session, brought in step with its Memory Store」
+// 「[Fable 5.2] at the node. A node that keeps no memory, or a session with no name there,」
+// 「[Fable 5.2] carries nothing, and says so.」
 //
-// A node that answered it keeps no memory is not asked again by sky for
-// NONE_SEC; `ground memory`, which a person or the session runs, always asks.
+// 「[Fable 5.2] A node that answered it keeps no memory is not asked again by sky for」
+// 「[Fable 5.2] NONE_SEC; `ground memory`, which a person or the session runs, always asks.」
 enum NONE_SEC = 600;
 
 Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
@@ -342,8 +342,8 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
     if (!configDir(config)) { no("no home to find Claude Code's memory under"); return done; }
     if (!memoryFolderOf(config.slice(), sessionId, harness)) { no("no project of Claude Code's holds this session's transcript"); return done; }
 
-    // Beside the session's key: how each memory last stood in the harness, at
-    // the node, and when the node said it was written.
+    // 「[Fable 5.2] Beside the session's key: how each memory last stood in the harness, at」
+    // 「[Fable 5.2] the node, and when the node said it was written.」
     size_t keyLen = 0;
     while (keyAt[keyLen] != 0) keyLen++;
     if (keyLen < 4) { no("the session's key is kept nowhere"); return done; }
@@ -358,7 +358,7 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
     store.put("/api/memory/");
     putSegment(store, called);
 
-    // When the node last answered that it keeps no memory, kept beside the key.
+    // 「[Fable 5.2] When the node last answered that it keeps no memory, kept beside the key.」
     ZBuf noneAt;
     noneAt.put(keyAt[0 .. keyLen - 3]);
     noneAt.put("memory-none");
@@ -394,8 +394,8 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
     auto asked = httpGet(store.slice(), ToNode(keyAt), answer[], 20);
     if (asked.status != 200) {
         refused(store.slice(), asked.status, asked.len, asked.why());
-        // A node that keeps no memory answers that nothing is there; one that
-        // is not reached is asked again later, as that one is.
+        // 「[Fable 5.2] A node that keeps no memory answers that nothing is there; one that」
+        // 「[Fable 5.2] is not reached is asked again later, as that one is.」
         done.nothingToCarry = asked.status == 404 || asked.status == 0;
         if (done.nothingToCarry) {
             import core.stdc.time : time;
@@ -424,7 +424,7 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
     done.ok = true;
     size_t at = 0;
     for (auto name = all.next(at); name !is null; name = all.next(at)) {
-        // The node's stamp for it, by its place in the list.
+        // 「[Fable 5.2] The node's stamp for it, by its place in the list.」
         const(char)[] stamp = null;
         bool listedAtNode = false;
         {
@@ -443,8 +443,8 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
         url.put("/");
         putSegment(url, name);
 
-        // What it says at the node: as ground kept it when the node's stamp is
-        // the one kept, and asked for otherwise.
+        // 「[Fable 5.2] What it says at the node: as ground kept it when the node's stamp is」
+        // 「[Fable 5.2] the one kept, and asked for otherwise.」
         const(char)[] nodeSays = null;
         if (listedAtNode) {
             char[64] stampWasBuf = 0;
@@ -458,7 +458,7 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
             } else {
                 auto read = httpGet(url.slice(), ToNode(keyAt), answer[], 20);
                 if (read.status != 200) {
-                    // Not read is not gone: it is left as it is, and said.
+                    // 「[Fable 5.2] Not read is not gone: it is left as it is, and said.」
                     refused(url.slice(), read.status, read.len, read.why());
                     continue;
                 }
@@ -474,7 +474,7 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
                     forget.put(url.slice());
                     forget.put("/forget");
                     auto forgot = httpPostInto(forget.slice(), "{}", ToNode(keyAt), answer[], 30);
-                    // Already gone there is gone.
+                    // 「[Fable 5.2] Already gone there is gone.」
                     if (forgot.status != 200 && forgot.status != 404) {
                         refused(forget.slice(), forgot.status, forgot.len, forgot.why());
                         return false;
@@ -491,8 +491,8 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
                     refused(url.slice(), wrote.status, wrote.len, wrote.why());
                     return false;
                 }
-                // What the node keeps of it is what it answered: an agent's
-                // words stand in the agent's own quotation there.
+                // 「[Fable 5.2] What the node keeps of it is what it answered: an agent's」
+                // 「[Fable 5.2] words stand in the agent's own quotation there.」
                 __gshared char[64] nowBuf;
                 kept = extractJsonString(answer[0 .. wrote.len], `"text"`, keptBuf.ptr, keptBuf.length);
                 writtenNow = extractJsonString(answer[0 .. wrote.len], `"modified"`, nowBuf.ptr, nowBuf.length);
@@ -504,7 +504,7 @@ Carried carry(const(char)[] sessionId, bool asksAnyway = false) {
     return done;
 }
 
-// ground memory: one pass for the session it is run in.
+// 「[Fable 5.2] ground memory: one pass for the session it is run in.」
 int handleMemory(int argc, const(char)** argv) {
     import core.stdc.stdio : stderr, stdout, fputs;
     import core.stdc.stdlib : getenv;
