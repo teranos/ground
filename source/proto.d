@@ -1543,7 +1543,15 @@ public ParsedControl parseControl(ref string input, ref size_t pos, ref ParseRes
         skipWS(input, pos);
         if (pos >= input.length) break;
         if (input[pos] == '#') { skipLine(input, pos); continue; }
-        if (input[pos] == '}') { pos++; return c; }
+        if (input[pos] == '}') {
+            pos++;
+            if (c.name == "codex-effort") {
+                import codex_policy : codexPolicyControl;
+                auto policy = codexPolicyControl(c);
+                assert(policy.error.length == 0, policy.error);
+            }
+            return c;
+        }
 
         auto key = readWord(input, pos);
         skipWS(input, pos);
