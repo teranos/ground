@@ -261,7 +261,7 @@
 
           # "Pin the latest stable deepseek harness In parity". dsh has no stable
           # release: every tag is an alpha or a release candidate, and this is the
-          # one npm's next dist-tag names (latest still names 0.0.1-rc.5, the first).
+          # 「[Sonnet 5.5] one npm's next dist-tag names (latest still names 0.0.1-rc.5, the first).」
           dsh-claude-0_2_2-rc_1 = dshClaude "0.2.2-rc.1" {
             tarball = "47c627c98583cae3de408367297e1a98d4bf2bc77ee144be70d9f51d6b70dcfd";
             bridge = "7b0f550f03268b16c46a9a7ef9115de6bdcfa990d491a29135c7566745866096";
