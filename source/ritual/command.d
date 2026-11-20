@@ -136,8 +136,8 @@ bool spawnPerformance(const Position p, const Flattened flat, const(char)[] root
             sqlite3_close(db);
         }
     }
-    // A session whose transcript is gone is not resumed: resumed, it ends at once and the walk
-    // has nobody in it. A new one is started, and that is said.
+    // 「[Opus 5.5] A session whose transcript is gone is not resumed: resumed, it ends at once and the walk」
+    // 「[Opus 5.5] has nobody in it. A new one is started, and that is said.」
     if (resume.length > 0) {
         import ritual.store : transcriptStands, projectsDirInto;
         import exec : emitError;

@@ -674,9 +674,9 @@ Push readPush(DB)(DB db, const(char)[] id) {
     return push;
 }
 
-// Whether a session's transcript stands in projects (Claude Code's <config>/projects), in any of
-// its project directories: a session resumed without one is answered under its old id and ends at
-// once, and the walk goes on with nobody in it.
+// 「[Opus 5.5] Whether a session's transcript stands in projects (Claude Code's <config>/projects), in any of」
+// 「[Opus 5.5] its project directories: a session resumed without one is answered under its old id and ends at」
+// 「[Opus 5.5] once, and the walk goes on with nobody in it.」
 bool transcriptStands(const(char)[] projects, const(char)[] session) {
     import core.sys.posix.dirent : opendir, readdir, closedir;
     import core.sys.posix.unistd : access, F_OK;
@@ -711,8 +711,8 @@ bool transcriptStands(const(char)[] projects, const(char)[] session) {
     return false;
 }
 
-// Whether the file at path is a regular transcript with a message in it, user's or assistant's,
-// within its first 64 KiB: an empty one, or a directory named as one, has no conversation to resume.
+// 「[Opus 5.5] Whether the file at path is a regular transcript with a message in it, user's or assistant's,」
+// 「[Opus 5.5] within its first 64 KiB: an empty one, or a directory named as one, has no conversation to resume.」
 private bool holdsConversation(const(char)* path) {
     import core.sys.posix.sys.stat : stat_t, stat, S_IFMT, S_IFREG;
     import core.sys.posix.fcntl : open, O_RDONLY;
@@ -734,7 +734,7 @@ private bool holdsConversation(const(char)* path) {
     return false;
 }
 
-// Claude Code's projects directory: $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects, into buf.
+// 「[Opus 5.5] Claude Code's projects directory: $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects, into buf.」
 const(char)[] projectsDirInto(char[] buf) {
     import core.stdc.stdlib : getenv;
     auto config = getenv("CLAUDE_CONFIG_DIR\0".ptr);
