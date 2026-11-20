@@ -139,6 +139,7 @@ scope {
 
     control {
       name: "git-checkout-b"
+      handler_params { unless_agent: "codex" }
       cmd: ["git checkout -b", "git switch -c"]
       msg: "Check main for unpushed commits and push them first. Commit the smallest documentation change that describes intended behavior — before any code. Then: TDD — failing test, confirm failure, make it pass."
     }
