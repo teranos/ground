@@ -1279,6 +1279,18 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 }
             }
             exitLabel = "file-perm-deny";
+            // "we catch what the model wanted to put in there"
+            // A refused control is kept, and the refusal says so (proposed.d).
+            import proposed : isControl, keepProposal;
+            if (isControl(filePath)) {
+                import parse : extractWrittenText;
+                __gshared Buf refusal;
+                refusal = Buf.init;
+                refusal.put(permResult.msg);
+                refusal.put(keepProposal(filePath, extractWrittenText(input), sessionId, cwd));
+                writeDenyResponse(refusal.slice());
+                return 0;
+            }
             writeDenyResponse(permResult.msg);
             return 0;
         }

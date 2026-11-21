@@ -303,6 +303,11 @@ const(char)[] keepBindings(const(char)[] node) {
 private void putFile(ref ZBuf contexts, const(char)[] file) {
     const(char)[] vault, inVault;
     if (vaultOf(file, vault, inVault)) {
+        // Where this vault is on this machine, for what is put into it (proposed.d).
+        {
+            import proposed : learnVault;
+            learnVault(vault, file[0 .. file.length - inVault.length - 1]);
+        }
         contexts.put(`","`);
         contexts.put(VAULT);
         putPath(contexts, vault);
