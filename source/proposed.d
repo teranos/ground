@@ -206,6 +206,23 @@ const(char)[] keepIn(const(char)[] bindings, const(char)[] vaults, const(char)[]
     __gshared Block b;
     b.reset();
     blockInto(b, stamp, session, repo, inRepo, text);
+
+    // An agent refused a write tries it again: what the note already holds of
+    // this session, for this control, in these words, is not put there twice.
+    // Everything of the block after its moment is what is looked for.
+    {
+        import matcher : contains;
+        __gshared char[4 * 1024 * 1024] held = 0;
+        fclose(f);
+        auto hn = readInto(path.ptr, held[]);
+        auto whole = b.slice();
+        size_t cut = 0;
+        while (cut + 3 <= whole.length && whole[cut .. cut + 3] != " \u00b7") cut++;
+        if (hn < held.length && cut + 3 <= whole.length && contains(held[0 .. hn], whole[cut .. $]))
+            return path[0 .. n];
+        f = fopen(path.ptr, "a");
+        if (f is null) return "";
+    }
     fwrite(b.data.ptr, 1, b.len, f);
     fclose(f);
     return path[0 .. n];

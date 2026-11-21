@@ -128,3 +128,43 @@ unittest {
     sqlite3_finalize(s);
     sqlite3_close(db);
 }
+
+// An agent refused a write tries it again: the note holds a proposal once.
+unittest {
+    import core.stdc.stdio : fopen, fread, fclose, remove, snprintf;
+    import core.sys.posix.unistd : getpid, rmdir;
+    import db : mkdir;
+    char[256] root = 0;
+    auto rl = snprintf(root.ptr, root.length, "/tmp/ground-proposed-twice-%d", getpid());
+    mkdir(root.ptr, 493);
+    char[512] d = 0;
+    snprintf(d.ptr, d.length, "%s/sbvh-nl", root.ptr); mkdir(d.ptr, 493);
+    snprintf(d.ptr, d.length, "%s/sbvh-nl/l.sbvh.nl", root.ptr); mkdir(d.ptr, 493);
+    __gshared ZBuf vaults;
+    vaults.reset();
+    vaults.put("syncbvh\t");
+    vaults.put(root[0 .. rl]);
+    vaults.put("\n");
+
+    enum text = "scope {\n  event: \"Stop\"\n}\n";
+    auto first = keepIn(bindings, vaults.slice(), "sbvh-nl/l.sbvh.nl", "controls/a.pbt", text, "s1", "2026-11-21T13:00:00Z");
+    auto again = keepIn(bindings, vaults.slice(), "sbvh-nl/l.sbvh.nl", "controls/a.pbt", text, "s1", "2026-11-21T13:05:00Z");
+    assert(first.length > 0 && again == first, "said kept both times: it is there");
+    keepIn(bindings, vaults.slice(), "sbvh-nl/l.sbvh.nl", "controls/b.pbt", text, "s1", "2026-11-21T13:06:00Z");
+
+    char[600] p = 0;
+    snprintf(p.ptr, p.length, "%s/sbvh-nl/l.sbvh.nl/%.*s", root.ptr, cast(int) NOTE.length, NOTE.ptr);
+    auto f = fopen(p.ptr, "r");
+    __gshared char[8192] got = 0;
+    auto n = fread(got.ptr, 1, got.length, f);
+    fclose(f);
+    size_t blocks = 0;
+    foreach (i; 0 .. n) if (i + 3 <= n && got[i .. i + 3] == "## ") blocks++;
+    assert(blocks == 2, "the same text for the same control once; for another control, its own");
+    assert(!contains(got[0 .. n], "13:05:00Z"));
+
+    remove(p.ptr);
+    snprintf(d.ptr, d.length, "%s/sbvh-nl/l.sbvh.nl", root.ptr); rmdir(d.ptr);
+    snprintf(d.ptr, d.length, "%s/sbvh-nl", root.ptr); rmdir(d.ptr);
+    rmdir(root.ptr);
+}
