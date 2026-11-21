@@ -114,6 +114,25 @@ long requeueOutgrown(sqlite3* db) {
     return back;
 }
 
+// stream.hold beside the store; NUL-terminated past its length.
+const(char)[] holdPath() {
+    import db : storeDir;
+    __gshared char[4200] buf = 0;
+    auto dir = storeDir();
+    size_t n = 0;
+    foreach (c; dir) if (n < 4096) buf[n++] = c;
+    foreach (c; "/stream.hold") buf[n++] = c;
+    buf[n] = 0;
+    return buf[0 .. n];
+}
+
+// Whether the stream is held: the file stands, so no sky sends a row.
+bool streamHeld() {
+    import core.sys.posix.sys.stat : stat_t, stat;
+    stat_t st;
+    return stat(holdPath().ptr, &st) == 0;
+}
+
 bool retryable(int status) {
     return status < 200 || status >= 500 || status == TOO_MANY;
 }
@@ -896,4 +915,20 @@ unittest {
     Pace p;
     foreach (i; 0 .. 40) paceLanded(p, true);
     assert(p.take == STREAM_TAKE_MOST, "the claim stops growing at its ceiling");
+}
+
+// "If you want the stream itself held, say so"
+// "yes"
+// The stream is held while stream.hold stands beside the store: every row stays
+// pending and none is sent, until the file is taken away.
+unittest {
+    import core.stdc.stdio : fopen, fclose, remove;
+    assert(!streamHeld(), "no file is no hold");
+    auto p = holdPath();
+    auto f = fopen(p.ptr, "w");
+    assert(f !is null);
+    fclose(f);
+    assert(streamHeld(), "the file holds it");
+    remove(p.ptr);
+    assert(!streamHeld(), "taken away, it streams");
 }

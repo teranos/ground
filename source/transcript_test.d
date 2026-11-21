@@ -224,33 +224,28 @@ unittest {
 }
 
 
-// "every line of every session goes from ground, through the sky, to k"
-// A kept line is an attestation like every other a hook writes, so the sky
-// streams it to the node: whole, as written, at the moment the line gives.
+// "by default i dont want to send the tooloutput"
+// "we dont really need to put all the PostTool to k, unless we can reach k directly"
+// A kept line carries tool output: it is kept whole, and no pass of the stream,
+// which goes through q, claims it. It waits for a node reached directly.
 
 unittest {
-    import stream : claimStream, nextClaimed, Claimed;
-    import matcher : contains;
+    import stream : claimStream;
+    import db : DIRECT_ONLY;
     auto db = memDb();
     assert(keepLines(db, "/t/s.jsonl", "sess-s", lines, 0).ok);
 
-    enum pending = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'transcript:line' "
-        ~ "AND qntx_at = 0\0";
-    assert(counted(db, pending.ptr) == 3, "every kept line waits for the stream");
-
-    assert(claimStream(db, 77, 10) == 3);
-    __gshared Claimed c;
-    assert(nextClaimed(db, 77, 0, c));
-    auto body_ = c.body_.slice();
-    assert(contains(body_, `"predicates":["transcript:line"]`));
-    assert(contains(body_, `"contexts":["session:sess-s"]`));
-    assert(contains(body_, `<command-name>/model</command-name>`), "the line goes whole");
+    assert(DIRECT_ONLY == 2);
+    enum aside = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'transcript:line' "
+        ~ "AND qntx_at = 2\0";
+    assert(counted(db, aside.ptr) == 3, "every kept line waits for a direct node");
+    assert(claimStream(db, 77, 10) == 0, "and the stream through q claims none");
     sqlite3_close(db);
 }
 
 unittest {
     // 379 lines in this machine's transcripts are larger than the 272 KB a row
-    // could be streamed at; the largest is 1.34 MB (2026-11-21). They go whole.
+    // could be streamed at; the largest is 1.34 MB (2026-11-21). A row holds them whole.
     import stream : claimStream, nextClaimed, Claimed;
     import matcher : contains;
     auto db = memDb();
@@ -261,6 +256,9 @@ unittest {
     big[$ - tail.length - 1 .. $ - 1] = tail;
     big[$ - 1] = '\n';
     assert(keepLines(db, "/t/big.jsonl", "sess-big", big[], 0).lines == 1);
+    // As a pass to a direct node will take it.
+    import db : sqlite3_exec;
+    sqlite3_exec(db, "UPDATE attestations SET qntx_at = 0\0".ptr, null, null, null);
     assert(claimStream(db, 78, 10) == 1);
     __gshared Claimed c;
     assert(nextClaimed(db, 78, 0, c));

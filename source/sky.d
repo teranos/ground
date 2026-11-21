@@ -773,7 +773,9 @@ int handleSky(int argc, const(char)** argv) {
             }
             // The hook rows, to the node, as one list at the pace. A pass the
             // node did not take waits, longer each time, up to 5m.
-            if (node.url.length > 0 && now >= streamBackoffUntil) {
+            // Held while stream.hold stands beside the store (stream.d).
+            import stream : streamHeld;
+            if (node.url.length > 0 && now >= streamBackoffUntil && !streamHeld()) {
                 import stream : streamPass, paceLanded, paceFailed;
                 auto pass = streamPass(db, node.url, myPid, now, pace.take, streamed);
                 if (pass.ok) {

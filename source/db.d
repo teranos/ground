@@ -17,6 +17,13 @@ enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON atte
 // 「[Opus 5.5] and of "claimed" (< 0) is never fooled by it.」
 enum BEFORE_STREAM = 1;
 
+// "Q should never be used for backfill type ops"
+// "we dont really need to put all the PostTool to k, unless we can reach k directly"
+// 「[Fable 5.2] A row that goes to a node only directly: never claimed by the stream, which goes」
+// 「[Fable 5.2] through q. Every transcript line is one (it carries tool output), and so is a row」
+// 「[Fable 5.2] sent again long after it was written. Like BEFORE_STREAM, no post lands at it.」
+enum DIRECT_ONLY = 2;
+
 // 「[Opus 5.5] The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.」
 enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
 

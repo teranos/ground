@@ -8,7 +8,7 @@ module transcript;
 
 import db : sqlite3, sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
             sqlite3_step, sqlite3_finalize, sqlite3_reset, sqlite3_exec, sqlite3_changes, sqlite3_errmsg,
-            sqlite3_column_int64, SQLITE_OK, SQLITE_ROW, SQLITE_DONE, SQLITE_TRANSIENT;
+            sqlite3_column_int64, SQLITE_OK, SQLITE_ROW, SQLITE_DONE, SQLITE_TRANSIENT, DIRECT_ONLY;
 
 struct Kept {
     bool ok;
@@ -17,10 +17,10 @@ struct Kept {
     const(char)[] why; // what stopped it, when !ok
 }
 
-// "every line of every session goes from ground, through the sky, to k"
-// A kept line is an attestation, transcript:line, like every other row a hook
-// writes, so the sky streams it to the node (stream.d). Its id is its file and
-// byte offset: keeping it twice, here or at the node, is the same row.
+// A kept line is an attestation, transcript:line, in the same store as every
+// row a hook writes. Its id is its file and byte offset: keeping it twice, here
+// or at a node, is the same row. It is not streamed through q: it waits, whole,
+// for a node reached directly (db.d, DIRECT_ONLY).
 enum LINE_PREDICATE = "transcript:line";
 
 // The lines of one file, by where each ends, read through
@@ -62,12 +62,15 @@ Kept keepLines(sqlite3* db, const(char)[] path, const(char)[] session,
     // At the moment the line says it was written; a line that says none, at
     // the moment it was kept.
     enum ins = "INSERT OR IGNORE INTO attestations "
-        ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ("
+        ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes, qntx_at) VALUES ("
         ~ "'ground:transcript:' || ?1 || ':' || ?2, json_array('session:' || ?4), '[\"transcript:line\"]', "
         ~ "json_array('session:' || ?4), '[\"ground\"]', "
         ~ "COALESCE(CASE WHEN json_valid(?5) THEN strftime('%Y-%m-%dT%H:%M:%SZ', json_extract(?5, '$.timestamp')) END, "
         ~ "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), 'ground', "
-        ~ "json_object('path', ?1, 'offset', ?2, 'end', ?3, 'line', ?5))\0";
+        ~ "json_object('path', ?1, 'offset', ?2, 'end', ?3, 'line', ?5), "
+        // "by default i dont want to send the tooloutput"
+        // A line carries tool output, so it goes to a node only directly (db.d).
+        ~ DIRECT_ONLY.stringof ~ ")\0";
     sqlite3_stmt* s;
     if (sqlite3_prepare_v2(db, ins.ptr, -1, &s, null) != SQLITE_OK) {
         k.why = sqliteWhy(db);
