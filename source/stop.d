@@ -128,14 +128,8 @@ int handleStop(const(char)[] input, const(char)[] cwd, const(char)[] sessionId) 
     if (db is null) return 0;
 
     // 「[Opus 5.5] A CLAUDE.md given in a turn's last step is written to the transcript after」
-    // 「[Opus 5.5] that step's hooks ran: read the tail as the turn closes, or a session that」
-    // 「[Opus 5.5] ends there never has it recorded (2026-11-18, session 17116167).」
-    {
-        import parse : extractTranscriptPath;
-        import queued : ingestTranscript;
-        auto tp = extractTranscriptPath(input);
-        if (tp !is null) ingestTranscript(db, tp, sessionId, cwd);
-    }
+    // 「[Opus 5.5] that step's hooks ran: the Stop's own walk (transcript.d, from hookrun)」
+    // 「[Opus 5.5] keeps and reads it as the turn closes (2026-11-18, session 17116167).」
 
     auto t2 = usecNow();
 

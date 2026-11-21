@@ -335,27 +335,6 @@ bool takesUpdatedInput(const(char)[] toolName) {
     return toolName == "Bash";
 }
 
-// The commands a gate stands in front of. Every other Bash call would pay for
-// a corpus nothing is about to read.
-// `git add` is here for the corpus, not for a gate of its own: the binary
-// refusal asks whether the operator went ahead, and a go-ahead typed while
-// the turn ran is not in the store until the transcript is walked.
-private static immutable string[7] GATED = [
-    "git commit", "git merge", "git checkout -b", "git switch -c", "gh pr", "kill",
-    "git add",
-];
-
-// Whether this call is one whose decision depends on what the user said.
-bool needsCorpus(const(char)[] toolName, const(char)[] command) {
-    if (toolName == "Write" || toolName == "Edit") return true;
-    if (command is null) return false;
-
-    foreach (g; GATED)
-        if (contains(command, g)) return true;
-
-    return false;
-}
-
 // The two fields whose text lands in a file. file_path is deliberately absent,
 // and so is old_string: that one selects text already on disk rather than
 // authoring any, so rewriting it can only stop the edit from matching.
@@ -826,23 +805,10 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
         g_input = input;
     }
 
-    // A gate reads the corpus, and a message typed mid-turn is not in it until
-    // the transcript is walked.
-    if (needsCorpus(toolName, command)) {
-        import parse : extractTranscriptPath;
-        import queued : ingestTranscript;
-        import db : openDb, sqlite3_close;
-
-        auto tp = extractTranscriptPath(input);
-        if (tp !is null) {
-            auto qdb = openDb();
-            if (qdb !is null) {
-                ingestTranscript(qdb, tp, sessionId, cwd);
-                sqlite3_close(qdb);
-            }
-        }
-        tCorpus = usecNow();
-    }
+    // A gate reads the corpus. A message typed mid-turn is in it: every hook
+    // keeps the transcript's new lines, and reads them, before this one runs
+    // (transcript.d, from hookrun).
+    tCorpus = usecNow();
 
     if (command !is null) {
 
@@ -1313,6 +1279,18 @@ int handlePreToolUse(const(char)[] input, const(char)[] cwd, const(char)[] sessi
                 }
             }
             exitLabel = "file-perm-deny";
+            // "we catch what the model wanted to put in there"
+            // A refused control is kept, and the refusal says so (proposed.d).
+            import proposed : isControl, keepProposal;
+            if (isControl(filePath)) {
+                import parse : extractWrittenText;
+                __gshared Buf refusal;
+                refusal = Buf.init;
+                refusal.put(permResult.msg);
+                refusal.put(keepProposal(filePath, extractWrittenText(input), sessionId, cwd));
+                writeDenyResponse(refusal.slice());
+                return 0;
+            }
             writeDenyResponse(permResult.msg);
             return 0;
         }

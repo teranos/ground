@@ -8,139 +8,66 @@ module queued;
 // it. The transcript holds it as an attachment, and that record is the only
 // place a human's own words land when no event carried them.
 
-import parse : extractJsonString;
-import matcher : contains;
-
-// The prompt on this line, when the line is a queued command a person typed.
-// Null for everything else, including the queue's own bookkeeping, which
-// repeats the same words as it accepts and drains them.
-const(char)[] humanQueuedPrompt(const(char)[] line) {
-    if (!contains(line, `"type":"queued_command"`)) return null;
-    if (!contains(line, `"origin":{"kind":"human"}`)) return null;
-
-    __gshared char[8192] buf = 0;
-    return extractJsonString(line, `"prompt"`, &buf[0], buf.length);
-}
-
-// The moment the message was typed, as the transcript records it. It is what
-// makes one queued prompt distinguishable from another typed in the same
-// second, and it is stable across every re-read of the same file.
-const(char)[] humanQueuedStamp(const(char)[] line) {
-    if (!contains(line, `"type":"queued_command"`)) return null;
-    if (!contains(line, `"origin":{"kind":"human"}`)) return null;
-
-    __gshared char[64] buf = 0;
-    return extractJsonString(line, `"timestamp"`, &buf[0], buf.length);
-}
+import db : sqlite3;
 
 // Not UserPromptSubmit. No hook fired for these, and an attestation that named
 // one would claim an event ground never saw. Consumers ask for both.
 enum QUEUED_PREDICATE = "QueuedPromptSubmit";
 
-// Where the walk is, and what it found there. The prompt is a slice of one
-// shared buffer, so it is only valid until the next call.
-struct QueuedHit {
-    bool ok;
-    size_t next;
-    const(char)[] prompt;
-    const(char)[] stamp;
-}
+// "where the principle is we get all of it."
+// The typed prompts among the lines of `path` kept past byte `from`
+// (transcript.d), each attested once. Only a human's own typing: the queue's
+// bookkeeping repeats the same words as it accepts and drains them, and a
+// hook's queued command was not typed. Returns how many were added.
+enum QUEUED_FROM_SQL = "WITH v AS MATERIALIZED (SELECT json_extract(attributes, '$.end') AS e, "
+    ~ "json_extract(attributes, '$.line') AS line FROM attestations "
+    ~ "WHERE json_extract(predicates, '$[0]') = 'transcript:line' AND json_extract(attributes, '$.path') = ?1 "
+    ~ "AND json_extract(attributes, '$.end') > ?2), "
+    ~ "w AS MATERIALIZED (SELECT e, line FROM v WHERE instr(line, '\"queued_command\"') > 0 AND json_valid(line)) "
+    ~ "SELECT json_extract(line, '$.attachment.prompt'), "
+    ~ "COALESCE(json_extract(line, '$.attachment.timestamp'), json_extract(line, '$.timestamp')), "
+    ~ "json_extract(line, '$.cwd') FROM w "
+    ~ "WHERE json_extract(line, '$.attachment.type') = 'queued_command' "
+    ~ "AND json_extract(line, '$.attachment.origin.kind') = 'human' ORDER BY e\0";
 
-// The next typed prompt at or after `from`. A transcript is one object per
-// line and only grows, so a cursor reads it without holding it.
-QueuedHit nextQueuedPrompt(const(char)[] content, size_t from) {
-    size_t i = from;
-    while (i < content.length) {
-        size_t e = i;
-        while (e < content.length && content[e] != '\n') e++;
-
-        auto found = humanQueuedPrompt(content[i .. e]);
-        auto after = e < content.length ? e + 1 : e;
-        if (found !is null)
-            return QueuedHit(true, after, found, humanQueuedStamp(content[i .. e]));
-        i = after;
-    }
-    return QueuedHit(false, content.length, null, null);
-}
-
-import db : sqlite3;
-
-// Every typed prompt in `content` that the store does not already hold, put
-// where a reader of the corpus will find it. Returns how many were added.
-size_t ingestQueued(sqlite3* db, const(char)[] content, const(char)[] sessionId,
-                    const(char)[] cwd) {
+size_t queuedFrom(sqlite3* db, const(char)[] path, long from, const(char)[] sessionId,
+                  const(char)[] cwd) {
+    import db : sqlite3_stmt, sqlite3_prepare_v2, sqlite3_bind_text, sqlite3_bind_int64,
+                sqlite3_step, sqlite3_finalize, sqlite3_column_text, SQLITE_OK, SQLITE_ROW,
+                SQLITE_TRANSIENT;
+    import zbuf : ZBuf;
     if (db is null || sessionId.length == 0) return 0;
 
-    import zbuf : ZBuf;
     __gshared ZBuf ctx;
     ctx.reset();
     ctx.put("session:");
     ctx.put(sessionId);
 
+    sqlite3_stmt* s;
+    if (sqlite3_prepare_v2(db, QUEUED_FROM_SQL.ptr, -1, &s, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(s, 1, path.ptr, cast(int) path.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(s, 2, from);
+
+    const(char)[] str(int col) {
+        auto p = sqlite3_column_text(s, col);
+        if (p is null) return null;
+        size_t n = 0;
+        while (p[n]) n++;
+        return p[0 .. n];
+    }
+
     size_t added = 0;
-    size_t from = 0;
-    while (true) {
-        auto hit = nextQueuedPrompt(content, from);
-        if (!hit.ok) break;
-        from = hit.next;
-        if (hit.prompt.length == 0) continue;
-        if (hit.stamp.length == 0) continue;
-        if (alreadyStored(db, ctx.slice(), hit.prompt)) continue;
-        if (attestPrompt(db, cwd, sessionId, hit.prompt, hit.stamp)) added++;
+    while (sqlite3_step(s) == SQLITE_ROW) {
+        auto prompt = str(0);
+        auto stamp = str(1);
+        // Where the line says the session stood; a sweep is handed none.
+        auto where = str(2);
+        if (prompt.length == 0 || stamp.length == 0) continue;
+        if (alreadyStored(db, ctx.slice(), prompt)) continue;
+        if (attestPrompt(db, where.length > 0 ? where : cwd, sessionId, prompt, stamp)) added++;
     }
+    sqlite3_finalize(s);
     return added;
-}
-
-// "i want to get out of this world of pressing esc, just to have my approval be recorded"
-
-// How much of the transcript's end is read. A session's transcript reaches
-// tens of megabytes, and what has not been stored yet is always at the end.
-enum TAIL_BYTES = 262144;
-
-// The tail of a transcript, ingested. Overlapping reads are free: alreadyStored
-// is what makes reading the same bytes twice cost nothing but a query.
-size_t ingestTranscript(sqlite3* db, const(char)[] path, const(char)[] sessionId,
-                        const(char)[] cwd) {
-    import core.stdc.stdio : fopen, fclose, fread, fseek, ftell, SEEK_END, SEEK_SET;
-
-    if (db is null || path.length == 0 || sessionId.length == 0) return 0;
-
-    __gshared char[4096] pathBuf = 0;
-    if (path.length + 1 > pathBuf.length) return 0;
-    foreach (i, c; path) pathBuf[i] = c;
-    pathBuf[path.length] = 0;
-
-    auto f = fopen(&pathBuf[0], "rb");
-    if (f is null) return 0;
-
-    fseek(f, 0, SEEK_END);
-    auto size = ftell(f);
-    if (size <= 0) { fclose(f); return 0; }
-
-    // A read that starts mid-line drops that line, and the line before the
-    // first newline of the tail is the only one it can lose.
-    long from = size > TAIL_BYTES ? size - TAIL_BYTES : 0;
-    fseek(f, from, SEEK_SET);
-
-    __gshared char[TAIL_BYTES] buf = void;
-    auto n = fread(&buf[0], 1, buf.length, f);
-    fclose(f);
-    if (n == 0) return 0;
-
-    size_t start = 0;
-    if (from > 0) {
-        while (start < n && buf[start] != '\n') start++;
-        if (start < n) start++;
-    }
-    if (start >= n) return 0;
-
-    // 「[Opus 5.5] The same tail holds each CLAUDE.md the session was given partway」
-    // 「[Opus 5.5] through (policy.d).」
-    {
-        import policy : keepNestedFrom;
-        keepNestedFrom(db, buf[start .. n], sessionId);
-    }
-    return ingestQueued(db, buf[start .. n], sessionId, cwd);
 }
 
 enum ALREADY_STORED_SQL = "SELECT 1 FROM attestations WHERE "

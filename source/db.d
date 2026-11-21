@@ -17,6 +17,13 @@ enum EDIT_INDEX = "CREATE INDEX IF NOT EXISTS idx_attestations_edit_path ON atte
 // 「[Opus 5.5] and of "claimed" (< 0) is never fooled by it.」
 enum BEFORE_STREAM = 1;
 
+// "Q should never be used for backfill type ops"
+// "we dont really need to put all the PostTool to k, unless we can reach k directly"
+// 「[Fable 5.2] A row that goes to a node only directly: never claimed by the stream, which goes」
+// 「[Fable 5.2] through q. Every transcript line is one (it carries tool output), and so is a row」
+// 「[Fable 5.2] sent again long after it was written. Like BEFORE_STREAM, no post lands at it.」
+enum DIRECT_ONLY = 2;
+
 // 「[Opus 5.5] The rows a 4xx keeps out of the stream, in SQL: every 4xx but a 429.」
 enum REFUSED_SQL = "(qntx_status >= 400 AND qntx_status < 500 AND qntx_status != 429)";
 
@@ -134,7 +141,9 @@ extern (C) {
     int sqlite3_bind_text(sqlite3_stmt* stmt, int idx, const(char)* text, int n, void function(void*) destructor);
     int sqlite3_step(sqlite3_stmt* stmt);
     int sqlite3_finalize(sqlite3_stmt* stmt);
+    int sqlite3_reset(sqlite3_stmt* stmt);
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
+    int sqlite3_column_bytes(sqlite3_stmt* stmt, int col);
     long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
     int sqlite3_changes(sqlite3* db);
@@ -773,6 +782,17 @@ bool applySchema(sqlite3* db) {
     // 「[Opus 5.5] transcript's tail on every prompt (queued.d).」
     enum idxQueuedPrompt = "CREATE INDEX IF NOT EXISTS idx_attestations_queued_prompt ON attestations(json_extract(contexts, '$[0]'), json_extract(attributes, '$.prompt')) WHERE json_extract(predicates, '$[0]') = 'QueuedPromptSubmit'\0";
     sqlite3_exec(db, idxQueuedPrompt.ptr, null, null, null);
+
+    // "where the principle is we get all of it."
+    // Every line of a transcript is an attestation, transcript:line (transcript.d).
+    // The walk resumes where a file's kept lines end, read through this index.
+    enum idxTranscript = "CREATE INDEX IF NOT EXISTS idx_attestations_transcript ON attestations("
+        ~ "json_extract(attributes, '$.path'), json_extract(attributes, '$.end')) "
+        ~ "WHERE json_extract(predicates, '$[0]') = 'transcript:line'\0";
+    sqlite3_exec(db, idxTranscript.ptr, null, null, null);
+    // Where the lines were kept for a day before they were attestations. Its
+    // files are read again from their start, into the stream.
+    sqlite3_exec(db, "DROP TABLE IF EXISTS transcript_line\0".ptr, null, null, null);
 
     return true;
 }
