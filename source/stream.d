@@ -41,8 +41,12 @@ struct Pace {
     bool toldAtMost;
 }
 
+// The most rows one pass claims: the claim and the answers each rewrite every
+// row they touch under the write lock, and every hook waits behind it.
+enum STREAM_TAKE_MOST = 256;
+
 void paceLanded(ref Pace p, bool grow) {
-    if (grow) p.take *= 2;
+    if (grow) p.take = p.take * 2 > STREAM_TAKE_MOST ? STREAM_TAKE_MOST : p.take * 2;
     p.wait = 0;
     p.toldAtMost = false;
 }
@@ -76,15 +80,38 @@ enum OUTGROWN = "the row did not fit ground's stream buffer and was not sent";
 // Rows ground refused for its own buffer, pending again for a sky whose buffer
 // may hold them; one that still does not fit is refused again in its pass.
 // Asked once as a sky starts. How many went back.
+//
+// Found by a read and written by rowid: as one UPDATE it scanned every pending
+// row under the write lock, 1.4 million of them, and every hook waited up to
+// 10s behind it (2026-11-21).
 long requeueOutgrown(sqlite3* db) {
-    enum sql = "UPDATE attestations SET qntx_status = 0, qntx_reason = '' "
-        ~ "WHERE qntx_at <= 0 AND qntx_at = 0 AND qntx_status = 413 AND qntx_reason = ?1\0";
+    import db : sqlite3_exec;
+    enum find = "SELECT rowid FROM attestations WHERE qntx_at <= 0 AND qntx_at = 0 "
+        ~ "AND qntx_status = 413 AND qntx_reason = ?1 LIMIT 4096\0";
+    __gshared long[4096] rows;
+    size_t n = 0;
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    if (sqlite3_prepare_v2(db, find.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
     sqlite3_bind_text(stmt, 1, OUTGROWN.ptr, cast(int) OUTGROWN.length, SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
+    while (n < rows.length && sqlite3_step(stmt) == SQLITE_ROW) rows[n++] = sqlite3_column_int64(stmt, 0);
     sqlite3_finalize(stmt);
-    return sqlite3_changes(db);
+    if (n == 0) return 0;
+
+    enum put = "UPDATE attestations SET qntx_status = 0, qntx_reason = '' "
+        ~ "WHERE rowid = ?1 AND qntx_at = 0 AND qntx_status = 413\0";
+    if (sqlite3_prepare_v2(db, put.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    import db : sqlite3_reset;
+    long back = 0;
+    sqlite3_exec(db, "BEGIN IMMEDIATE\0".ptr, null, null, null);
+    foreach (r; rows[0 .. n]) {
+        sqlite3_bind_int64(stmt, 1, r);
+        sqlite3_step(stmt);
+        back += sqlite3_changes(db);
+        sqlite3_reset(stmt);
+    }
+    sqlite3_exec(db, "COMMIT\0".ptr, null, null, null);
+    sqlite3_finalize(stmt);
+    return back;
 }
 
 bool retryable(int status) {
@@ -471,6 +498,11 @@ Resolved resolveBatch(sqlite3* db, long pid, long rows, const(char)[] reply, lon
     Resolved r;
     size_t at = 0;
     long after = 0;
+    // One write for every answer: each row on its own took the write lock once
+    // per row, and every hook waited behind the queue of them.
+    import db : sqlite3_exec;
+    auto inTx = sqlite3_exec(db, "BEGIN IMMEDIATE\0".ptr, null, null, null) == SQLITE_OK;
+    scope (exit) if (inTx) sqlite3_exec(db, "COMMIT\0".ptr, null, null, null);
     foreach (i; 0 .. rows) {
         auto rowid = nextClaimedRowid(db, pid, after);
         if (rowid == 0) break;
@@ -855,4 +887,13 @@ unittest {
     claimReleased(db, 7);
     assert(standing(db).refused == 1, "the node's refusal stands");
     sqlite3_close(db);
+}
+
+// A backlog of 1.4 million rows doubled a pass's claim without end, and the
+// claim and its answers held the store's write lock for up to 15s while every
+// hook waited (2026-11-21). A pass claims at most STREAM_TAKE_MOST rows.
+unittest {
+    Pace p;
+    foreach (i; 0 .. 40) paceLanded(p, true);
+    assert(p.take == STREAM_TAKE_MOST, "the claim stops growing at its ceiling");
 }

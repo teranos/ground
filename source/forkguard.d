@@ -38,5 +38,10 @@ int forkClean(const(char)[] where, const(char)[] sessionId) {
                   0, -1, cast(string) sessionId, cast(string) where, "", "", "");
         return REFUSED;
     }
+    // What this process printed and has not flushed is copied into the child,
+    // and flushed again by whatever the child does with its streams: a hook's
+    // answer reached Claude Code twice, as JSON it could not parse (2026-11-21).
+    import core.stdc.stdio : fflush;
+    fflush(null);
     return fork();
 }

@@ -350,6 +350,8 @@ private int runQuiet(const(char)*[] args, const(char)* last) {
     foreach (i, a; args) argv[i] = a;
     argv[args.length] = last;
     argv[args.length + 1] = null;
+    // Nothing printed and unflushed is copied into the child (forkguard.d).
+    { import core.stdc.stdio : fflush; fflush(null); }
     auto pid = fork();
     if (pid < 0) return 127;
     if (pid == 0) {

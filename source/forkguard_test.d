@@ -27,3 +27,33 @@ unittest {
     assert(!fileOpenInProcess(path.ptr), "closed is closed");
     unlink(path.ptr);
 }
+
+// A hook's answer printed and not yet flushed was copied into the child a
+// slow hook forks to report itself; the child's freopen flushed the copy into
+// the same pipe, and Claude Code read the answer twice, as JSON it could not
+// parse (2026-11-21, 27 hooks from 09:41Z). What was written is written once.
+unittest {
+    import forkguard : forkClean;
+    import core.stdc.stdio : fopen, fputs, fclose, fread, freopen, FILE;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.unistd : _exit;
+    char[128] path = 0;
+    snprintf(path.ptr, path.length, "/tmp/ground-forkflush-%d.txt", getpid());
+    auto f = fopen(path.ptr, "w");
+    fputs("the answer\n", f);
+    auto pid = forkClean("forkguard_test", "");
+    assert(pid >= 0);
+    if (pid == 0) {
+        freopen("/dev/null\0".ptr, "w\0".ptr, f);
+        _exit(0);
+    }
+    int st;
+    waitpid(pid, &st, 0);
+    fclose(f);
+    char[64] got = 0;
+    auto r = fopen(path.ptr, "r");
+    auto n = fread(got.ptr, 1, got.length, r);
+    fclose(r);
+    unlink(path.ptr);
+    assert(got[0 .. n] == "the answer\n", "written once, by the parent, before the fork");
+}

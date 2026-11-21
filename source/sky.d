@@ -95,6 +95,7 @@ private bool receipt(sqlite3* db, const(char)[] msgId, const(char)[] projectCont
             import core.sys.posix.unistd : fork, _exit, sleep;
             import core.sys.posix.signal : signal, SIGCHLD, SIG_IGN;
             signal(SIGCHLD, SIG_IGN);
+            { import core.stdc.stdio : fflush; fflush(null); }
             auto apart = fork();
             if (apart == 0) {
                 const(char)[] why;
@@ -583,8 +584,7 @@ int handleSky(int argc, const(char)** argv) {
     // "i dont want to come back, and find out i missed something"
     long sweptAt = 0;
 
-    // The binary this sky runs, as it was when it started; and the rows an
-    // older sky refused for its smaller buffer, sent again.
+    // The binary this sky runs, as it was when it started.
     import ritual.command : ownBinary;
     __gshared char[4096] selfBuf = 0;
     size_t selfLen = 0;
@@ -594,6 +594,7 @@ int handleSky(int argc, const(char)** argv) {
         selfBuf[0 .. selfLen] = self[0 .. selfLen];
     }
     auto selfInode = inodeOf(selfBuf[0 .. selfLen]);
+    // Rows an older sky refused for its smaller buffer, sent again.
     {
         auto qdb = openDb();
         if (qdb !is null) {
@@ -623,6 +624,8 @@ int handleSky(int argc, const(char)** argv) {
                 import core.sys.posix.unistd : fork, _exit;
                 import core.sys.posix.signal : signal, SIGCHLD, SIG_IGN;
                 signal(SIGCHLD, SIG_IGN);
+                // Nothing printed and unflushed is copied into the child (forkguard.d).
+                { import core.stdc.stdio : fflush; fflush(null); }
                 auto apart = fork();
                 if (apart == 0) {
                     import memory : carry;
