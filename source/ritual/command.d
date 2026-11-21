@@ -220,7 +220,7 @@ version (OSX) extern (C) private int _NSGetExecutablePath(char* buf, uint* bufsi
 version (linux) extern (C) private ptrdiff_t readlink(const(char)* path, char* buf, size_t len);
 
 // The path of the binary running now, or empty when the system did not say it.
-private const(char)[] ownBinary() {
+const(char)[] ownBinary() {
     __gshared char[4096] buf = 0;
     version (linux) {
         auto n = readlink("/proc/self/exe", buf.ptr, buf.length - 1);

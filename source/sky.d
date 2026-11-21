@@ -580,6 +580,29 @@ int handleSky(int argc, const(char)** argv) {
     // "if Fable usage is 85%+ its effort needs to be set to lowest automatically"
     long effortLookedAt = 0;
 
+    // "i dont want to come back, and find out i missed something"
+    long sweptAt = 0;
+
+    // The binary this sky runs, as it was when it started; and the rows an
+    // older sky refused for its smaller buffer, sent again.
+    import ritual.command : ownBinary;
+    __gshared char[4096] selfBuf = 0;
+    size_t selfLen = 0;
+    {
+        auto self = ownBinary();
+        selfLen = self.length < selfBuf.length ? self.length : selfBuf.length;
+        selfBuf[0 .. selfLen] = self[0 .. selfLen];
+    }
+    auto selfInode = inodeOf(selfBuf[0 .. selfLen]);
+    {
+        auto qdb = openDb();
+        if (qdb !is null) {
+            import stream : requeueOutgrown;
+            cast(void) requeueOutgrown(qdb);
+            sqlite3_close(qdb);
+        }
+    }
+
     import immediate : MESSAGE_CAP;
     __gshared char[4 * MESSAGE_CAP] batchBuf = "";
     size_t batchLen = 0;
@@ -758,6 +781,19 @@ int handleSky(int argc, const(char)** argv) {
                     if (atMost || pass.odd) streamFailed(sessionId, pass, pace.wait);
                 }
             }
+            // Every transcript's lines, once a minute: a line written after its
+            // session's last hook fired no hook, and is kept here (transcript.d).
+            {
+                import transcript : keepAll, projectsRoot, SWEEP_EVERY;
+                if (now - sweptAt >= SWEEP_EVERY) {
+                    sweptAt = now;
+                    auto root = projectsRoot();
+                    if (root.length > 0) {
+                        const(char)[][1] roots = [root];
+                        cast(void) keepAll(db, roots[]);
+                    }
+                }
+            }
             {
                 import db : heldLongestUs, heldLongestSql, heldReset;
                 auto held = holdSaid(heldLongestUs(), heldLongestSql());
@@ -798,6 +834,18 @@ int handleSky(int argc, const(char)** argv) {
             }
         }
 
+        // Installed over: the next hook starts a sky on the new binary.
+        if (replacedSince(selfBuf[0 .. selfLen], selfInode)) {
+            auto rdb = openDb();
+            if (rdb !is null) {
+                ending(rdb, record, sessionId, tree, myPid, "replaced: a newer ground was installed",
+                       0, polls, startedAt, "info", streamed);
+                sqlite3_close(rdb);
+            }
+            releaseTree(cwd);
+            return 0;
+        }
+
         // The session that spawned this watcher is gone, and only that
         // session's Stop ever replaces it. Without this the loop runs until
         // the machine reboots.
@@ -814,6 +862,25 @@ int handleSky(int argc, const(char)** argv) {
 
         sleep(nextSleep);
     }
+}
+
+// The inode at `path`, 0 when nothing there can be read.
+ulong inodeOf(const(char)[] path) {
+    import core.sys.posix.sys.stat : stat_t, stat;
+    char[4096] z = 0;
+    if (path.length == 0 || path.length + 1 >= z.length) return 0;
+    z[0 .. path.length] = path[];
+    stat_t st;
+    if (stat(z.ptr, &st) != 0) return 0;
+    return cast(ulong) st.st_ino;
+}
+
+// "every line of every session goes from ground, through the sky, to k"
+// Install moves the new binary over the old, so the path names another file.
+// A sky still running the old one ran the old code for a day.
+bool replacedSince(const(char)[] path, ulong started) {
+    auto now = inodeOf(path);
+    return started != 0 && now != 0 && now != started;
 }
 
 // Whether a courier refused the tree carries its own session's messages: only

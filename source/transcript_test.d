@@ -38,15 +38,16 @@ unittest {
     assert(kept.lines == 3, "every line, whatever its type");
     assert(kept.end == lines.length);
 
-    enum cmd = "SELECT count(*) FROM transcript_line WHERE session = 'sess-a' "
-        ~ "AND json_extract(line, '$.message.content') LIKE '<command-name>/model</command-name>%'\0";
+    enum cmd = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'transcript:line' "
+        ~ "AND json_extract(contexts, '$[0]') = 'session:sess-a' "
+        ~ "AND json_extract(json_extract(attributes, '$.line'), '$.message.content') LIKE '<command-name>/model</command-name>%'\0";
     assert(counted(db, cmd.ptr) == 1, "a slash command is in the store");
 
-    enum other = "SELECT count(*) FROM transcript_line "
-        ~ "WHERE json_extract(line, '$.type') = 'a-type-nobody-has-written-yet'\0";
+    enum other = "SELECT count(*) FROM attestations "
+        ~ "WHERE json_extract(json_extract(attributes, '$.line'), '$.type') = 'a-type-nobody-has-written-yet'\0";
     assert(counted(db, other.ptr) == 1, "a line type ground has never heard of is kept too");
 
-    enum asWritten = "SELECT count(*) FROM transcript_line WHERE line = '" ~ mode ~ "'\0";
+    enum asWritten = "SELECT count(*) FROM attestations WHERE json_extract(attributes, '$.line') = '" ~ mode ~ "'\0";
     assert(counted(db, asWritten.ptr) == 1, "the line is kept as written");
 
     sqlite3_close(db);
@@ -60,7 +61,7 @@ unittest {
     auto kept = keepLines(db, "/t/b.jsonl", "sess-b", lines, 0);
     assert(keptUpTo(db, "/t/b.jsonl") == lines.length);
 
-    enum second = "SELECT offset FROM transcript_line WHERE line = '" ~ mode ~ "'\0";
+    enum second = "SELECT json_extract(attributes, '$.offset') FROM attestations WHERE json_extract(attributes, '$.line') = '" ~ mode ~ "'\0";
     assert(counted(db, second.ptr) == slash.length + 1);
     sqlite3_close(db);
 }
@@ -86,7 +87,7 @@ unittest {
     auto db = memDb();
     assert(keepLines(db, "/t/d.jsonl", "sess-d", lines, 0).lines == 3);
     assert(keepLines(db, "/t/d.jsonl", "sess-d", lines, 0).lines == 0);
-    enum n = "SELECT count(*) FROM transcript_line WHERE path = '/t/d.jsonl'\0";
+    enum n = "SELECT count(*) FROM attestations WHERE json_extract(attributes, '$.path') = '/t/d.jsonl'\0";
     assert(counted(db, n.ptr) == 3);
     sqlite3_close(db);
 }
@@ -174,7 +175,8 @@ unittest {
     writeFile(p, lines, "wb");
     auto k = keepTranscript(db, p[0 .. pl], "sess-h", 8);
     assert(k.ok);
-    enum longLine = "SELECT end FROM transcript_line WHERE session = 'sess-h' AND offset = 0\0";
+    enum longLine = "SELECT json_extract(attributes, '$.end') FROM attestations "
+        ~ "WHERE json_extract(contexts, '$[0]') = 'session:sess-h' AND json_extract(attributes, '$.offset') = 0\0";
     assert(counted(db, longLine.ptr) == slash.length + 1, "the line longer than the cap is kept whole");
 
     remove(p);
@@ -218,5 +220,135 @@ unittest {
     assert(k.ok);
     assert(k.lines == 3);
     remove(p);
+    sqlite3_close(db);
+}
+
+
+// "every line of every session goes from ground, through the sky, to k"
+// A kept line is an attestation like every other a hook writes, so the sky
+// streams it to the node: whole, as written, at the moment the line gives.
+
+unittest {
+    import stream : claimStream, nextClaimed, Claimed;
+    import matcher : contains;
+    auto db = memDb();
+    assert(keepLines(db, "/t/s.jsonl", "sess-s", lines, 0).ok);
+
+    enum pending = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'transcript:line' "
+        ~ "AND qntx_at = 0\0";
+    assert(counted(db, pending.ptr) == 3, "every kept line waits for the stream");
+
+    assert(claimStream(db, 77, 10) == 3);
+    __gshared Claimed c;
+    assert(nextClaimed(db, 77, 0, c));
+    auto body_ = c.body_.slice();
+    assert(contains(body_, `"predicates":["transcript:line"]`));
+    assert(contains(body_, `"contexts":["session:sess-s"]`));
+    assert(contains(body_, `<command-name>/model</command-name>`), "the line goes whole");
+    sqlite3_close(db);
+}
+
+unittest {
+    // 379 lines in this machine's transcripts are larger than the 272 KB a row
+    // could be streamed at; the largest is 1.34 MB (2026-11-21). They go whole.
+    import stream : claimStream, nextClaimed, Claimed;
+    import matcher : contains;
+    auto db = memDb();
+    enum head = `{"type":"user","message":{"content":"`;
+    enum tail = `ENDOFLINE"}}`;
+    __gshared char[1_400_000] big = 'x';
+    big[0 .. head.length] = head;
+    big[$ - tail.length - 1 .. $ - 1] = tail;
+    big[$ - 1] = '\n';
+    assert(keepLines(db, "/t/big.jsonl", "sess-big", big[], 0).lines == 1);
+    assert(claimStream(db, 78, 10) == 1);
+    __gshared Claimed c;
+    assert(nextClaimed(db, 78, 0, c));
+    assert(!c.body_.over, "a 1.4 MB line fits the stream");
+    assert(contains(c.body_.slice(), "ENDOFLINE"), "and goes whole");
+    sqlite3_close(db);
+}
+
+unittest {
+    // At the moment the line says it was written; a line that says none is
+    // kept at the moment it was kept.
+    auto db = memDb();
+    enum stamped = `{"type":"user","timestamp":"2026-08-19T00:42:08.852Z"}` ~ "\n";
+    assert(keepLines(db, "/t/ts.jsonl", "sess-ts", stamped, 0).ok);
+    enum at = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'transcript:line' "
+        ~ "AND timestamp = '2026-08-19T00:42:08Z'\0";
+    assert(counted(db, at.ptr) == 1);
+    sqlite3_close(db);
+}
+
+import transcript : sessionOfPath;
+
+unittest {
+    assert(sessionOfPath("/h/.claude/projects/-x/c21677df-3b62-45ca-848b-27c489e877a0.jsonl")
+        == "c21677df-3b62-45ca-848b-27c489e877a0");
+    assert(sessionOfPath("/h/.claude/projects/-x/c21677df-3b62-45ca-848b-27c489e877a0/subagents/agent-a5b2.jsonl")
+        == "c21677df-3b62-45ca-848b-27c489e877a0", "a subagent's lines belong to the session that started it");
+}
+
+import transcript : keepAll;
+
+unittest {
+    // "i dont want to come back, and find out i missed something"
+    // Every transcript under a root, main and subagent, read to its end: what
+    // was written before ground kept lines, and after a session's last hook.
+    import db : mkdir;
+    import core.stdc.stdio : remove;
+    char[512] rb;
+    auto root = tmpPath("-root", rb);
+    size_t rl = 0; while (root[rl]) rl++;
+    char[1024] pb;
+    size_t n;
+    const(char)* at(const(char)[] rest) {
+        n = 0;
+        foreach (c; root[0 .. rl]) pb[n++] = c;
+        foreach (c; rest) pb[n++] = c;
+        pb[n] = 0;
+        return &pb[0];
+    }
+    mkdir(at(""), 493);
+    mkdir(at("/proj"), 493);
+    mkdir(at("/proj/sess-m"), 493);
+    mkdir(at("/proj/sess-m/subagents"), 493);
+    writeFile(at("/proj/sess-m.jsonl"), lines, "wb");
+    writeFile(at("/proj/sess-m/subagents/agent-1.jsonl"), mode ~ "\n", "wb");
+    writeFile(at("/proj/notes.txt"), "not a transcript\n", "wb");
+
+    auto db = memDb();
+    const(char)[][1] roots = [root[0 .. rl]];
+    auto swept = keepAll(db, roots[], 2 * 1024 * 1024);
+    assert(swept.ok);
+    assert(swept.files == 2, "both transcripts, and nothing else");
+    assert(swept.lines == 4);
+
+    enum mine = "SELECT count(*) FROM attestations WHERE json_extract(predicates, '$[0]') = 'transcript:line' "
+        ~ "AND json_extract(contexts, '$[0]') = 'session:sess-m'\0";
+    assert(counted(db, mine.ptr) == 4, "the subagent's line is its session's");
+
+    assert(keepAll(db, roots[], 2 * 1024 * 1024).lines == 0, "a second sweep keeps nothing twice");
+
+    // Proven, not assumed: each file's bytes against what was kept of it.
+    import transcript : provenAll;
+    auto proof = provenAll(db, roots[]);
+    assert(proof.same == 2 && proof.differ == 0, "what was kept is what each file holds");
+
+    // A whole line the store does not hold is a file that differs.
+    writeFile(at("/proj/sess-m.jsonl"), unseen ~ "\n", "ab");
+    auto after = provenAll(db, roots[]);
+    assert(after.same == 1 && after.differ == 1, "a line not kept is found");
+    assert(after.shown == 1);
+
+    remove(at("/proj/sess-m/subagents/agent-1.jsonl"));
+    remove(at("/proj/sess-m.jsonl"));
+    remove(at("/proj/notes.txt"));
+    import core.sys.posix.unistd : rmdir;
+    rmdir(at("/proj/sess-m/subagents"));
+    rmdir(at("/proj/sess-m"));
+    rmdir(at("/proj"));
+    rmdir(at(""));
     sqlite3_close(db);
 }

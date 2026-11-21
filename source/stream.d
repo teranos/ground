@@ -70,6 +70,23 @@ enum TOO_MANY = 429;
 // the node's; the reason on the row says so.
 enum TOO_LARGE = 413;
 
+// Ground's own words for that refusal, on the row: what requeueOutgrown finds.
+enum OUTGROWN = "the row did not fit ground's stream buffer and was not sent";
+
+// Rows ground refused for its own buffer, pending again for a sky whose buffer
+// may hold them; one that still does not fit is refused again in its pass.
+// Asked once as a sky starts. How many went back.
+long requeueOutgrown(sqlite3* db) {
+    enum sql = "UPDATE attestations SET qntx_status = 0, qntx_reason = '' "
+        ~ "WHERE qntx_at <= 0 AND qntx_at = 0 AND qntx_status = 413 AND qntx_reason = ?1\0";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.ptr, -1, &stmt, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, OUTGROWN.ptr, cast(int) OUTGROWN.length, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return sqlite3_changes(db);
+}
+
 bool retryable(int status) {
     return status < 200 || status >= 500 || status == TOO_MANY;
 }
@@ -159,11 +176,14 @@ long claimStream(sqlite3* db, long pid, long take) {
     return sqlite3_changes(db);
 }
 
-// A row's body, whole. A hook's payload is at most readStdin's 256KB, and the
-// envelope around it is small, so a row always fits; `over` says when one did
-// not, and such a row is not posted cut. The body went through a 4096-byte
-// buffer for a week: 89 rows reached the node cut mid-JSON and were refused.
-enum STREAM_BODY_CAP = 262_144 + 16_384;
+// A row's body, whole. `over` says when one did not fit, and such a row is not
+// posted cut. The body went through a 4096-byte buffer for a week: 89 rows
+// reached the node cut mid-JSON and were refused.
+// "every line of every session goes from ground, through the sky, to k"
+// A transcript line is a row too, and 379 of this machine's were larger than
+// the 272 KB a row could be (2026-11-21, largest 1.34 MB): a row is as large
+// as the node takes a list, so it goes alone in one if it must.
+enum STREAM_BODY_CAP = NODE_BODY_CAP - 2;
 
 struct Body {
     char[STREAM_BODY_CAP] data = 0;
@@ -354,7 +374,7 @@ Built buildBatch(sqlite3* db, long pid, long now, char[] into) {
         // A row that did not fit is not sent cut, and nothing here can make it
         // fit: refused by ground itself, with the reason, and out of the claim.
         if (c.body_.over) {
-            rowResolved(db, c.rowid, TOO_LARGE, false, now, "the row did not fit ground's stream buffer and was not sent");
+            rowResolved(db, c.rowid, TOO_LARGE, false, now, OUTGROWN);
             continue;
         }
         auto row = c.body_.slice();
@@ -566,7 +586,7 @@ unittest {
     assert(claimStream(db, 222, 10) == 0, "a second sky finds nothing left to claim");
 
     // The body is ground's row as the node takes it.
-    Claimed c;
+    __gshared Claimed c;
     assert(nextClaimed(db, 111, 0, c));
     auto body_ = c.body_.slice();
     assert(contains(body_, `"id":"ground:payload:PostToolUse:2026-09-19T09:03:25Z:34348"`));
@@ -584,10 +604,10 @@ unittest {
     assert(!contains(body_, "tool_response"));
     assert(!contains(body_, `"tool_input"`), "a command's input is its command");
 
-    Claimed d;
+    __gshared Claimed d;
     assert(nextClaimed(db, 111, c.rowid, d));
     assert(contains(d.body_.slice(), `"stop_hook_active":false`), "everything else goes whole");
-    Claimed e;
+    __gshared Claimed e;
     assert(!nextClaimed(db, 111, d.rowid, e));
 
     // A row goes whole or not at all. The body went through a 4096-byte
@@ -602,7 +622,7 @@ unittest {
         payload[$ - tail.length .. $] = tail;
         attestEventAt(db, "UserPromptSubmit", "/tmp", "sess-s", payload[], "2026-09-19T09:03:27Z", 34350);
         assert(claimStream(db, 555, 10) == 1);
-        Claimed w;
+        __gshared Claimed w;
         assert(nextClaimed(db, 555, 0, w));
         assert(!w.body_.over, "a 200KB row fits");
         assert(contains(w.body_.slice(), "TAILMARK"), "and goes whole");
@@ -713,7 +733,7 @@ unittest {
     // The node's limit: a row that would take the list past it waits for
     // the next pass, still pending.
     assert(claimStream(db, 7, 3) == 3);
-    Claimed first;
+    __gshared Claimed first;
     assert(nextClaimed(db, 7, 0, first));
     auto one = buildBatch(db, 7, 5000, into[0 .. first.body_.len + 2]);
     assert(one.rows == 1 && one.byteFull);
@@ -726,7 +746,7 @@ unittest {
     // Each row by its own answer, in the order sent.
     auto all = buildBatch(db, 7, 5000, into[]);
     assert(all.rows == 3);
-    Claimed second;
+    __gshared Claimed second;
     assert(nextClaimed(db, 7, first.rowid, second));
     enum reply = `{"results":[{"status":201,"answer":{"id":"a","status":"created"}},`
         ~ `{"status":400,"answer":{"error":"subjects must not be empty"}},`
@@ -802,10 +822,37 @@ unittest {
         `{"session_id":"sess-w","tool_name":"Edit","tool_input":{"file_path":"/tmp/a.md","old_string":"the words before","new_string":"the words after"},"tool_response":{"structuredPatch":"the output of it"},"duration_ms":3}`,
         "2026-09-19T09:03:25Z", 34350);
     assert(claimStream(db, 333, 10) == 1);
-    Claimed c;
+    __gshared Claimed c;
     assert(nextClaimed(db, 333, 0, c));
     auto body_ = c.body_.slice();
     assert(contains(body_, `"tool_input":{"file_path":"/tmp/a.md","old_string":"the words before","new_string":"the words after"}`), "a write goes with its words");
     assert(!contains(body_, "the output of it"), "the output stays home");
+    sqlite3_close(db);
+}
+
+// "every line of every session goes from ground, through the sky, to k"
+// Ground's own refusal is of its buffer, and a later ground's is larger: a row
+// it refused as too large is sent again by a sky whose buffer holds it. 19
+// transcript lines were refused by skies still running a 272 KB buffer.
+unittest {
+    import db : sqlite3_open, sqlite3_close, applySchema, attestEventAt;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    attestEventAt(db, "Stop", "/tmp", "sess-r", `{"session_id":"sess-r","n":1}`, "2026-11-21T10:00:01Z", 1);
+    attestEventAt(db, "Stop", "/tmp", "sess-r", `{"session_id":"sess-r","n":2}`, "2026-11-21T10:00:02Z", 2);
+    assert(claimStream(db, 5, 10) == 2);
+    __gshared Claimed one, two;
+    assert(nextClaimed(db, 5, 0, one));
+    assert(nextClaimed(db, 5, one.rowid, two));
+    rowResolved(db, one.rowid, TOO_LARGE, false, 100, OUTGROWN);
+    rowResolved(db, two.rowid, 413, false, 100, `{"error":"the node's own"}`);
+    claimReleased(db, 5);
+    assert(claimStream(db, 6, 10) == 0, "both refused");
+
+    assert(requeueOutgrown(db) == 1, "ground's own refusal is asked again");
+    assert(claimStream(db, 7, 10) == 1, "and claimed by the next pass");
+    claimReleased(db, 7);
+    assert(standing(db).refused == 1, "the node's refusal stands");
     sqlite3_close(db);
 }

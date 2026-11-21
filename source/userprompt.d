@@ -82,15 +82,8 @@ int handleUserPromptSubmit(const(char)[] input, const(char)[] cwd, const(char)[]
     }
     tSweep = usecNow();
 
-    // A message typed mid-turn fires no hook, so the transcript is the only
-    // record of it. Without this the corpus holds what was submitted rather
-    // than what was said.
-    {
-        import parse : extractTranscriptPath;
-        import queued : ingestTranscript;
-        auto tp = extractTranscriptPath(input);
-        if (tp !is null) ingestTranscript(db, tp, sessionId, cwd);
-    }
+    // A message typed mid-turn fires no hook; its line was kept, and read,
+    // before this handler ran (transcript.d, from hookrun).
     tIngest = usecNow();
 
     __gshared ZBuf ctx;

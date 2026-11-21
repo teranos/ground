@@ -17,9 +17,19 @@ struct Kept {
     const(char)[] why; // what stopped it, when !ok
 }
 
+// "every line of every session goes from ground, through the sky, to k"
+// A kept line is an attestation, transcript:line, like every other row a hook
+// writes, so the sky streams it to the node (stream.d). Its id is its file and
+// byte offset: keeping it twice, here or at the node, is the same row.
+enum LINE_PREDICATE = "transcript:line";
+
+// The lines of one file, by where each ends, read through
+// idx_attestations_transcript (db.d).
+enum LINES_OF = "json_extract(predicates, '$[0]') = 'transcript:line' AND json_extract(attributes, '$.path') = ?1";
+
 // Where the kept lines of `path` end: the byte offset the next walk reads from.
 long keptUpTo(sqlite3* db, const(char)[] path) {
-    enum q = "SELECT COALESCE(MAX(end), 0) FROM transcript_line WHERE path = ?1\0";
+    enum q = "SELECT COALESCE(MAX(json_extract(attributes, '$.end')), 0) FROM attestations WHERE " ~ LINES_OF ~ "\0";
     sqlite3_stmt* s;
     if (sqlite3_prepare_v2(db, q.ptr, -1, &s, null) != SQLITE_OK) return -1;
     sqlite3_bind_text(s, 1, path.ptr, cast(int) path.length, SQLITE_TRANSIENT);
@@ -49,8 +59,15 @@ Kept keepLines(sqlite3* db, const(char)[] path, const(char)[] session,
         return k;
     }
 
-    enum ins = "INSERT OR IGNORE INTO transcript_line (path, offset, end, session, line) "
-        ~ "VALUES (?1, ?2, ?3, ?4, ?5)\0";
+    // At the moment the line says it was written; a line that says none, at
+    // the moment it was kept.
+    enum ins = "INSERT OR IGNORE INTO attestations "
+        ~ "(id, subjects, predicates, contexts, actors, timestamp, source, attributes) VALUES ("
+        ~ "'ground:transcript:' || ?1 || ':' || ?2, json_array('session:' || ?4), '[\"transcript:line\"]', "
+        ~ "json_array('session:' || ?4), '[\"ground\"]', "
+        ~ "COALESCE(CASE WHEN json_valid(?5) THEN strftime('%Y-%m-%dT%H:%M:%SZ', json_extract(?5, '$.timestamp')) END, "
+        ~ "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), 'ground', "
+        ~ "json_object('path', ?1, 'offset', ?2, 'end', ?3, 'line', ?5))\0";
     sqlite3_stmt* s;
     if (sqlite3_prepare_v2(db, ins.ptr, -1, &s, null) != SQLITE_OK) {
         k.why = sqliteWhy(db);
@@ -196,9 +213,24 @@ Kept keepAgentTranscript(sqlite3* db, const(char)[] path, const(char)[] session)
     return keepTranscript(db, path, session);
 }
 
+// The lines kept, and what is read out of them: the prompts typed while a
+// turn ran (queued.d) and each CLAUDE.md given partway through (policy.d).
+// Asked from where this walk began, so each line is read for them once.
+Kept keepAndRead(sqlite3* db, const(char)[] path, const(char)[] session, const(char)[] cwd,
+                 bool agent = false) {
+    auto from = keptUpTo(db, path);
+    auto k = agent ? keepAgentTranscript(db, path, session) : keepTranscript(db, path, session);
+    if (from < 0) return k;
+    import queued : queuedFrom;
+    import policy : nestedFrom;
+    queuedFrom(db, path, from, session, cwd);
+    nestedFrom(db, path, from, session);
+    return k;
+}
+
 // A hook's walk: the transcript it was handed, and the subagent's when it is a
 // SubagentStop. What stops one is said, never dropped (ERROR.md).
-void keepFromHook(sqlite3* db, const(char)[] input, const(char)[] session) {
+void keepFromHook(sqlite3* db, const(char)[] input, const(char)[] session, const(char)[] cwd) {
     import parse : extractTranscriptPath, extractJsonString;
     import errors : sayAside;
 
@@ -209,9 +241,231 @@ void keepFromHook(sqlite3* db, const(char)[] input, const(char)[] session) {
     }
 
     auto main = extractTranscriptPath(input);
-    if (main !is null && main.length > 0) said(keepTranscript(db, main, session));
+    if (main !is null && main.length > 0) said(keepAndRead(db, main, session, cwd));
 
     __gshared char[4096] agentBuf = 0;
     auto agent = extractJsonString(input, `"agent_transcript_path"`, &agentBuf[0], agentBuf.length);
-    if (agent !is null && agent.length > 0) said(keepAgentTranscript(db, agent, session));
+    if (agent !is null && agent.length > 0) said(keepAndRead(db, agent, session, cwd, true));
+}
+
+// The session a transcript's lines belong to, from where Claude Code keeps it:
+// <session>.jsonl, and <session>/subagents/agent-<id>.jsonl for a subagent,
+// whose lines are the session's that started it.
+const(char)[] sessionOfPath(const(char)[] path) {
+    size_t slash = path.length;
+    while (slash > 0 && path[slash - 1] != '/') slash--;
+    auto file = path[slash .. $];
+    if (file.length > 6 && file[$ - 6 .. $] == ".jsonl") file = file[0 .. $ - 6];
+    if (slash == 0) return file;
+
+    auto dir = path[0 .. slash - 1];
+    size_t ds = dir.length;
+    while (ds > 0 && dir[ds - 1] != '/') ds--;
+    if (dir[ds .. $] != "subagents" || ds == 0) return file;
+
+    auto owner = dir[0 .. ds - 1];
+    size_t os = owner.length;
+    while (os > 0 && owner[os - 1] != '/') os--;
+    return owner[os .. $];
+}
+
+// How often a sky sweeps every transcript (sky.d).
+enum SWEEP_EVERY = 60;
+
+struct Swept {
+    bool ok = true;
+    size_t files;
+    size_t lines;
+    size_t failed;
+}
+
+// "i dont want to come back, and find out i missed something"
+// Every transcript under each root, main and subagent, read to its end: what
+// was written before ground kept lines, and after a session's last hook. The
+// sky sweeps ~/.claude/projects (sky.d); `ground keep` does it once, by hand.
+// Codex's transcripts are not swept yet: "Codex can be deferred clearly marked not done yet".
+Swept keepAll(sqlite3* db, const(char)[][] roots, size_t cap = WALK_BYTES) {
+    Swept sw;
+    foreach (root; roots) walkDir(db, root, cap, sw, 0);
+    return sw;
+}
+
+private void walkDir(sqlite3* db, const(char)[] dir, size_t cap, ref Swept sw, int depth) {
+    import core.sys.posix.dirent : opendir, readdir, closedir, DT_DIR, DT_REG;
+    import errors : sayAside;
+    if (depth > 8) return;
+
+    char[4096] z = 0;
+    if (dir.length + 1 >= z.length) return;
+    z[0 .. dir.length] = dir[];
+    auto d = opendir(z.ptr);
+    if (d is null) return;
+    scope (exit) closedir(d);
+
+    for (auto e = readdir(d); e !is null; e = readdir(d)) {
+        size_t n = 0;
+        while (e.d_name[n] != 0) n++;
+        auto name = e.d_name[0 .. n];
+        if (name == "." || name == "..") continue;
+        if (dir.length + 1 + name.length >= 4096) continue;
+
+        char[4096] child = 0;
+        size_t cl = 0;
+        foreach (c; dir) child[cl++] = c;
+        child[cl++] = '/';
+        foreach (c; name) child[cl++] = c;
+        auto path = child[0 .. cl];
+
+        if (e.d_type == DT_DIR) { walkDir(db, path, cap, sw, depth + 1); continue; }
+        if (e.d_type != DT_REG) continue;
+        if (name.length < 6 || name[$ - 6 .. $] != ".jsonl") continue;
+
+        sw.files++;
+        auto session = sessionOfPath(path);
+        // Read to the end, a walk's worth at a time.
+        while (true) {
+            auto k = keepAndRead(db, path, session, "");
+            if (!k.ok) {
+                sw.ok = false;
+                sw.failed++;
+                sayAside("transcript.sweep", "a transcript's lines were not kept", -1,
+                         session, "", k.why);
+                break;
+            }
+            sw.lines += k.lines;
+            if (k.lines == 0) break;
+        }
+    }
+}
+
+// ~/.claude/projects, where Claude Code keeps every session's transcript.
+const(char)[] projectsRoot() {
+    import core.stdc.stdlib : getenv;
+    __gshared char[4096] buf = 0;
+    auto h = getenv("HOME\0".ptr);
+    if (h is null) return null;
+    size_t n = 0;
+    while (h[n] && n < 4000) { buf[n] = h[n]; n++; }
+    foreach (c; "/.claude/projects") buf[n++] = c;
+    return buf[0 .. n];
+}
+
+struct Proven {
+    size_t same;
+    size_t differ;
+    // The first files that differ, for whoever reads it.
+    const(char)[][16] paths;
+    size_t shown;
+    __gshared char[4096][16] held;
+}
+
+// "the data upon which we continue needs to be rock solid"
+// Each file against what was kept of it: the kept lines, in order, each where
+// the last ended, joined by their newlines, are the file's bytes up to where
+// the kept lines end; and past that is no whole line, only one still being written.
+Proven provenAll(sqlite3* db, const(char)[][] roots) {
+    Proven p;
+    foreach (root; roots) proveDir(db, root, p, 0);
+    return p;
+}
+
+private void proveDir(sqlite3* db, const(char)[] dir, ref Proven p, int depth) {
+    import core.sys.posix.dirent : opendir, readdir, closedir, DT_DIR, DT_REG;
+    if (depth > 8) return;
+    char[4096] z = 0;
+    if (dir.length + 1 >= z.length) return;
+    z[0 .. dir.length] = dir[];
+    auto d = opendir(z.ptr);
+    if (d is null) return;
+    scope (exit) closedir(d);
+
+    for (auto e = readdir(d); e !is null; e = readdir(d)) {
+        size_t n = 0;
+        while (e.d_name[n] != 0) n++;
+        auto name = e.d_name[0 .. n];
+        if (name == "." || name == "..") continue;
+        if (dir.length + 1 + name.length >= 4096) continue;
+        char[4096] child = 0;
+        size_t cl = 0;
+        foreach (c; dir) child[cl++] = c;
+        child[cl++] = '/';
+        foreach (c; name) child[cl++] = c;
+        auto path = child[0 .. cl];
+
+        if (e.d_type == DT_DIR) { proveDir(db, path, p, depth + 1); continue; }
+        if (e.d_type != DT_REG) continue;
+        if (name.length < 6 || name[$ - 6 .. $] != ".jsonl") continue;
+
+        if (proveFile(db, path)) { p.same++; continue; }
+        p.differ++;
+        if (p.shown < p.paths.length) {
+            auto slot = Proven.held[p.shown][];
+            auto k = path.length < slot.length ? path.length : slot.length;
+            slot[0 .. k] = path[0 .. k];
+            p.paths[p.shown++] = slot[0 .. k];
+        }
+    }
+}
+
+// True when what was kept of `path` is the file, byte for byte.
+bool proveFile(sqlite3* db, const(char)[] path) {
+    import core.stdc.stdio : fopen, fclose, fread, fseek, ftell, SEEK_END, SEEK_SET;
+    import sha256 : Sha256;
+    import db : sqlite3_column_text, sqlite3_column_bytes;
+
+    char[4096] z = 0;
+    if (path.length + 1 >= z.length) return false;
+    z[0 .. path.length] = path[];
+    auto f = fopen(z.ptr, "rb");
+    if (f is null) return false;
+    scope (exit) fclose(f);
+    fseek(f, 0, SEEK_END);
+    auto size = ftell(f);
+
+    // The kept lines, in order, each starting where the last ended.
+    enum q = "SELECT json_extract(attributes, '$.offset'), json_extract(attributes, '$.end'), "
+        ~ "json_extract(attributes, '$.line') FROM attestations WHERE " ~ LINES_OF
+        ~ " ORDER BY json_extract(attributes, '$.end')\0";
+    sqlite3_stmt* s;
+    if (sqlite3_prepare_v2(db, q.ptr, -1, &s, null) != SQLITE_OK) return false;
+    sqlite3_bind_text(s, 1, path.ptr, cast(int) path.length, SQLITE_TRANSIENT);
+    Sha256 kept;
+    long at = 0;
+    bool contiguous = true;
+    while (sqlite3_step(s) == SQLITE_ROW) {
+        auto off = sqlite3_column_int64(s, 0);
+        auto end = sqlite3_column_int64(s, 1);
+        auto t = sqlite3_column_text(s, 2);
+        auto tl = sqlite3_column_bytes(s, 2);
+        if (off != at || end != off + tl + 1) { contiguous = false; break; }
+        if (tl > 0) kept.put((cast(const(ubyte)*) t)[0 .. tl]);
+        static immutable ubyte[1] nl = ['\n'];
+        kept.put(nl[]);
+        at = end;
+    }
+    sqlite3_finalize(s);
+    if (!contiguous || at > size) return false;
+
+    // The file's bytes up to there, hashed; and the rest holds no newline.
+    Sha256 disk;
+    __gshared ubyte[1 << 20] chunk;
+    fseek(f, 0, SEEK_SET);
+    long left = at;
+    while (left > 0) {
+        auto want = left < chunk.length ? cast(size_t) left : chunk.length;
+        auto got = fread(chunk.ptr, 1, want, f);
+        if (got == 0) return false;
+        disk.put(chunk[0 .. got]);
+        left -= got;
+    }
+    while (true) {
+        auto got = fread(chunk.ptr, 1, chunk.length, f);
+        if (got == 0) break;
+        foreach (b; chunk[0 .. got]) if (b == '\n') return false;
+    }
+
+    char[64] a, b;
+    kept.hexInto(a);
+    disk.hexInto(b);
+    return a == b;
 }

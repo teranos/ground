@@ -145,33 +145,49 @@ size_t keepPoliciesAt(sqlite3* db, const(char)[] session, const(char)[] home, co
 // 「[Opus 5.5] "We know now only because I went and looked. Ground doesn't make that」
 // 「[Opus 5.5] knowledge durable." Claude Code writes a CLAUDE.md it gives a session partway」
 // 「[Opus 5.5] through into the transcript, as an attachment of type nested_memory: its」
-// 「[Opus 5.5] path, the text as given, and the moment. Each such line of `lines` is kept;」
-// 「[Opus 5.5] how many were new.」
-size_t keepNestedFrom(sqlite3* db, const(char)[] lines, const(char)[] session) {
-    import parse : extractJsonString, extractJsonStringAt;
-    import matcher : contains, indexOf;
+// 「[Opus 5.5] path, the text as given, and the moment.」
+// "where the principle is we get all of it."
+// Each such line among those of `path` kept past byte `from` (transcript.d) is
+// kept as a policy; how many were new. The text is the attachment's own where it
+// carries one, and the rendered text where it does not (2.1.325 writes it there).
+enum NESTED_FROM_SQL = "WITH v AS MATERIALIZED (SELECT json_extract(attributes, '$.end') AS e, "
+    ~ "json_extract(attributes, '$.line') AS line FROM attestations "
+    ~ "WHERE json_extract(predicates, '$[0]') = 'transcript:line' AND json_extract(attributes, '$.path') = ?1 "
+    ~ "AND json_extract(attributes, '$.end') > ?2), "
+    ~ "w AS MATERIALIZED (SELECT e, line FROM v WHERE instr(line, '\"nested_memory\"') > 0 AND json_valid(line)) "
+    ~ "SELECT json_extract(line, '$.attachment.path'), "
+    ~ "COALESCE(json_extract(line, '$.attachment.content.content'), json_extract(line, '$.rendered[0].content')), "
+    ~ "json_extract(line, '$.timestamp') FROM w "
+    ~ "WHERE json_extract(line, '$.attachment.type') = 'nested_memory' ORDER BY e\0";
+
+size_t nestedFrom(sqlite3* db, const(char)[] path, long from, const(char)[] session) {
+    import db : sqlite3_bind_int64;
     import collected : epochOf;
-    __gshared char[4096] pathBuf = 0;
-    __gshared char[262144] textBuf = 0;
-    __gshared char[64] stampBuf = 0;
-    size_t kept = 0, start = 0;
-    foreach (i; 0 .. lines.length + 1) {
-        if (i < lines.length && lines[i] != '\n') continue;
-        auto line = lines[start .. i];
-        start = i + 1;
-        if (!contains(line, `"attachment":{"type":"nested_memory"`)) continue;
-        auto path = extractJsonString(line, `"path"`, &pathBuf[0], pathBuf.length);
-        auto inner = indexOf(line, `"content":{`);
-        if (path is null || inner < 0) continue;
-        auto rest = line[cast(size_t) inner + 11 .. $];
-        auto at = indexOf(rest, `"content"`);
-        if (at < 0) continue;
-        auto text = extractJsonStringAt(rest, at, `"content"`, &textBuf[0], textBuf.length);
-        auto stamp = extractJsonString(line, `"timestamp":"`[0 .. $ - 2], &stampBuf[0], stampBuf.length);
-        if (text is null || stamp is null) continue;
+    if (db is null) return 0;
+
+    sqlite3_stmt* s;
+    if (sqlite3_prepare_v2(db, NESTED_FROM_SQL.ptr, -1, &s, null) != SQLITE_OK) return 0;
+    sqlite3_bind_text(s, 1, path.ptr, cast(int) path.length, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(s, 2, from);
+
+    const(char)[] str(int col) {
+        auto p = sqlite3_column_text(s, col);
+        if (p is null) return null;
+        size_t n = 0;
+        while (p[n]) n++;
+        return p[0 .. n];
+    }
+
+    size_t kept = 0;
+    while (sqlite3_step(s) == SQLITE_ROW) {
+        auto file = str(0);
+        auto text = str(1);
+        auto stamp = str(2);
+        if (file is null || text is null || stamp is null) continue;
         auto when = epochOf(stamp);
         if (when < 0) continue;
-        if (keepPolicyAs(db, session, path, text, when, true)) kept++;
+        if (keepPolicyAs(db, session, file, text, when, true)) kept++;
     }
+    sqlite3_finalize(s);
     return kept;
 }

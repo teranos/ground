@@ -93,3 +93,23 @@ private bool contains(const(char)[] hay, const(char)[] needle) {
     }
     return false;
 }
+
+// "every line of every session goes from ground, through the sky, to k"
+// A sky started before an install ran the old code for a day: it refused every
+// transcript line over its old 272 KB row as too large (2026-11-21, 19 lines).
+// A sky whose binary was installed over ends, and the next hook starts the new one.
+unittest {
+    import sky : inodeOf, replacedSince;
+    import core.stdc.stdio : fopen, fclose, remove, rename;
+    enum a = "/tmp/ground-sky-inode-a\0";
+    enum b = "/tmp/ground-sky-inode-b\0";
+    auto f = fopen(a.ptr, "wb"); fclose(f);
+    auto started = inodeOf(a[0 .. $ - 1]);
+    assert(started != 0);
+    assert(!replacedSince(a[0 .. $ - 1], started), "the same binary runs on");
+    auto g = fopen(b.ptr, "wb"); fclose(g);
+    assert(rename(b.ptr, a.ptr) == 0, "install moves the new binary over the old");
+    assert(replacedSince(a[0 .. $ - 1], started), "a sky sees it was installed over");
+    remove(a.ptr);
+    assert(!replacedSince(a[0 .. $ - 1], started), "a binary nobody can stat is not a reason to stop");
+}

@@ -5,7 +5,8 @@ module policy_test;
 // be compared before and after a change."
 // "this is something i want"
 
-import policy : keepPolicy, policyFiles, PolicyFiles, keepNestedFrom;
+import policy : keepPolicy, policyFiles, PolicyFiles, nestedFrom;
+import transcript : keepLines;
 
 // 「[Opus 5.5] The files Claude Code gives a session: the global one, then each」
 // 「[Opus 5.5] CLAUDE.md from the root down to where the session starts.」
@@ -96,16 +97,46 @@ unittest {
         ~ `"content":"## ORDER\n\n1. tests green\n2. install\n3. verify live\n","contentDiffersFromDisk":false},`
         ~ `"displayPath":"CLAUDE.md"},"type":"attachment","uuid":"d","timestamp":"2026-11-18T18:00:00.000Z"}`;
 
-    assert(keepNestedFrom(db, LOADED ~ "\n" ~ OTHER ~ "\n", "s-1") == 1, "the file given partway through is kept");
-    assert(keepNestedFrom(db, LOADED ~ "\n" ~ OTHER ~ "\n", "s-1") == 0, "reading the same tail again keeps nothing new");
-    assert(keepNestedFrom(db, LOADED ~ "\n" ~ CHANGED ~ "\n", "s-1") == 1, "a changed text given later is a change");
-    // 「[Opus 5.5] The tail is read again and again: the older load scrolling past after the」
-    // 「[Opus 5.5] newer one is the same event, not a change back.」
-    assert(keepNestedFrom(db, LOADED ~ "\n" ~ CHANGED ~ "\n", "s-1") == 0, "the same loads read again are no change");
+    enum P = "/t/nested.jsonl";
+    enum first = LOADED ~ "\n" ~ OTHER ~ "\n";
+    assert(keepLines(db, P, "s-1", first, 0).ok);
+    assert(nestedFrom(db, P, 0, "s-1") == 1, "the file given partway through is kept");
+    assert(nestedFrom(db, P, 0, "s-1") == 0, "reading the same lines again keeps nothing new");
+    assert(keepLines(db, P, "s-1", CHANGED ~ "\n", first.length).ok);
+    assert(nestedFrom(db, P, first.length, "s-1") == 1, "a changed text given later is a change");
+    // 「[Opus 5.5] The older load read again after the newer one is the same event, not a change back.」
+    assert(nestedFrom(db, P, 0, "s-1") == 0, "the same loads read again are no change");
 
     assert(scalarCount(db, "SELECT count(*) FROM session_policy WHERE session = 's-1' "
         ~ "AND path = '/u/teranos/ground/CLAUDE.md'\0") == 2);
     // 「[Opus 5.5] At the moment the transcript says, not when ground happened to read it.」
     assert(scalarCount(db, "SELECT min(since) FROM session_policy WHERE session = 's-1'\0") == 1_795_016_059);
     assert(scalarCount(db, "SELECT count(*) FROM policy_text WHERE text LIKE '%3. verify live%'\0") == 1);
+}
+
+// 「[Opus 5.5] As Claude Code writes it now (2026-11-16, version 2.1.325): the attachment's」
+// 「[Opus 5.5] content holds the path and type, and the text as given is the rendered one.」
+unittest {
+    import db : sqlite3, sqlite3_open, sqlite3_close, applySchema, SQLITE_OK,
+        sqlite3_prepare_v2, sqlite3_step, sqlite3_column_int64, sqlite3_finalize,
+        sqlite3_stmt, SQLITE_ROW;
+    import transcript : keepLines;
+    sqlite3* db;
+    assert(sqlite3_open(":memory:\0".ptr, &db) == SQLITE_OK);
+    assert(applySchema(db));
+    scope (exit) sqlite3_close(db);
+
+    enum RENDERED = `{"parentUuid":"a","attachment":{"type":"nested_memory","path":"/u/g/CLAUDE.md",`
+        ~ `"content":{"path":"/u/g/CLAUDE.md","type":"Project","contentDiffersFromDisk":false},"displayPath":"g/CLAUDE.md"},`
+        ~ `"type":"attachment","uuid":"b","timestamp":"2026-11-16T17:59:08.963Z",`
+        ~ `"rendered":[{"content":"<system-reminder>\nContents of /u/g/CLAUDE.md:\n\n## ORDER\n</system-reminder>"}]}`;
+    assert(keepLines(db, "/t/r.jsonl", "s-r", RENDERED ~ "\n", 0).ok);
+    assert(nestedFrom(db, "/t/r.jsonl", 0, "s-r") == 1);
+
+    sqlite3_stmt* st;
+    enum q = "SELECT count(*) FROM policy_text WHERE text LIKE '%## ORDER%'\0";
+    assert(sqlite3_prepare_v2(db, q.ptr, -1, &st, null) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(sqlite3_column_int64(st, 0) == 1, "the text as it was given");
+    sqlite3_finalize(st);
 }

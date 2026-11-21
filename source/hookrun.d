@@ -312,7 +312,7 @@ int run(ref const(char)[] outEventName, ref const(char)[] outProject, ref bool o
             // What no hook carries is in the transcript: every line of it is kept.
             {
                 import transcript : keepFromHook;
-                keepFromHook(db, input, sessionId);
+                keepFromHook(db, input, sessionId, cwd);
             }
             // codex runs no statusline for ug to read its model from.
             {

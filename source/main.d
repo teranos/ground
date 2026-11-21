@@ -94,6 +94,10 @@ extern (C) int main(int argc, const(char)** argv) {
             import scrubcmd : handleScrub;
             return handleScrub();
         }
+        if (cmd == "keep") {
+            import keepcmd : handleKeep;
+            return handleKeep();
+        }
         if (cmd == "decay") {
             import decay : decayDb;
             import db : openDb, sqlite3_close;

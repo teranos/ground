@@ -136,6 +136,7 @@ extern (C) {
     int sqlite3_finalize(sqlite3_stmt* stmt);
     int sqlite3_reset(sqlite3_stmt* stmt);
     const(char)* sqlite3_column_text(sqlite3_stmt* stmt, int col);
+    int sqlite3_column_bytes(sqlite3_stmt* stmt, int col);
     long sqlite3_column_int64(sqlite3_stmt* stmt, int col);
     int sqlite3_bind_int64(sqlite3_stmt* stmt, int idx, long value);
     int sqlite3_changes(sqlite3* db);
@@ -776,14 +777,15 @@ bool applySchema(sqlite3* db) {
     sqlite3_exec(db, idxQueuedPrompt.ptr, null, null, null);
 
     // "where the principle is we get all of it."
-    // Every line of a transcript, as written, at its byte offset in the file;
-    // end is where the next line starts, so the walk resumes at MAX(end) (transcript.d).
-    enum transcriptLineSchema = "CREATE TABLE IF NOT EXISTS transcript_line (id INTEGER PRIMARY KEY, "
-        ~ "path TEXT NOT NULL, offset INTEGER NOT NULL, end INTEGER NOT NULL, "
-        ~ "session TEXT NOT NULL, line TEXT NOT NULL, UNIQUE (path, offset))\0";
-    sqlite3_exec(db, transcriptLineSchema.ptr, null, null, null);
-    enum idxTranscriptSession = "CREATE INDEX IF NOT EXISTS idx_transcript_line_session ON transcript_line(session, offset)\0";
-    sqlite3_exec(db, idxTranscriptSession.ptr, null, null, null);
+    // Every line of a transcript is an attestation, transcript:line (transcript.d).
+    // The walk resumes where a file's kept lines end, read through this index.
+    enum idxTranscript = "CREATE INDEX IF NOT EXISTS idx_attestations_transcript ON attestations("
+        ~ "json_extract(attributes, '$.path'), json_extract(attributes, '$.end')) "
+        ~ "WHERE json_extract(predicates, '$[0]') = 'transcript:line'\0";
+    sqlite3_exec(db, idxTranscript.ptr, null, null, null);
+    // Where the lines were kept for a day before they were attestations. Its
+    // files are read again from their start, into the stream.
+    sqlite3_exec(db, "DROP TABLE IF EXISTS transcript_line\0".ptr, null, null, null);
 
     return true;
 }
